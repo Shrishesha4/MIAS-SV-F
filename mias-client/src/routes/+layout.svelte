@@ -1,9 +1,16 @@
 <script lang="ts">
 	import './layout.css';
-	import favicon from '$lib/assets/favicon.svg';
 
 	let { children } = $props();
 </script>
 
-<svelte:head><link rel="icon" href={favicon} /></svelte:head>
-{@render children()}
+<svelte:head>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+	<title>MIAS - Medical Information Application System</title>
+</svelte:head>
+
+<div class="app-background min-h-screen flex justify-center">
+	<div class="w-full max-w-md relative">
+		{@render children()}
+	</div>
+</div>

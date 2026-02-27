@@ -1,0 +1,74 @@
+from pydantic import BaseModel
+from datetime import date
+from typing import Optional, List
+from enum import Enum
+
+
+class Gender(str, Enum):
+    MALE = "MALE"
+    FEMALE = "FEMALE"
+    OTHER = "OTHER"
+
+
+class PatientCategory(str, Enum):
+    GENERAL = "GENERAL"
+    ELITE = "ELITE"
+    VIP = "VIP"
+    STAFF = "STAFF"
+
+
+class EmergencyContactResponse(BaseModel):
+    id: str
+    name: str
+    relationship_: str
+    phone: str
+    email: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AllergyResponse(BaseModel):
+    id: str
+    allergen: str
+    severity: str
+    reaction: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MedicalAlertResponse(BaseModel):
+    id: str
+    type: str
+    severity: str
+    title: str
+    description: Optional[str] = None
+    symptoms: Optional[str] = None
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class PatientResponse(BaseModel):
+    id: str
+    patient_id: str
+    name: str
+    date_of_birth: date
+    gender: Gender
+    blood_group: str
+    phone: str
+    email: Optional[str] = None
+    photo: Optional[str] = None
+    category: PatientCategory
+
+    model_config = {"from_attributes": True}
+
+
+class PatientDetailResponse(PatientResponse):
+    address: str
+    aadhaar_id: Optional[str] = None
+    abha_id: Optional[str] = None
+    emergency_contact: Optional[EmergencyContactResponse] = None
+    allergies: List[AllergyResponse] = []
+    medical_alerts: List[MedicalAlertResponse] = []
+
+    model_config = {"from_attributes": True}
