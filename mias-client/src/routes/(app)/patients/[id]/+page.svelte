@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+	import { goto } from '$app/navigation';
+	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -11,10 +14,15 @@
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
 		CheckCircle2, ChevronDown, Link2, User, Users,
-		Thermometer, Droplet, Activity, Scale, Wind, CircleDot
+		Thermometer, Droplet, Activity, Scale, Wind, CircleDot,
+		Phone, Mail, MapPin, Calendar, Heart, Shield, Edit,
+		UserPlus, Trash2, CheckCircle
 	} from 'lucide-svelte';
 
 	Chart.register(...registerables);
+
+	const auth = get(authStore);
+	const role = auth.role;
 
 	let patient: any = $state(null);
 	let caseRecords: any[] = $state([]);
@@ -23,8 +31,16 @@
 	let prescriptionRequests: any[] = $state([]);
 	let loading = $state(true);
 
-	let activeTab = $state('case-records');
+	// Modal states
+	let showAddRecordModal = $state(false);
+	let showAssignModal = $state(false);
+	let showAddVitalModal = $state(false);
+	let showEditEmergencyModal = $state(false);
+	let showAddInsuranceModal = $state(false);
+
+	let activeTab = $state('profile');
 	const tabs = [
+		{ id: 'profile', label: 'Profile', icon: User },
 		{ id: 'case-records', label: 'Case Records', icon: FileText },
 		{ id: 'vitals', label: 'Vitals', icon: HeartPulse },
 		{ id: 'medications', label: 'Medications', icon: Link2 },
@@ -129,82 +145,283 @@
 			<p class="text-sm">Patient not found</p>
 		</div>
 	{:else}
-	<!-- Patient Header Card -->
+	<!-- Patient Profile Header (Matching Design) -->
 	<AquaCard>
-		<div class="flex items-start gap-3">
-			<Avatar name={patient.name} size="lg" />
-			<div class="flex-1">
-				<div class="flex items-center justify-between">
-					<h2 class="text-xl font-bold text-gray-800">{patient.name}</h2>
-					<span class="text-xs text-gray-400 font-mono">ID: {patient.patient_id}</span>
-				</div>
-				<p class="text-sm text-gray-500">
-					{patient.age}, {patient.gender === 'MALE' ? 'Male' : 'Female'}, Blood: {patient.blood_group}
-				</p>
-				<p class="text-sm text-gray-500">Contact: {patient.phone}</p>
-			</div>
-		</div>
-	</AquaCard>
-
-	<!-- Medical Alerts -->
-	{#if patient.medical_alerts.length > 0}
-		<div class="rounded-xl overflow-hidden"
-			style="background: linear-gradient(to right, rgba(255,200,200,0.6), rgba(255,180,180,0.4));
-			       border: 1px solid rgba(220,50,50,0.15);">
-			<div class="px-4 py-2.5 flex items-center justify-between">
-				<div class="flex items-center gap-2">
-					<AlertTriangle class="w-4 h-4 text-red-500" />
-					<span class="text-sm font-bold text-red-600">Medical Alerts</span>
-				</div>
-				<div class="flex gap-1.5">
-					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-						style="background: rgba(0,0,0,0.08);">
-						<Clock class="w-3.5 h-3.5 text-gray-600" />
+		<div class="text-center">
+			<!-- Profile Photo with Edit Button -->
+			<div class="relative inline-block">
+				{#if patient.photo}
+					<img src={patient.photo} alt={patient.name}
+						class="w-24 h-24 rounded-lg object-cover shadow-lg border-4 border-white" />
+				{:else}
+					<div class="w-24 h-24 rounded-lg flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 shadow-lg border-4 border-white">
+						<span class="text-2xl font-bold text-white">{patient.name?.charAt(0) || 'P'}</span>
+					</div>
+				{/if}
+				{#if role === 'PATIENT'}
+					<button class="absolute -top-2 -left-2 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer shadow"
+						style="background: rgba(0,0,0,0.6);">
+						<Edit class="w-4 h-4 text-white" />
 					</button>
-					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-						style="background: rgba(0,0,0,0.08);">
-						<Plus class="w-3.5 h-3.5 text-gray-600" />
-					</button>
-				</div>
+				{/if}
 			</div>
-			<div class="px-4 pb-2.5 flex flex-wrap gap-2">
-				{#each patient.medical_alerts as alert}
-					<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-red-700" style="background: rgba(255,255,255,0.5);">
-						{alert.title} <span class="text-red-400 cursor-pointer">×</span>
-					</span>
-				{/each}
-			</div>
+			<h2 class="text-xl font-bold text-gray-800 mt-3">{patient.name}</h2>
+			<p class="text-sm text-gray-500">Patient ID: {patient.patient_id}</p>
 		</div>
-	{/if}
-
-	<!-- Primary Diagnosis -->
-	<AquaCard>
-		<div class="flex items-center justify-between mb-1">
-			<div class="flex items-center gap-2">
-				<FileText class="w-4 h-4 text-blue-600" />
-				<span class="font-bold text-gray-800">Primary Diagnosis</span>
-			</div>
-			<div class="flex gap-1.5">
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.06);">
-					<Clock class="w-3.5 h-3.5 text-gray-500" />
-				</button>
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.06);">
-					<Plus class="w-3.5 h-3.5 text-gray-500" />
-				</button>
-			</div>
-		</div>
-		<p class="text-sm text-gray-700 mt-1">{patient.primary_diagnosis}</p>
-		<p class="text-xs text-gray-400 mt-1">
-			Last updated by {patient.diagnosis_doctor} · {patient.diagnosis_date} {patient.diagnosis_time}
-		</p>
 	</AquaCard>
 
 	<!-- Tabs -->
 	<TabBar {tabs} {activeTab} onchange={(id) => activeTab = id} />
 
-	<!-- Tab Content -->
+	<!-- Profile Tab -->
+	{#if activeTab === 'profile'}
+		<!-- Personal Information -->
+		<AquaCard>
+			{#snippet header()}
+				<User class="w-4 h-4 text-blue-600 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Personal Information</span>
+			{/snippet}
+			<div class="space-y-4">
+				{#if patient.aadhaar_id}
+					<div>
+						<p class="text-xs text-gray-400">Aadhaar ID</p>
+						<div class="flex items-center gap-2 mt-1">
+							<p class="text-sm text-gray-800 font-medium">XXXX XXXX {patient.aadhaar_id.slice(-4)}</p>
+							<StatusBadge variant="success">Verified</StatusBadge>
+						</div>
+					</div>
+				{/if}
+				{#if patient.abha_id}
+					<div>
+						<p class="text-xs text-gray-400">ABHA ID</p>
+						<div class="flex items-center gap-2 mt-1">
+							<p class="text-sm text-gray-800 font-medium">{patient.abha_id}</p>
+							<StatusBadge variant="success">Verified</StatusBadge>
+						</div>
+					</div>
+				{/if}
+				<div>
+					<p class="text-xs text-gray-400 flex items-center gap-1">
+						<Calendar class="w-3 h-3" /> Date of Birth
+					</p>
+					<p class="text-sm text-gray-800 font-medium mt-1">
+						{patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
+					</p>
+				</div>
+				<div>
+					<p class="text-xs text-gray-400">Gender</p>
+					<div class="flex items-center gap-1 mt-1">
+						<User class="w-4 h-4 text-gray-500" />
+						<p class="text-sm text-gray-800 font-medium">{patient.gender === 'MALE' ? 'Male' : patient.gender === 'FEMALE' ? 'Female' : 'Other'}</p>
+					</div>
+				</div>
+				<div>
+					<p class="text-xs text-gray-400">Blood Group</p>
+					<div class="flex items-center gap-1 mt-1">
+						<Droplet class="w-4 h-4 text-red-500" />
+						<p class="text-sm text-gray-800 font-medium">{patient.blood_group || '—'}</p>
+					</div>
+				</div>
+			</div>
+		</AquaCard>
+
+		<!-- Contact Information -->
+		<AquaCard>
+			{#snippet header()}
+				<Phone class="w-4 h-4 text-blue-600 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Contact Information</span>
+			{/snippet}
+			<div class="space-y-3">
+				<div class="flex items-center gap-3 p-3 rounded-lg" style="background: #f8f9fb;">
+					<div class="w-9 h-9 rounded-full flex items-center justify-center" style="background: linear-gradient(to bottom, #22c55e, #16a34a);">
+						<Phone class="w-4 h-4 text-white" />
+					</div>
+					<div>
+						<p class="text-sm font-medium text-gray-800">{patient.phone || '—'}</p>
+						<p class="text-xs text-gray-400">Primary</p>
+					</div>
+				</div>
+				<div class="flex items-center gap-3 p-3 rounded-lg" style="background: #f8f9fb;">
+					<div class="w-9 h-9 rounded-full flex items-center justify-center" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);">
+						<Mail class="w-4 h-4 text-white" />
+					</div>
+					<div>
+						<p class="text-sm font-medium text-gray-800">{patient.email || '—'}</p>
+						<p class="text-xs text-gray-400">Email</p>
+					</div>
+				</div>
+				<div class="flex items-center gap-3 p-3 rounded-lg" style="background: #f8f9fb;">
+					<div class="w-9 h-9 rounded-full flex items-center justify-center" style="background: linear-gradient(to bottom, #8b5cf6, #7c3aed);">
+						<MapPin class="w-4 h-4 text-white" />
+					</div>
+					<div>
+						<p class="text-sm font-medium text-gray-800">{patient.address || '—'}</p>
+						<p class="text-xs text-gray-400">Chennai, Tamil Nadu - 600040</p>
+					</div>
+				</div>
+			</div>
+		</AquaCard>
+
+		<!-- Emergency Contact -->
+		<AquaCard>
+			{#snippet header()}
+				<AlertTriangle class="w-4 h-4 text-red-500 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Emergency Contact</span>
+			{/snippet}
+			{#if patient.emergency_contact}
+				<div class="space-y-3">
+					<div class="flex items-center gap-3">
+						<div class="w-10 h-10 rounded-full flex items-center justify-center" style="background: linear-gradient(to bottom, #ef4444, #dc2626);">
+							<User class="w-5 h-5 text-white" />
+						</div>
+						<div>
+							<p class="text-sm font-semibold text-gray-800">{patient.emergency_contact.name}</p>
+							<p class="text-xs text-gray-500">{patient.emergency_contact.relationship_ || patient.emergency_contact.relationship}</p>
+						</div>
+					</div>
+					<div class="flex items-center gap-3 ml-2">
+						<div class="w-7 h-7 rounded-full flex items-center justify-center" style="background: rgba(239,68,68,0.1);">
+							<Phone class="w-3.5 h-3.5 text-red-500" />
+						</div>
+						<div>
+							<p class="text-sm text-gray-800">{patient.emergency_contact.phone}</p>
+							<p class="text-xs text-gray-400">Mobile</p>
+						</div>
+					</div>
+					<div class="flex justify-end">
+						<button
+							class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+							style="background: linear-gradient(to bottom, #f0f4fa, #e2e8f0); color: #1e40af; border: 1px solid rgba(0,0,0,0.1);"
+							onclick={() => showEditEmergencyModal = true}
+						>
+							<Edit class="w-3 h-3" /> Edit
+						</button>
+					</div>
+				</div>
+			{:else}
+				<p class="text-sm text-gray-400 text-center py-4">No emergency contact on file</p>
+				<button
+					class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;"
+					onclick={() => showEditEmergencyModal = true}
+				>
+					<Plus class="w-4 h-4" /> Add Emergency Contact
+				</button>
+			{/if}
+		</AquaCard>
+
+		<!-- Insurance Information -->
+		<AquaCard>
+			{#snippet header()}
+				<Shield class="w-4 h-4 text-blue-600 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Insurance Information</span>
+				<button
+					class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #e2e8f0); color: #1e40af; border: 1px solid rgba(0,0,0,0.1);"
+					onclick={() => showAddInsuranceModal = true}
+				>
+					<Plus class="w-3 h-3" /> Add
+				</button>
+			{/snippet}
+			{#if patient.insurance && patient.insurance.length > 0}
+				<div class="space-y-3">
+					{#each patient.insurance as ins}
+						<div class="flex items-center justify-between p-3 rounded-lg" style="background: #f8f9fb;">
+							<div class="flex items-center gap-3">
+								<div class="w-9 h-9 rounded-full flex items-center justify-center" style="background: linear-gradient(to bottom, #22c55e, #16a34a);">
+									<Shield class="w-4 h-4 text-white" />
+								</div>
+								<div>
+									<p class="text-sm font-medium text-gray-800">{ins.provider}</p>
+									<p class="text-xs text-gray-500">Policy: {ins.policy_number}</p>
+									<p class="text-xs text-gray-400">Valid until: {ins.valid_until}</p>
+								</div>
+							</div>
+							<button class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer" style="background: rgba(239,68,68,0.1);">
+								<Trash2 class="w-4 h-4 text-red-500" />
+							</button>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<p class="text-sm text-gray-400 text-center py-4">No insurance information on file</p>
+			{/if}
+		</AquaCard>
+
+		<!-- Edit Profile Button -->
+		{#if role === 'PATIENT'}
+			<button
+				class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold cursor-pointer"
+				style="background: linear-gradient(to bottom, #4d90fe, #2d7ae8);
+				       box-shadow: 0 2px 8px rgba(45,122,232,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+				       border: 1px solid rgba(0,0,0,0.1);"
+			>
+				<Edit class="w-5 h-5" /> Edit Profile
+			</button>
+		{/if}
+
+	<!-- Medical Alerts (show in all tabs) -->
+	{:else if activeTab === 'case-records' || activeTab === 'vitals' || activeTab === 'medications'}
+		<!-- Medical Alerts -->
+		{#if patient.medical_alerts && patient.medical_alerts.length > 0}
+			<div class="rounded-xl overflow-hidden"
+				style="background: linear-gradient(to right, rgba(255,200,200,0.6), rgba(255,180,180,0.4));
+				       border: 1px solid rgba(220,50,50,0.15);">
+				<div class="px-4 py-2.5 flex items-center justify-between">
+					<div class="flex items-center gap-2">
+						<AlertTriangle class="w-4 h-4 text-red-500" />
+						<span class="text-sm font-bold text-red-600">Medical Alerts</span>
+					</div>
+					<div class="flex gap-1.5">
+						<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(0,0,0,0.08);">
+							<Clock class="w-3.5 h-3.5 text-gray-600" />
+						</button>
+						<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(0,0,0,0.08);">
+							<Plus class="w-3.5 h-3.5 text-gray-600" />
+						</button>
+					</div>
+				</div>
+				<div class="px-4 pb-2.5 flex flex-wrap gap-2">
+					{#each patient.medical_alerts as alert}
+						<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-red-700" style="background: rgba(255,255,255,0.5);">
+							{alert.title} <span class="text-red-400 cursor-pointer">×</span>
+						</span>
+					{/each}
+				</div>
+			</div>
+		{/if}
+
+		<!-- Primary Diagnosis -->
+		<AquaCard>
+			<div class="flex items-center justify-between mb-1">
+				<div class="flex items-center gap-2">
+					<FileText class="w-4 h-4 text-blue-600" />
+					<span class="font-bold text-gray-800">Primary Diagnosis</span>
+				</div>
+				<div class="flex gap-1.5">
+					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+						style="background: rgba(0,0,0,0.06);">
+						<Clock class="w-3.5 h-3.5 text-gray-500" />
+					</button>
+					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+						style="background: rgba(0,0,0,0.06);"
+						onclick={() => showAddRecordModal = true}>
+						<Plus class="w-3.5 h-3.5 text-gray-500" />
+					</button>
+				</div>
+			</div>
+			<p class="text-sm text-gray-700 mt-1">{patient.primary_diagnosis || 'No diagnosis recorded'}</p>
+			{#if patient.diagnosis_doctor}
+				<p class="text-xs text-gray-400 mt-1">
+					Last updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
+				</p>
+			{/if}
+		</AquaCard>
+	{/if}
+
+	<!-- Case Records Tab Content -->
 	{#if activeTab === 'case-records'}
 		<AquaCard>
 			<div class="flex items-center justify-between mb-4">
@@ -286,7 +503,8 @@
 					</button>
 					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 						style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
-						       border: 1px solid rgba(0,0,0,0.15);">
+						       border: 1px solid rgba(0,0,0,0.15);"
+						onclick={() => showAddVitalModal = true}>
 						<Plus class="w-3 h-3" /> Add Reading
 					</button>
 				</div>
@@ -441,3 +659,169 @@
 	{/if}
 	{/if}
 </div>
+
+<!-- Add Record Modal -->
+{#if showAddRecordModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
+		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl max-h-[80vh] overflow-y-auto">
+			<h3 class="text-lg font-bold text-gray-800 mb-4">Add Case Record</h3>
+
+			<div class="space-y-4">
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Record Type</label>
+					<select class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);">
+						<option>Physical Examination</option>
+						<option>Laboratory Test</option>
+						<option>Procedure</option>
+						<option>Consultation</option>
+					</select>
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Diagnosis</label>
+					<input type="text" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter diagnosis" />
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Findings</label>
+					<textarea class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter findings"></textarea>
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Treatment Plan</label>
+					<textarea class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter treatment plan"></textarea>
+				</div>
+			</div>
+
+			<div class="flex gap-3 mt-6">
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer" style="background: #f1f5f9; color: #64748b;" onclick={() => showAddRecordModal = false}>
+					Cancel
+				</button>
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #22c55e, #16a34a);" onclick={() => showAddRecordModal = false}>
+					Add Record
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Add Vital Modal -->
+{#if showAddVitalModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
+		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl max-h-[80vh] overflow-y-auto">
+			<h3 class="text-lg font-bold text-gray-800 mb-4">Add Vital Reading</h3>
+
+			<div class="space-y-4">
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">Systolic BP</label>
+						<input type="number" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="120" />
+					</div>
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">Diastolic BP</label>
+						<input type="number" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="80" />
+					</div>
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">Heart Rate (bpm)</label>
+						<input type="number" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="72" />
+					</div>
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">SpO₂ (%)</label>
+						<input type="number" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="98" />
+					</div>
+				</div>
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">Temperature (°F)</label>
+						<input type="number" step="0.1" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="98.6" />
+					</div>
+					<div>
+						<label class="text-xs text-gray-500 mb-1 block">Weight (lbs)</label>
+						<input type="number" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="150" />
+					</div>
+				</div>
+			</div>
+
+			<div class="flex gap-3 mt-6">
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer" style="background: #f1f5f9; color: #64748b;" onclick={() => showAddVitalModal = false}>
+					Cancel
+				</button>
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #22c55e, #16a34a);" onclick={() => showAddVitalModal = false}>
+					Save Vital
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Edit Emergency Contact Modal -->
+{#if showEditEmergencyModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
+		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+			<h3 class="text-lg font-bold text-gray-800 mb-4">Emergency Contact</h3>
+
+			<div class="space-y-4">
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Name</label>
+					<input type="text" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Contact Name" value={patient?.emergency_contact?.name || ''} />
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Relationship</label>
+					<select class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);">
+						<option>Spouse</option>
+						<option>Parent</option>
+						<option>Sibling</option>
+						<option>Child</option>
+						<option>Friend</option>
+						<option>Other</option>
+					</select>
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Phone Number</label>
+					<input type="tel" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="+91 XXXXX XXXXX" value={patient?.emergency_contact?.phone || ''} />
+				</div>
+			</div>
+
+			<div class="flex gap-3 mt-6">
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer" style="background: #f1f5f9; color: #64748b;" onclick={() => showEditEmergencyModal = false}>
+					Cancel
+				</button>
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #22c55e, #16a34a);" onclick={() => showEditEmergencyModal = false}>
+					Save
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Add Insurance Modal -->
+{#if showAddInsuranceModal}
+	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
+		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+			<h3 class="text-lg font-bold text-gray-800 mb-4">Add Insurance</h3>
+
+			<div class="space-y-4">
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Insurance Provider</label>
+					<input type="text" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g., Apollo Health Insurance" />
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Policy Number</label>
+					<input type="text" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="APL-XXXX-XXXXX" />
+				</div>
+				<div>
+					<label class="text-xs text-gray-500 mb-1 block">Valid Until</label>
+					<input type="date" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" />
+				</div>
+			</div>
+
+			<div class="flex gap-3 mt-6">
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer" style="background: #f1f5f9; color: #64748b;" onclick={() => showAddInsuranceModal = false}>
+					Cancel
+				</button>
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #22c55e, #16a34a);" onclick={() => showAddInsuranceModal = false}>
+					Add Insurance
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

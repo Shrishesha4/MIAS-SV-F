@@ -155,6 +155,17 @@
 					</button>
 				</div>
 
+				<!-- Sign Up Link -->
+				<div class="text-center">
+					<span class="text-sm text-gray-500">Don't have an account?</span>
+					<button 
+						class="text-sm text-blue-500 font-medium cursor-pointer hover:text-blue-700 transition-colors ml-1"
+						onclick={() => goto('/signup')}
+					>
+						Sign up
+					</button>
+				</div>
+
 				<!-- Test credentials -->
 				<div class="pt-2 border-t border-gray-100">
 					<p class="text-xs text-gray-400 text-center mb-2">Quick Login (Demo)</p>

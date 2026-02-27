@@ -16,7 +16,7 @@ export const facultyApi = {
     return response.data;
   },
 
-  async processApproval(facultyId: string, approvalId: string, data: { status: string; comments?: string }) {
+  async processApproval(facultyId: string, approvalId: string, data: { status: string; comments?: string; score?: number }) {
     const response = await client.put(`/faculty/${facultyId}/approvals/${approvalId}`, data);
     return response.data;
   },
