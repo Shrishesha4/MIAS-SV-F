@@ -30,6 +30,26 @@ export interface PatientDashboard {
   last_visit: string | null;
 }
 
+export interface MedicationDoseLog {
+  id: string;
+  medication_id: string;
+  medication_name: string;
+  medication_dosage: string;
+  status: 'TAKEN' | 'MISSED' | 'SKIPPED';
+  logged_at: string;
+  scheduled_time: string | null;
+  notes: string | null;
+}
+
+export interface MedicationAdherence {
+  total_doses: number;
+  taken: number;
+  missed: number;
+  skipped: number;
+  adherence_rate: number;
+  period_days: number;
+}
+
 export const patientApi = {
   async getCurrentPatient(): Promise<Patient> {
     const response = await client.get('/patients/me');
@@ -105,6 +125,29 @@ export const patientApi = {
 
   async getWalletBalance(patientId: string, walletType: 'hospital' | 'pharmacy'): Promise<{ balance: number }> {
     const response = await client.get(`/wallet/balance/${patientId}/${walletType}`);
+    return response.data;
+  },
+
+  async logMedicationDose(
+    patientId: string,
+    medicationId: string,
+    data: { status: string; scheduled_time?: string; notes?: string }
+  ): Promise<{ id: string; status: string; logged_at: string; message: string }> {
+    const response = await client.post(`/patients/${patientId}/medications/${medicationId}/log-dose`, data);
+    return response.data;
+  },
+
+  async getMedicationHistory(patientId: string, days = 7): Promise<MedicationDoseLog[]> {
+    const response = await client.get(`/patients/${patientId}/medication-history`, {
+      params: { days },
+    });
+    return response.data;
+  },
+
+  async getMedicationAdherence(patientId: string, days = 30): Promise<MedicationAdherence> {
+    const response = await client.get(`/patients/${patientId}/medication-adherence`, {
+      params: { days },
+    });
     return response.data;
   },
 };

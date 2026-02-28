@@ -11,9 +11,12 @@ from app.models.student import (
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.medical_record import MedicalRecord, RecordType, MedicalFinding, MedicalImage
 from app.models.vital import Vital
-from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
+from app.models.prescription import (
+    Prescription, PrescriptionMedication, PrescriptionStatus,
+    MedicationDoseLog, MedicationDoseStatus,
+)
 from app.models.admission import Admission
 from app.models.report import Report, ReportStatus, ReportFinding, ReportImage
 from app.models.wallet import WalletTransaction, WalletType, TransactionType, TransactionItem
-from app.models.notification import PatientNotification
+from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus

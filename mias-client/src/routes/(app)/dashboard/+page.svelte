@@ -7,10 +7,12 @@
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
+	import { autocompleteApi } from '$lib/api/autocomplete';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
+	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import {
 		HeartPulse, FileText, Pill, Activity, TestTube, Wallet,
 		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight,
@@ -127,8 +129,24 @@
 	}
 
 	function handleMedicationTaken() {
-		showMedicationReminder = false;
-		// TODO: API call to mark medication as taken
+		if (!dashboard?.active_medications?.[0] || !patient) return;
+		const med = dashboard.active_medications[0];
+		patientApi.logMedicationDose(patient.id, med.id, { status: 'TAKEN', scheduled_time: 'Now' })
+			.then(() => {
+				showMedicationReminder = false;
+			})
+			.catch(err => console.error('Failed to log medication dose', err));
+	}
+
+	async function updateFacultyAvailability(status: 'Available' | 'Busy' | 'Unavailable') {
+		try {
+			await facultyApi.updateAvailabilityStatus(status);
+			if (faculty) {
+				faculty = { ...faculty, availability_status: status };
+			}
+		} catch (err) {
+			console.error('Failed to update availability status', err);
+		}
 	}
 
 	onMount(async () => {
@@ -646,6 +664,34 @@
 				<div class="flex-1 min-w-0">
 					<h2 class="text-lg font-bold text-gray-800">Welcome, {faculty.name}</h2>
 					<p class="text-sm text-gray-500">ID: {faculty.faculty_id} · Department: {faculty.department}</p>
+				</div>
+			</div>
+		</AquaCard>
+
+		<!-- Availability Status -->
+		<AquaCard padding={false}>
+			<div class="px-4 py-3 flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<div 
+						class="w-3 h-3 rounded-full"
+						style="background: {faculty.availability_status === 'Available' ? '#22c55e' : faculty.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
+					></div>
+					<span class="text-sm font-semibold text-gray-700">Status: {faculty.availability_status || 'Available'}</span>
+				</div>
+				<div class="flex items-center gap-1.5">
+					{#each ['Available', 'Busy', 'Unavailable'] as status}
+						{@const isActive = (faculty.availability_status || 'Available') === status}
+						{@const statusColor = status === 'Available' ? '#22c55e' : status === 'Busy' ? '#f59e0b' : '#ef4444'}
+						<button
+							class="px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all"
+							style="background: {isActive ? statusColor : 'transparent'};
+								   color: {isActive ? 'white' : '#6b7280'};
+								   border: 1px solid {isActive ? statusColor : '#e5e7eb'};"
+							onclick={() => updateFacultyAvailability(status as 'Available' | 'Busy' | 'Unavailable')}
+						>
+							{status}
+						</button>
+					{/each}
 				</div>
 			</div>
 		</AquaCard>

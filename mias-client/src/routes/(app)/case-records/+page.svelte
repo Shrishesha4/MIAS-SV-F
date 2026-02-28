@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { studentApi } from '$lib/api/students';
+	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Activity } from 'lucide-svelte';
 
 	let expandedId = $state<string | null>(null);
@@ -29,8 +31,34 @@
 	let notes = $state('');
 	let findings = $state('');
 	let diagnosis = $state('');
+	let icdCode = $state('');
+	let icdDescription = $state('');
+	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
+	let diagnosisLoading = $state(false);
 	let treatment = $state('');
 	let selectedFacultyId = $state('');
+
+	async function handleDiagnosisSearch(query: string) {
+		if (query.length < 2) {
+			diagnosisSuggestions = [];
+			return;
+		}
+		diagnosisLoading = true;
+		try {
+			diagnosisSuggestions = await autocompleteApi.searchDiagnoses(query);
+		} catch (err) {
+			console.error('Failed to search diagnoses', err);
+			diagnosisSuggestions = [];
+		} finally {
+			diagnosisLoading = false;
+		}
+	}
+
+	function handleDiagnosisSelect(item: DiagnosisSuggestion) {
+		diagnosis = item.text;
+		icdCode = item.icd_code || '';
+		icdDescription = item.icd_description || item.text;
+	}
 
 	const availableProcedures = $derived(
 		selectedDepartment ? (procedures[selectedDepartment] || []) : []
@@ -62,6 +90,9 @@
 		notes = '';
 		findings = '';
 		diagnosis = '';
+		icdCode = '';
+		icdDescription = '';
+		diagnosisSuggestions = [];
 		treatment = '';
 		selectedFacultyId = '';
 		showCreateModal = true;
@@ -82,6 +113,8 @@
 				findings,
 				diagnosis,
 				treatment,
+				icd_code: icdCode || undefined,
+				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
 				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
 			});
@@ -178,6 +211,9 @@
 					<div class="p-3 rounded-lg bg-blue-50">
 						<p class="text-xs font-semibold text-blue-700 mb-1">Diagnosis</p>
 						<p class="text-xs text-gray-700">{cr.diagnosis}</p>
+						{#if cr.icd_code}
+							<span class="inline-block mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{cr.icd_code}</span>
+						{/if}
 					</div>
 
 					<!-- Treatment Plan -->
@@ -345,15 +381,28 @@
 				></textarea>
 			</div>
 
-			<!-- Diagnosis -->
+			<!-- Diagnosis with ICD Autocomplete -->
 			<div>
 				<span class="block text-xs font-semibold text-gray-700 mb-1">Diagnosis</span>
-				<input
-					type="text"
-					placeholder="Working diagnosis..."
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+				<Autocomplete
+					placeholder="Search ICD-10 code or diagnosis..."
 					bind:value={diagnosis}
+					items={diagnosisSuggestions}
+					labelKey="text"
+					sublabelKey="icd_description"
+					badgeKey="icd_code"
+					onInput={handleDiagnosisSearch}
+					onSelect={handleDiagnosisSelect}
+					onClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
+					loading={diagnosisLoading}
+					minChars={2}
 				/>
+				{#if icdCode}
+					<div class="mt-1.5 flex items-center gap-1.5">
+						<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{icdCode}</span>
+						<span class="text-[10px] text-gray-500 truncate">{icdDescription}</span>
+					</div>
+				{/if}
 			</div>
 
 			<!-- Treatment -->

@@ -11,12 +11,15 @@ from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Appointment
 from app.models.vital import Vital
-from app.models.prescription import Prescription, PrescriptionStatus
+from app.models.prescription import (
+    Prescription, PrescriptionStatus, PrescriptionMedication,
+    MedicationDoseLog, MedicationDoseStatus,
+)
 from app.models.medical_record import MedicalRecord
 from app.models.admission import Admission
 from app.models.report import Report
 from app.models.wallet import WalletTransaction, WalletType, TransactionType
-from app.models.notification import PatientNotification
+from app.models.notification import PatientNotification, ScheduledNotification
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
@@ -613,4 +616,190 @@ async def get_patient_dashboard(
         "hospital_balance": hospital_balance,
         "pharmacy_balance": pharmacy_balance,
         "last_visit": last_visit,
+    }
+
+
+@router.post("/{patient_id}/medications/{medication_id}/log-dose")
+async def log_medication_dose(
+    patient_id: str,
+    medication_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Log a medication dose (taken, missed, or skipped) by the patient."""
+    # Verify medication exists and belongs to patient
+    result = await db.execute(
+        select(PrescriptionMedication)
+        .join(Prescription)
+        .where(PrescriptionMedication.id == medication_id)
+        .where(Prescription.patient_id == patient_id)
+    )
+    medication = result.scalar_one_or_none()
+    if not medication:
+        raise HTTPException(status_code=404, detail="Medication not found")
+
+    status_str = body.get("status", "TAKEN").upper()
+    try:
+        dose_status = MedicationDoseStatus(status_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be TAKEN, MISSED, or SKIPPED")
+
+    dose_log = MedicationDoseLog(
+        id=str(uuid.uuid4()),
+        medication_id=medication_id,
+        patient_id=patient_id,
+        status=dose_status,
+        scheduled_time=body.get("scheduled_time"),
+        notes=body.get("notes"),
+    )
+    db.add(dose_log)
+
+    # Create notifications for assigned student and doctor
+    from app.models.student import StudentPatientAssignment, StudentNotification
+    from app.models.faculty import FacultyNotification
+
+    patient_result = await db.execute(
+        select(Patient.name).where(Patient.id == patient_id)
+    )
+    patient_name = patient_result.scalar_one_or_none() or "Patient"
+
+    status_text = "taken" if dose_status == MedicationDoseStatus.TAKEN else (
+        "missed" if dose_status == MedicationDoseStatus.MISSED else "skipped"
+    )
+    notif_title = f"Medication {status_text.title()}"
+    notif_message = f"{patient_name} has {status_text} {medication.name} {medication.dosage}"
+
+    # Notify assigned students
+    assignment_result = await db.execute(
+        select(StudentPatientAssignment.student_id)
+        .where(StudentPatientAssignment.patient_id == patient_id)
+        .where(StudentPatientAssignment.status == "Active")
+    )
+    for (student_id,) in assignment_result.all():
+        student_notif = StudentNotification(
+            id=str(uuid.uuid4()),
+            student_id=student_id,
+            title=notif_title,
+            message=notif_message,
+            type="MEDICATION",
+        )
+        db.add(student_notif)
+
+    # Notify prescribing doctor (look up faculty by name from prescription)
+    rx_result = await db.execute(
+        select(Prescription.doctor)
+        .join(PrescriptionMedication)
+        .where(PrescriptionMedication.id == medication_id)
+    )
+    doctor_name = rx_result.scalar_one_or_none()
+    if doctor_name:
+        from app.models.faculty import Faculty
+        faculty_result = await db.execute(
+            select(Faculty.id).where(Faculty.name == doctor_name)
+        )
+        faculty_id = faculty_result.scalar_one_or_none()
+        if faculty_id:
+            faculty_notif = FacultyNotification(
+                id=str(uuid.uuid4()),
+                faculty_id=faculty_id,
+                title=notif_title,
+                message=notif_message,
+                type="MEDICATION",
+            )
+            db.add(faculty_notif)
+
+    await db.commit()
+
+    return {
+        "id": dose_log.id,
+        "status": dose_log.status.value,
+        "logged_at": dose_log.logged_at.isoformat(),
+        "message": f"Medication dose logged as {status_text}",
+    }
+
+
+@router.get("/{patient_id}/medication-history")
+async def get_medication_history(
+    patient_id: str,
+    days: int = Query(7, ge=1, le=90),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get medication dose history for a patient."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    result = await db.execute(
+        select(MedicationDoseLog)
+        .options(selectinload(MedicationDoseLog.medication))
+        .where(MedicationDoseLog.patient_id == patient_id)
+        .where(MedicationDoseLog.logged_at >= cutoff)
+        .order_by(MedicationDoseLog.logged_at.desc())
+    )
+    logs = result.scalars().all()
+
+    return [
+        {
+            "id": log.id,
+            "medication_id": log.medication_id,
+            "medication_name": log.medication.name if log.medication else None,
+            "medication_dosage": log.medication.dosage if log.medication else None,
+            "status": log.status.value,
+            "logged_at": log.logged_at.isoformat(),
+            "scheduled_time": log.scheduled_time,
+            "notes": log.notes,
+        }
+        for log in logs
+    ]
+
+
+@router.get("/{patient_id}/medication-adherence")
+async def get_medication_adherence(
+    patient_id: str,
+    days: int = Query(30, ge=1, le=365),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get medication adherence stats for a patient."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+
+    total = await db.execute(
+        select(func.count(MedicationDoseLog.id))
+        .where(MedicationDoseLog.patient_id == patient_id)
+        .where(MedicationDoseLog.logged_at >= cutoff)
+    )
+    total_count = total.scalar() or 0
+
+    taken = await db.execute(
+        select(func.count(MedicationDoseLog.id))
+        .where(MedicationDoseLog.patient_id == patient_id)
+        .where(MedicationDoseLog.logged_at >= cutoff)
+        .where(MedicationDoseLog.status == MedicationDoseStatus.TAKEN)
+    )
+    taken_count = taken.scalar() or 0
+
+    missed = await db.execute(
+        select(func.count(MedicationDoseLog.id))
+        .where(MedicationDoseLog.patient_id == patient_id)
+        .where(MedicationDoseLog.logged_at >= cutoff)
+        .where(MedicationDoseLog.status == MedicationDoseStatus.MISSED)
+    )
+    missed_count = missed.scalar() or 0
+
+    skipped = await db.execute(
+        select(func.count(MedicationDoseLog.id))
+        .where(MedicationDoseLog.patient_id == patient_id)
+        .where(MedicationDoseLog.logged_at >= cutoff)
+        .where(MedicationDoseLog.status == MedicationDoseStatus.SKIPPED)
+    )
+    skipped_count = skipped.scalar() or 0
+
+    adherence_rate = (taken_count / total_count * 100) if total_count > 0 else 0
+
+    return {
+        "total_doses": total_count,
+        "taken": taken_count,
+        "missed": missed_count,
+        "skipped": skipped_count,
+        "adherence_rate": round(adherence_rate, 1),
+        "period_days": days,
     }

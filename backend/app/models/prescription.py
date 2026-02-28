@@ -13,6 +13,12 @@ class PrescriptionStatus(str, enum.Enum):
     COMPLETED = "COMPLETED"
 
 
+class MedicationDoseStatus(str, enum.Enum):
+    TAKEN = "TAKEN"
+    MISSED = "MISSED"
+    SKIPPED = "SKIPPED"
+
+
 class Prescription(Base):
     __tablename__ = "prescriptions"
     __table_args__ = (
@@ -57,3 +63,24 @@ class PrescriptionMedication(Base):
     end_date = Column(String, nullable=False)
 
     prescription = relationship("Prescription", back_populates="medications")
+    dose_logs = relationship("MedicationDoseLog", back_populates="medication", cascade="all, delete-orphan")
+
+
+class MedicationDoseLog(Base):
+    """Tracks when a patient reports taking, missing, or skipping a dose."""
+    __tablename__ = "medication_dose_logs"
+    __table_args__ = (
+        Index('idx_dose_log_med_date', 'medication_id', 'logged_at'),
+        Index('idx_dose_log_patient_date', 'patient_id', 'logged_at'),
+    )
+
+    id = Column(String, primary_key=True)
+    medication_id = Column(String, ForeignKey("prescription_medications.id"), nullable=False, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
+    status = Column(SQLEnum(MedicationDoseStatus), nullable=False, default=MedicationDoseStatus.TAKEN)
+    logged_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
+    scheduled_time = Column(String, nullable=True)  # e.g. "Morning", "Afternoon", "Night"
+    notes = Column(Text, nullable=True)
+
+    medication = relationship("PrescriptionMedication", back_populates="dose_logs")
+    patient = relationship("Patient")

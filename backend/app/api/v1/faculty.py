@@ -40,6 +40,35 @@ async def get_current_faculty(
         "email": faculty.email,
         "photo": faculty.photo,
         "availability": faculty.availability,
+        "availability_status": faculty.availability_status,
+    }
+
+
+@router.put("/me/availability-status")
+async def update_availability_status(
+    body: dict,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the faculty member's availability status (Available/Busy/Unavailable)."""
+    result = await db.execute(
+        select(Faculty).where(Faculty.user_id == user.id)
+    )
+    faculty = result.scalar_one_or_none()
+
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    new_status = body.get("availability_status", "Available")
+    if new_status not in ("Available", "Busy", "Unavailable"):
+        raise HTTPException(status_code=400, detail="Invalid status. Must be Available, Busy, or Unavailable")
+
+    faculty.availability_status = new_status
+    await db.commit()
+
+    return {
+        "availability_status": faculty.availability_status,
+        "message": f"Status updated to {new_status}",
     }
 
 
@@ -67,6 +96,7 @@ async def get_faculty(
         "email": faculty.email,
         "photo": faculty.photo,
         "availability": faculty.availability,
+        "availability_status": faculty.availability_status,
     }
 
 

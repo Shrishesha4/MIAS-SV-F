@@ -38,6 +38,8 @@ class CaseRecord(Base):
     department = Column(String, nullable=True)
     findings = Column(Text, nullable=True)
     diagnosis = Column(Text, nullable=True)
+    icd_code = Column(String, nullable=True)  # ICD-10 code
+    icd_description = Column(String, nullable=True)  # ICD-10 description
     treatment = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     grade = Column(String, nullable=True)

@@ -30,6 +30,7 @@ from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
+from app.models.prescription import MedicationDoseLog, MedicationDoseStatus
 from app.core.security import get_password_hash
 
 
@@ -281,12 +282,24 @@ async def seed():
         ))
 
         # Assign patients to student and create case records with diagnoses
+        # ICD-10 code mapping for conditions
+        condition_icd_map = {
+            "Hypertension": ("I10", "Essential (primary) hypertension"),
+            "Type 2 Diabetes": ("E11", "Type 2 diabetes mellitus"),
+            "Acute Bronchitis": ("J20.9", "Acute bronchitis, unspecified"),
+            "Migraine": ("G43.909", "Migraine, unspecified"),
+            "Lower Back Pain": ("M54.5", "Low back pain"),
+            "Asthma": ("J45.20", "Mild intermittent asthma, uncomplicated"),
+            "Arthritis": ("M19.90", "Unspecified osteoarthritis, unspecified site"),
+            "Gastritis": ("K29.70", "Gastritis, unspecified, without bleeding"),
+        }
         for i, patient_info in enumerate(extra_patients):
             pid = patient_info[0]
             condition = patient_info[2]
             db.add(StudentPatientAssignment(
                 id=uid(), student_id=student_id, patient_id=pid, status="Active",
             ))
+            icd_info = condition_icd_map.get(condition, (None, None))
             # Add case record with diagnosis for this patient
             db.add(CaseRecord(
                 id=uid(),
@@ -300,6 +313,8 @@ async def seed():
                 diagnosis=condition,
                 treatment="As prescribed",
                 status="Completed",
+                icd_code=icd_info[0],
+                icd_description=icd_info[1],
             ))
 
         # ──────────────────────────────────────────────
@@ -554,14 +569,16 @@ async def seed():
             status=PrescriptionStatus.ACTIVE,
             notes="Please take medications as prescribed. Contact your doctor if you experience any severe side effects. Prescription can be refilled at any Saveetha Medical College Hospital pharmacy.",
         ))
+        med_id1 = uid()
         db.add(PrescriptionMedication(
-            id=uid(), prescription_id=rx_id1,
+            id=med_id1, prescription_id=rx_id1,
             name="Lisinopril", dosage="10mg", frequency="Once daily",
             duration="3 months", instructions="Take in the morning with food",
             refills_remaining=2, start_date="May 15, 2023", end_date="Aug 15, 2023",
         ))
+        med_id2 = uid()
         db.add(PrescriptionMedication(
-            id=uid(), prescription_id=rx_id1,
+            id=med_id2, prescription_id=rx_id1,
             name="Aspirin", dosage="81mg", frequency="Once daily",
             duration="3 months", instructions="Take with food",
             refills_remaining=2, start_date="May 15, 2023", end_date="Aug 15, 2023",
@@ -1227,6 +1244,42 @@ async def seed():
                 status=ApprovalStatus.PENDING,
                 created_at=now - timedelta(days=i % 5),
             ))
+
+        # ──────────────────────────────────────────────
+        # Medication Dose Logs (for demo/adherence data)
+        # ──────────────────────────────────────────────
+        now = datetime.utcnow()
+        for day_offset in range(7):
+            log_date = now - timedelta(days=day_offset)
+            # Lisinopril - taken every day
+            db.add(MedicationDoseLog(
+                id=uid(),
+                medication_id=med_id1,
+                patient_id=patient_id,
+                status=MedicationDoseStatus.TAKEN,
+                logged_at=log_date.replace(hour=8, minute=30),
+                scheduled_time="8:00 AM",
+                notes="Taken with breakfast" if day_offset == 0 else None,
+            ))
+            # Aspirin - mostly taken, missed once
+            if day_offset == 3:
+                db.add(MedicationDoseLog(
+                    id=uid(),
+                    medication_id=med_id2,
+                    patient_id=patient_id,
+                    status=MedicationDoseStatus.MISSED,
+                    logged_at=log_date.replace(hour=22, minute=0),
+                    scheduled_time="9:00 AM",
+                ))
+            else:
+                db.add(MedicationDoseLog(
+                    id=uid(),
+                    medication_id=med_id2,
+                    patient_id=patient_id,
+                    status=MedicationDoseStatus.TAKEN,
+                    logged_at=log_date.replace(hour=9, minute=15),
+                    scheduled_time="9:00 AM",
+                ))
 
         await db.commit()
         print("✅ Database seeded successfully!")

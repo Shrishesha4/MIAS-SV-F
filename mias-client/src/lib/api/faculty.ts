@@ -41,6 +41,13 @@ export const facultyApi = {
     return response.data;
   },
 
+  async updateAvailabilityStatus(status: 'Available' | 'Busy' | 'Unavailable') {
+    const response = await client.put('/faculty/me/availability-status', {
+      availability_status: status,
+    });
+    return response.data;
+  },
+
   async getApprovals(facultyId: string) {
     const response = await client.get(`/faculty/${facultyId}/approvals`);
     return response.data;
