@@ -1,6 +1,35 @@
 import client from './client';
 import type { Patient, Vital, MedicalRecord, Prescription, WalletTransaction, Admission, Report, Notification } from './types';
 
+export interface Appointment {
+  id: string;
+  patient_id?: string;
+  date: string;
+  time: string;
+  doctor: string;
+  department: string;
+  status: string;
+  notes?: string;
+}
+
+export interface ActiveMedication {
+  id: string;
+  prescription_id: string;
+  name: string;
+  dosage: string;
+  frequency: string;
+  instructions?: string;
+  doctor?: string;
+}
+
+export interface PatientDashboard {
+  next_appointment: Appointment | null;
+  active_medications: ActiveMedication[];
+  hospital_balance: number;
+  pharmacy_balance: number;
+  last_visit: string | null;
+}
+
 export const patientApi = {
   async getCurrentPatient(): Promise<Patient> {
     const response = await client.get('/patients/me');
@@ -51,6 +80,31 @@ export const patientApi = {
 
   async getWalletTransactions(patientId: string, walletType: 'hospital' | 'pharmacy'): Promise<WalletTransaction[]> {
     const response = await client.get(`/patients/${patientId}/wallet/${walletType}/transactions`);
+    return response.data;
+  },
+
+  async getAppointments(patientId: string): Promise<Appointment[]> {
+    const response = await client.get(`/patients/${patientId}/appointments`);
+    return response.data;
+  },
+
+  async getNextAppointment(patientId: string): Promise<Appointment | null> {
+    const response = await client.get(`/patients/${patientId}/next-appointment`);
+    return response.data;
+  },
+
+  async getActiveMedications(patientId: string): Promise<ActiveMedication[]> {
+    const response = await client.get(`/patients/${patientId}/active-medications`);
+    return response.data;
+  },
+
+  async getDashboard(patientId: string): Promise<PatientDashboard> {
+    const response = await client.get(`/patients/${patientId}/dashboard`);
+    return response.data;
+  },
+
+  async getWalletBalance(patientId: string, walletType: 'hospital' | 'pharmacy'): Promise<{ balance: number }> {
+    const response = await client.get(`/wallet/balance/${patientId}/${walletType}`);
     return response.data;
   },
 };

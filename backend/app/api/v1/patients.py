@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime, timedelta
@@ -9,13 +9,13 @@ import uuid
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient
+from app.models.patient import Patient, Appointment
 from app.models.vital import Vital
-from app.models.prescription import Prescription
+from app.models.prescription import Prescription, PrescriptionStatus
 from app.models.medical_record import MedicalRecord
 from app.models.admission import Admission
 from app.models.report import Report
-from app.models.wallet import WalletTransaction, WalletType
+from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 
@@ -381,3 +381,177 @@ async def mark_notifications_read(
         n.is_read = 1
     await db.commit()
     return {"message": f"Marked {len(notifications)} notifications as read"}
+
+
+@router.get("/{patient_id}/appointments")
+async def get_patient_appointments(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Appointment)
+        .where(Appointment.patient_id == patient_id)
+        .order_by(Appointment.date.desc())
+    )
+    appointments = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "patient_id": a.patient_id,
+            "date": a.date.isoformat() if a.date else None,
+            "time": a.time,
+            "doctor": a.doctor,
+            "department": a.department,
+            "status": a.status,
+            "notes": a.notes,
+        }
+        for a in appointments
+    ]
+
+
+@router.get("/{patient_id}/next-appointment")
+async def get_next_appointment(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    now = datetime.utcnow()
+    result = await db.execute(
+        select(Appointment)
+        .where(Appointment.patient_id == patient_id)
+        .where(Appointment.date >= now)
+        .where(Appointment.status == "Scheduled")
+        .order_by(Appointment.date.asc())
+        .limit(1)
+    )
+    appointment = result.scalar_one_or_none()
+    if not appointment:
+        return None
+    return {
+        "id": appointment.id,
+        "date": appointment.date.isoformat() if appointment.date else None,
+        "time": appointment.time,
+        "doctor": appointment.doctor,
+        "department": appointment.department,
+        "status": appointment.status,
+    }
+
+
+@router.get("/{patient_id}/active-medications")
+async def get_active_medications(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get active medications for medication reminder."""
+    result = await db.execute(
+        select(Prescription)
+        .options(selectinload(Prescription.medications))
+        .where(Prescription.patient_id == patient_id)
+        .where(Prescription.status == PrescriptionStatus.ACTIVE)
+        .order_by(Prescription.date.desc())
+    )
+    prescriptions = result.scalars().all()
+    
+    # Flatten medications from active prescriptions
+    medications = []
+    for p in prescriptions:
+        for m in p.medications:
+            medications.append({
+                "id": m.id,
+                "prescription_id": p.id,
+                "name": m.name,
+                "dosage": m.dosage,
+                "frequency": m.frequency,
+                "instructions": m.instructions,
+                "doctor": p.doctor,
+            })
+    return medications
+
+
+@router.get("/{patient_id}/dashboard")
+async def get_patient_dashboard(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all dashboard data for patient home screen."""
+    # Get next appointment
+    now = datetime.utcnow()
+    appt_result = await db.execute(
+        select(Appointment)
+        .where(Appointment.patient_id == patient_id)
+        .where(Appointment.date >= now)
+        .where(Appointment.status == "Scheduled")
+        .order_by(Appointment.date.asc())
+        .limit(1)
+    )
+    next_appointment = appt_result.scalar_one_or_none()
+    
+    # Get active medications
+    rx_result = await db.execute(
+        select(Prescription)
+        .options(selectinload(Prescription.medications))
+        .where(Prescription.patient_id == patient_id)
+        .where(Prescription.status == PrescriptionStatus.ACTIVE)
+        .limit(3)
+    )
+    active_prescriptions = rx_result.scalars().all()
+    
+    medications = []
+    for p in active_prescriptions:
+        for m in p.medications:
+            medications.append({
+                "id": m.id,
+                "prescription_id": p.id,
+                "name": m.name,
+                "dosage": m.dosage,
+                "frequency": m.frequency,
+                "instructions": m.instructions,
+            })
+    
+    # Get wallet balances
+    for wt in [WalletType.HOSPITAL, WalletType.PHARMACY]:
+        credit_result = await db.execute(
+            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
+            .where(WalletTransaction.patient_id == patient_id)
+            .where(WalletTransaction.wallet_type == wt)
+            .where(WalletTransaction.type == TransactionType.CREDIT)
+        )
+        debit_result = await db.execute(
+            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
+            .where(WalletTransaction.patient_id == patient_id)
+            .where(WalletTransaction.wallet_type == wt)
+            .where(WalletTransaction.type == TransactionType.DEBIT)
+        )
+        if wt == WalletType.HOSPITAL:
+            hospital_balance = float(credit_result.scalar() or 0) - float(debit_result.scalar() or 0)
+        else:
+            pharmacy_balance = float(credit_result.scalar() or 0) - float(debit_result.scalar() or 0)
+    
+    # Get last visit date (most recent admission or record)
+    last_visit = None
+    admission_result = await db.execute(
+        select(Admission.admission_date)
+        .where(Admission.patient_id == patient_id)
+        .order_by(Admission.admission_date.desc())
+        .limit(1)
+    )
+    last_admission = admission_result.scalar_one_or_none()
+    if last_admission:
+        last_visit = last_admission.isoformat()
+    
+    return {
+        "next_appointment": {
+            "id": next_appointment.id,
+            "date": next_appointment.date.isoformat() if next_appointment.date else None,
+            "time": next_appointment.time,
+            "doctor": next_appointment.doctor,
+            "department": next_appointment.department,
+        } if next_appointment else None,
+        "active_medications": medications[:3],  # Limit to 3
+        "hospital_balance": hospital_balance,
+        "pharmacy_balance": pharmacy_balance,
+        "last_visit": last_visit,
+    }

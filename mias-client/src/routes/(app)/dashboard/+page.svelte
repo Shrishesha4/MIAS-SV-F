@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
-	import { patientApi } from '$lib/api/patients';
+	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
@@ -18,7 +18,7 @@
 		Award, BarChart3, RefreshCw, ArrowRight, Building,
 		Phone, Mail, MessageSquare, CheckCircle2, Clock, CircleDot,
 		PhoneCall, Hospital, ClipboardList, FileCheck, Save,
-		Eye
+		Eye, X
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -30,7 +30,9 @@
 
 	// Patient state
 	let patient: any = $state(null);
-	let latestVital: any = $state(null);
+	let dashboard: PatientDashboard | null = $state(null);
+	let showAppointment = $state(true);
+	let showMedicationReminder = $state(true);
 
 	// Student state
 	let student: any = $state(null);
@@ -54,17 +56,6 @@
 		{ id: 'patients', label: 'My Patients', icon: Users },
 		{ id: 'clinic', label: 'Clinic', icon: Hospital },
 		{ id: 'emergency', label: 'Emergency', icon: PhoneCall },
-	];
-
-	const patientMenu = [
-		{ icon: FileText, label: 'Medical Records', path: '/records', color: '#4d90fe' },
-		{ icon: Bed, label: 'Admissions', path: '/admissions', color: '#8b5cf6' },
-		{ icon: Pill, label: 'Prescriptions', path: '/prescriptions', color: '#ec4899' },
-		{ icon: Activity, label: 'Vitals', path: '/vitals', color: '#ef4444' },
-		{ icon: TestTube, label: 'Reports', path: '/reports', color: '#f97316' },
-		{ icon: Wallet, label: 'Hospital Wallet', path: '/wallet/hospital', color: '#22c55e' },
-		{ icon: Wallet, label: 'Pharmacy Wallet', path: '/wallet/pharmacy', color: '#06b6d4' },
-		{ icon: Calendar, label: 'Appointments', path: '/appointments', color: '#6366f1' },
 	];
 
 	// Faculty approval cards config
@@ -99,6 +90,28 @@
 		},
 	]);
 
+	// Derived medical alerts string
+	const medicalAlertsText = $derived(() => {
+		if (!patient?.allergies?.length && !patient?.medical_alerts?.length) return '';
+		const alerts: string[] = [];
+		patient?.allergies?.forEach((a: any) => alerts.push(`${a.allergen} Allergy`));
+		patient?.medical_alerts?.forEach((a: any) => alerts.push(a.title));
+		return alerts.join(', ');
+	});
+
+	function formatDate(dateStr: string | null): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr);
+		return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+	}
+
+	function formatAppointmentDate(dateStr: string | null, time: string | null): string {
+		if (!dateStr) return '';
+		const d = new Date(dateStr);
+		const dateFormatted = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+		return time ? `${dateFormatted}, ${time}` : dateFormatted;
+	}
+
 	function getScheduleColor(type: string) {
 		switch (type) {
 			case 'consultation': return { bg: 'rgba(59, 130, 246, 0.1)', text: '#2563eb' };
@@ -108,12 +121,16 @@
 		}
 	}
 
+	function handleMedicationTaken() {
+		showMedicationReminder = false;
+		// TODO: API call to mark medication as taken
+	}
+
 	onMount(async () => {
 		try {
 			if (role === 'PATIENT') {
 				patient = await patientApi.getCurrentPatient();
-				const vitals = await patientApi.getVitals(patient.id, 7);
-				latestVital = vitals.length > 0 ? vitals[0] : null;
+				dashboard = await patientApi.getDashboard(patient.id);
 			} else if (role === 'STUDENT') {
 				student = await studentApi.getMe();
 				assignedPatients = await studentApi.getAssignedPatients(student.id);
@@ -143,101 +160,208 @@
 			<p class="text-center text-red-600 text-sm py-4">{error}</p>
 		</AquaCard>
 	{:else if role === 'PATIENT' && patient}
-		<!-- Patient Profile Card -->
-		<AquaCard>
-			<div class="flex items-center gap-4">
-				<Avatar name={patient.name} size="lg" />
-				<div class="flex-1">
-					<div class="flex items-center gap-2">
-						<h2 class="text-lg font-bold text-blue-900">{patient.name}</h2>
-						{#if patient.category === 'ELITE'}
-							<Crown class="w-4 h-4 text-yellow-500" />
+		<!-- Patient Welcome Card -->
+		<AquaCard padding={false}>
+			<div class="p-4">
+				<div class="flex items-center gap-3">
+					<div class="relative">
+						{#if patient.photo}
+							<img src={patient.photo} alt={patient.name} class="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md" />
+						{:else}
+							<Avatar name={patient.name} size="lg" />
+						{/if}
+						{#if patient.category === 'ELITE' || patient.category === 'VIP'}
+							<div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center"
+								style="background: linear-gradient(to bottom, #fbbf24, #f59e0b); border: 2px solid white;">
+								<Crown class="w-2.5 h-2.5 text-white" />
+							</div>
 						{/if}
 					</div>
-					<p class="text-sm text-gray-600">{patient.patient_id}</p>
-					<div class="flex items-center gap-2 mt-1">
-						<StatusBadge variant="success">
-							<Shield class="w-3 h-3 mr-1" /> Verified
-						</StatusBadge>
-						<span class="text-xs text-gray-500">{patient.blood_group}</span>
+					<div class="flex-1 min-w-0">
+						<h2 class="text-lg font-bold text-gray-800">Welcome, {patient.name}</h2>
+						<p class="text-sm text-gray-500">
+							ID: {patient.patient_id}
+							{#if dashboard?.last_visit}
+								<span class="mx-1">·</span> Last visit: {formatDate(dashboard.last_visit)}
+							{/if}
+						</p>
 					</div>
 				</div>
-				<button class="text-blue-700 cursor-pointer" onclick={() => goto('/profile')}>
-					<ChevronRight class="w-5 h-5" />
-				</button>
 			</div>
+			
+			<!-- Medical Alerts Bar -->
+			{#if medicalAlertsText()}
+				<div class="px-4 py-2.5 flex items-center gap-2"
+					style="background: linear-gradient(to bottom, #fef2f2, #fee2e2); border-top: 1px solid #fecaca;">
+					<AlertTriangle class="w-4 h-4 text-red-500 shrink-0" />
+					<p class="text-sm text-red-700 font-medium truncate">{medicalAlertsText()}</p>
+				</div>
+			{/if}
 		</AquaCard>
 
-		<!-- Medical Alerts -->
-		{#if patient.medical_alerts && patient.medical_alerts.length > 0}
-			<AquaCard>
-				{#snippet header()}
-					<AlertTriangle class="w-4 h-4 text-red-500 mr-2" />
-					<span class="text-red-700 font-semibold text-sm">Medical Alerts</span>
-				{/snippet}
-				<div class="space-y-2">
-					{#each patient.medical_alerts as alert}
-						<div class="p-3 rounded-lg"
-							style="background-color: rgba(255,0,0,0.05); border: 1px solid rgba(220,50,50,0.2);">
-							<div class="flex items-center justify-between mb-1">
-								<span class="text-sm font-semibold text-red-700">{alert.title}</span>
-								<StatusBadge variant={alert.severity === 'HIGH' ? 'critical' : 'warning'}>
-									{alert.severity}
-								</StatusBadge>
-							</div>
-							<p class="text-xs text-gray-600">{alert.description}</p>
+		<!-- Next Appointment Card -->
+		{#if dashboard?.next_appointment && showAppointment}
+			<AquaCard padding={false}>
+				<div class="p-4 flex items-center gap-3">
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<Calendar class="w-5 h-5 text-white" />
+					</div>
+					<div class="flex-1 min-w-0">
+						<p class="text-xs text-gray-500 font-medium">Next Appointment</p>
+						<p class="text-sm font-semibold text-gray-800">
+							{dashboard.next_appointment.doctor} - {formatAppointmentDate(dashboard.next_appointment.date, dashboard.next_appointment.time)}
+						</p>
+					</div>
+					<button
+						class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer"
+						style="background: linear-gradient(to bottom, #fee2e2, #fecaca);"
+						onclick={() => showAppointment = false}
+					>
+						<X class="w-4 h-4 text-red-500" />
+					</button>
+				</div>
+			</AquaCard>
+		{/if}
+
+		<!-- Medication Reminder Card -->
+		{#if dashboard && dashboard.active_medications && dashboard.active_medications.length > 0 && showMedicationReminder}
+			{@const med = dashboard.active_medications[0]}
+			<AquaCard padding={false}>
+				<div class="p-4 flex items-center gap-3">
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<Pill class="w-5 h-5 text-white" />
+					</div>
+					<div class="flex-1 min-w-0">
+						<div class="flex items-center gap-2">
+							<p class="text-xs text-gray-500 font-medium">Medication Reminder</p>
+							<span class="px-1.5 py-0.5 text-[10px] font-bold text-white rounded"
+								style="background: linear-gradient(to bottom, #ef4444, #dc2626);">Now</span>
 						</div>
-					{/each}
+						<p class="text-sm font-semibold text-gray-800 truncate">
+							{med.name} {med.dosage} - {med.instructions || `Take as directed`}
+						</p>
+					</div>
+					<button
+						class="px-4 py-1.5 rounded-full text-sm font-semibold text-white cursor-pointer shrink-0"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+						       box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);"
+						onclick={handleMedicationTaken}
+					>
+						Taken
+					</button>
 				</div>
 			</AquaCard>
 		{/if}
 
-		<!-- Quick Vitals -->
-		{#if latestVital}
-			<AquaCard>
-				{#snippet header()}
-					<HeartPulse class="w-4 h-4 text-red-500 mr-2" />
-					<span class="text-blue-900 font-semibold text-sm">Latest Vitals</span>
-				{/snippet}
-				<div class="grid grid-cols-3 gap-3">
-					<div class="text-center">
-						<p class="text-xs text-gray-500">Blood Pressure</p>
-						<p class="text-lg font-bold text-blue-900">{latestVital.systolic_bp}/{latestVital.diastolic_bp}</p>
-						<p class="text-xs text-gray-400">mmHg</p>
-					</div>
-					<div class="text-center">
-						<p class="text-xs text-gray-500">Heart Rate</p>
-						<p class="text-lg font-bold text-red-600">{latestVital.heart_rate}</p>
-						<p class="text-xs text-gray-400">bpm</p>
-					</div>
-					<div class="text-center">
-						<p class="text-xs text-gray-500">SpO₂</p>
-						<p class="text-lg font-bold text-green-600">{latestVital.oxygen_saturation}%</p>
-						<p class="text-xs text-gray-400">%</p>
-					</div>
-				</div>
-				<button class="w-full mt-3 text-sm text-blue-600 font-medium text-center cursor-pointer hover:underline"
-					onclick={() => goto('/vitals')}>View All Vitals →</button>
-			</AquaCard>
-		{/if}
-
-		<!-- Menu Grid -->
-		<div class="grid grid-cols-4 gap-3">
-			{#each patientMenu as item}
+		<!-- PATIENT SERVICES Section -->
+		<div>
+			<p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-1">Patient Services</p>
+			<div class="grid grid-cols-2 gap-3">
 				<button
-					class="flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer transition-transform active:scale-95"
-					style="background-color: white; border-radius: 10px;
-					       box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
-					       border: 1px solid rgba(0,0,0,0.1);"
-					onclick={() => goto(item.path)}
+					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/records')}
 				>
 					<div class="w-10 h-10 rounded-lg flex items-center justify-center"
-						style="background: linear-gradient(to bottom, {item.color}cc, {item.color}); box-shadow: 0 1px 2px rgba(0,0,0,0.2);">
-						<item.icon class="w-5 h-5 text-white" />
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<FileText class="w-5 h-5 text-white" />
 					</div>
-					<span class="text-[10px] text-gray-700 text-center leading-tight font-medium">{item.label}</span>
+					<span class="text-sm font-semibold text-gray-800">Health Records</span>
 				</button>
-			{/each}
+
+				<button
+					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/admissions')}
+				>
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<Bed class="w-5 h-5 text-white" />
+					</div>
+					<span class="text-sm font-semibold text-gray-800 truncate">Admission Recor...</span>
+				</button>
+
+				<button
+					class="flex flex-col gap-1 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/wallet/hospital')}
+				>
+					<div class="flex items-center gap-3">
+						<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+							style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+							<Wallet class="w-5 h-5 text-white" />
+						</div>
+						<span class="text-sm font-semibold text-gray-800">Hospital Wallet</span>
+					</div>
+					<p class="text-base font-bold text-blue-600 ml-13">₹{(dashboard?.hospital_balance ?? 0).toFixed(2)}</p>
+				</button>
+
+				<button
+					class="flex flex-col gap-1 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/wallet/pharmacy')}
+				>
+					<div class="flex items-center gap-3">
+						<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+							style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+							<Pill class="w-5 h-5 text-white" />
+						</div>
+						<span class="text-sm font-semibold text-gray-800">Pharmacy Wallet</span>
+					</div>
+					<p class="text-base font-bold text-blue-600 ml-13">₹{(dashboard?.pharmacy_balance ?? 0).toFixed(2)}</p>
+				</button>
+			</div>
+		</div>
+
+		<!-- MEDICAL SERVICES Section -->
+		<div>
+			<p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-1">Medical Services</p>
+			<div class="grid grid-cols-2 gap-3">
+				<button
+					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/reports')}
+				>
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<TestTube class="w-5 h-5 text-white" />
+					</div>
+					<span class="text-sm font-semibold text-gray-800 truncate">Investigation Rep...</span>
+				</button>
+
+				<button
+					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/prescriptions')}
+				>
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<Pill class="w-5 h-5 text-white" />
+					</div>
+					<span class="text-sm font-semibold text-gray-800">Prescriptions</span>
+				</button>
+
+				<button
+					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
+					style="background-color: white; border-radius: 12px;
+					       box-shadow: 0 1px 3px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.05);"
+					onclick={() => goto('/vitals')}
+				>
+					<div class="w-10 h-10 rounded-lg flex items-center justify-center"
+						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
+						<HeartPulse class="w-5 h-5 text-white" />
+					</div>
+					<span class="text-sm font-semibold text-gray-800">Vitals</span>
+				</button>
+			</div>
 		</div>
 
 	{:else if role === 'STUDENT' && student}

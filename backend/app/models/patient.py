@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, String, Date, DateTime, Enum as SQLEnum, ForeignKey, Boolean, Text,
+    Column, String, Date, DateTime, Enum as SQLEnum, ForeignKey, Boolean, Text, Index,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -23,10 +23,15 @@ class PatientCategory(str, enum.Enum):
 
 class Patient(Base):
     __tablename__ = "patients"
+    __table_args__ = (
+        Index('idx_patient_category_created', 'category', 'created_at'),
+        Index('idx_patient_name_search', 'name'),
+        Index('idx_patient_phone', 'phone'),
+    )
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, unique=True, nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     date_of_birth = Column(Date, nullable=False)
     gender = Column(SQLEnum(Gender), nullable=False)

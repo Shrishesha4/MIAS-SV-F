@@ -14,7 +14,7 @@ from app.database import AsyncSessionLocal, engine, Base
 from app.models.user import User, UserRole
 from app.models.patient import (
     Patient, Gender, PatientCategory, EmergencyContact,
-    Allergy, MedicalAlert,
+    Allergy, MedicalAlert, Appointment,
 )
 from app.models.student import (
     Student, StudentAttendance, DisciplinaryAction,
@@ -335,6 +335,30 @@ async def seed():
         ))
 
         # ──────────────────────────────────────────────
+        # 9b. Appointments
+        # ──────────────────────────────────────────────
+        # Upcoming appointment
+        db.add(Appointment(
+            id=uid(), patient_id=patient_id,
+            date=now + timedelta(days=89),  # About 3 months from now (28 May)
+            time="10:30 AM",
+            doctor="Dr. Sarah Johnson",
+            department="Internal Medicine",
+            status="Scheduled",
+            notes="Follow-up for hypertension management",
+        ))
+        # Past appointment
+        db.add(Appointment(
+            id=uid(), patient_id=patient_id,
+            date=now - timedelta(days=30),
+            time="2:00 PM",
+            doctor="Dr. James Wilson",
+            department="Cardiology",
+            status="Completed",
+            notes="Routine cardiac evaluation",
+        ))
+
+        # ──────────────────────────────────────────────
         # 10. Reports
         # ──────────────────────────────────────────────
         db.add(Report(
@@ -366,12 +390,16 @@ async def seed():
         # 11. Wallet Transactions
         # ──────────────────────────────────────────────
         for i, (desc, amt, typ, wt, dept) in enumerate([
+            ("Initial Deposit", Decimal("5000.00"), TransactionType.CREDIT, WalletType.HOSPITAL, "Billing"),
             ("Consultation Fee", Decimal("500.00"), TransactionType.DEBIT, WalletType.HOSPITAL, "Internal Medicine"),
             ("Lab Tests – CBC", Decimal("1200.00"), TransactionType.DEBIT, WalletType.HOSPITAL, "Pathology"),
-            ("Insurance Reimbursement", Decimal("800.00"), TransactionType.CREDIT, WalletType.HOSPITAL, "Billing"),
+            ("X-Ray Charges", Decimal("800.00"), TransactionType.DEBIT, WalletType.HOSPITAL, "Radiology"),
+            ("Insurance Reimbursement", Decimal("2000.00"), TransactionType.CREDIT, WalletType.HOSPITAL, "Billing"),
+            ("Admission Charges", Decimal("4149.25"), TransactionType.DEBIT, WalletType.HOSPITAL, "Billing"),
+            ("Pharmacy Deposit", Decimal("1000.00"), TransactionType.CREDIT, WalletType.PHARMACY, "Pharmacy"),
             ("Lisinopril 10mg (30 tabs)", Decimal("350.00"), TransactionType.DEBIT, WalletType.PHARMACY, "Pharmacy"),
             ("Metformin 500mg (60 tabs)", Decimal("220.00"), TransactionType.DEBIT, WalletType.PHARMACY, "Pharmacy"),
-            ("Deposit", Decimal("5000.00"), TransactionType.CREDIT, WalletType.HOSPITAL, "Billing"),
+            ("OTC Medications", Decimal("304.50"), TransactionType.DEBIT, WalletType.PHARMACY, "Pharmacy"),
         ]):
             db.add(WalletTransaction(
                 id=uid(), patient_id=patient_id,

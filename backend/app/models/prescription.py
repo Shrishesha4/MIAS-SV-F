@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum as SQLEnum, Integer
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Enum as SQLEnum, Integer, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -15,13 +15,17 @@ class PrescriptionStatus(str, enum.Enum):
 
 class Prescription(Base):
     __tablename__ = "prescriptions"
+    __table_args__ = (
+        Index('idx_prescription_status_date', 'status', 'date'),
+        Index('idx_prescription_patient_status', 'patient_id', 'status'),
+    )
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
-    date = Column(DateTime, nullable=False)
+    date = Column(DateTime, nullable=False, index=True)
     doctor = Column(String, nullable=False)
     department = Column(String, nullable=False)
-    status = Column(SQLEnum(PrescriptionStatus), default=PrescriptionStatus.ACTIVE)
+    status = Column(SQLEnum(PrescriptionStatus), default=PrescriptionStatus.ACTIVE, index=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     # Relationships

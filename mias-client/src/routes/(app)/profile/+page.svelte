@@ -176,6 +176,7 @@
 		{/if}
 
 		<!-- Emergency Contact -->
+		{#if sp.emergency_contact}
 		<AquaCard>
 			{#snippet header()}
 				<Phone class="w-4 h-4 text-green-600 mr-2" />
@@ -223,6 +224,7 @@
 				</div>
 			</div>
 		</AquaCard>
+		{/if}
 
 		<!-- Attendance Details -->
 		<AquaCard>

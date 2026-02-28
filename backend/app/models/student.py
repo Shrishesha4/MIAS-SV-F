@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -7,10 +7,15 @@ from app.database import Base
 
 class Student(Base):
     __tablename__ = "students"
+    __table_args__ = (
+        Index('idx_student_year_semester', 'year', 'semester'),
+        Index('idx_student_name_search', 'name'),
+        Index('idx_student_program', 'program'),
+    )
 
     id = Column(String, primary_key=True)
     student_id = Column(String, unique=True, nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
     year = Column(Integer, nullable=False)
     semester = Column(Integer, nullable=False)
@@ -71,10 +76,14 @@ class DisciplinaryAction(Base):
 
 class StudentPatientAssignment(Base):
     __tablename__ = "student_patient_assignments"
+    __table_args__ = (
+        Index('idx_assignment_student_status', 'student_id', 'status'),
+        Index('idx_assignment_patient_status', 'patient_id', 'status'),
+    )
 
     id = Column(String, primary_key=True)
-    student_id = Column(String, ForeignKey("students.id"), nullable=False)
-    patient_id = Column(String, ForeignKey("patients.id"), nullable=False)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
     assigned_date = Column(DateTime, default=lambda: datetime.utcnow())
     status = Column(String, default="Active")
 

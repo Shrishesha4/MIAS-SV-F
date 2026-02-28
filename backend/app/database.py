@@ -7,7 +7,16 @@ DATABASE_URL = settings.DATABASE_URL.replace(
     "postgresql://", "postgresql+asyncpg://"
 )
 
-engine = create_async_engine(DATABASE_URL, echo=settings.DEBUG)
+# Production-ready connection pool configuration
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=settings.DEBUG,
+    pool_size=20,           # Base connections per worker
+    max_overflow=30,        # Extra connections under load
+    pool_pre_ping=True,     # Verify connections are alive
+    pool_recycle=300,       # Recycle connections every 5 min
+    pool_timeout=30,        # Timeout waiting for connection
+)
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

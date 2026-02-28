@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -7,6 +7,9 @@ from app.database import Base
 
 class Vital(Base):
     __tablename__ = "vitals"
+    __table_args__ = (
+        Index('idx_vital_patient_recorded', 'patient_id', 'recorded_at'),
+    )
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
