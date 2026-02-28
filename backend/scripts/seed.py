@@ -18,7 +18,7 @@ from app.models.patient import (
 )
 from app.models.student import (
     Student, StudentAttendance, DisciplinaryAction,
-    StudentPatientAssignment,
+    StudentPatientAssignment, ClinicSession, Clinic, ClinicAppointment,
 )
 from app.models.faculty import Faculty
 from app.models.vital import Vital
@@ -138,20 +138,11 @@ async def seed():
                 "allergies": [("Penicillin", "HIGH")],
             },
             {
-                "name": "Emily Wilson",
-                "dob": date(1992, 8, 15),
-                "gender": Gender.FEMALE,
-                "bg": "A+",
-                "condition": "Asthma",
-                "photo": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=faces",
-                "allergies": [("Dust", "MEDIUM")],
-            },
-            {
                 "name": "Maria Garcia",
                 "dob": date(1961, 7, 22),
                 "gender": Gender.FEMALE,
                 "bg": "B+",
-                "condition": "Diabetes Type 2",
+                "condition": "Type 2 Diabetes",
                 "photo": "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=faces",
                 "allergies": [],
             },
@@ -160,18 +151,54 @@ async def seed():
                 "dob": date(1989, 11, 5),
                 "gender": Gender.MALE,
                 "bg": "AB+",
-                "condition": "Bronchitis",
+                "condition": "Acute Bronchitis",
                 "photo": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=faces",
                 "allergies": [("Sulfa drugs", "HIGH")],
             },
             {
-                "name": "Lisa Thompson",
-                "dob": date(1985, 4, 18),
+                "name": "Emily Wong",
+                "dob": date(1994, 8, 15),
                 "gender": Gender.FEMALE,
-                "bg": "A-",
+                "bg": "A+",
                 "condition": "Migraine",
-                "photo": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=faces",
+                "photo": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=faces",
                 "allergies": [],
+            },
+            {
+                "name": "James Smith",
+                "dob": date(1970, 5, 20),
+                "gender": Gender.MALE,
+                "bg": "O-",
+                "condition": "Lower Back Pain",
+                "photo": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Ibuprofen", "MEDIUM")],
+            },
+            {
+                "name": "Sophia Rodriguez",
+                "dob": date(1982, 12, 3),
+                "gender": Gender.FEMALE,
+                "bg": "A+",
+                "condition": "Asthma",
+                "photo": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Dust", "MEDIUM")],
+            },
+            {
+                "name": "David Kim",
+                "dob": date(1956, 9, 8),
+                "gender": Gender.MALE,
+                "bg": "B-",
+                "condition": "Arthritis",
+                "photo": "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [],
+            },
+            {
+                "name": "Olivia Johnson",
+                "dob": date(1987, 2, 14),
+                "gender": Gender.FEMALE,
+                "bg": "AB-",
+                "condition": "Gastritis",
+                "photo": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Aspirin", "HIGH")],
             },
         ]
         
@@ -253,15 +280,30 @@ async def seed():
             resolution="Student completed all pending reports and acknowledged the warning",
         ))
 
-        # Assign patients to student
-        for patient_info in extra_patients:
+        # Assign patients to student and create case records with diagnoses
+        for i, patient_info in enumerate(extra_patients):
             pid = patient_info[0]
+            condition = patient_info[2]
             db.add(StudentPatientAssignment(
                 id=uid(), student_id=student_id, patient_id=pid, status="Active",
             ))
+            # Add case record with diagnosis for this patient
+            db.add(CaseRecord(
+                id=uid(),
+                patient_id=pid,
+                student_id=student_id,
+                date=datetime.utcnow() - timedelta(days=i+1),
+                time="10:00 AM",
+                type="Examination",
+                description=f"Initial assessment for {condition}",
+                department="Internal Medicine",
+                diagnosis=condition,
+                treatment="As prescribed",
+                status="Completed",
+            ))
 
         # ──────────────────────────────────────────────
-        # 5. Faculty
+        # 5. Faculty (including emergency contacts)
         # ──────────────────────────────────────────────
         faculty_id = uid()
         faculty = Faculty(
@@ -269,14 +311,78 @@ async def seed():
             faculty_id="FAC-2023-0078",
             user_id=faculty_user_id,
             name="Dr. Sarah Johnson",
-            department="Cardiology",
-            specialty="Interventional Cardiology",
+            department="Internal Medicine",
+            specialty="General Medicine",
             phone="+91 44 2680 1050",
             email="sarah.johnson@saveetha.com",
             photo="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=200&h=200&fit=crop&crop=faces",
-            availability="Mon, Wed, Fri – 9 AM to 4 PM",
+            availability="On-call 24/7",
+            availability_status="Available",
+            is_emergency_contact=1,
         )
         db.add(faculty)
+
+        # More faculty as emergency contacts
+        emergency_faculty_data = [
+            {
+                "name": "Dr. Robert Miller",
+                "department": "Cardiology",
+                "specialty": "Cardiac Care",
+                "photo": "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=200&h=200&fit=crop&crop=faces",
+                "availability": "Available 8AM-8PM",
+                "availability_status": "Available",
+            },
+            {
+                "name": "Dr. Emily Rodriguez",
+                "department": "Pediatrics",
+                "specialty": "Children's Care",
+                "photo": "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=200&h=200&fit=crop&crop=faces",
+                "availability": "Available 9AM-5PM",
+                "availability_status": "Busy",
+            },
+            {
+                "name": "Dr. Michael Chang",
+                "department": "Surgery",
+                "specialty": "Surgical Unit",
+                "photo": "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=200&h=200&fit=crop&crop=faces",
+                "availability": "On-call for emergencies",
+                "availability_status": "Unavailable",
+            },
+            {
+                "name": "Dr. Jessica Williams",
+                "department": "Emergency Medicine",
+                "specialty": "Emergency Department",
+                "photo": "https://images.unsplash.com/photo-1651008376811-b90baee60c1f?w=200&h=200&fit=crop&crop=faces",
+                "availability": "On-call 24/7",
+                "availability_status": "Available",
+            },
+        ]
+        
+        for i, fdata in enumerate(emergency_faculty_data):
+            fid = uid()
+            fac_user_id = uid()
+            # Create a user for this faculty member
+            db.add(User(
+                id=fac_user_id,
+                username=f"faculty{i+1}",
+                email=f"{fdata['name'].lower().replace(' ', '.').replace('dr.', '')}@saveetha.com",
+                password_hash=get_password_hash("password"),
+                role=UserRole.FACULTY,
+            ))
+            db.add(Faculty(
+                id=fid,
+                faculty_id=f"FAC-2023-{1001+i:04d}",
+                user_id=fac_user_id,
+                name=fdata["name"],
+                department=fdata["department"],
+                specialty=fdata["specialty"],
+                phone=f"+91 44 2680 {1051+i}",
+                email=f"{fdata['name'].lower().replace(' ', '.').replace('dr.', '')}@saveetha.com",
+                photo=fdata["photo"],
+                availability=fdata["availability"],
+                availability_status=fdata["availability_status"],
+                is_emergency_contact=1,
+            ))
 
         # Faculty schedule for today
         today = date.today()
@@ -295,6 +401,79 @@ async def seed():
             date=today, time_start="3:00 PM", time_end="5:00 PM",
             title="Student Case Reviews", type="review", location="Teaching Lab B",
         ))
+
+        # ──────────────────────────────────────────────
+        # 5b. Clinics and Clinic Sessions for Students
+        # ──────────────────────────────────────────────
+        clinic_gm_id = uid()
+        clinic_cardio_id = uid()
+        clinic_pedia_id = uid()
+        
+        db.add(Clinic(
+            id=clinic_gm_id,
+            name="General Medicine Clinic",
+            department="Internal Medicine",
+            location="Outpatient Wing, 2nd Floor",
+            faculty_id=faculty_id,
+        ))
+        db.add(Clinic(
+            id=clinic_cardio_id,
+            name="Cardiology Clinic",
+            department="Cardiology",
+            location="Cardiac Care Unit, 3rd Floor",
+        ))
+        db.add(Clinic(
+            id=clinic_pedia_id,
+            name="Pediatrics Clinic",
+            department="Pediatrics",
+            location="Children's Wing, 1st Floor",
+        ))
+        
+        # Clinic sessions for the student
+        db.add(ClinicSession(
+            id=uid(), student_id=student_id, clinic_id=clinic_gm_id,
+            clinic_name="General Medicine Clinic", department="Internal Medicine",
+            date=datetime.combine(today, datetime.min.time()),
+            time_start="9:00 AM", time_end="12:00 PM",
+            status="Active", is_selected=1,
+        ))
+        db.add(ClinicSession(
+            id=uid(), student_id=student_id, clinic_id=clinic_cardio_id,
+            clinic_name="Cardiology Clinic", department="Cardiology",
+            date=datetime.combine(today + timedelta(days=1), datetime.min.time()),
+            time_start="10:00 AM", time_end="2:00 PM",
+            status="Scheduled", is_selected=0,
+        ))
+        db.add(ClinicSession(
+            id=uid(), student_id=student_id, clinic_id=clinic_pedia_id,
+            clinic_name="Pediatrics Clinic", department="Pediatrics",
+            date=datetime.combine(today + timedelta(days=2), datetime.min.time()),
+            time_start="8:30 AM", time_end="11:30 AM",
+            status="Scheduled", is_selected=0,
+        ))
+        
+        # Today's clinic appointments
+        db.add(ClinicAppointment(
+            id=uid(), clinic_id=clinic_gm_id, patient_id=patient_id,
+            appointment_date=datetime.combine(today, datetime.min.time()),
+            appointment_time="9:15 AM", provider_name="Dr. Michael Chang",
+            status="Checked In",
+        ))
+        # Add appointments for extra patients
+        if len(extra_patients) >= 2:
+            db.add(ClinicAppointment(
+                id=uid(), clinic_id=clinic_gm_id, patient_id=extra_patients[1][0],
+                appointment_date=datetime.combine(today, datetime.min.time()),
+                appointment_time="9:45 AM", provider_name="Dr. Sarah Johnson",
+                status="In Progress",
+            ))
+        if len(extra_patients) >= 3:
+            db.add(ClinicAppointment(
+                id=uid(), clinic_id=clinic_gm_id, patient_id=extra_patients[2][0],
+                appointment_date=datetime.combine(today, datetime.min.time()),
+                appointment_time="10:15 AM", provider_name="Dr. Robert Miller",
+                status="Scheduled",
+            ))
 
         # ──────────────────────────────────────────────
         # 6. Vitals (30 days of data for the main patient)

@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
-	import { studentApi } from '$lib/api/students';
+	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -36,9 +36,14 @@
 
 	// Student state
 	let student: any = $state(null);
-	let assignedPatients: any[] = $state([]);
+	let assignedPatients: AssignedPatient[] = $state([]);
 	let clinicSessions: any[] = $state([]);
 	let studentTab = $state('patients');
+	let emergencyContacts: EmergencyContact[] = $state([]);
+	let clinics: Clinic[] = $state([]);
+	let selectedClinic: Clinic | null = $state(null);
+	let clinicPatients: ClinicPatient[] = $state([]);
+	let showAllPatients = $state(false);
 
 	// Faculty state
 	let faculty: any = $state(null);
@@ -135,6 +140,12 @@
 				student = await studentApi.getMe();
 				assignedPatients = await studentApi.getAssignedPatients(student.id);
 				clinicSessions = await studentApi.getClinicSessions(student.id);
+				emergencyContacts = await studentApi.getEmergencyContacts();
+				clinics = await studentApi.getClinics();
+				if (clinics.length > 0) {
+					selectedClinic = clinics[0];
+					clinicPatients = await studentApi.getClinicPatients(clinics[0].id);
+				}
 			} else if (role === 'FACULTY') {
 				faculty = await facultyApi.getMe();
 				approvals = await facultyApi.getApprovals(faculty.id);
@@ -415,46 +426,66 @@
 						style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
 						       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);
 						       box-shadow: 0 1px 2px rgba(0,0,0,0.08);"
+						onclick={async () => {
+							assignedPatients = await studentApi.getAssignedPatients(student.id);
+						}}
 					>
 						<RefreshCw class="w-3 h-3" /> Refresh List
 					</button>
 				</div>
 
-				<div class="space-y-1">
-					{#each assignedPatients as patient}
+				<div class="space-y-3">
+					{#each (showAllPatients ? assignedPatients : assignedPatients.slice(0, 3)) as patient}
 						<button
-							class="w-full flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors text-left"
+							class="w-full flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors text-left border border-gray-100"
 							onclick={() => goto(`/patients/${patient.id}`)}
 						>
-							<Avatar name={patient.name} size="md" />
-							<div class="flex-1 min-w-0">
-								<p class="font-semibold text-gray-800">{patient.name}</p>
-								<p class="text-xs text-gray-500">{patient.status}</p>
+							<div class="relative shrink-0">
+								{#if patient.photo}
+									<img src={patient.photo} alt={patient.name} class="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm" />
+								{:else}
+									<Avatar name={patient.name} size="md" />
+								{/if}
 							</div>
-							<div class="text-right shrink-0">
-								<p class="text-xs text-gray-400 font-mono">{patient.patient_id}</p>
+							<div class="flex-1 min-w-0">
+								<div class="flex items-center gap-2">
+									<p class="font-semibold text-gray-800">{patient.name}</p>
+									<span class="text-xs text-gray-400">· {patient.age} years · {patient.gender}</span>
+								</div>
+								<p class="text-sm text-gray-600 truncate">{patient.primary_diagnosis || 'Awaiting assessment'}</p>
+								<p class="text-xs text-gray-400 mt-0.5">ID: {patient.patient_id} · Blood: {patient.blood_group}</p>
 							</div>
 							<div
-								class="w-7 h-7 rounded-full flex items-center justify-center shrink-0"
+								class="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
 								style="background: linear-gradient(to bottom, #e8edf5, #d5dde8);
 								       border: 1px solid rgba(0,0,0,0.1);"
 							>
-								<ArrowRight class="w-3.5 h-3.5 text-blue-600" />
+								<ArrowRight class="w-4 h-4 text-blue-600" />
 							</div>
 						</button>
 					{/each}
 				</div>
 
-				<div class="mt-4 flex justify-center">
-					<button
-						class="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium cursor-pointer"
-						style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
-						       color: white; border: 1px solid rgba(0,0,0,0.15);
-						       box-shadow: 0 2px 6px rgba(0,102,204,0.3), inset 0 1px 0 rgba(255,255,255,0.3);"
-					>
-						View All Patients <ChevronRight class="w-4 h-4" />
-					</button>
-				</div>
+				{#if assignedPatients.length > 3}
+					<div class="mt-4 flex justify-center">
+						<button
+							class="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium cursor-pointer"
+							style="background: linear-gradient(to bottom, {showAllPatients ? '#f0f4fa' : '#4d90fe'}, {showAllPatients ? '#d5dde8' : '#0066cc'});
+							       color: {showAllPatients ? '#1e40af' : 'white'}; border: 1px solid rgba(0,0,0,0.15);
+							       box-shadow: 0 2px 6px {showAllPatients ? 'rgba(0,0,0,0.1)' : 'rgba(0,102,204,0.3)'}, inset 0 1px 0 rgba(255,255,255,0.3);"
+							onclick={() => showAllPatients = !showAllPatients}
+						>
+							{showAllPatients ? 'Show Less' : `View All ${assignedPatients.length} Patients`}
+							{#if !showAllPatients}
+								<ChevronRight class="w-4 h-4" />
+							{/if}
+						</button>
+					</div>
+				{/if}
+
+				{#if assignedPatients.length === 0}
+					<p class="text-sm text-gray-400 text-center py-4">No patients assigned yet</p>
+				{/if}
 			</AquaCard>
 
 		{:else if studentTab === 'clinic'}
@@ -463,44 +494,137 @@
 				<div class="flex items-center justify-between mb-3">
 					<div class="flex items-center gap-2">
 						<Building class="w-5 h-5 text-blue-600" />
-						<h3 class="font-bold text-gray-800">Clinic Sessions</h3>
+						<h3 class="font-bold text-gray-800">Select Clinic</h3>
 					</div>
 				</div>
-				{#if clinicSessions.length > 0}
-					<div class="space-y-2">
-						{#each clinicSessions as session}
-							<div class="p-3 rounded-lg bg-gray-50 flex items-center justify-between">
-								<div>
-									<p class="text-sm font-semibold text-gray-800">{session.clinic_name}</p>
-									<p class="text-xs text-gray-500">{session.department} · {session.date}</p>
-								</div>
-								<StatusBadge variant={session.status === 'Completed' ? 'success' : 'info'}>
-									{session.status}
-								</StatusBadge>
-							</div>
+				{#if clinics.length > 0}
+					<div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+						{#each clinics as clinic}
+							<button
+								class="shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all cursor-pointer"
+								style="background: {selectedClinic?.id === clinic.id ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #f8fafc, #f1f5f9)'};
+								       color: {selectedClinic?.id === clinic.id ? 'white' : '#475569'};
+								       border: 1px solid {selectedClinic?.id === clinic.id ? '#2563eb' : '#e2e8f0'};
+								       box-shadow: {selectedClinic?.id === clinic.id ? '0 2px 4px rgba(37, 99, 235, 0.3)' : 'none'};"
+								onclick={async () => {
+									selectedClinic = clinic;
+									clinicPatients = await studentApi.getClinicPatients(clinic.id);
+								}}
+							>
+								{clinic.name}
+							</button>
 						{/each}
 					</div>
-				{:else}
-					<p class="text-sm text-gray-400 text-center py-4">No clinic sessions found</p>
 				{/if}
 			</AquaCard>
 
-			<AquaCard>
-				<div class="flex items-center gap-2 mb-3">
-					<PhoneCall class="w-5 h-5 text-blue-600" />
-					<h3 class="font-bold text-gray-800">Emergency Contacts</h3>
-				</div>
-				<p class="text-sm text-gray-500 text-center py-4">Contact your department head for emergency assistance.</p>
-			</AquaCard>
+			{#if selectedClinic}
+				<AquaCard>
+					<div class="flex items-center justify-between mb-3">
+						<div>
+							<h3 class="font-bold text-gray-800">{selectedClinic.name}</h3>
+							<p class="text-xs text-gray-500">{selectedClinic.department} · {selectedClinic.location}</p>
+						</div>
+						<span class="text-xs text-blue-600 font-medium">Today's Patients</span>
+					</div>
+
+					{#if clinicPatients.length > 0}
+						<div class="space-y-2">
+							{#each clinicPatients as patient}
+								<div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+									<Avatar name={patient.patient_name || 'Patient'} size="sm" />
+									<div class="flex-1 min-w-0">
+										<p class="text-sm font-semibold text-gray-800">{patient.patient_name}</p>
+										<p class="text-xs text-gray-500">{patient.appointment_time} · {patient.provider_name}</p>
+									</div>
+									<span 
+										class="px-2 py-1 text-xs font-medium rounded-full"
+										style="background: {patient.status === 'Completed' ? 'rgba(34, 197, 94, 0.1)' : patient.status === 'In Progress' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(251, 191, 36, 0.1)'};
+										       color: {patient.status === 'Completed' ? '#16a34a' : patient.status === 'In Progress' ? '#2563eb' : '#d97706'};"
+									>
+										{patient.status}
+									</span>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="text-sm text-gray-400 text-center py-4">No patients scheduled for today</p>
+					{/if}
+				</AquaCard>
+			{/if}
 
 		{:else if studentTab === 'emergency'}
 			<!-- Emergency Tab -->
 			<AquaCard>
-				<div class="flex items-center gap-2 mb-3">
-					<PhoneCall class="w-5 h-5 text-blue-600" />
+				<div class="flex items-center gap-2 mb-4">
+					<PhoneCall class="w-5 h-5 text-red-500" />
 					<h3 class="font-bold text-gray-800">Emergency Contacts</h3>
 				</div>
-				<p class="text-sm text-gray-500 text-center py-4">Contact desk: +91 44 2345 6789</p>
+
+				<div class="space-y-4">
+					{#each emergencyContacts as contact}
+						<div class="p-4 rounded-xl border border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
+							<div class="flex items-start gap-3">
+								<div class="relative shrink-0">
+									{#if contact.photo}
+										<img src={contact.photo} alt={contact.name} class="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md" />
+									{:else}
+										<Avatar name={contact.name} size="lg" />
+									{/if}
+									<div 
+										class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white"
+										style="background: {contact.availability_status === 'Available' ? '#22c55e' : contact.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
+									></div>
+								</div>
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-2">
+										<p class="font-semibold text-gray-800">{contact.name}</p>
+										<span 
+											class="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase"
+											style="background: {contact.availability_status === 'Available' ? 'rgba(34, 197, 94, 0.1)' : contact.availability_status === 'Busy' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'};
+											       color: {contact.availability_status === 'Available' ? '#16a34a' : contact.availability_status === 'Busy' ? '#d97706' : '#dc2626'};"
+										>
+											{contact.availability_status}
+										</span>
+									</div>
+									<p class="text-sm text-gray-600">{contact.specialty}</p>
+									<p class="text-xs text-gray-500">{contact.department} · {contact.availability}</p>
+								</div>
+							</div>
+
+							<!-- Contact Actions -->
+							<div class="flex items-center gap-2 mt-3">
+								<a 
+									href="tel:{contact.phone}"
+									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
+									style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
+									       box-shadow: 0 2px 4px rgba(22, 163, 74, 0.3);"
+								>
+									<Phone class="w-4 h-4" /> Call
+								</a>
+								<a 
+									href="mailto:{contact.email}"
+									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
+									style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
+									       box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);"
+								>
+									<Mail class="w-4 h-4" /> Email
+								</a>
+								<button 
+									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
+									style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9); color: #475569;
+									       border: 1px solid #e2e8f0;"
+								>
+									<MessageSquare class="w-4 h-4" /> Message
+								</button>
+							</div>
+						</div>
+					{/each}
+
+					{#if emergencyContacts.length === 0}
+						<p class="text-sm text-gray-400 text-center py-4">No emergency contacts available</p>
+					{/if}
+				</div>
 			</AquaCard>
 		{/if}
 

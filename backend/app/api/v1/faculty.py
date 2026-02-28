@@ -396,3 +396,159 @@ async def get_faculty_notifications(
         }
         for n in notifications
     ]
+
+
+@router.get("/{faculty_id}/students")
+async def get_students_list(
+    faculty_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get list of students for patient assignment"""
+    from app.models.student import Student, StudentPatientAssignment
+    
+    result = await db.execute(select(Student).order_by(Student.name))
+    students = result.scalars().all()
+    
+    # Get assignment counts for each student
+    student_counts = {}
+    count_result = await db.execute(
+        select(
+            StudentPatientAssignment.student_id,
+            func.count(StudentPatientAssignment.id)
+        )
+        .where(StudentPatientAssignment.status == "Active")
+        .group_by(StudentPatientAssignment.student_id)
+    )
+    for student_id, count in count_result.all():
+        student_counts[student_id] = count
+    
+    return [
+        {
+            "id": s.id,
+            "student_id": s.student_id,
+            "name": s.name,
+            "year": s.year,
+            "semester": s.semester,
+            "department": s.program or "General",
+            "photo": s.photo,
+            "assigned_patient_count": student_counts.get(s.id, 0),
+        }
+        for s in students
+    ]
+
+
+@router.get("/{faculty_id}/patients-unassigned")
+async def get_unassigned_patients(
+    faculty_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get patients that are not assigned to any student"""
+    from app.models.student import StudentPatientAssignment
+    from app.models.patient import Patient
+    from app.models.case_record import CaseRecord
+    
+    # Get all patient IDs that are already assigned
+    assigned_result = await db.execute(
+        select(StudentPatientAssignment.patient_id)
+        .where(StudentPatientAssignment.status == "Active")
+    )
+    assigned_ids = [r[0] for r in assigned_result.all()]
+    
+    # Get patients not in assigned list
+    query = select(Patient)
+    if assigned_ids:
+        query = query.where(~Patient.id.in_(assigned_ids))
+    
+    result = await db.execute(query.order_by(Patient.name))
+    patients = result.scalars().all()
+    
+    # Get latest diagnosis for each patient
+    patient_diagnoses = {}
+    for p in patients:
+        case_result = await db.execute(
+            select(CaseRecord.diagnosis)
+            .where(CaseRecord.patient_id == p.id)
+            .where(CaseRecord.diagnosis.isnot(None))
+            .order_by(CaseRecord.date.desc())
+            .limit(1)
+        )
+        diagnosis = case_result.scalar_one_or_none()
+        patient_diagnoses[p.id] = diagnosis
+    
+    return [
+        {
+            "id": p.id,
+            "patient_id": p.patient_id,
+            "name": p.name,
+            "age": (date.today() - p.date_of_birth).days // 365 if p.date_of_birth else None,
+            "gender": p.gender.value if p.gender else None,
+            "blood_group": p.blood_group,
+            "photo": p.photo,
+            "primary_diagnosis": patient_diagnoses.get(p.id),
+        }
+        for p in patients
+    ]
+
+
+@router.post("/{faculty_id}/assign-patient")
+async def assign_patient_to_student(
+    faculty_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign a patient to a student"""
+    from app.models.student import StudentPatientAssignment
+    import uuid
+    
+    student_id = body.get("student_id")
+    patient_id = body.get("patient_id")
+    
+    if not student_id or not patient_id:
+        raise HTTPException(status_code=400, detail="student_id and patient_id are required")
+    
+    # Check if assignment already exists
+    existing = await db.execute(
+        select(StudentPatientAssignment)
+        .where(StudentPatientAssignment.student_id == student_id)
+        .where(StudentPatientAssignment.patient_id == patient_id)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Patient is already assigned to this student")
+    
+    assignment = StudentPatientAssignment(
+        id=str(uuid.uuid4()),
+        student_id=student_id,
+        patient_id=patient_id,
+        status="Active",
+    )
+    db.add(assignment)
+    await db.commit()
+    
+    return {"message": "Patient assigned successfully", "id": assignment.id}
+
+
+@router.delete("/{faculty_id}/assignments/{assignment_id}")
+async def remove_patient_assignment(
+    faculty_id: str,
+    assignment_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a patient assignment from a student"""
+    from app.models.student import StudentPatientAssignment
+    
+    result = await db.execute(
+        select(StudentPatientAssignment).where(StudentPatientAssignment.id == assignment_id)
+    )
+    assignment = result.scalar_one_or_none()
+    
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    await db.delete(assignment)
+    await db.commit()
+    
+    return {"message": "Assignment removed"}

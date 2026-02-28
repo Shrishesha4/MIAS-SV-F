@@ -2,12 +2,39 @@
 	import { onMount } from 'svelte';
 	import { studentApi } from '$lib/api/students';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope } from 'lucide-svelte';
+	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Activity } from 'lucide-svelte';
 
 	let expandedId = $state<string | null>(null);
 	let caseRecords: any[] = $state([]);
 	let loading = $state(true);
+	let student: any = $state(null);
+	let assignedPatients: any[] = $state([]);
+
+	// Modal state
+	let showCreateModal = $state(false);
+	let departments: string[] = $state([]);
+	let procedures: Record<string, string[]> = $state({});
+	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
+	let submitting = $state(false);
+
+	// Form state
+	let selectedDepartment = $state('');
+	let selectedProcedure = $state('');
+	let selectedPatientId = $state('');
+	let systolic = $state('');
+	let diastolic = $state('');
+	let patientPosition = $state('Sitting');
+	let notes = $state('');
+	let findings = $state('');
+	let diagnosis = $state('');
+	let treatment = $state('');
+	let selectedFacultyId = $state('');
+
+	const availableProcedures = $derived(
+		selectedDepartment ? (procedures[selectedDepartment] || []) : []
+	);
 
 	const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'pending'> = {
 		APPROVED: 'success',
@@ -16,10 +43,65 @@
 		REJECTED: 'error' as any,
 	};
 
+	const positionOptions = ['Sitting', 'Standing', 'Supine', 'Prone', 'Left Lateral', 'Right Lateral'];
+
+	async function openCreateModal() {
+		// Load form data
+		[departments, procedures, facultyApprovers] = await Promise.all([
+			studentApi.getDepartments(),
+			studentApi.getProcedures(),
+			studentApi.getFacultyApprovers(),
+		]);
+		// Reset form
+		selectedDepartment = '';
+		selectedProcedure = '';
+		selectedPatientId = '';
+		systolic = '';
+		diastolic = '';
+		patientPosition = 'Sitting';
+		notes = '';
+		findings = '';
+		diagnosis = '';
+		treatment = '';
+		selectedFacultyId = '';
+		showCreateModal = true;
+	}
+
+	async function handleSubmit() {
+		if (!selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId) {
+			return;
+		}
+		submitting = true;
+		try {
+			await studentApi.submitCaseRecord(student.id, {
+				patient_id: selectedPatientId,
+				department: selectedDepartment,
+				procedure: selectedProcedure,
+				procedure_description: `BP: ${systolic}/${diastolic} mmHg (${patientPosition})`,
+				notes,
+				findings,
+				diagnosis,
+				treatment,
+				faculty_id: selectedFacultyId,
+				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+			});
+			showCreateModal = false;
+			// Refresh case records
+			caseRecords = await studentApi.getCaseRecords(student.id);
+		} catch (err) {
+			console.error('Failed to submit case record', err);
+		} finally {
+			submitting = false;
+		}
+	}
+
 	onMount(async () => {
 		try {
-			const student = await studentApi.getMe();
-			caseRecords = await studentApi.getCaseRecords(student.id);
+			student = await studentApi.getMe();
+			[caseRecords, assignedPatients] = await Promise.all([
+				studentApi.getCaseRecords(student.id),
+				studentApi.getAssignedPatients(student.id),
+			]);
 		} catch (err) {
 			console.error('Failed to load case records', err);
 		} finally {
@@ -145,3 +227,170 @@
 	{/if}
 	{/if}
 </div>
+
+<!-- Floating Action Button -->
+<button
+	class="fixed bottom-20 right-4 w-14 h-14 rounded-full flex items-center justify-center cursor-pointer shadow-lg z-40"
+	style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+	       box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);"
+	onclick={openCreateModal}
+>
+	<Plus class="w-6 h-6 text-white" />
+</button>
+
+<!-- Create Case Record Modal -->
+<AquaModal open={showCreateModal} title="New Case Record" onclose={() => showCreateModal = false}>
+	{#snippet children()}
+		<div class="space-y-4">
+			<!-- Patient Selection -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Patient</span>
+				<select
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={selectedPatientId}
+				>
+					<option value="">Select a patient</option>
+					{#each assignedPatients as patient}
+						<option value={patient.id}>{patient.name} ({patient.patient_id})</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Department Selection -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Department</span>
+				<select
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={selectedDepartment}
+					onchange={() => selectedProcedure = ''}
+				>
+					<option value="">Select department</option>
+					{#each departments as dept}
+						<option value={dept}>{dept}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Procedure Selection -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Procedure</span>
+				<select
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={selectedProcedure}
+					disabled={!selectedDepartment}
+				>
+					<option value="">Select procedure</option>
+					{#each availableProcedures as proc}
+						<option value={proc}>{proc}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Blood Pressure -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+					<Activity class="w-3 h-3" />
+					Blood Pressure
+				</span>
+				<div class="flex items-center gap-2">
+					<input
+						type="number"
+						placeholder="Systolic"
+						class="flex-1 px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+						bind:value={systolic}
+					/>
+					<span class="text-gray-400">/</span>
+					<input
+						type="number"
+						placeholder="Diastolic"
+						class="flex-1 px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+						bind:value={diastolic}
+					/>
+					<span class="text-xs text-gray-500">mmHg</span>
+				</div>
+			</div>
+
+			<!-- Patient Position -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Patient Position</span>
+				<select
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={patientPosition}
+				>
+					{#each positionOptions as pos}
+						<option value={pos}>{pos}</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Notes -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Notes</span>
+				<textarea
+					placeholder="Additional notes..."
+					rows="2"
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+					bind:value={notes}
+				></textarea>
+			</div>
+
+			<!-- Findings -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Findings</span>
+				<textarea
+					placeholder="Clinical findings..."
+					rows="2"
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+					bind:value={findings}
+				></textarea>
+			</div>
+
+			<!-- Diagnosis -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Diagnosis</span>
+				<input
+					type="text"
+					placeholder="Working diagnosis..."
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={diagnosis}
+				/>
+			</div>
+
+			<!-- Treatment -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Treatment</span>
+				<textarea
+					placeholder="Treatment plan..."
+					rows="2"
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+					bind:value={treatment}
+				></textarea>
+			</div>
+
+			<!-- Faculty Approver -->
+			<div>
+				<span class="block text-xs font-semibold text-gray-700 mb-1">Request Approval From</span>
+				<select
+					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+					bind:value={selectedFacultyId}
+				>
+					<option value="">Select faculty</option>
+					{#each facultyApprovers as faculty}
+						<option value={faculty.id}>{faculty.name} ({faculty.department})</option>
+					{/each}
+				</select>
+			</div>
+
+			<!-- Submit Button -->
+			<button
+				class="w-full py-3 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
+				       box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);"
+				onclick={handleSubmit}
+				disabled={submitting || !selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId}
+			>
+				{submitting ? 'Submitting...' : 'Submit for Approval'}
+			</button>
+		</div>
+	{/snippet}
+</AquaModal>

@@ -110,9 +110,47 @@ class ClinicSession(Base):
 
     id = Column(String, primary_key=True)
     student_id = Column(String, ForeignKey("students.id"), nullable=False)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=True)
     clinic_name = Column(String, nullable=False)
     department = Column(String, nullable=False)
     date = Column(DateTime, nullable=False)
-    status = Column(String, default="Scheduled")
+    time_start = Column(String, nullable=True)  # e.g., "9:00 AM"
+    time_end = Column(String, nullable=True)    # e.g., "12:00 PM"
+    status = Column(String, default="Scheduled")  # Scheduled, Active, Completed
+    is_selected = Column(Integer, default=0)  # 1 if this is the student's current selected clinic
 
     student = relationship("Student", back_populates="clinic_sessions")
+    clinic = relationship("Clinic", back_populates="sessions")
+
+
+class Clinic(Base):
+    """Hospital clinics where students can be assigned"""
+    __tablename__ = "clinics"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    department = Column(String, nullable=False)
+    location = Column(String, nullable=True)  # e.g., "Outpatient Wing, 2nd Floor"
+    faculty_id = Column(String, ForeignKey("faculty.id"), nullable=True)  # Supervising doctor
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
+
+    faculty = relationship("Faculty")
+    sessions = relationship("ClinicSession", back_populates="clinic")
+    appointments = relationship("ClinicAppointment", back_populates="clinic")
+
+
+class ClinicAppointment(Base):
+    """Patient appointments at a clinic for today"""
+    __tablename__ = "clinic_appointments"
+
+    id = Column(String, primary_key=True)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=False)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False)
+    appointment_date = Column(DateTime, nullable=False)
+    appointment_time = Column(String, nullable=True)  # e.g., "9:15 AM"
+    provider_name = Column(String, nullable=True)  # Doctor handling this appointment
+    status = Column(String, default="Scheduled")  # Scheduled, Checked In, In Progress, Completed
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
+
+    clinic = relationship("Clinic", back_populates="appointments")
+    patient = relationship("Patient")

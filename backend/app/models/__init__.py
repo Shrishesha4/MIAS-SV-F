@@ -5,7 +5,8 @@ from app.models.patient import (
 )
 from app.models.student import (
     Student, StudentAttendance, DisciplinaryAction,
-    StudentPatientAssignment, StudentNotification, ClinicSession
+    StudentPatientAssignment, StudentNotification, ClinicSession,
+    Clinic, ClinicAppointment
 )
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.medical_record import MedicalRecord, RecordType, MedicalFinding, MedicalImage
