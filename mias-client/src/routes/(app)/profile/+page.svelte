@@ -11,7 +11,8 @@
 	import {
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
-		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot
+		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot,
+		Upload, PenTool, Camera, Image
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -21,6 +22,44 @@
 	let sp: any = $state(null);
 	let faculty: any = $state(null);
 	let loading = $state(true);
+
+	// Faculty upload state
+	let photoUploading = $state(false);
+	let signatureUploading = $state(false);
+	let photoInput: HTMLInputElement;
+	let signatureInput: HTMLInputElement;
+
+	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
+
+	async function handlePhotoUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		photoUploading = true;
+		try {
+			const result = await facultyApi.uploadPhoto(file);
+			faculty = { ...faculty, photo: result.photo };
+		} catch (err) {
+			console.error('Failed to upload photo', err);
+		} finally {
+			photoUploading = false;
+		}
+	}
+
+	async function handleSignatureUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+		signatureUploading = true;
+		try {
+			const result = await facultyApi.uploadSignature(file);
+			faculty = { ...faculty, signature_image: result.signature_image };
+		} catch (err) {
+			console.error('Failed to upload signature', err);
+		} finally {
+			signatureUploading = false;
+		}
+	}
 
 	function getAttendanceIcon(value: number) {
 		return value >= 90 ? 'good' : value >= 75 ? 'warn' : 'bad';
@@ -387,15 +426,35 @@
 		{/if}
 
 	{:else if role === 'FACULTY' && faculty}
+		<!-- Faculty Profile Header with Photo Upload -->
 		<AquaCard>
 			<div class="text-center">
-				<Avatar name={faculty.name} size="lg" />
+				<div class="relative inline-block">
+					{#if faculty.photo}
+						<img src="{API_BASE}{faculty.photo}" alt={faculty.name}
+							class="w-20 h-20 rounded-full object-cover border-3 border-white shadow-lg" />
+					{:else}
+						<Avatar name={faculty.name} size="lg" />
+					{/if}
+					<button class="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer shadow-md"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 2px solid white;"
+						onclick={() => photoInput.click()}
+						disabled={photoUploading}>
+						{#if photoUploading}
+							<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+						{:else}
+							<Camera class="w-3 h-3 text-white" />
+						{/if}
+					</button>
+					<input bind:this={photoInput} type="file" accept="image/*" class="hidden" onchange={handlePhotoUpload} />
+				</div>
 				<h2 class="text-xl font-bold text-blue-900 mt-3">{faculty.name}</h2>
 				<p class="text-sm text-gray-600 mt-1">{faculty.faculty_id}</p>
 				<StatusBadge variant="info">{faculty.department}</StatusBadge>
 			</div>
 		</AquaCard>
 
+		<!-- Professional Info -->
 		<AquaCard>
 			{#snippet header()}
 				<Stethoscope class="w-4 h-4 text-blue-600 mr-2" />
@@ -408,6 +467,44 @@
 				<div class="flex justify-between"><span class="text-sm text-gray-500">Email</span><span class="text-sm text-blue-600">{faculty.email}</span></div>
 				<div class="flex justify-between"><span class="text-sm text-gray-500">Availability</span><span class="text-sm text-gray-800">{faculty.availability}</span></div>
 			</div>
+		</AquaCard>
+
+		<!-- Signature Management -->
+		<AquaCard>
+			{#snippet header()}
+				<PenTool class="w-4 h-4 text-blue-600 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Digital Signature</span>
+			{/snippet}
+			<p class="text-xs text-gray-500 mb-3">This signature will appear on official prescriptions and documents.</p>
+
+			{#if faculty.signature_image}
+				<div class="p-4 rounded-xl text-center" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+					<img src="{API_BASE}{faculty.signature_image}" alt="Signature"
+						class="max-h-20 mx-auto" style="image-rendering: auto;" />
+					<p class="text-xs text-gray-400 mt-2">Current signature</p>
+				</div>
+			{:else}
+				<div class="p-6 rounded-xl text-center" style="background: #f8f9fb; border: 2px dashed rgba(0,0,0,0.1);">
+					<PenTool class="w-8 h-8 text-gray-300 mx-auto mb-2" />
+					<p class="text-sm text-gray-400">No signature uploaded</p>
+					<p class="text-xs text-gray-400 mt-1">Upload an image of your handwritten signature</p>
+				</div>
+			{/if}
+
+			<button class="w-full mt-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer flex items-center justify-center gap-2"
+				style="background: linear-gradient(to bottom, #4d90fe, #2563eb); color: white;
+				       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+				onclick={() => signatureInput.click()}
+				disabled={signatureUploading}>
+				{#if signatureUploading}
+					<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+					Uploading...
+				{:else}
+					<Upload class="w-4 h-4" />
+					{faculty.signature_image ? 'Replace Signature' : 'Upload Signature'}
+				{/if}
+			</button>
+			<input bind:this={signatureInput} type="file" accept="image/*" class="hidden" onchange={handleSignatureUpload} />
 		</AquaCard>
 	{/if}
 	{/if}

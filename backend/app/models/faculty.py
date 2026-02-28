@@ -17,6 +17,7 @@ class Faculty(Base):
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     photo = Column(String, nullable=True)
+    signature_image = Column(String, nullable=True)  # Path to uploaded signature image
     availability = Column(String, nullable=True)  # e.g., "On-call 24/7", "Available 8AM-8PM"
     availability_status = Column(String, default="Available")  # Available, Busy, Unavailable
     is_emergency_contact = Column(Integer, default=0)  # 1 if this faculty is an emergency contact

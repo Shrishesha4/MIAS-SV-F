@@ -29,12 +29,24 @@ async def get_prescription(
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Prescription not found")
 
+    # Look up doctor signature from faculty
+    doctor_signature = prescription.doctor_signature
+    if not doctor_signature and prescription.doctor:
+        from app.models.faculty import Faculty
+        fac_result = await db.execute(
+            select(Faculty).where(Faculty.name == prescription.doctor)
+        )
+        fac = fac_result.scalar_one_or_none()
+        if fac and fac.signature_image:
+            doctor_signature = fac.signature_image
+
     return {
         "id": prescription.id,
         "patient_id": prescription.patient_id,
         "date": prescription.date.isoformat() if prescription.date else None,
         "doctor": prescription.doctor,
         "department": prescription.department,
+        "doctor_signature": doctor_signature,
         "status": prescription.status.value if prescription.status else None,
         "medications": [
             {

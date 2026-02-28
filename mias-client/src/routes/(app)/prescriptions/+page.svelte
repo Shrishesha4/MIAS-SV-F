@@ -32,9 +32,13 @@
 	let selectedStatus = $state('all');
 	let selectedPrescription = $state<Prescription | null>(null);
 	let showModal = $state(false);
+	let renewingId = $state('');
+	let patient: any = $state(null);
+
+	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
 	const statusFilters = [
-		{ value: 'all', label: 'All Prescriptions' },
+		{ value: 'all', label: 'All' },
 		{ value: 'ACTIVE', label: 'Active' },
 		{ value: 'RECEIVE', label: 'To Receive' },
 		{ value: 'BOUGHT', label: 'Bought' },
@@ -80,7 +84,7 @@
 
 	onMount(async () => {
 		try {
-			const patient = await patientApi.getCurrentPatient();
+			patient = await patientApi.getCurrentPatient();
 			prescriptions = await patientApi.getPrescriptions(patient.id);
 		} catch (err) {
 			console.error('Failed to load prescriptions', err);
@@ -88,6 +92,21 @@
 			loading = false;
 		}
 	});
+
+	async function renewPrescription(rx: Prescription) {
+		if (!patient || renewingId) return;
+		renewingId = rx.id;
+		try {
+			await patientApi.renewPrescription(patient.id, rx.id);
+			prescriptions = await patientApi.getPrescriptions(patient.id);
+			showModal = false;
+			selectedPrescription = null;
+		} catch (err) {
+			console.error('Failed to renew prescription', err);
+		} finally {
+			renewingId = '';
+		}
+	}
 </script>
 
 <div class="px-4 py-4 space-y-4">
@@ -218,7 +237,7 @@
 		{/snippet}
 
 		<div class="space-y-4">
-			<!-- Status and Buy buttons -->
+			<!-- Status and Buy/Renew buttons -->
 			<div class="flex items-center gap-3">
 				<StatusBadge variant={statusVariant[selectedPrescription.status]} size="md">
 					{#if selectedPrescription.status === 'ACTIVE'}
@@ -233,6 +252,22 @@
 					>
 						<ShoppingCart class="w-4 h-4" />
 						Buy
+					</button>
+				{/if}
+				{#if selectedPrescription.status === 'COMPLETED'}
+					<button 
+						class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
+						       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+						onclick={() => renewPrescription(selectedPrescription!)}
+						disabled={!!renewingId}>
+						{#if renewingId === selectedPrescription.id}
+							<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+							Renewing...
+						{:else}
+							<RefreshCw class="w-4 h-4" />
+							Renew Prescription
+						{/if}
 					</button>
 				{/if}
 			</div>
@@ -401,6 +436,10 @@
 			<!-- Doctor Signature -->
 			<div class="text-center py-4 border-t border-gray-100">
 				<div class="text-gray-400 italic text-sm mb-2">Doctor Signature</div>
+				{#if selectedPrescription.doctor_signature}
+					<img src="{API_BASE}{selectedPrescription.doctor_signature}" alt="Doctor Signature"
+						class="max-h-16 mx-auto mb-2" style="image-rendering: auto;" />
+				{/if}
 				<p class="font-semibold text-gray-800">{selectedPrescription.doctor}</p>
 				<p class="text-sm text-gray-500">{selectedPrescription.department}</p>
 				<p class="text-xs text-gray-400">Date: {formatDate(selectedPrescription.date)}</p>

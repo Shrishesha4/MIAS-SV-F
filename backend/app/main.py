@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 import asyncio
+import os
 
 from app.config import settings
 from app.database import engine, Base
@@ -13,6 +15,11 @@ from app.services.notification_scheduler import run_notification_scheduler
 
 # Import all models so they are registered with metadata
 import app.models  # noqa: F401
+
+# Ensure uploads directory exists
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+os.makedirs(os.path.join(UPLOADS_DIR, "photos"), exist_ok=True)
+os.makedirs(os.path.join(UPLOADS_DIR, "signatures"), exist_ok=True)
 
 
 @asynccontextmanager
@@ -54,6 +61,9 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api/v1")
+
+# Serve uploaded files
+app.mount("/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
 
 
 @app.get("/health")

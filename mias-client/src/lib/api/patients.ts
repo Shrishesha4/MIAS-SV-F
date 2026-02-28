@@ -200,6 +200,11 @@ export const patientApi = {
     return response.data;
   },
 
+  async renewPrescription(patientId: string, rxId: string) {
+    const response = await client.post(`/patients/${patientId}/prescriptions/${rxId}/renew`);
+    return response.data;
+  },
+
   // Case Records
   async getCaseRecords(patientId: string) {
     const response = await client.get(`/patients/${patientId}/case-records`);

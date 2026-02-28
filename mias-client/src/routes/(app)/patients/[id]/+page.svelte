@@ -1014,6 +1014,19 @@
 										       border: 1px solid {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.2)' : 'rgba(107,114,128,0.2)'};">
 										{rx.status || 'Active'}
 									</span>
+									{#if rx.status === 'COMPLETED' && patient}
+										<button class="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium cursor-pointer"
+											style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
+											       box-shadow: 0 1px 3px rgba(37,99,235,0.3);"
+											onclick={async () => {
+												try {
+													await patientApi.renewPrescription(patient.id, rx.id);
+													prescriptions = await patientApi.getPrescriptions(patient.id);
+												} catch (err) { console.error('Renew failed', err); }
+											}}>
+											<Send class="w-3 h-3" /> Renew
+										</button>
+									{/if}
 									<button class="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
 										style="background: rgba(0,0,0,0.06);"
 										onclick={() => openEditPrescription(rx)}>

@@ -89,4 +89,22 @@ export const facultyApi = {
   async removeAssignment(facultyId: string, assignmentId: string): Promise<void> {
     await client.delete(`/faculty/${facultyId}/assignments/${assignmentId}`);
   },
+
+  async uploadPhoto(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await client.post('/faculty/me/upload-photo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  async uploadSignature(file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await client.post('/faculty/me/upload-signature', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
 };

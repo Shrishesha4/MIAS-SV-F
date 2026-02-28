@@ -117,6 +117,7 @@ export interface Prescription {
   hospital_website?: string;
   status: 'ACTIVE' | 'BOUGHT' | 'RECEIVE' | 'COMPLETED';
   notes?: string;
+  doctor_signature?: string;
   patient?: {
     name: string;
     patient_id: string;

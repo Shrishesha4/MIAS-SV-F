@@ -38,6 +38,7 @@ class Prescription(Base):
     hospital_contact = Column(String, nullable=True)
     hospital_email = Column(String, nullable=True)
     hospital_website = Column(String, nullable=True)
+    doctor_signature = Column(String, nullable=True)  # URL to doctor's signature image
     status = Column(SQLEnum(PrescriptionStatus), default=PrescriptionStatus.ACTIVE, index=True)
     notes = Column(Text, nullable=True)  # Additional notes
     created_at = Column(DateTime, default=lambda: datetime.utcnow())

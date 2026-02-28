@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 from typing import Optional
+import uuid
+import os
 
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
@@ -13,6 +15,8 @@ from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseRecord
 from app.models.admission import Admission
 from app.models.prescription import Prescription
+
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
 
@@ -39,6 +43,7 @@ async def get_current_faculty(
         "phone": faculty.phone,
         "email": faculty.email,
         "photo": faculty.photo,
+        "signature_image": faculty.signature_image,
         "availability": faculty.availability,
         "availability_status": faculty.availability_status,
     }
@@ -95,9 +100,58 @@ async def get_faculty(
         "phone": faculty.phone,
         "email": faculty.email,
         "photo": faculty.photo,
+        "signature_image": faculty.signature_image,
         "availability": faculty.availability,
         "availability_status": faculty.availability_status,
     }
+
+
+@router.post("/me/upload-photo")
+async def upload_faculty_photo(
+    file: UploadFile = File(...),
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload faculty profile photo."""
+    result = await db.execute(select(Faculty).where(Faculty.user_id == user.id))
+    faculty = result.scalar_one_or_none()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    ext = os.path.splitext(file.filename or "photo.png")[1] or ".png"
+    filename = f"{faculty.id}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(UPLOADS_DIR, "photos", filename)
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    faculty.photo = f"/uploads/photos/{filename}"
+    await db.commit()
+    return {"photo": faculty.photo, "message": "Photo uploaded successfully"}
+
+
+@router.post("/me/upload-signature")
+async def upload_faculty_signature(
+    file: UploadFile = File(...),
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload faculty signature image."""
+    result = await db.execute(select(Faculty).where(Faculty.user_id == user.id))
+    faculty = result.scalar_one_or_none()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    ext = os.path.splitext(file.filename or "signature.png")[1] or ".png"
+    filename = f"sig_{faculty.id}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(UPLOADS_DIR, "signatures", filename)
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    faculty.signature_image = f"/uploads/signatures/{filename}"
+    await db.commit()
+    return {"signature_image": faculty.signature_image, "message": "Signature uploaded successfully"}
 
 
 @router.get("/{faculty_id}/approval-stats")

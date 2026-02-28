@@ -319,6 +319,17 @@ async def get_patient_prescriptions(
     )
     patient = patient_result.scalar_one_or_none()
 
+    # Lookup doctor signatures for all prescriptions
+    doctor_names = list(set(p.doctor for p in prescriptions if p.doctor))
+    signature_map: dict = {}
+    if doctor_names:
+        from app.models.faculty import Faculty
+        fac_result = await db.execute(
+            select(Faculty).where(Faculty.name.in_(doctor_names))
+        )
+        for fac in fac_result.scalars().all():
+            signature_map[fac.name] = fac.signature_image
+
     return [
         {
             "id": p.id,
@@ -333,6 +344,7 @@ async def get_patient_prescriptions(
             "hospital_contact": p.hospital_contact,
             "hospital_email": p.hospital_email,
             "hospital_website": p.hospital_website,
+            "doctor_signature": p.doctor_signature or signature_map.get(p.doctor),
             "status": p.status.value if p.status else None,
             "notes": p.notes,
             "patient": {
@@ -1251,3 +1263,91 @@ async def respond_to_prescription_request(
     await db.commit()
 
     return {"message": f"Request {status.lower()}", "status": req.status.value}
+
+
+@router.post("/{patient_id}/prescriptions/{rx_id}/renew")
+async def renew_prescription(
+    patient_id: str,
+    rx_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Renew a completed prescription by creating a new ACTIVE copy."""
+    result = await db.execute(
+        select(Prescription)
+        .options(selectinload(Prescription.medications))
+        .where(Prescription.id == rx_id)
+        .where(Prescription.patient_id == patient_id)
+    )
+    old_rx = result.scalar_one_or_none()
+    if not old_rx:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+
+    # Count existing prescriptions for new ID
+    count_result = await db.execute(
+        select(func.count(Prescription.id)).where(Prescription.patient_id == patient_id)
+    )
+    count = count_result.scalar() or 0
+    new_rx_display_id = f"RX-{datetime.utcnow().year}-{str(count + 1).zfill(4)}"
+
+    # Look up doctor signature
+    doctor_sig = old_rx.doctor_signature
+    if not doctor_sig and old_rx.doctor:
+        from app.models.faculty import Faculty as FacultyModel
+        fac_r = await db.execute(select(FacultyModel).where(FacultyModel.name == old_rx.doctor))
+        fac = fac_r.scalar_one_or_none()
+        if fac:
+            doctor_sig = fac.signature_image
+
+    new_rx_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    new_rx = Prescription(
+        id=new_rx_id,
+        prescription_id=new_rx_display_id,
+        patient_id=patient_id,
+        date=now,
+        doctor=old_rx.doctor,
+        doctor_license=old_rx.doctor_license,
+        department=old_rx.department,
+        hospital_name=old_rx.hospital_name,
+        hospital_address=old_rx.hospital_address,
+        hospital_contact=old_rx.hospital_contact,
+        hospital_email=old_rx.hospital_email,
+        hospital_website=old_rx.hospital_website,
+        doctor_signature=doctor_sig,
+        status=PrescriptionStatus.ACTIVE,
+        notes=f"Renewed from {old_rx.prescription_id or old_rx.id[:12]}",
+    )
+    db.add(new_rx)
+
+    # Copy medications with fresh dates
+    from datetime import date
+    for m in old_rx.medications:
+        # Parse duration to calculate end date
+        duration_days = 30
+        if m.duration:
+            parts = m.duration.split()
+            try:
+                duration_days = int(parts[0])
+            except (ValueError, IndexError):
+                pass
+
+        db.add(PrescriptionMedication(
+            id=str(uuid.uuid4()),
+            prescription_id=new_rx_id,
+            name=m.name,
+            dosage=m.dosage,
+            frequency=m.frequency,
+            duration=m.duration,
+            instructions=m.instructions,
+            refills_remaining=m.refills_remaining,
+            start_date=date.today().isoformat(),
+            end_date=(date.today() + timedelta(days=duration_days)).isoformat(),
+        ))
+
+    await db.commit()
+    return {
+        "id": new_rx_id,
+        "prescription_id": new_rx_display_id,
+        "message": "Prescription renewed successfully",
+    }
