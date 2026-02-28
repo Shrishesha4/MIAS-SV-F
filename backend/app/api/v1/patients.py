@@ -18,6 +18,7 @@ from app.models.prescription import (
 )
 from app.models.medical_record import MedicalRecord
 from app.models.admission import Admission
+from app.models.faculty import Faculty
 from app.models.report import Report
 from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification, ScheduledNotification
@@ -500,6 +501,193 @@ async def get_patient_admissions(
         }
         for a in admissions
     ]
+
+
+@router.post("/{patient_id}/admissions", status_code=201)
+async def create_admission(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new admission for a patient (faculty/admin only)."""
+    # Verify patient exists
+    patient = (await db.execute(select(Patient).where(Patient.id == patient_id))).scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Auto-resolve attending doctor from logged-in faculty
+    attending_doctor = body.get("attending_doctor", "")
+    if not attending_doctor and user.role == UserRole.FACULTY:
+        fac = (await db.execute(select(Faculty).where(Faculty.user_id == user.id))).scalar_one_or_none()
+        if fac:
+            attending_doctor = fac.name
+
+    admission_date = body.get("admission_date")
+    if admission_date:
+        if isinstance(admission_date, str):
+            try:
+                admission_date = datetime.fromisoformat(admission_date)
+            except ValueError:
+                admission_date = datetime.utcnow()
+    else:
+        admission_date = datetime.utcnow()
+
+    admission = Admission(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        admission_date=admission_date,
+        department=body.get("department", ""),
+        ward=body.get("ward", ""),
+        bed_number=body.get("bed_number", ""),
+        attending_doctor=body.get("attending_doctor", ""),
+        reason=body.get("reason"),
+        diagnosis=body.get("diagnosis"),
+        status="Active",
+        notes=body.get("notes"),
+        referring_doctor=body.get("referring_doctor"),
+    )
+    db.add(admission)
+    await db.commit()
+    await db.refresh(admission)
+
+    return {
+        "id": admission.id,
+        "patient_id": admission.patient_id,
+        "admission_date": admission.admission_date.isoformat(),
+        "department": admission.department,
+        "ward": admission.ward,
+        "bed_number": admission.bed_number,
+        "attending_doctor": admission.attending_doctor,
+        "status": admission.status,
+        "message": "Patient admitted successfully",
+    }
+
+
+@router.put("/{patient_id}/admissions/{admission_id}")
+async def update_admission(
+    patient_id: str,
+    admission_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an admission record."""
+    admission = (
+        await db.execute(
+            select(Admission).where(
+                Admission.id == admission_id,
+                Admission.patient_id == patient_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not admission:
+        raise HTTPException(status_code=404, detail="Admission not found")
+
+    for field in ["department", "ward", "bed_number", "attending_doctor", "reason",
+                  "diagnosis", "notes", "referring_doctor"]:
+        if field in body:
+            setattr(admission, field, body[field])
+
+    await db.commit()
+    return {"message": "Admission updated", "id": admission.id}
+
+
+@router.post("/{patient_id}/admissions/{admission_id}/discharge")
+async def discharge_patient(
+    patient_id: str,
+    admission_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Discharge a patient from an active admission."""
+    admission = (
+        await db.execute(
+            select(Admission).where(
+                Admission.id == admission_id,
+                Admission.patient_id == patient_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not admission:
+        raise HTTPException(status_code=404, detail="Admission not found")
+    if admission.status != "Active":
+        raise HTTPException(status_code=400, detail="Only active admissions can be discharged")
+
+    admission.status = "Discharged"
+    admission.discharge_date = datetime.utcnow()
+    admission.discharge_summary = body.get("discharge_summary", "")
+    admission.discharge_instructions = body.get("discharge_instructions", "")
+    admission.diagnosis = body.get("diagnosis") or admission.diagnosis
+
+    follow_up = body.get("follow_up_date")
+    if follow_up:
+        try:
+            admission.follow_up_date = datetime.fromisoformat(follow_up)
+        except ValueError:
+            pass
+
+    await db.commit()
+    return {
+        "message": "Patient discharged successfully",
+        "id": admission.id,
+        "discharge_date": admission.discharge_date.isoformat(),
+    }
+
+
+@router.post("/{patient_id}/admissions/{admission_id}/transfer")
+async def transfer_patient(
+    patient_id: str,
+    admission_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transfer a patient to another department."""
+    old_admission = (
+        await db.execute(
+            select(Admission).where(
+                Admission.id == admission_id,
+                Admission.patient_id == patient_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not old_admission:
+        raise HTTPException(status_code=404, detail="Admission not found")
+    if old_admission.status != "Active":
+        raise HTTPException(status_code=400, detail="Only active admissions can be transferred")
+
+    # Mark old as Transferred
+    old_admission.status = "Transferred"
+    old_admission.discharge_date = datetime.utcnow()
+
+    # Create new admission in target department
+    new_admission = Admission(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        admission_date=datetime.utcnow(),
+        department=body.get("department", ""),
+        ward=body.get("ward", ""),
+        bed_number=body.get("bed_number", ""),
+        attending_doctor=body.get("attending_doctor", ""),
+        reason=body.get("reason") or old_admission.reason,
+        diagnosis=body.get("diagnosis") or old_admission.diagnosis,
+        status="Active",
+        notes=body.get("notes"),
+        related_admission_id=old_admission.id,
+        transferred_from_department=old_admission.department,
+        referring_doctor=old_admission.attending_doctor,
+    )
+    db.add(new_admission)
+    await db.commit()
+
+    return {
+        "message": "Patient transferred successfully",
+        "old_admission_id": old_admission.id,
+        "new_admission_id": new_admission.id,
+        "new_department": new_admission.department,
+    }
 
 
 @router.get("/{patient_id}/reports")

@@ -9,6 +9,8 @@ from app.models.user import User, UserRole
 from app.models.patient import Patient, EmergencyContact, Gender
 from app.models.student import Student
 from app.models.faculty import Faculty
+from app.models.department import Department
+from app.models.programme import Programme
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -22,6 +24,36 @@ from app.core.security import (
 )
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+# ── Public endpoints for registration dropdowns ─────────────────────
+
+
+@router.get("/departments")
+async def get_registration_departments(db: AsyncSession = Depends(get_db)):
+    """Public endpoint: list active departments for registration form."""
+    result = await db.execute(
+        select(Department)
+        .where(Department.is_active == True)
+        .order_by(Department.name)
+    )
+    departments = result.scalars().all()
+    return [{"id": d.id, "name": d.name, "code": d.code} for d in departments]
+
+
+@router.get("/programmes")
+async def get_registration_programmes(db: AsyncSession = Depends(get_db)):
+    """Public endpoint: list active programmes for registration form."""
+    result = await db.execute(
+        select(Programme)
+        .where(Programme.is_active == True)
+        .order_by(Programme.name)
+    )
+    programmes = result.scalars().all()
+    return [
+        {"id": p.id, "name": p.name, "code": p.code, "degree_type": p.degree_type}
+        for p in programmes
+    ]
 
 
 def generate_patient_id():

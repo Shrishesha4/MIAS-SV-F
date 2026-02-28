@@ -58,4 +58,15 @@ export const authApi = {
   async logout(): Promise<void> {
     await client.post('/auth/logout');
   },
+
+  // Public endpoints (no auth needed) for registration form
+  async getDepartments(): Promise<{ id: string; name: string; code: string }[]> {
+    const response = await client.get('/auth/departments');
+    return response.data;
+  },
+
+  async getProgrammes(): Promise<{ id: string; name: string; code: string; degree_type: string | null }[]> {
+    const response = await client.get('/auth/programmes');
+    return response.data;
+  },
 };

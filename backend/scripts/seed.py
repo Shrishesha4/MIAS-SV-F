@@ -18,6 +18,8 @@ from app.models.faculty import Faculty
 from app.models.department import Department
 from app.models.vital import Vital
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
+from app.models.programme import Programme
+from app.models.admission import Admission
 from app.core.security import get_password_hash
 
 
@@ -105,6 +107,35 @@ CLINIC_APPOINTMENTS = [
     {"clinic_idx": 2, "patient_idx": 7, "time": "9:00 AM",  "status": "In Progress", "provider": "Dr. Ravi Menon"},
     {"clinic_idx": 2, "patient_idx": 8, "time": "9:45 AM",  "status": "Checked In",  "provider": "Dr. Ravi Menon"},
     {"clinic_idx": 2, "patient_idx": 9, "time": "10:30 AM", "status": "Scheduled",   "provider": "Dr. Ravi Menon"},
+]
+
+PROGRAMMES = [
+    {"name": "BDS",  "code": "BDS",  "description": "Bachelor of Dental Surgery",               "degree_type": "Undergraduate", "duration_years": "4"},
+    {"name": "MDS",  "code": "MDS",  "description": "Master of Dental Surgery",                 "degree_type": "Postgraduate",  "duration_years": "3"},
+    {"name": "MBBS", "code": "MBBS", "description": "Bachelor of Medicine and Bachelor of Surgery", "degree_type": "Undergraduate", "duration_years": "5"},
+    {"name": "MD",   "code": "MD",   "description": "Doctor of Medicine",                       "degree_type": "Postgraduate",  "duration_years": "3"},
+    {"name": "MS",   "code": "MS",   "description": "Master of Surgery",                        "degree_type": "Postgraduate",  "duration_years": "3"},
+]
+
+ADMISSIONS_DATA = [
+    # Active admissions
+    {"patient_idx": 0, "department": "Internal Medicine", "ward": "General Ward A", "bed_number": "A-12",
+     "attending_doctor": "Dr. Arun Kumar", "reason": "Acute hypertensive crisis",
+     "diagnosis": "Essential Hypertension - Stage 2", "status": "Active", "days_ago": 2},
+    {"patient_idx": 3, "department": "Cardiology", "ward": "ICU", "bed_number": "ICU-3",
+     "attending_doctor": "Dr. Priya Sharma", "reason": "Chest pain evaluation",
+     "diagnosis": "Unstable Angina", "status": "Active", "days_ago": 1},
+    # Discharged admissions
+    {"patient_idx": 1, "department": "Pediatrics", "ward": "General Ward B", "bed_number": "B-05",
+     "attending_doctor": "Dr. Ravi Menon", "reason": "High fever and dehydration",
+     "diagnosis": "Viral Gastroenteritis", "status": "Discharged", "days_ago": 10, "discharge_days_ago": 5,
+     "discharge_summary": "Patient recovered well with IV fluids and supportive care.",
+     "discharge_instructions": "Continue oral rehydration. Follow up in 1 week."},
+    {"patient_idx": 4, "department": "Internal Medicine", "ward": "General Ward A", "bed_number": "A-07",
+     "attending_doctor": "Dr. Arun Kumar", "reason": "Diabetic ketoacidosis",
+     "diagnosis": "Uncontrolled Type 2 Diabetes Mellitus", "status": "Discharged", "days_ago": 15, "discharge_days_ago": 8,
+     "discharge_summary": "Blood sugar levels stabilized. Insulin regimen adjusted.",
+     "discharge_instructions": "Monitor blood glucose daily. Follow strict diabetic diet. Review in 2 weeks."},
 ]
 
 
@@ -198,6 +229,17 @@ async def seed():
                 name=dept["name"],
                 code=dept["code"],
                 description=dept["description"],
+            ))
+
+        # ── Programmes ───────────────────────────────────
+        for prog in PROGRAMMES:
+            db.add(Programme(
+                id=uid(),
+                name=prog["name"],
+                code=prog["code"],
+                description=prog["description"],
+                degree_type=prog["degree_type"],
+                duration_years=prog["duration_years"],
             ))
 
         # Flush to get IDs
@@ -341,6 +383,33 @@ async def seed():
                 appointment_time=ca["time"],
                 provider_name=ca["provider"],
                 status=ca["status"],
+            ))
+
+        # ── Sample Admissions ────────────────────────────
+        for a in ADMISSIONS_DATA:
+            patient = all_patients[a["patient_idx"]]
+            adm_date = datetime.utcnow() - timedelta(days=a["days_ago"])
+            discharge_date = None
+            if a["status"] == "Discharged" and "discharge_days_ago" in a:
+                discharge_date = datetime.utcnow() - timedelta(days=a["discharge_days_ago"])
+            follow_up = None
+            if discharge_date:
+                follow_up = discharge_date + timedelta(days=14)
+            db.add(Admission(
+                id=uid(),
+                patient_id=patient.id,
+                admission_date=adm_date,
+                discharge_date=discharge_date,
+                department=a["department"],
+                ward=a["ward"],
+                bed_number=a["bed_number"],
+                attending_doctor=a["attending_doctor"],
+                reason=a["reason"],
+                diagnosis=a["diagnosis"],
+                status=a["status"],
+                discharge_summary=a.get("discharge_summary"),
+                discharge_instructions=a.get("discharge_instructions"),
+                follow_up_date=follow_up,
             ))
 
         await db.commit()

@@ -52,6 +52,7 @@
     { icon: User, label: 'Profile', path: '/profile' },
     { icon: CheckCircle, label: 'Approvals', path: '/approvals' },
     { icon: GraduationCap, label: 'Students', path: '/students' },
+    { icon: Bed, label: 'Admissions', path: '/admissions' },
     { icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
     { icon: Bell, label: 'Notifications', path: '/notifications' },
   ];

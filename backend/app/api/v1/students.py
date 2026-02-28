@@ -92,9 +92,9 @@ async def get_emergency_contacts(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get faculty members who are emergency contacts"""
+    """Get all doctors as emergency contacts for students"""
     result = await db.execute(
-        select(Faculty).where(Faculty.is_emergency_contact == 1)
+        select(Faculty).order_by(Faculty.name)
     )
     faculty = result.scalars().all()
     

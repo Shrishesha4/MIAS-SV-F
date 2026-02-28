@@ -215,4 +215,35 @@ export const patientApi = {
     const response = await client.post(`/patients/${patientId}/case-records`, data);
     return response.data;
   },
+
+  // Admissions
+  async getAllAdmissions(params?: { status?: string; department?: string }) {
+    const response = await client.get('/admissions/', { params });
+    return response.data;
+  },
+
+  async searchPatientsForAdmission(q: string = '') {
+    const response = await client.get('/admissions/patients/search', { params: { q } });
+    return response.data;
+  },
+
+  async createAdmission(patientId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/patients/${patientId}/admissions`, data);
+    return response.data;
+  },
+
+  async updateAdmission(patientId: string, admissionId: string, data: Record<string, unknown>) {
+    const response = await client.put(`/patients/${patientId}/admissions/${admissionId}`, data);
+    return response.data;
+  },
+
+  async dischargePatient(patientId: string, admissionId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/patients/${patientId}/admissions/${admissionId}/discharge`, data);
+    return response.data;
+  },
+
+  async transferPatient(patientId: string, admissionId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/patients/${patientId}/admissions/${admissionId}/transfer`, data);
+    return response.data;
+  },
 };

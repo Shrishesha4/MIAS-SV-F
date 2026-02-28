@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { authApi } from '$lib/api/auth';
 	import {
@@ -15,6 +16,11 @@
 	let loading = $state(false);
 	let error = $state('');
 	let success = $state(false);
+
+	// DB-driven dropdowns
+	let dbDepartments: { id: string; name: string; code: string }[] = $state([]);
+	let dbProgrammes: { id: string; name: string; code: string; degree_type: string | null }[] = $state([]);
+	let dropdownsLoaded = $state(false);
 
 	// Common: Account Info
 	let username = $state('');
@@ -50,13 +56,21 @@
 	let facultyPhone = $state('');
 
 	const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
-	const programs = ['BDS', 'MDS', 'MBBS', 'MD', 'MS'];
-	const departments = [
-		'Internal Medicine', 'Cardiology', 'Pediatrics', 'General Medicine',
-		'Oral Surgery', 'Orthodontics', 'Periodontics', 'Prosthodontics',
-		'Endodontics', 'Pedodontics', 'Oral Pathology', 'Public Health Dentistry',
-		'Dermatology', 'Ophthalmology', 'ENT', 'Psychiatry', 'Radiology',
-	];
+
+	onMount(async () => {
+		try {
+			const [depts, progs] = await Promise.all([
+				authApi.getDepartments(),
+				authApi.getProgrammes(),
+			]);
+			dbDepartments = depts;
+			dbProgrammes = progs;
+		} catch (err) {
+			console.error('Failed to load form options:', err);
+		} finally {
+			dropdownsLoaded = true;
+		}
+	});
 
 	function getSteps() {
 		if (!selectedRole) return [];
@@ -522,9 +536,9 @@
 									<BookOpen class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
 									<select bind:value={studentProgram}
 										class="flex-1 outline-none text-gray-700 bg-transparent cursor-pointer">
-										<option value="">Select program</option>
-										{#each programs as p}
-											<option value={p}>{p}</option>
+										<option value="">Select programme</option>
+										{#each dbProgrammes as p}
+											<option value={p.name}>{p.name}{p.degree_type ? ` (${p.degree_type})` : ''}</option>
 										{/each}
 									</select>
 								</div>
@@ -584,8 +598,8 @@
 									<select bind:value={facultyDepartment}
 										class="flex-1 outline-none text-gray-700 bg-transparent cursor-pointer">
 										<option value="">Select department</option>
-										{#each departments as d}
-											<option value={d}>{d}</option>
+										{#each dbDepartments as d}
+											<option value={d.name}>{d.name}</option>
 										{/each}
 									</select>
 								</div>

@@ -14,6 +14,7 @@ from app.models.patient import Patient, PatientCategory
 from app.models.student import Student
 from app.models.faculty import Faculty
 from app.models.department import Department
+from app.models.programme import Programme
 from app.models.admission import Admission
 from app.models.prescription import Prescription
 from app.models.vital import Vital
@@ -482,6 +483,124 @@ async def list_students(
         }
         for s in students
     ]
+
+
+# ── Programme Management ─────────────────────────────────────────────
+
+
+@router.get("/programmes")
+async def list_programmes(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all programmes."""
+    result = await db.execute(select(Programme).order_by(Programme.name))
+    programmes = result.scalars().all()
+
+    # Count students per programme
+    items = []
+    for p in programmes:
+        student_count = (
+            await db.execute(
+                select(func.count(Student.id)).where(Student.program == p.name)
+            )
+        ).scalar() or 0
+        items.append({
+            "id": p.id,
+            "name": p.name,
+            "code": p.code,
+            "description": p.description,
+            "degree_type": p.degree_type,
+            "duration_years": p.duration_years,
+            "is_active": p.is_active,
+            "student_count": student_count,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        })
+    return items
+
+
+@router.post("/programmes", status_code=201)
+async def create_programme(
+    body: dict,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new programme."""
+    name = body.get("name", "").strip()
+    code = body.get("code", "").strip().upper()
+    if not name or not code:
+        raise HTTPException(status_code=400, detail="name and code are required")
+
+    existing = (
+        await db.execute(
+            select(Programme).where((Programme.name == name) | (Programme.code == code))
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail="Programme name or code already exists")
+
+    prog = Programme(
+        id=_uid(),
+        name=name,
+        code=code,
+        description=body.get("description"),
+        degree_type=body.get("degree_type"),
+        duration_years=body.get("duration_years"),
+    )
+    db.add(prog)
+    await db.commit()
+    await db.refresh(prog)
+
+    return {
+        "id": prog.id,
+        "name": prog.name,
+        "code": prog.code,
+        "message": "Programme created successfully",
+    }
+
+
+@router.put("/programmes/{prog_id}")
+async def update_programme(
+    prog_id: str,
+    body: dict,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a programme."""
+    prog = (await db.execute(select(Programme).where(Programme.id == prog_id))).scalar_one_or_none()
+    if not prog:
+        raise HTTPException(status_code=404, detail="Programme not found")
+
+    if "name" in body:
+        prog.name = body["name"]
+    if "code" in body:
+        prog.code = body["code"].upper()
+    if "description" in body:
+        prog.description = body["description"]
+    if "degree_type" in body:
+        prog.degree_type = body["degree_type"]
+    if "duration_years" in body:
+        prog.duration_years = body["duration_years"]
+    if "is_active" in body:
+        prog.is_active = body["is_active"]
+
+    await db.commit()
+    return {"message": "Programme updated", "id": prog.id, "name": prog.name}
+
+
+@router.delete("/programmes/{prog_id}")
+async def delete_programme(
+    prog_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Soft-delete (deactivate) a programme."""
+    prog = (await db.execute(select(Programme).where(Programme.id == prog_id))).scalar_one_or_none()
+    if not prog:
+        raise HTTPException(status_code=404, detail="Programme not found")
+    prog.is_active = False
+    await db.commit()
+    return {"message": f"Programme '{prog.name}' deactivated"}
 
 
 # ── System info ──────────────────────────────────────────────────────

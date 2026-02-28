@@ -80,6 +80,18 @@ export interface StudentItem {
   academic_standing: string;
 }
 
+export interface Programme {
+  id: string;
+  name: string;
+  code: string;
+  description: string | null;
+  degree_type: string | null;
+  duration_years: string | null;
+  is_active: boolean;
+  student_count: number;
+  created_at: string | null;
+}
+
 // ── API ──────────────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -168,6 +180,27 @@ export const adminApi = {
   // System info
   async getSystemInfo() {
     const r = await client.get('/admin/system-info');
+    return r.data;
+  },
+
+  // Programmes
+  async getProgrammes(): Promise<Programme[]> {
+    const r = await client.get('/admin/programmes');
+    return r.data;
+  },
+
+  async createProgramme(data: { name: string; code: string; description?: string; degree_type?: string; duration_years?: string }) {
+    const r = await client.post('/admin/programmes', data);
+    return r.data;
+  },
+
+  async updateProgramme(progId: string, data: Partial<{ name: string; code: string; description: string; degree_type: string; duration_years: string; is_active: boolean }>) {
+    const r = await client.put(`/admin/programmes/${progId}`, data);
+    return r.data;
+  },
+
+  async deleteProgramme(progId: string) {
+    const r = await client.delete(`/admin/programmes/${progId}`);
     return r.data;
   },
 };

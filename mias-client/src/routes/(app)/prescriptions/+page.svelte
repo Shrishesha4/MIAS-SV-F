@@ -38,7 +38,7 @@
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
 	const statusFilters = [
-		{ value: 'all', label: 'All' },
+		{ value: 'all', label: 'Al' },
 		{ value: 'ACTIVE', label: 'Active' },
 		{ value: 'RECEIVE', label: 'To Receive' },
 		{ value: 'BOUGHT', label: 'Bought' },

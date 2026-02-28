@@ -8,7 +8,7 @@
 	import {
 		Users, GraduationCap, Building, UserCheck, UserX, Bed,
 		Pill, CheckCircle, TrendingUp, ChevronRight, Shield,
-		Activity, BarChart3, Settings, FileText
+		Activity, BarChart3, Settings, FileText, BookOpen
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -39,6 +39,7 @@
 	const quickLinks = [
 		{ icon: Users, label: 'Manage Users', path: '/admin/users', color: '#3b82f6' },
 		{ icon: Building, label: 'Departments', path: '/admin/departments', color: '#8b5cf6' },
+		{ icon: BookOpen, label: 'Programmes', path: '/admin/programmes', color: '#f59e0b' },
 		{ icon: BarChart3, label: 'Analytics', path: '/admin/analytics', color: '#10b981' },
 	];
 </script>
