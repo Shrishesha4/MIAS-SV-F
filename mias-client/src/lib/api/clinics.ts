@@ -1,0 +1,64 @@
+import client from './client';
+
+export interface ClinicInfo {
+  id: string;
+  name: string;
+  department: string;
+  location: string;
+  faculty_id?: string;
+  faculty_name?: string;
+}
+
+export interface ClinicPatientInfo {
+  id: string;
+  patient_id: string;
+  patient_db_id: string;
+  patient_name: string;
+  appointment_time: string;
+  provider_name: string;
+  status: 'Scheduled' | 'Checked In' | 'In Progress' | 'Completed';
+}
+
+export interface PatientAppointmentInfo {
+  id: string;
+  clinic_name: string;
+  clinic_location: string;
+  clinic_department: string;
+  doctor_name: string;
+  appointment_date: string;
+  appointment_time: string;
+  provider_name: string;
+  status: string;
+}
+
+export const clinicsApi = {
+  async listClinics(): Promise<ClinicInfo[]> {
+    const response = await client.get('/clinics');
+    return response.data;
+  },
+
+  async getClinic(clinicId: string): Promise<ClinicInfo> {
+    const response = await client.get(`/clinics/${clinicId}`);
+    return response.data;
+  },
+
+  async getClinicPatients(clinicId: string): Promise<ClinicPatientInfo[]> {
+    const response = await client.get(`/clinics/${clinicId}/patients`);
+    return response.data;
+  },
+
+  async updateAppointmentStatus(clinicId: string, appointmentId: string, status: string) {
+    const response = await client.put(`/clinics/${clinicId}/appointments/${appointmentId}/status`, { status });
+    return response.data;
+  },
+
+  async getFacultyClinics(facultyId: string): Promise<ClinicInfo[]> {
+    const response = await client.get(`/clinics/faculty/${facultyId}/clinics`);
+    return response.data;
+  },
+
+  async getPatientAppointments(patientId: string): Promise<PatientAppointmentInfo[]> {
+    const response = await client.get(`/clinics/patient/${patientId}/appointments`);
+    return response.data;
+  },
+};

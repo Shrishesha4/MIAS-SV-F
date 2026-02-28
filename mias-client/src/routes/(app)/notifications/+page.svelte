@@ -29,18 +29,25 @@
 		return `${days}d ago`;
 	}
 
+	let cachedRole = $state('');
+	let cachedEntityId = $state('');
+
 	onMount(async () => {
 		try {
 			const auth = get(authStore);
 			const role = auth.role;
+			cachedRole = role || '';
 			if (role === 'PATIENT') {
 				const patient = await patientApi.getCurrentPatient();
+				cachedEntityId = patient.id;
 				notifications = await patientApi.getNotifications(patient.id);
 			} else if (role === 'STUDENT') {
 				const student = await studentApi.getMe();
+				cachedEntityId = student.id;
 				notifications = await studentApi.getNotifications(student.id);
 			} else if (role === 'FACULTY') {
 				const faculty = await facultyApi.getMe();
+				cachedEntityId = faculty.id;
 				notifications = await facultyApi.getNotifications(faculty.id);
 			}
 		} catch (err) {
@@ -48,6 +55,25 @@
 		} finally {
 			loading = false;
 		}
+	});
+
+	// Auto-refresh notifications every 15 seconds
+	$effect(() => {
+		if (loading || !cachedEntityId) return;
+		const interval = setInterval(async () => {
+			try {
+				if (cachedRole === 'PATIENT') {
+					notifications = await patientApi.getNotifications(cachedEntityId);
+				} else if (cachedRole === 'STUDENT') {
+					notifications = await studentApi.getNotifications(cachedEntityId);
+				} else if (cachedRole === 'FACULTY') {
+					notifications = await facultyApi.getNotifications(cachedEntityId);
+				}
+			} catch (err) {
+				console.error('Auto-refresh failed', err);
+			}
+		}, 15000);
+		return () => clearInterval(interval);
 	});
 </script>
 

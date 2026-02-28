@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
@@ -340,13 +340,15 @@ async def get_assigned_patients(
 @router.get("/{student_id}/case-records")
 async def get_student_case_records(
     student_id: str,
+    patient_id: str = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    query = select(CaseRecord).where(CaseRecord.student_id == student_id)
+    if patient_id:
+        query = query.where(CaseRecord.patient_id == patient_id)
     result = await db.execute(
-        select(CaseRecord)
-        .where(CaseRecord.student_id == student_id)
-        .order_by(CaseRecord.date.desc())
+        query.order_by(CaseRecord.date.desc())
     )
     records = result.scalars().all()
 
@@ -371,6 +373,11 @@ async def get_student_case_records(
             "status": r.status,
             "approved_by": r.approved_by,
             "approved_at": r.approved_at,
+            "created_by_name": r.created_by_name,
+            "created_by_role": r.created_by_role,
+            "last_modified_by": r.last_modified_by,
+            "last_modified_at": r.last_modified_at.isoformat() if r.last_modified_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in records
     ]
@@ -598,6 +605,11 @@ async def submit_case_record_for_approval(
 ):
     """Submit a case record for faculty approval"""
     import uuid
+
+    # Look up the student name for created_by
+    stu_result = await db.execute(select(Student).where(Student.id == student_id))
+    stu = stu_result.scalar_one_or_none()
+    student_name = stu.name if stu else "Student"
     
     # Create the case record
     record = CaseRecord(
@@ -619,6 +631,10 @@ async def submit_case_record_for_approval(
         notes=body.get("notes"),
         provider=body.get("provider"),
         status="Pending",
+        created_by_name=student_name,
+        created_by_role="STUDENT",
+        last_modified_by=student_name,
+        last_modified_at=datetime.utcnow(),
     )
     db.add(record)
     await db.flush()

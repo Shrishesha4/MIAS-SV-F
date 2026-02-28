@@ -21,6 +21,7 @@ from app.models.admission import Admission
 from app.models.report import Report
 from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification, ScheduledNotification
+from app.models.case_record import CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
@@ -69,6 +70,115 @@ async def get_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
 
     return patient
+
+
+@router.get("/{patient_id}/case-records")
+async def get_patient_case_records(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all case records for a patient (any role)."""
+    result = await db.execute(
+        select(CaseRecord)
+        .where(CaseRecord.patient_id == patient_id)
+        .order_by(CaseRecord.date.desc())
+    )
+    records = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "patient_id": r.patient_id,
+            "student_id": r.student_id,
+            "date": r.date.isoformat() if r.date else None,
+            "time": r.time,
+            "type": r.type,
+            "description": r.description,
+            "department": r.department,
+            "findings": r.findings,
+            "diagnosis": r.diagnosis,
+            "icd_code": r.icd_code,
+            "icd_description": r.icd_description,
+            "treatment": r.treatment,
+            "notes": r.notes,
+            "grade": r.grade,
+            "provider": r.provider,
+            "procedure_name": r.procedure_name,
+            "status": r.status,
+            "approved_by": r.approved_by,
+            "approved_at": r.approved_at,
+            "created_by_name": r.created_by_name,
+            "created_by_role": r.created_by_role,
+            "last_modified_by": r.last_modified_by,
+            "last_modified_at": r.last_modified_at.isoformat() if r.last_modified_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+
+
+@router.post("/{patient_id}/case-records")
+async def create_patient_case_record(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a case record for a patient. Faculty records are auto-approved."""
+    from app.models.faculty import Faculty
+
+    is_faculty = user.role == UserRole.FACULTY
+
+    # Resolve name of the creator
+    creator_name = "Unknown"
+    if is_faculty:
+        fac_result = await db.execute(select(Faculty).where(Faculty.user_id == user.id))
+        fac = fac_result.scalar_one_or_none()
+        if fac:
+            creator_name = fac.name
+    else:
+        from app.models.student import Student
+        stu_result = await db.execute(select(Student).where(Student.user_id == user.id))
+        stu = stu_result.scalar_one_or_none()
+        if stu:
+            creator_name = stu.name
+
+    now = datetime.utcnow()
+    record = CaseRecord(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        student_id=body.get("student_id"),  # null for faculty
+        date=now,
+        time=body.get("time"),
+        type=body.get("procedure", "Examination"),
+        procedure_name=body.get("procedure"),
+        procedure_description=body.get("procedure_description"),
+        description=body.get("description", ""),
+        department=body.get("department"),
+        findings=body.get("findings"),
+        diagnosis=body.get("diagnosis"),
+        icd_code=body.get("icd_code"),
+        icd_description=body.get("icd_description"),
+        treatment=body.get("treatment"),
+        notes=body.get("notes"),
+        provider=creator_name if is_faculty else body.get("provider"),
+        doctor_name=creator_name if is_faculty else None,
+        status="Approved" if is_faculty else "Pending",
+        approved_by=creator_name if is_faculty else None,
+        approved_at=now.isoformat() if is_faculty else None,
+        created_by_name=creator_name,
+        created_by_role=user.role.value,
+        last_modified_by=creator_name,
+        last_modified_at=now,
+    )
+    db.add(record)
+    await db.commit()
+
+    return {
+        "id": record.id,
+        "status": record.status,
+        "created_by_name": record.created_by_name,
+    }
 
 
 @router.get("/{patient_id}/vitals")
@@ -268,6 +378,78 @@ async def update_prescription_status(
     prescription.status = body.get("status", prescription.status)
     await db.commit()
     return {"message": "Status updated"}
+
+
+@router.put("/{patient_id}/prescriptions/{rx_id}")
+async def update_prescription(
+    patient_id: str,
+    rx_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a prescription and its medications."""
+    result = await db.execute(
+        select(Prescription)
+        .options(selectinload(Prescription.medications))
+        .where(Prescription.id == rx_id)
+        .where(Prescription.patient_id == patient_id)
+    )
+    prescription = result.scalar_one_or_none()
+    if not prescription:
+        raise HTTPException(status_code=404, detail="Prescription not found")
+
+    # Update prescription fields
+    if "status" in body:
+        try:
+            prescription.status = PrescriptionStatus(body["status"])
+        except ValueError:
+            pass
+    if "doctor" in body:
+        prescription.doctor = body["doctor"]
+    if "notes" in body:
+        prescription.notes = body["notes"]
+
+    # Update medications if provided
+    medications_data = body.get("medications", [])
+    if medications_data:
+        # Update existing medications by id, or update the first one
+        for med_data in medications_data:
+            med_id = med_data.get("id")
+            if med_id:
+                for existing_med in prescription.medications:
+                    if existing_med.id == med_id:
+                        if "name" in med_data:
+                            existing_med.name = med_data["name"]
+                        if "dosage" in med_data:
+                            existing_med.dosage = med_data["dosage"]
+                        if "frequency" in med_data:
+                            existing_med.frequency = med_data["frequency"]
+                        if "instructions" in med_data:
+                            existing_med.instructions = med_data["instructions"]
+                        if "start_date" in med_data:
+                            existing_med.start_date = med_data["start_date"]
+                        if "end_date" in med_data:
+                            existing_med.end_date = med_data["end_date"]
+                        break
+            elif prescription.medications:
+                # Update first medication if no id specified
+                m = prescription.medications[0]
+                if "name" in med_data:
+                    m.name = med_data["name"]
+                if "dosage" in med_data:
+                    m.dosage = med_data["dosage"]
+                if "frequency" in med_data:
+                    m.frequency = med_data["frequency"]
+                if "instructions" in med_data:
+                    m.instructions = med_data["instructions"]
+                if "start_date" in med_data:
+                    m.start_date = med_data["start_date"]
+                if "end_date" in med_data:
+                    m.end_date = med_data["end_date"]
+
+    await db.commit()
+    return {"message": "Prescription updated", "status": prescription.status.value if prescription.status else None}
 
 
 @router.get("/{patient_id}/admissions")

@@ -28,7 +28,7 @@ class CaseRecord(Base):
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
-    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    student_id = Column(String, ForeignKey("students.id"), nullable=True, index=True)
     date = Column(DateTime, nullable=False, index=True)
     time = Column(String, nullable=True)
     type = Column(String, nullable=False)
@@ -48,6 +48,10 @@ class CaseRecord(Base):
     status = Column(String, default="Pending", index=True)  # Pending, Approved, Rejected
     approved_by = Column(String, nullable=True)
     approved_at = Column(String, nullable=True)
+    created_by_name = Column(String, nullable=True)  # Name of who created this record
+    created_by_role = Column(String, nullable=True)  # STUDENT or FACULTY
+    last_modified_by = Column(String, nullable=True)  # Name of last person to modify
+    last_modified_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     patient = relationship("Patient", back_populates="case_records")

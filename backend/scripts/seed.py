@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.database import AsyncSessionLocal, engine, Base
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Gender, PatientCategory, MedicalAlert
-from app.models.student import Student, StudentPatientAssignment
+from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment
 from app.models.faculty import Faculty
 from app.models.department import Department
 from app.models.vital import Vital
@@ -83,6 +83,28 @@ DEPARTMENTS = [
     {"name": "Internal Medicine", "code": "IM",   "description": "General internal medicine and diagnostics"},
     {"name": "Cardiology",        "code": "CARD", "description": "Heart and cardiovascular care"},
     {"name": "Pediatrics",        "code": "PED",  "description": "Child and adolescent healthcare"},
+]
+
+CLINICS = [
+    {"name": "General Medicine OPD",     "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
+    {"name": "Cardiology Clinic",        "department": "Cardiology",        "location": "Block B, 1st Floor",           "faculty_idx": 1},
+    {"name": "Pediatrics & Child Health", "department": "Pediatrics",        "location": "Block C, 2nd Floor",           "faculty_idx": 2},
+]
+
+CLINIC_APPOINTMENTS = [
+    # General Medicine OPD – 4 patients
+    {"clinic_idx": 0, "patient_idx": 0, "time": "9:00 AM",  "status": "Completed",   "provider": "Dr. Arun Kumar"},
+    {"clinic_idx": 0, "patient_idx": 1, "time": "9:30 AM",  "status": "In Progress", "provider": "Dr. Arun Kumar"},
+    {"clinic_idx": 0, "patient_idx": 2, "time": "10:00 AM", "status": "Checked In",  "provider": "Dr. Arun Kumar"},
+    {"clinic_idx": 0, "patient_idx": 3, "time": "10:30 AM", "status": "Scheduled",   "provider": "Dr. Arun Kumar"},
+    # Cardiology Clinic – 3 patients
+    {"clinic_idx": 1, "patient_idx": 4, "time": "9:15 AM",  "status": "Completed",   "provider": "Dr. Priya Sharma"},
+    {"clinic_idx": 1, "patient_idx": 5, "time": "10:00 AM", "status": "In Progress", "provider": "Dr. Priya Sharma"},
+    {"clinic_idx": 1, "patient_idx": 6, "time": "10:45 AM", "status": "Scheduled",   "provider": "Dr. Priya Sharma"},
+    # Pediatrics – 3 patients
+    {"clinic_idx": 2, "patient_idx": 7, "time": "9:00 AM",  "status": "In Progress", "provider": "Dr. Ravi Menon"},
+    {"clinic_idx": 2, "patient_idx": 8, "time": "9:45 AM",  "status": "Checked In",  "provider": "Dr. Ravi Menon"},
+    {"clinic_idx": 2, "patient_idx": 9, "time": "10:30 AM", "status": "Scheduled",   "provider": "Dr. Ravi Menon"},
 ]
 
 
@@ -286,6 +308,40 @@ async def seed():
             p.diagnosis_doctor = "Dr. Arun Kumar"
             p.diagnosis_date = date.today().isoformat()
             p.diagnosis_time = "09:30 AM"
+
+        # ── Clinics ──────────────────────────────────────
+        fac_result = await db.execute(select(Faculty))
+        all_faculty = fac_result.scalars().all()
+        faculty_list = list(all_faculty)
+
+        clinic_objs = []
+        for c in CLINICS:
+            clinic = Clinic(
+                id=uid(),
+                name=c["name"],
+                department=c["department"],
+                location=c["location"],
+                faculty_id=faculty_list[c["faculty_idx"]].id if c["faculty_idx"] < len(faculty_list) else None,
+            )
+            db.add(clinic)
+            clinic_objs.append(clinic)
+        await db.flush()
+
+        # ── Clinic Appointments ──────────────────────────
+        from datetime import datetime as dt
+        today = datetime.combine(date.today(), datetime.min.time())
+        for ca in CLINIC_APPOINTMENTS:
+            clinic = clinic_objs[ca["clinic_idx"]]
+            patient = all_patients[ca["patient_idx"]]
+            db.add(ClinicAppointment(
+                id=uid(),
+                clinic_id=clinic.id,
+                patient_id=patient.id,
+                appointment_date=today,
+                appointment_time=ca["time"],
+                provider_name=ca["provider"],
+                status=ca["status"],
+            ))
 
         await db.commit()
 

@@ -5,6 +5,7 @@
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
+	import { facultyApi } from '$lib/api/faculty';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
@@ -37,6 +38,7 @@
 	let procedureMap: Record<string, string[]> = $state({});
 	let departments: string[] = $state([]);
 	let studentData: any = $state(null);
+	let facultyData: any = $state(null);
 
 	// ── UI State ──────────────────────────────────────────────────
 	let activeTab = $state('case-records');
@@ -59,6 +61,12 @@
 	let showAlertHistory = $state(false);
 	let newAlertTitle = $state('');
 	let alertSubmitting = $state(false);
+
+	// Primary Diagnosis UI
+	let showDiagnosisInput = $state(false);
+	let showDiagnosisHistory = $state(false);
+	let newDiagnosis = $state('');
+	let diagnosisSubmitting = $state(false);
 
 	// ── Case Record form ──────────────────────────────────────────
 	let crDepartment = $state('');
@@ -101,6 +109,19 @@
 	let prDosage = $state('');
 	let prNotes = $state('');
 	let prSubmitting = $state(false);
+
+	// ── Edit Prescription ─────────────────────────────────────────
+	let showEditPrescriptionModal = $state(false);
+	let editRxId = $state('');
+	let editRxName = $state('');
+	let editRxDosage = $state('');
+	let editRxFrequency = $state('');
+	let editRxStartDate = $state('');
+	let editRxEndDate = $state('');
+	let editRxInstructions = $state('');
+	let editRxStatus = $state('ACTIVE');
+	let editRxMedId = $state('');
+	let editRxSubmitting = $state(false);
 
 	// ── Vitals Chart ──────────────────────────────────────────────
 	let selectedParameter = $state('bp');
@@ -196,29 +217,60 @@
 		const patientId = page.params.id;
 		if (!patientId) return;
 		try {
-			if (!studentData) {
-				studentData = await studentApi.getMe();
-			}
-			const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs] =
-				await Promise.all([
+			if (role === 'STUDENT') {
+				if (!studentData) {
+					studentData = await studentApi.getMe();
+				}
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs] =
+					await Promise.all([
+						patientApi.getPatient(patientId),
+						studentApi.getCaseRecords(studentData.id, patientId),
+						patientApi.getVitals(patientId, 30).catch(() => []),
+						patientApi.getPrescriptions(patientId).catch(() => []),
+						studentApi.getDepartments().catch(() => []),
+						studentApi.getProcedures().catch(() => ({})),
+						studentApi.getFacultyApprovers().catch(() => []),
+						patientApi.getPrescriptionRequests(patientId).catch(() => []),
+					]);
+				patient = patientData;
+				caseRecords = caseData;
+				vitals = vitalData;
+				prescriptions = rxData;
+				medications = rxData.flatMap((rx: any) => rx.medications || []);
+				departments = depts;
+				procedureMap = procs;
+				facultyApprovers = approvers;
+				prescriptionRequests = rxReqs;
+			} else {
+				// FACULTY / ADMIN / PATIENT viewing a patient detail
+				if (role === 'FACULTY' && !facultyData) {
+					facultyData = await facultyApi.getMe();
+				}
+				const fetchList: Promise<any>[] = [
 					patientApi.getPatient(patientId),
-					studentApi.getCaseRecords(studentData.id),
+					patientApi.getCaseRecords(patientId).catch(() => []),
 					patientApi.getVitals(patientId, 30).catch(() => []),
 					patientApi.getPrescriptions(patientId).catch(() => []),
-					studentApi.getDepartments().catch(() => []),
-					studentApi.getProcedures().catch(() => ({})),
-					studentApi.getFacultyApprovers().catch(() => []),
 					patientApi.getPrescriptionRequests(patientId).catch(() => []),
-				]);
-			patient = patientData;
-			caseRecords = caseData;
-			vitals = vitalData;
-			prescriptions = rxData;
-			medications = rxData.flatMap((rx: any) => rx.medications || []);
-			departments = depts;
-			procedureMap = procs;
-			facultyApprovers = approvers;
-			prescriptionRequests = rxReqs;
+				];
+				if (role === 'FACULTY') {
+					fetchList.push(
+						studentApi.getDepartments().catch(() => []),
+						studentApi.getProcedures().catch(() => ({})),
+					);
+				}
+				const results = await Promise.all(fetchList);
+				patient = results[0];
+				caseRecords = results[1];
+				vitals = results[2];
+				prescriptions = results[3];
+				medications = results[3].flatMap((rx: any) => rx.medications || []);
+				prescriptionRequests = results[4];
+				if (role === 'FACULTY') {
+					departments = results[5] || [];
+					procedureMap = results[6] || {};
+				}
+			}
 		} catch (err) {
 			console.error('Failed to load patient detail', err);
 		}
@@ -232,6 +284,31 @@
 		}
 	});
 
+	// Auto-refresh patient data every 30 seconds
+	$effect(() => {
+		if (loading) return;
+		const interval = setInterval(async () => {
+			try {
+				const patientId = page.params.id;
+				if (!patientId) return;
+				const [patientData, vitalData, rxData, rxReqs] = await Promise.all([
+					patientApi.getPatient(patientId),
+					patientApi.getVitals(patientId, 30).catch(() => []),
+					patientApi.getPrescriptions(patientId).catch(() => []),
+					patientApi.getPrescriptionRequests(patientId).catch(() => []),
+				]);
+				patient = patientData;
+				vitals = vitalData;
+				prescriptions = rxData;
+				medications = rxData.flatMap((rx: any) => rx.medications || []);
+				prescriptionRequests = rxReqs;
+			} catch (err) {
+				console.error('Auto-refresh failed', err);
+			}
+		}, 30000);
+		return () => clearInterval(interval);
+	});
+
 	// ── Case Record Submit ────────────────────────────────────────
 	function resetCaseRecordForm() {
 		crDepartment = ''; crProcedure = ''; crNotes = ''; crFindings = '';
@@ -240,7 +317,8 @@
 	}
 
 	async function submitCaseRecord() {
-		if (!studentData || !patient || crSubmitting) return;
+		if (!patient || crSubmitting) return;
+		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
 			const now = new Date();
@@ -257,9 +335,15 @@
 			if (showVitalFields) {
 				payload.description = `BP: ${crSystolic}/${crDiastolic} mmHg, Position: ${crPatientPosition}`;
 			}
-			if (crFacultyId) payload.faculty_id = crFacultyId;
-			await studentApi.submitCaseRecord(studentData.id, payload);
-			caseRecords = await studentApi.getCaseRecords(studentData.id);
+			if (role === 'STUDENT') {
+				if (crFacultyId) payload.faculty_id = crFacultyId;
+				await studentApi.submitCaseRecord(studentData.id, payload);
+				caseRecords = await studentApi.getCaseRecords(studentData.id, patient.id);
+			} else {
+				// Faculty submits directly — auto-approved, no review needed
+				await patientApi.createCaseRecord(patient.id, payload);
+				caseRecords = await patientApi.getCaseRecords(patient.id);
+			}
 			showAddRecordModal = false;
 			resetCaseRecordForm();
 		} catch (err) { console.error('Failed to submit case record', err); }
@@ -329,6 +413,51 @@
 		prMedication = ''; prDosage = ''; prNotes = '';
 	}
 
+	// ── Edit Prescription ─────────────────────────────────────────
+	function openEditPrescription(rx: any) {
+		editRxId = rx.id;
+		editRxStatus = rx.status || 'ACTIVE';
+		const med = rx.medications?.[0];
+		editRxMedId = med?.id || '';
+		editRxName = med?.name || '';
+		editRxDosage = med?.dosage || '';
+		editRxFrequency = med?.frequency || '';
+		editRxStartDate = med?.start_date || '';
+		editRxEndDate = med?.end_date || '';
+		editRxInstructions = med?.instructions || '';
+		showEditPrescriptionModal = true;
+	}
+
+	function resetEditForm() {
+		editRxId = ''; editRxName = ''; editRxDosage = ''; editRxFrequency = '';
+		editRxStartDate = ''; editRxEndDate = ''; editRxInstructions = '';
+		editRxStatus = 'ACTIVE'; editRxMedId = '';
+	}
+
+	async function submitEditPrescription() {
+		if (!patient || editRxSubmitting) return;
+		editRxSubmitting = true;
+		try {
+			await patientApi.updatePrescription(patient.id, editRxId, {
+				status: editRxStatus,
+				medications: [{
+					id: editRxMedId || undefined,
+					name: editRxName,
+					dosage: editRxDosage,
+					frequency: editRxFrequency,
+					start_date: editRxStartDate,
+					end_date: editRxEndDate,
+					instructions: editRxInstructions,
+				}],
+			});
+			prescriptions = await patientApi.getPrescriptions(patient.id);
+			medications = prescriptions.flatMap((rx: any) => rx.medications || []);
+			showEditPrescriptionModal = false;
+			resetEditForm();
+		} catch (err) { console.error('Failed to update prescription', err); }
+		finally { editRxSubmitting = false; }
+	}
+
 	async function submitPrescriptionRequest() {
 		if (!patient || prSubmitting) return;
 		prSubmitting = true;
@@ -387,6 +516,25 @@
 			alertHistory = await patientApi.getMedicalAlertHistory(patient.id);
 			showAlertHistory = true;
 		} catch (err) { console.error('Failed to load history', err); }
+	}
+
+	// ── Primary Diagnosis ─────────────────────────────────────────
+	async function updateDiagnosis() {
+		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
+		diagnosisSubmitting = true;
+		try {
+			const now = new Date();
+			await patientApi.updatePrimaryDiagnosis(patient.id, {
+				diagnosis: newDiagnosis.trim(),
+				doctor: studentData?.name || '',
+				date: now.toLocaleDateString(),
+				time: now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+			});
+			patient = await patientApi.getPatient(patient.id);
+			newDiagnosis = '';
+			showDiagnosisInput = false;
+		} catch (err) { console.error('Failed to update diagnosis', err); }
+		finally { diagnosisSubmitting = false; }
 	}
 </script>
 
@@ -529,33 +677,99 @@
 	</div>
 
 	<!-- ═══════════════════════════════════════════════════════════════
-	     PRIMARY DIAGNOSIS (always visible, above tabs)
+	     PRIMARY DIAGNOSIS (inline, like Medical Alerts)
 	     ═══════════════════════════════════════════════════════════════ -->
-	<AquaCard>
-		<div class="flex items-center justify-between mb-1">
+	<div class="rounded-xl overflow-hidden"
+		style="background: linear-gradient(to right, rgba(200,220,255,0.6), rgba(180,210,255,0.4));
+		       border: 1px solid rgba(50,100,220,0.15);">
+		<div class="px-4 py-2.5 flex items-center justify-between">
 			<div class="flex items-center gap-2">
-				<FileText class="w-4 h-4 text-blue-600" />
-				<span class="font-bold text-gray-800">Primary Diagnosis</span>
+				<FileText class="w-4 h-4 text-blue-500" />
+				<span class="text-sm font-bold text-blue-600">Primary Diagnosis</span>
 			</div>
 			<div class="flex gap-1.5">
 				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.06);">
-					<Clock class="w-3.5 h-3.5 text-gray-500" />
+					style="background: rgba(0,0,0,0.08);"
+					onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
+					<History class="w-3.5 h-3.5 text-gray-600" />
 				</button>
 				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.06);"
-					onclick={() => showAddRecordModal = true}>
-					<Plus class="w-3.5 h-3.5 text-gray-500" />
+					style="background: rgba(0,0,0,0.08);"
+					onclick={() => showDiagnosisInput = !showDiagnosisInput}>
+					<Edit class="w-3.5 h-3.5 text-gray-600" />
 				</button>
 			</div>
 		</div>
-		<p class="text-sm text-gray-700 mt-1">{patient.primary_diagnosis || 'No diagnosis recorded'}</p>
-		{#if patient.diagnosis_doctor}
-			<p class="text-xs text-gray-400 mt-1">
-				Last updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
-			</p>
+
+		<!-- Current Diagnosis Tag -->
+		<div class="px-4 pb-2">
+			{#if patient.primary_diagnosis}
+				<span class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium text-blue-800"
+					style="background: rgba(255,255,255,0.6);">
+					{patient.primary_diagnosis}
+				</span>
+				{#if patient.diagnosis_doctor}
+					<p class="text-xs text-blue-400 mt-1 ml-1">
+						Updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
+					</p>
+				{/if}
+			{:else}
+				<p class="text-xs text-blue-400">No diagnosis recorded</p>
+			{/if}
+		</div>
+
+		<!-- Edit Diagnosis Input (inline) -->
+		{#if showDiagnosisInput}
+			<div class="px-4 pb-3">
+				<div class="flex gap-2 items-center p-2 rounded-lg bg-white/60">
+					<input type="text" bind:value={newDiagnosis}
+						class="flex-1 px-3 py-1.5 rounded-lg text-sm bg-white"
+						style="border: 1px solid rgba(0,0,0,0.15);"
+						placeholder="Enter primary diagnosis"
+						onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
+					<button class="px-3 py-1.5 rounded-lg text-xs font-medium text-white cursor-pointer"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+						onclick={updateDiagnosis} disabled={diagnosisSubmitting}>
+						Save
+					</button>
+				</div>
+				<div class="flex justify-end mt-1.5">
+					<button class="px-2 py-1 text-xs text-gray-500 cursor-pointer rounded hover:bg-white/40"
+						onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>
+						Cancel
+					</button>
+				</div>
+			</div>
 		{/if}
-	</AquaCard>
+
+		<!-- Diagnosis History -->
+		{#if showDiagnosisHistory}
+			<div class="mx-4 mb-3 p-3 rounded-lg bg-white/60" style="border: 1px solid rgba(50,100,220,0.1);">
+				<h4 class="text-sm font-semibold text-gray-700 mb-2">Diagnosis History</h4>
+				{#if patient.primary_diagnosis}
+					<div class="flex items-start gap-2 pl-2" style="border-left: 3px solid #3b82f6;">
+						<div class="flex-1">
+							<p class="text-sm font-medium text-blue-700">{patient.primary_diagnosis}</p>
+							<p class="text-xs text-gray-400">
+								Updated by {patient.diagnosis_doctor || 'Unknown'} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
+							</p>
+						</div>
+						<span class="text-xs font-medium px-2 py-0.5 rounded"
+							style="background: rgba(59,130,246,0.1); color: #2563eb;">
+							Current
+						</span>
+					</div>
+				{:else}
+					<p class="text-xs text-gray-400">No diagnosis history</p>
+				{/if}
+				<div class="flex justify-end mt-2">
+					<button class="px-3 py-1 text-xs text-gray-500 cursor-pointer rounded"
+						style="background: rgba(0,0,0,0.06);"
+						onclick={() => showDiagnosisHistory = false}>Close</button>
+				</div>
+			</div>
+		{/if}
+	</div>
 
 	<!-- ═══════════════════════════════════════════════════════════════
 	     TABS
@@ -782,44 +996,58 @@
 			</div>
 
 			<h4 class="text-sm font-semibold text-gray-600 mb-3">Current Medications</h4>
-			{#if medications.length === 0}
-				<p class="text-sm text-gray-400 text-center py-4">No active medications</p>
+			{#if prescriptions.length === 0}
+				<p class="text-sm text-gray-400 text-center py-4">No prescriptions</p>
 			{:else}
 				<div class="space-y-3 mb-6">
-					{#each medications as med}
+					{#each prescriptions as rx}
 						<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
 							<div class="flex items-start justify-between mb-2">
 								<div class="flex items-center gap-2">
 									<Pill class="w-4 h-4 text-gray-500" />
-									<span class="font-semibold text-gray-800">{med.name}</span>
+									<span class="font-semibold text-gray-800">{rx.medications?.[0]?.name || 'Unnamed'}</span>
 								</div>
-								<span class="text-xs font-bold px-2 py-0.5 rounded"
-									style="background: rgba(34,197,94,0.1); color: #16a34a; border: 1px solid rgba(34,197,94,0.2);">
-									{med.status || 'Active'}
-								</span>
-							</div>
-							<div class="grid grid-cols-2 gap-y-1 text-xs ml-6">
-								<div>
-									<span class="text-gray-500">Dosage:</span>
-									<span class="text-gray-700 font-medium"> {med.dosage || '—'}</span>
-								</div>
-								<div class="text-right">
-									<span class="text-gray-500">Frequency:</span>
-									<span class="text-gray-700 font-medium"> {med.frequency || '—'}</span>
-								</div>
-								<div>
-									<span class="text-gray-500">Start:</span>
-									<span class="text-gray-700"> {med.start_date || '—'}</span>
-								</div>
-								<div class="text-right">
-									<span class="text-gray-500">End:</span>
-									<span class="text-gray-700"> {med.end_date || '—'}</span>
+								<div class="flex items-center gap-2">
+									<span class="text-xs font-bold px-2 py-0.5 rounded"
+										style="background: {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.1)'};
+										       color: {rx.status === 'ACTIVE' ? '#16a34a' : '#6b7280'};
+										       border: 1px solid {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.2)' : 'rgba(107,114,128,0.2)'};">
+										{rx.status || 'Active'}
+									</span>
+									<button class="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
+										style="background: rgba(0,0,0,0.06);"
+										onclick={() => openEditPrescription(rx)}>
+										<Edit class="w-3 h-3 text-gray-500" />
+									</button>
 								</div>
 							</div>
-							{#if med.instructions}
-								<p class="text-xs text-gray-500 mt-2 ml-6">
-									<strong>Instructions:</strong> {med.instructions}
-								</p>
+							{#each (rx.medications || []) as med}
+								<div class="grid grid-cols-2 gap-y-1 text-xs ml-6">
+									<div>
+										<span class="text-gray-500">Dosage:</span>
+										<span class="text-gray-700 font-medium"> {med.dosage || '—'}</span>
+									</div>
+									<div class="text-right">
+										<span class="text-gray-500">Frequency:</span>
+										<span class="text-gray-700 font-medium"> {med.frequency || '—'}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Start:</span>
+										<span class="text-gray-700"> {med.start_date || '—'}</span>
+									</div>
+									<div class="text-right">
+										<span class="text-gray-500">End:</span>
+										<span class="text-gray-700"> {med.end_date || '—'}</span>
+									</div>
+								</div>
+								{#if med.instructions}
+									<p class="text-xs text-gray-500 mt-2 ml-6">
+										<strong>Instructions:</strong> {med.instructions}
+									</p>
+								{/if}
+							{/each}
+							{#if rx.doctor}
+								<p class="text-xs text-gray-400 mt-2 ml-6">Prescribed by {rx.doctor} · {rx.date || ''}</p>
 							{/if}
 						</div>
 					{/each}
@@ -957,6 +1185,7 @@
 				class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3"
 				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Treatment plan..."></textarea>
 		</div>
+		{#if role !== 'FACULTY'}
 		<div>
 			<label for="cr-fac" class="text-xs text-gray-500 mb-1 block font-medium">Faculty for Approval</label>
 			<select id="cr-fac" bind:value={crFacultyId}
@@ -968,6 +1197,7 @@
 				{/each}
 			</select>
 		</div>
+		{/if}
 	</div>
 	<div class="flex gap-3 mt-6">
 		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
@@ -979,7 +1209,7 @@
 			       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
 			onclick={submitCaseRecord}
 			disabled={crSubmitting || !crDepartment || !crProcedure}>
-			{crSubmitting ? 'Submitting...' : 'Submit for Review'}
+			{crSubmitting ? 'Submitting...' : (role === 'FACULTY' ? 'Save Record' : 'Submit for Review')}
 		</button>
 	</div>
 </AquaModal>
@@ -1176,6 +1406,90 @@
 			onclick={submitPrescriptionRequest}
 			disabled={prSubmitting || !prMedication}>
 			{prSubmitting ? 'Submitting...' : 'Submit Request'}
+		</button>
+	</div>
+</AquaModal>
+{/if}
+
+<!-- Edit Prescription Modal -->
+{#if showEditPrescriptionModal}
+<AquaModal title="Edit Prescription" onclose={() => { showEditPrescriptionModal = false; resetEditForm(); }}>
+	<div class="space-y-4">
+		<!-- Status Toggle -->
+		<div>
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<label class="text-sm font-medium text-gray-700 mb-2 block">Status</label>
+			<div class="flex gap-2">
+				{#each ['ACTIVE', 'COMPLETED'] as st}
+					<button
+						class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
+						style="background: {editRxStatus === st ? (st === 'ACTIVE' ? 'linear-gradient(to bottom, #22c55e, #16a34a)' : 'linear-gradient(to bottom, #6b7280, #4b5563)') : '#f1f5f9'};
+						       color: {editRxStatus === st ? 'white' : '#64748b'};
+						       border: 1px solid {editRxStatus === st ? 'transparent' : 'rgba(0,0,0,0.1)'};"
+						onclick={() => editRxStatus = st}>
+						{st === 'ACTIVE' ? 'Active' : 'Inactive'}
+					</button>
+				{/each}
+			</div>
+		</div>
+		<div>
+			<label for="erx-name" class="text-sm font-medium text-gray-700 mb-1 block">Medication Name</label>
+			<input id="erx-name" type="text" bind:value={editRxName}
+				class="w-full px-4 py-3 rounded-lg text-sm"
+				style="border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label for="erx-dose" class="text-sm font-medium text-gray-700 mb-1 block">Dosage</label>
+			<input id="erx-dose" type="text" bind:value={editRxDosage}
+				class="w-full px-4 py-3 rounded-lg text-sm"
+				style="border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label for="erx-freq" class="text-sm font-medium text-gray-700 mb-1 block">Frequency</label>
+			<select id="erx-freq" bind:value={editRxFrequency}
+				class="w-full px-4 py-3 rounded-lg text-sm bg-white cursor-pointer"
+				style="border: 1px solid rgba(0,0,0,0.15);">
+				<option value="">Select frequency</option>
+				<option value="Once daily">Once daily</option>
+				<option value="Twice daily">Twice daily</option>
+				<option value="Three times daily">Three times daily</option>
+				<option value="Four times daily">Four times daily</option>
+				<option value="Every 8 hours">Every 8 hours</option>
+				<option value="Every 12 hours">Every 12 hours</option>
+				<option value="As needed">As needed</option>
+				<option value="Once weekly">Once weekly</option>
+			</select>
+		</div>
+		<div>
+			<label for="erx-start" class="text-sm font-medium text-gray-700 mb-1 block">Start Date</label>
+			<input id="erx-start" type="date" bind:value={editRxStartDate}
+				class="w-full px-4 py-3 rounded-lg text-sm"
+				style="border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label for="erx-end" class="text-sm font-medium text-gray-700 mb-1 block">End Date</label>
+			<input id="erx-end" type="date" bind:value={editRxEndDate}
+				class="w-full px-4 py-3 rounded-lg text-sm"
+				style="border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label for="erx-inst" class="text-sm font-medium text-gray-700 mb-1 block">Instructions</label>
+			<textarea id="erx-inst" bind:value={editRxInstructions}
+				class="w-full px-4 py-3 rounded-lg text-sm resize-y" rows="3"
+				style="border: 1px solid rgba(0,0,0,0.15);"></textarea>
+		</div>
+	</div>
+	<div class="flex gap-3 mt-6">
+		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
+			style="background: #f1f5f9; color: #64748b;"
+			onclick={() => { showEditPrescriptionModal = false; resetEditForm(); }}
+			disabled={editRxSubmitting}>Cancel</button>
+		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #4d90fe, #2563eb);
+			       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+			onclick={submitEditPrescription}
+			disabled={editRxSubmitting}>
+			{editRxSubmitting ? 'Saving...' : 'Save Changes'}
 		</button>
 	</div>
 </AquaModal>

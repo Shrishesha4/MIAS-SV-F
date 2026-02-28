@@ -128,14 +128,26 @@
 		}
 	}
 
-	function handleMedicationTaken() {
+	let medicationTakenSuccess = $state(false);
+
+	async function handleMedicationTaken() {
 		if (!dashboard?.active_medications?.[0] || !patient) return;
 		const med = dashboard.active_medications[0];
-		patientApi.logMedicationDose(patient.id, med.id, { status: 'TAKEN', scheduled_time: 'Now' })
-			.then(() => {
-				showMedicationReminder = false;
-			})
-			.catch(err => console.error('Failed to log medication dose', err));
+		try {
+			const result = await patientApi.logMedicationDose(patient.id, med.id, { status: 'TAKEN', scheduled_time: new Date().toISOString() });
+			if (result && result.id) {
+				medicationTakenSuccess = true;
+				setTimeout(() => {
+					showMedicationReminder = false;
+					medicationTakenSuccess = false;
+				}, 1500);
+			}
+		} catch (err) {
+			console.error('Failed to log medication dose', err);
+			// Show error to user
+			error = 'Failed to log medication dose. Please try again.';
+			setTimeout(() => error = '', 3000);
+		}
 	}
 
 	async function updateFacultyAvailability(status: 'Available' | 'Busy' | 'Unavailable') {
@@ -176,6 +188,26 @@
 		} finally {
 			loading = false;
 		}
+	});
+
+	// Auto-refresh dashboard data every 30 seconds
+	$effect(() => {
+		if (loading) return;
+		const interval = setInterval(async () => {
+			try {
+				if (role === 'PATIENT' && patient) {
+					dashboard = await patientApi.getDashboard(patient.id);
+				} else if (role === 'STUDENT' && student) {
+					assignedPatients = await studentApi.getAssignedPatients(student.id);
+				} else if (role === 'FACULTY' && faculty) {
+					approvals = await facultyApi.getApprovals(faculty.id);
+					approvalStats = await approvalsApi.getApprovalStats(faculty.id);
+				}
+			} catch (err) {
+				console.error('Auto-refresh failed', err);
+			}
+		}, 30000);
+		return () => clearInterval(interval);
 	});
 </script>
 
@@ -274,11 +306,12 @@
 					</div>
 					<button
 						class="px-4 py-1.5 rounded-full text-sm font-semibold text-white cursor-pointer shrink-0"
-						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
-						       box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);"
+						style="background: linear-gradient(to bottom, {medicationTakenSuccess ? '#22c55e' : '#3b82f6'}, {medicationTakenSuccess ? '#16a34a' : '#2563eb'});
+						       box-shadow: 0 2px 4px {medicationTakenSuccess ? 'rgba(22,163,74,0.3)' : 'rgba(37, 99, 235, 0.3)'};"
 						onclick={handleMedicationTaken}
+						disabled={medicationTakenSuccess}
 					>
-						Taken
+						{medicationTakenSuccess ? '✓ Logged!' : 'Taken'}
 					</button>
 				</div>
 			</AquaCard>

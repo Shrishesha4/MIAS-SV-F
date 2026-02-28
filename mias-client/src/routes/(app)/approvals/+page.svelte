@@ -129,6 +129,19 @@
 			loading = false;
 		}
 	});
+
+	// Auto-refresh approvals every 30 seconds
+	$effect(() => {
+		if (loading || !facultyId) return;
+		const interval = setInterval(async () => {
+			try {
+				pendingApprovals = await approvalsApi.getPendingApprovals(facultyId, approvalType);
+			} catch (err) {
+				console.error('Auto-refresh failed', err);
+			}
+		}, 30000);
+		return () => clearInterval(interval);
+	});
 </script>
 
 <div class="px-4 py-4 space-y-4">

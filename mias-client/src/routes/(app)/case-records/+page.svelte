@@ -231,23 +231,43 @@
 					{/if}
 
 					<!-- Footer info -->
-					<div class="flex items-center justify-between pt-2 text-[10px] text-gray-400">
-						<div class="flex items-center gap-3">
-							{#if cr.grade}
-								<span class="flex items-center gap-1">
-									<Award class="w-3 h-3" />
-									Grade: <strong class="text-gray-600">{cr.grade}</strong>
-								</span>
-							{/if}
-							{#if cr.provider}
-								<span class="flex items-center gap-1">
-									<User class="w-3 h-3" />
-									{cr.provider}
-								</span>
+					<div class="pt-2 text-[10px] text-gray-400 space-y-1">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-3">
+								{#if cr.grade}
+									<span class="flex items-center gap-1">
+										<Award class="w-3 h-3" />
+										Grade: <strong class="text-gray-600">{cr.grade}</strong>
+									</span>
+								{/if}
+								{#if cr.created_by_name}
+									<span class="flex items-center gap-1">
+										<User class="w-3 h-3" />
+										Created by: {cr.created_by_name}
+										<span class="px-1 py-0.5 rounded text-[9px] font-semibold"
+											style="background: {cr.created_by_role === 'FACULTY' ? 'rgba(139,92,246,0.1)' : 'rgba(59,130,246,0.1)'};
+											       color: {cr.created_by_role === 'FACULTY' ? '#7c3aed' : '#2563eb'};">
+											{cr.created_by_role === 'FACULTY' ? 'Doctor' : 'Student'}
+										</span>
+									</span>
+								{:else if cr.provider}
+									<span class="flex items-center gap-1">
+										<User class="w-3 h-3" />
+										{cr.provider}
+									</span>
+								{/if}
+							</div>
+							{#if cr.approver}
+								<span>Approved by {cr.approver}</span>
 							{/if}
 						</div>
-						{#if cr.approver}
-							<span>Approved by {cr.approver}</span>
+						{#if cr.last_modified_by}
+							<div class="flex items-center gap-1 text-gray-400">
+								Last modified by: {cr.last_modified_by}
+								{#if cr.last_modified_at}
+									· {new Date(cr.last_modified_at).toLocaleDateString('en-IN', {day: 'numeric', month: 'short'})} {new Date(cr.last_modified_at).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}
+								{/if}
+							</div>
 						{/if}
 					</div>
 				</div>

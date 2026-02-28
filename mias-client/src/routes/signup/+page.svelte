@@ -51,7 +51,12 @@
 
 	const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 	const programs = ['BDS', 'MDS', 'MBBS', 'MD', 'MS'];
-	const departments = ['Oral Surgery', 'Orthodontics', 'Periodontics', 'Prosthodontics', 'Endodontics', 'Pedodontics', 'Oral Pathology', 'Public Health Dentistry'];
+	const departments = [
+		'Internal Medicine', 'Cardiology', 'Pediatrics', 'General Medicine',
+		'Oral Surgery', 'Orthodontics', 'Periodontics', 'Prosthodontics',
+		'Endodontics', 'Pedodontics', 'Oral Pathology', 'Public Health Dentistry',
+		'Dermatology', 'Ophthalmology', 'ENT', 'Psychiatry', 'Radiology',
+	];
 
 	function getSteps() {
 		if (!selectedRole) return [];
@@ -545,6 +550,12 @@
 										{/each}
 									</select>
 								</div>
+							</div>
+							<div>
+								<label class="text-xs text-gray-500 mb-1 block">Current GPA</label>
+								<input type="number" step="0.1" min="0" max="10" placeholder="e.g., 8.5" bind:value={studentGpa}
+									class="w-full px-4 py-3 outline-none text-gray-700 text-sm"
+									style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;" />
 							</div>
 							<div>
 								<label class="text-xs text-gray-500 mb-1 block">Academic Advisor (Optional)</label>

@@ -57,8 +57,9 @@ export const studentApi = {
     return response.data;
   },
 
-  async getCaseRecords(studentId: string) {
-    const response = await client.get(`/students/${studentId}/case-records`);
+  async getCaseRecords(studentId: string, patientId?: string) {
+    const params = patientId ? { patient_id: patientId } : {};
+    const response = await client.get(`/students/${studentId}/case-records`, { params });
     return response.data;
   },
 

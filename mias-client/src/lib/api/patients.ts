@@ -179,6 +179,11 @@ export const patientApi = {
     return response.data;
   },
 
+  async updatePrescription(patientId: string, rxId: string, data: Record<string, unknown>) {
+    const response = await client.put(`/patients/${patientId}/prescriptions/${rxId}`, data);
+    return response.data;
+  },
+
   // Prescription Requests
   async getPrescriptionRequests(patientId: string) {
     const response = await client.get(`/patients/${patientId}/prescription-requests`);
@@ -192,6 +197,17 @@ export const patientApi = {
 
   async respondToPrescriptionRequest(patientId: string, requestId: string, data: { status: string; responded_by?: string; notes?: string }) {
     const response = await client.put(`/patients/${patientId}/prescription-requests/${requestId}/respond`, data);
+    return response.data;
+  },
+
+  // Case Records
+  async getCaseRecords(patientId: string) {
+    const response = await client.get(`/patients/${patientId}/case-records`);
+    return response.data;
+  },
+
+  async createCaseRecord(patientId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/patients/${patientId}/case-records`, data);
     return response.data;
   },
 };
