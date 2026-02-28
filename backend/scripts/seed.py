@@ -1,7 +1,8 @@
 """Database seeding script – creates test users and sample data."""
 import asyncio
 import uuid
-from datetime import datetime, date
+import random
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 
 import sys
@@ -11,10 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import AsyncSessionLocal, engine, Base
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Gender, PatientCategory
-from app.models.student import Student
+from app.models.patient import Patient, Gender, PatientCategory, MedicalAlert
+from app.models.student import Student, StudentPatientAssignment
 from app.models.faculty import Faculty
 from app.models.department import Department
+from app.models.vital import Vital
+from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.core.security import get_password_hash
 
 
@@ -174,6 +177,115 @@ async def seed():
                 code=dept["code"],
                 description=dept["description"],
             ))
+
+        # Flush to get IDs
+        await db.flush()
+
+        # ── Fetch all student and patient records ────────
+        from sqlalchemy import select
+        stu_result = await db.execute(select(Student))
+        all_students = stu_result.scalars().all()
+        pat_result = await db.execute(select(Patient))
+        all_patients = pat_result.scalars().all()
+
+        student_map = {s.student_id: s for s in all_students}
+        patient_map = {p.patient_id: p for p in all_patients}
+
+        # ── Student-Patient Assignments ──────────────────
+        # Assign 3-4 patients to each student (round-robin with overlap)
+        for i, s in enumerate(all_students):
+            for j in range(3):
+                pat_idx = (i * 2 + j) % len(all_patients)
+                p = all_patients[pat_idx]
+                db.add(StudentPatientAssignment(
+                    id=uid(),
+                    student_id=s.id,
+                    patient_id=p.id,
+                    assigned_date=datetime.utcnow() - timedelta(days=random.randint(5, 30)),
+                    status="Active",
+                ))
+
+        # ── Sample Vitals for first 5 patients ──────────
+        for p in all_patients[:5]:
+            for day_offset in range(10):
+                db.add(Vital(
+                    id=uid(),
+                    patient_id=p.id,
+                    recorded_at=datetime.utcnow() - timedelta(days=day_offset, hours=random.randint(0, 8)),
+                    recorded_by="Dr. Arun Kumar",
+                    systolic_bp=random.randint(110, 140),
+                    diastolic_bp=random.randint(65, 90),
+                    heart_rate=random.randint(60, 100),
+                    respiratory_rate=random.randint(14, 22),
+                    temperature=round(random.uniform(97.5, 99.5), 1),
+                    oxygen_saturation=random.randint(94, 100),
+                    weight=round(random.uniform(120, 200), 1),
+                    blood_glucose=random.randint(80, 140),
+                ))
+
+        # ── Sample Medical Alerts ────────────────────────
+        alert_data = [
+            ("Penicillin Allergy", "ALLERGY", "HIGH"),
+            ("Latex Sensitivity", "ALLERGY", "MEDIUM"),
+            ("Diabetic", "CONDITION", "HIGH"),
+            ("Hypertension", "CONDITION", "MEDIUM"),
+            ("Asthma", "CONDITION", "MEDIUM"),
+        ]
+        for i, p in enumerate(all_patients[:5]):
+            t, ty, sev = alert_data[i]
+            db.add(MedicalAlert(
+                id=uid(),
+                patient_id=p.id,
+                type=ty,
+                severity=sev,
+                title=t,
+                is_active=True,
+                added_by="Dr. Arun Kumar",
+                added_at=datetime.utcnow() - timedelta(days=random.randint(1, 15)),
+            ))
+
+        # ── Sample Prescriptions for first 3 patients ────
+        rx_data = [
+            ("Amoxicillin", "500mg", "Three times daily", "7 days"),
+            ("Lisinopril", "10mg", "Once daily", "30 days"),
+            ("Metformin", "500mg", "Twice daily", "30 days"),
+        ]
+        for i, p in enumerate(all_patients[:3]):
+            rx_id = uid()
+            name, dose, freq, dur = rx_data[i]
+            db.add(Prescription(
+                id=rx_id,
+                prescription_id=f"RX-2025-{str(i+1).zfill(4)}",
+                patient_id=p.id,
+                date=datetime.utcnow() - timedelta(days=random.randint(1, 10)),
+                doctor="Dr. Arun Kumar",
+                department="Internal Medicine",
+                status=PrescriptionStatus.ACTIVE,
+                hospital_name="SMC Hospital",
+            ))
+            db.add(PrescriptionMedication(
+                id=uid(),
+                prescription_id=rx_id,
+                name=name,
+                dosage=dose,
+                frequency=freq,
+                duration=dur,
+                instructions="Take with food",
+                start_date=date.today().isoformat(),
+                end_date=(date.today() + timedelta(days=int(dur.split()[0]))).isoformat(),
+            ))
+
+        # ── Set primary diagnosis for first 3 patients ───
+        diagnoses = [
+            "Essential Hypertension",
+            "Type 2 Diabetes Mellitus",
+            "Acute Bronchitis",
+        ]
+        for i, p in enumerate(all_patients[:3]):
+            p.primary_diagnosis = diagnoses[i]
+            p.diagnosis_doctor = "Dr. Arun Kumar"
+            p.diagnosis_date = date.today().isoformat()
+            p.diagnosis_time = "09:30 AM"
 
         await db.commit()
 

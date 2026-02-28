@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, datetime
 from typing import Optional, List
 from enum import Enum
 
@@ -45,7 +45,7 @@ class MedicalAlertResponse(BaseModel):
     symptoms: Optional[str] = None
     is_active: bool
     added_by: Optional[str] = None
-    added_at: Optional[str] = None
+    added_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
