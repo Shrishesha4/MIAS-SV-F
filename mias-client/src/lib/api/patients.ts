@@ -150,4 +150,48 @@ export const patientApi = {
     });
     return response.data;
   },
+
+  // Primary Diagnosis
+  async updatePrimaryDiagnosis(patientId: string, data: { diagnosis: string; doctor?: string; date?: string; time?: string }) {
+    const response = await client.put(`/patients/${patientId}/primary-diagnosis`, data);
+    return response.data;
+  },
+
+  // Medical Alerts
+  async addMedicalAlert(patientId: string, data: { title: string; type?: string; severity?: string; added_by?: string }) {
+    const response = await client.post(`/patients/${patientId}/medical-alerts`, data);
+    return response.data;
+  },
+
+  async removeMedicalAlert(patientId: string, alertId: string) {
+    const response = await client.delete(`/patients/${patientId}/medical-alerts/${alertId}`);
+    return response.data;
+  },
+
+  async getMedicalAlertHistory(patientId: string) {
+    const response = await client.get(`/patients/${patientId}/medical-alerts/history`);
+    return response.data;
+  },
+
+  // Prescriptions
+  async createPrescription(patientId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/patients/${patientId}/prescriptions`, data);
+    return response.data;
+  },
+
+  // Prescription Requests
+  async getPrescriptionRequests(patientId: string) {
+    const response = await client.get(`/patients/${patientId}/prescription-requests`);
+    return response.data;
+  },
+
+  async createPrescriptionRequest(patientId: string, data: { medication: string; dosage?: string; notes?: string }) {
+    const response = await client.post(`/patients/${patientId}/prescription-requests`, data);
+    return response.data;
+  },
+
+  async respondToPrescriptionRequest(patientId: string, requestId: string, data: { status: string; responded_by?: string; notes?: string }) {
+    const response = await client.put(`/patients/${patientId}/prescription-requests/${requestId}/respond`, data);
+    return response.data;
+  },
 };

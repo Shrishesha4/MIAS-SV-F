@@ -44,6 +44,8 @@ class MedicalAlertResponse(BaseModel):
     description: Optional[str] = None
     symptoms: Optional[str] = None
     is_active: bool
+    added_by: Optional[str] = None
+    added_at: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -67,6 +69,10 @@ class PatientDetailResponse(PatientResponse):
     address: str
     aadhaar_id: Optional[str] = None
     abha_id: Optional[str] = None
+    primary_diagnosis: Optional[str] = None
+    diagnosis_doctor: Optional[str] = None
+    diagnosis_date: Optional[str] = None
+    diagnosis_time: Optional[str] = None
     emergency_contact: Optional[EmergencyContactResponse] = None
     allergies: List[AllergyResponse] = []
     medical_alerts: List[MedicalAlertResponse] = []

@@ -42,6 +42,10 @@ class Patient(Base):
     photo = Column(String, nullable=True)
     aadhaar_id = Column(String, nullable=True)
     abha_id = Column(String, nullable=True)
+    primary_diagnosis = Column(Text, nullable=True)
+    diagnosis_doctor = Column(String, nullable=True)
+    diagnosis_date = Column(String, nullable=True)
+    diagnosis_time = Column(String, nullable=True)
     category = Column(SQLEnum(PatientCategory), default=PatientCategory.GENERAL)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
@@ -123,6 +127,8 @@ class MedicalAlert(Base):
     description = Column(Text, nullable=True)
     symptoms = Column(Text, nullable=True)  # stored as JSON string
     is_active = Column(Boolean, default=True)
+    added_by = Column(String, nullable=True)
+    added_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     patient = relationship("Patient", back_populates="medical_alerts")
 

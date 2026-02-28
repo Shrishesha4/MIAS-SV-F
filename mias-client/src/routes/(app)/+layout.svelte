@@ -45,6 +45,13 @@
 				userIdDisplay = faculty.faculty_id;
 				const notifs = await facultyApi.getNotifications(faculty.id);
 				unreadNotifications = notifs.filter((n: any) => !n.is_read).length;
+			} else if (a.role === 'ADMIN') {
+				userName = 'Administrator';
+				userIdDisplay = 'ADMIN';
+				// Redirect to admin panel if on generic dashboard
+				if (window.location.pathname === '/dashboard') {
+					goto('/admin');
+				}
 			}
 		} catch {
 			// If API fails, use defaults

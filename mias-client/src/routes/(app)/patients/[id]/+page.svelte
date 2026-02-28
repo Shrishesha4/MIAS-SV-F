@@ -39,8 +39,29 @@
 	let showAddInsuranceModal = $state(false);
 
 	let activeTab = $state('profile');
+
+	// Case Record form state
+	let crDepartment = $state('');
+	let crProcedure = $state('');
+	let crNotes = $state('');
+	let crFindings = $state('');
+	let crDiagnosis = $state('');
+	let crTreatment = $state('');
+	let crFacultyId = $state('');
+	let crSystolic = $state('');
+	let crDiastolic = $state('');
+	let crPatientPosition = $state('Sitting');
+	let crSubmitting = $state(false);
+
+	// Reference data
+	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
+	let procedureMap: Record<string, string[]> = $state({});
+	let departments: string[] = $state([]);
+	let studentData: any = $state(null);
+
+	const availableProcedures = $derived(crDepartment ? (procedureMap[crDepartment] || []) : []);
+	const showVitalFields = $derived(crProcedure === 'Blood Pressure Monitoring');
 	const tabs = [
-		{ id: 'profile', label: 'Profile', icon: User },
 		{ id: 'case-records', label: 'Case Records', icon: FileText },
 		{ id: 'vitals', label: 'Vitals', icon: HeartPulse },
 		{ id: 'medications', label: 'Medications', icon: Link2 },
@@ -116,23 +137,75 @@
 		try {
 			const patientId = page.params.id;
 			if (!patientId) return;
-			const studentData = await studentApi.getMe();
-			const [patientData, caseData, vitalData, rxData] = await Promise.all([
+			studentData = await studentApi.getMe();
+			const [patientData, caseData, vitalData, rxData, depts, procs, approvers] = await Promise.all([
 				patientApi.getPatient(patientId),
 				studentApi.getCaseRecords(studentData.id),
 				patientApi.getVitals(patientId, 30).catch(() => [] as any[]),
 				patientApi.getPrescriptions(patientId).catch(() => [] as any[]),
+				studentApi.getDepartments().catch(() => [] as string[]),
+				studentApi.getProcedures().catch(() => ({}) as Record<string, string[]>),
+				studentApi.getFacultyApprovers().catch(() => [] as { id: string; name: string; department: string }[]),
 			]);
 			patient = patientData;
 			caseRecords = caseData;
 			vitals = vitalData;
 			medications = rxData.flatMap((rx: any) => rx.medications || []);
+			departments = depts;
+			procedureMap = procs;
+			facultyApprovers = approvers;
 		} catch (err) {
 			console.error('Failed to load patient detail', err);
 		} finally {
 			loading = false;
 		}
 	});
+
+	function resetCaseRecordForm() {
+		crDepartment = '';
+		crProcedure = '';
+		crNotes = '';
+		crFindings = '';
+		crDiagnosis = '';
+		crTreatment = '';
+		crFacultyId = '';
+		crSystolic = '';
+		crDiastolic = '';
+		crPatientPosition = 'Sitting';
+	}
+
+	async function submitCaseRecord() {
+		if (!studentData || !patient || crSubmitting) return;
+		crSubmitting = true;
+		try {
+			const now = new Date();
+			const payload: Record<string, unknown> = {
+				patient_id: patient.id,
+				department: crDepartment,
+				procedure: crProcedure,
+				findings: crFindings,
+				diagnosis: crDiagnosis,
+				treatment: crTreatment,
+				notes: crNotes,
+				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+			};
+			if (showVitalFields) {
+				payload.description = `BP: ${crSystolic}/${crDiastolic} mmHg, Position: ${crPatientPosition}`;
+			}
+			if (crFacultyId) {
+				payload.faculty_id = crFacultyId;
+			}
+			await studentApi.submitCaseRecord(studentData.id, payload);
+			// Refresh case records
+			caseRecords = await studentApi.getCaseRecords(studentData.id);
+			showAddRecordModal = false;
+			resetCaseRecordForm();
+		} catch (err) {
+			console.error('Failed to submit case record', err);
+		} finally {
+			crSubmitting = false;
+		}
+	}
 </script>
 
 <div class="px-4 py-4 space-y-4">
@@ -170,61 +243,38 @@
 		</div>
 	</AquaCard>
 
+	<!-- Primary Diagnosis (always visible above tabs) -->
+	<AquaCard>
+		<div class="flex items-center justify-between mb-1">
+			<div class="flex items-center gap-2">
+				<FileText class="w-4 h-4 text-blue-600" />
+				<span class="font-bold text-gray-800">Primary Diagnosis</span>
+			</div>
+			<div class="flex gap-1.5">
+				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+					style="background: rgba(0,0,0,0.06);">
+					<Clock class="w-3.5 h-3.5 text-gray-500" />
+				</button>
+				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+					style="background: rgba(0,0,0,0.06);"
+					onclick={() => showAddRecordModal = true}>
+					<Plus class="w-3.5 h-3.5 text-gray-500" />
+				</button>
+			</div>
+		</div>
+		<p class="text-sm text-gray-700 mt-1">{patient.primary_diagnosis || 'No diagnosis recorded'}</p>
+		{#if patient.diagnosis_doctor}
+			<p class="text-xs text-gray-400 mt-1">
+				Last updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
+			</p>
+		{/if}
+	</AquaCard>
+
 	<!-- Tabs -->
 	<TabBar {tabs} {activeTab} onchange={(id) => activeTab = id} />
 
 	<!-- Profile Tab -->
 	{#if activeTab === 'profile'}
-		<!-- Personal Information -->
-		<AquaCard>
-			{#snippet header()}
-				<User class="w-4 h-4 text-blue-600 mr-2" />
-				<span class="text-blue-900 font-semibold text-sm">Personal Information</span>
-			{/snippet}
-			<div class="space-y-4">
-				{#if patient.aadhaar_id}
-					<div>
-						<p class="text-xs text-gray-400">Aadhaar ID</p>
-						<div class="flex items-center gap-2 mt-1">
-							<p class="text-sm text-gray-800 font-medium">XXXX XXXX {patient.aadhaar_id.slice(-4)}</p>
-							<StatusBadge variant="success">Verified</StatusBadge>
-						</div>
-					</div>
-				{/if}
-				{#if patient.abha_id}
-					<div>
-						<p class="text-xs text-gray-400">ABHA ID</p>
-						<div class="flex items-center gap-2 mt-1">
-							<p class="text-sm text-gray-800 font-medium">{patient.abha_id}</p>
-							<StatusBadge variant="success">Verified</StatusBadge>
-						</div>
-					</div>
-				{/if}
-				<div>
-					<p class="text-xs text-gray-400 flex items-center gap-1">
-						<Calendar class="w-3 h-3" /> Date of Birth
-					</p>
-					<p class="text-sm text-gray-800 font-medium mt-1">
-						{patient.date_of_birth ? new Date(patient.date_of_birth).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
-					</p>
-				</div>
-				<div>
-					<p class="text-xs text-gray-400">Gender</p>
-					<div class="flex items-center gap-1 mt-1">
-						<User class="w-4 h-4 text-gray-500" />
-						<p class="text-sm text-gray-800 font-medium">{patient.gender === 'MALE' ? 'Male' : patient.gender === 'FEMALE' ? 'Female' : 'Other'}</p>
-					</div>
-				</div>
-				<div>
-					<p class="text-xs text-gray-400">Blood Group</p>
-					<div class="flex items-center gap-1 mt-1">
-						<Droplet class="w-4 h-4 text-red-500" />
-						<p class="text-sm text-gray-800 font-medium">{patient.blood_group || '—'}</p>
-					</div>
-				</div>
-			</div>
-		</AquaCard>
-
 		<!-- Contact Information -->
 		<AquaCard>
 			{#snippet header()}
@@ -360,7 +410,7 @@
 			</button>
 		{/if}
 
-	<!-- Medical Alerts (show in all tabs) -->
+	<!-- Medical Alerts (show in non-profile tabs) -->
 	{:else if activeTab === 'case-records' || activeTab === 'vitals' || activeTab === 'medications'}
 		<!-- Medical Alerts -->
 		{#if patient.medical_alerts && patient.medical_alerts.length > 0}
@@ -392,33 +442,6 @@
 				</div>
 			</div>
 		{/if}
-
-		<!-- Primary Diagnosis -->
-		<AquaCard>
-			<div class="flex items-center justify-between mb-1">
-				<div class="flex items-center gap-2">
-					<FileText class="w-4 h-4 text-blue-600" />
-					<span class="font-bold text-gray-800">Primary Diagnosis</span>
-				</div>
-				<div class="flex gap-1.5">
-					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-						style="background: rgba(0,0,0,0.06);">
-						<Clock class="w-3.5 h-3.5 text-gray-500" />
-					</button>
-					<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-						style="background: rgba(0,0,0,0.06);"
-						onclick={() => showAddRecordModal = true}>
-						<Plus class="w-3.5 h-3.5 text-gray-500" />
-					</button>
-				</div>
-			</div>
-			<p class="text-sm text-gray-700 mt-1">{patient.primary_diagnosis || 'No diagnosis recorded'}</p>
-			{#if patient.diagnosis_doctor}
-				<p class="text-xs text-gray-400 mt-1">
-					Last updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
-				</p>
-			{/if}
-		</AquaCard>
 	{/if}
 
 	<!-- Case Records Tab Content -->
@@ -431,7 +454,8 @@
 				</div>
 				<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white;
-					       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);">
+					       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);"
+					onclick={() => showAddRecordModal = true}>
 					<Plus class="w-3 h-3" /> Add Entry
 				</button>
 			</div>
@@ -660,42 +684,139 @@
 	{/if}
 </div>
 
-<!-- Add Record Modal -->
+<!-- Add Case Record Modal -->
 {#if showAddRecordModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
-		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl max-h-[80vh] overflow-y-auto">
+		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl max-h-[85vh] overflow-y-auto">
 			<h3 class="text-lg font-bold text-gray-800 mb-4">Add Case Record</h3>
 
 			<div class="space-y-4">
+				<!-- Department -->
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Record Type</label>
-					<select class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);">
-						<option>Physical Examination</option>
-						<option>Laboratory Test</option>
-						<option>Procedure</option>
-						<option>Consultation</option>
+					<label for="cr-department" class="text-xs text-gray-500 mb-1 block font-medium">Department</label>
+					<select id="cr-department" bind:value={crDepartment}
+						class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
+						style="border: 1px solid rgba(0,0,0,0.15);"
+						onchange={() => { crProcedure = ''; }}>
+						<option value="">Select Department</option>
+						{#each departments as dept}
+							<option value={dept}>{dept}</option>
+						{/each}
 					</select>
 				</div>
+
+				<!-- Procedure -->
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Diagnosis</label>
-					<input type="text" class="w-full px-3 py-2 rounded-lg text-sm" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter diagnosis" />
+					<label for="cr-procedure" class="text-xs text-gray-500 mb-1 block font-medium">Procedure</label>
+					<select id="cr-procedure" bind:value={crProcedure}
+						class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
+						style="border: 1px solid rgba(0,0,0,0.15);"
+						disabled={!crDepartment}>
+						<option value="">Select Procedure</option>
+						{#each availableProcedures as proc}
+							<option value={proc}>{proc}</option>
+						{/each}
+					</select>
 				</div>
+
+				<!-- BP Vital Fields (conditional) -->
+				{#if showVitalFields}
+					<div class="rounded-xl p-3" style="background: #f0f7ff; border: 1px solid rgba(59,130,246,0.15);">
+						<p class="text-xs font-semibold text-blue-700 mb-2">Blood Pressure Reading</p>
+						<div class="grid grid-cols-2 gap-3">
+							<div>
+								<label for="cr-systolic" class="text-xs text-gray-500 mb-1 block">Systolic (mmHg)</label>
+								<input id="cr-systolic" type="number" bind:value={crSystolic}
+									class="w-full px-3 py-2 rounded-lg text-sm"
+									style="border: 1px solid rgba(0,0,0,0.15);" placeholder="120" />
+							</div>
+							<div>
+								<label for="cr-diastolic" class="text-xs text-gray-500 mb-1 block">Diastolic (mmHg)</label>
+								<input id="cr-diastolic" type="number" bind:value={crDiastolic}
+									class="w-full px-3 py-2 rounded-lg text-sm"
+									style="border: 1px solid rgba(0,0,0,0.15);" placeholder="80" />
+							</div>
+						</div>
+						<div class="mt-2">
+							<label for="cr-position" class="text-xs text-gray-500 mb-1 block">Patient Position</label>
+							<select id="cr-position" bind:value={crPatientPosition}
+								class="w-full px-3 py-2 rounded-lg text-sm bg-white cursor-pointer"
+								style="border: 1px solid rgba(0,0,0,0.15);">
+								<option value="Sitting">Sitting</option>
+								<option value="Standing">Standing</option>
+								<option value="Supine">Supine</option>
+							</select>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Notes -->
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Findings</label>
-					<textarea class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter findings"></textarea>
+					<label for="cr-notes" class="text-xs text-gray-500 mb-1 block font-medium">Notes</label>
+					<textarea id="cr-notes" bind:value={crNotes}
+						class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="2"
+						style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Additional notes..."></textarea>
 				</div>
+
+				<!-- Findings -->
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Treatment Plan</label>
-					<textarea class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3" style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter treatment plan"></textarea>
+					<label for="cr-findings" class="text-xs text-gray-500 mb-1 block font-medium">Findings</label>
+					<textarea id="cr-findings" bind:value={crFindings}
+						class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3"
+						style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Document examination findings..."></textarea>
+				</div>
+
+				<!-- Diagnosis -->
+				<div>
+					<label for="cr-diagnosis" class="text-xs text-gray-500 mb-1 block font-medium">Diagnosis</label>
+					<input id="cr-diagnosis" type="text" bind:value={crDiagnosis}
+						class="w-full px-3 py-2 rounded-lg text-sm"
+						style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter diagnosis" />
+				</div>
+
+				<!-- Treatment -->
+				<div>
+					<label for="cr-treatment" class="text-xs text-gray-500 mb-1 block font-medium">Treatment</label>
+					<textarea id="cr-treatment" bind:value={crTreatment}
+						class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3"
+						style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Describe treatment plan..."></textarea>
+				</div>
+
+				<!-- Faculty for Approval -->
+				<div>
+					<label for="cr-faculty" class="text-xs text-gray-500 mb-1 block font-medium">Faculty for Approval</label>
+					<select id="cr-faculty" bind:value={crFacultyId}
+						class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
+						style="border: 1px solid rgba(0,0,0,0.15);">
+						<option value="">Select Faculty</option>
+						{#each facultyApprovers as fac}
+							<option value={fac.id}>{fac.name} — {fac.department}</option>
+						{/each}
+					</select>
 				</div>
 			</div>
 
 			<div class="flex gap-3 mt-6">
-				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer" style="background: #f1f5f9; color: #64748b;" onclick={() => showAddRecordModal = false}>
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
+					style="background: #f1f5f9; color: #64748b;"
+					onclick={() => { showAddRecordModal = false; resetCaseRecordForm(); }}
+					disabled={crSubmitting}>
 					Cancel
 				</button>
-				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #22c55e, #16a34a);" onclick={() => showAddRecordModal = false}>
-					Add Record
+				<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
+					style="background: linear-gradient(to bottom, #4d90fe, #2563eb);
+					       box-shadow: 0 2px 6px rgba(37,99,235,0.3);
+					       border: 1px solid rgba(0,0,0,0.1);"
+					onclick={submitCaseRecord}
+					disabled={crSubmitting || !crDepartment || !crProcedure}>
+					{#if crSubmitting}
+						<span class="inline-flex items-center gap-2">
+							<span class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+							Submitting...
+						</span>
+					{:else}
+						Submit for Review
+					{/if}
 				</button>
 			</div>
 		</div>

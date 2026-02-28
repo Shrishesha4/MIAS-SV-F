@@ -14,9 +14,11 @@ from app.models.vital import Vital
 from app.models.prescription import (
     Prescription, PrescriptionMedication, PrescriptionStatus,
     MedicationDoseLog, MedicationDoseStatus,
+    PrescriptionRequest, PrescriptionRequestStatus,
 )
 from app.models.admission import Admission
 from app.models.report import Report, ReportStatus, ReportFinding, ReportImage
 from app.models.wallet import WalletTransaction, WalletType, TransactionType, TransactionItem
 from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
+from app.models.department import Department

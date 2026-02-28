@@ -5,7 +5,7 @@
   import {
     X, Home, User, FileText, Clipboard, Pill, Activity,
     TestTube, Wallet, Bell, Settings, LogOut, GraduationCap,
-    Users, CheckCircle, Bed, Calendar
+    Users, CheckCircle, Bed, Calendar, Shield, Building, BarChart3
   } from 'lucide-svelte';
 
   interface Props {
@@ -55,10 +55,18 @@
     { icon: Bell, label: 'Notifications', path: '/notifications' },
   ];
 
+  const adminMenuItems = [
+    { icon: Home, label: 'Dashboard', path: '/admin' },
+    { icon: Users, label: 'User Management', path: '/admin/users' },
+    { icon: Building, label: 'Departments', path: '/admin/departments' },
+    { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
+  ];
+
   const menuItems = $derived(
     role === 'PATIENT' ? patientMenuItems :
     role === 'STUDENT' ? studentMenuItems :
     role === 'FACULTY' ? facultyMenuItems :
+    role === 'ADMIN' ? adminMenuItems :
     patientMenuItems
   );
 

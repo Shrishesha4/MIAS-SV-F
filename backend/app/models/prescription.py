@@ -84,3 +84,27 @@ class MedicationDoseLog(Base):
 
     medication = relationship("PrescriptionMedication", back_populates="dose_logs")
     patient = relationship("Patient")
+
+
+class PrescriptionRequestStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class PrescriptionRequest(Base):
+    """Patient requests for prescription refills or new prescriptions."""
+    __tablename__ = "prescription_requests"
+
+    id = Column(String, primary_key=True)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
+    medication_name = Column(String, nullable=False)
+    dosage = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
+    status = Column(SQLEnum(PrescriptionRequestStatus), default=PrescriptionRequestStatus.PENDING)
+    requested_at = Column(DateTime, default=lambda: datetime.utcnow())
+    responded_by = Column(String, nullable=True)
+    responded_at = Column(DateTime, nullable=True)
+    response_notes = Column(Text, nullable=True)
+
+    patient = relationship("Patient")

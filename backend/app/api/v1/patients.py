@@ -9,11 +9,12 @@ import uuid
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Appointment
+from app.models.patient import Patient, Appointment, MedicalAlert
 from app.models.vital import Vital
 from app.models.prescription import (
     Prescription, PrescriptionStatus, PrescriptionMedication,
     MedicationDoseLog, MedicationDoseStatus,
+    PrescriptionRequest, PrescriptionRequestStatus,
 )
 from app.models.medical_record import MedicalRecord
 from app.models.admission import Admission
@@ -803,3 +804,268 @@ async def get_medication_adherence(
         "adherence_rate": round(adherence_rate, 1),
         "period_days": days,
     }
+
+
+# ── Primary Diagnosis ──────────────────────────────────────────────
+
+@router.put("/{patient_id}/primary-diagnosis")
+async def update_primary_diagnosis(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the primary diagnosis for a patient."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    patient.primary_diagnosis = body.get("diagnosis", patient.primary_diagnosis)
+    patient.diagnosis_doctor = body.get("doctor", patient.diagnosis_doctor)
+    patient.diagnosis_date = body.get("date", patient.diagnosis_date)
+    patient.diagnosis_time = body.get("time", patient.diagnosis_time)
+    await db.commit()
+
+    return {
+        "primary_diagnosis": patient.primary_diagnosis,
+        "diagnosis_doctor": patient.diagnosis_doctor,
+        "diagnosis_date": patient.diagnosis_date,
+        "diagnosis_time": patient.diagnosis_time,
+    }
+
+
+# ── Medical Alerts ─────────────────────────────────────────────────
+
+@router.post("/{patient_id}/medical-alerts")
+async def add_medical_alert(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a medical alert for a patient."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    alert = MedicalAlert(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        type=body.get("type", "ALERT"),
+        severity=body.get("severity", "HIGH"),
+        title=body.get("title", ""),
+        description=body.get("description", ""),
+        is_active=True,
+        added_by=body.get("added_by", ""),
+    )
+    db.add(alert)
+    await db.commit()
+    await db.refresh(alert)
+
+    return {
+        "id": alert.id,
+        "title": alert.title,
+        "type": alert.type,
+        "severity": alert.severity,
+        "is_active": alert.is_active,
+        "added_by": alert.added_by,
+        "added_at": alert.added_at.isoformat() if alert.added_at else None,
+    }
+
+
+@router.delete("/{patient_id}/medical-alerts/{alert_id}")
+async def remove_medical_alert(
+    patient_id: str,
+    alert_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate a medical alert."""
+    result = await db.execute(
+        select(MedicalAlert)
+        .where(MedicalAlert.id == alert_id)
+        .where(MedicalAlert.patient_id == patient_id)
+    )
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    alert.is_active = False
+    await db.commit()
+    return {"message": "Alert deactivated"}
+
+
+@router.get("/{patient_id}/medical-alerts/history")
+async def get_medical_alert_history(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all medical alerts (active and inactive) for history view."""
+    result = await db.execute(
+        select(MedicalAlert)
+        .where(MedicalAlert.patient_id == patient_id)
+        .order_by(MedicalAlert.added_at.desc())
+    )
+    alerts = result.scalars().all()
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "type": a.type,
+            "severity": a.severity,
+            "description": a.description,
+            "is_active": a.is_active,
+            "added_by": a.added_by,
+            "added_at": a.added_at.isoformat() if a.added_at else None,
+        }
+        for a in alerts
+    ]
+
+
+# ── Prescriptions (Create) ────────────────────────────────────────
+
+@router.post("/{patient_id}/prescriptions")
+async def create_prescription(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new prescription for a patient."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    rx_id = f"RX-{datetime.utcnow().strftime('%Y')}-{str(uuid.uuid4())[:4].upper()}"
+
+    prescription = Prescription(
+        id=str(uuid.uuid4()),
+        prescription_id=rx_id,
+        patient_id=patient_id,
+        date=datetime.utcnow(),
+        doctor=body.get("doctor", ""),
+        department=body.get("department", ""),
+        status=PrescriptionStatus.ACTIVE,
+        notes=body.get("notes", ""),
+        hospital_name=body.get("hospital_name", "SMC Hospital"),
+    )
+    db.add(prescription)
+
+    # Add medications
+    medications_data = body.get("medications", [])
+    for med in medications_data:
+        pm = PrescriptionMedication(
+            id=str(uuid.uuid4()),
+            prescription_id=prescription.id,
+            name=med.get("name", ""),
+            dosage=med.get("dosage", ""),
+            frequency=med.get("frequency", ""),
+            duration=med.get("duration", ""),
+            instructions=med.get("instructions", ""),
+            start_date=med.get("start_date", ""),
+            end_date=med.get("end_date", ""),
+        )
+        db.add(pm)
+
+    await db.commit()
+    return {"id": prescription.id, "prescription_id": rx_id, "status": "created"}
+
+
+# ── Prescription Requests ──────────────────────────────────────────
+
+@router.get("/{patient_id}/prescription-requests")
+async def get_prescription_requests(
+    patient_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get prescription requests for a patient."""
+    result = await db.execute(
+        select(PrescriptionRequest)
+        .where(PrescriptionRequest.patient_id == patient_id)
+        .order_by(PrescriptionRequest.requested_at.desc())
+    )
+    requests = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "medication": r.medication_name,
+            "dosage": r.dosage,
+            "notes": r.notes,
+            "status": r.status.value if r.status else "PENDING",
+            "requested_date": r.requested_at.strftime("%Y-%m-%d") if r.requested_at else None,
+            "responded_by": r.responded_by,
+            "responded_at": r.responded_at.isoformat() if r.responded_at else None,
+            "response_notes": r.response_notes,
+        }
+        for r in requests
+    ]
+
+
+@router.post("/{patient_id}/prescription-requests")
+async def create_prescription_request(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Patient requests a prescription (refill or new)."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    req = PrescriptionRequest(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        medication_name=body.get("medication", ""),
+        dosage=body.get("dosage", ""),
+        notes=body.get("notes", ""),
+    )
+    db.add(req)
+    await db.commit()
+    await db.refresh(req)
+
+    return {
+        "id": req.id,
+        "medication": req.medication_name,
+        "dosage": req.dosage,
+        "status": req.status.value,
+        "requested_date": req.requested_at.strftime("%Y-%m-%d") if req.requested_at else None,
+    }
+
+
+@router.put("/{patient_id}/prescription-requests/{request_id}/respond")
+async def respond_to_prescription_request(
+    patient_id: str,
+    request_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Respond to a prescription request (approve/reject)."""
+    result = await db.execute(
+        select(PrescriptionRequest)
+        .where(PrescriptionRequest.id == request_id)
+        .where(PrescriptionRequest.patient_id == patient_id)
+    )
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    status = body.get("status", "APPROVED").upper()
+    try:
+        req.status = PrescriptionRequestStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid status")
+
+    req.responded_by = body.get("responded_by", "")
+    req.responded_at = datetime.utcnow()
+    req.response_notes = body.get("notes", "")
+    await db.commit()
+
+    return {"message": f"Request {status.lower()}", "status": req.status.value}
