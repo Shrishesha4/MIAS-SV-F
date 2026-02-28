@@ -21,16 +21,25 @@ class Prescription(Base):
     )
 
     id = Column(String, primary_key=True)
+    prescription_id = Column(String, nullable=True)  # Display ID like RX-2023-0056
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
     date = Column(DateTime, nullable=False, index=True)
     doctor = Column(String, nullable=False)
+    doctor_license = Column(String, nullable=True)  # License number
     department = Column(String, nullable=False)
+    hospital_name = Column(String, nullable=True)
+    hospital_address = Column(String, nullable=True)
+    hospital_contact = Column(String, nullable=True)
+    hospital_email = Column(String, nullable=True)
+    hospital_website = Column(String, nullable=True)
     status = Column(SQLEnum(PrescriptionStatus), default=PrescriptionStatus.ACTIVE, index=True)
+    notes = Column(Text, nullable=True)  # Additional notes
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     # Relationships
     patient = relationship("Patient", back_populates="prescriptions")
     medications = relationship("PrescriptionMedication", back_populates="prescription", cascade="all, delete-orphan")
+    approval = relationship("Approval", back_populates="prescription", uselist=False)
 
 
 class PrescriptionMedication(Base):

@@ -104,11 +104,27 @@ export interface MedicalImage {
 
 export interface Prescription {
   id: string;
+  prescription_id?: string;
   patient_id: string;
   date: string;
   doctor: string;
+  doctor_license?: string;
   department: string;
+  hospital_name?: string;
+  hospital_address?: string;
+  hospital_contact?: string;
+  hospital_email?: string;
+  hospital_website?: string;
   status: 'ACTIVE' | 'BOUGHT' | 'RECEIVE' | 'COMPLETED';
+  notes?: string;
+  patient?: {
+    name: string;
+    patient_id: string;
+    date_of_birth: string;
+    gender: string;
+    phone: string;
+    address: string;
+  };
   medications: PrescriptionMedication[];
 }
 
@@ -156,21 +172,52 @@ export interface Admission {
   ward: string;
   bed_number: string;
   attending_doctor: string;
-  reason: string;
-  status: 'ACTIVE' | 'DISCHARGED' | 'TRANSFERRED';
+  reason?: string;
   diagnosis?: string;
+  status: 'Active' | 'Discharged' | 'Transferred';
+  notes?: string;
+  program_duration_days?: number;
+  related_admission_id?: string;
+  transferred_from_department?: string;
+  referring_doctor?: string;
+  discharge_summary?: string;
+  discharge_instructions?: string;
+  follow_up_date?: string;
+}
+
+export interface ReportFinding {
+  id: string;
+  parameter: string;
+  value: string;
+  reference?: string;
+  status: string;
+}
+
+export interface ReportImage {
+  id: string;
+  title: string;
+  description?: string;
+  url: string;
+  type?: string;
 }
 
 export interface Report {
   id: string;
   patient_id: string;
   date: string;
+  time?: string;
   type: string;
   title: string;
   department: string;
   ordered_by: string;
+  performed_by?: string;
+  supervised_by?: string;
   status: 'NORMAL' | 'ABNORMAL' | 'CRITICAL' | 'PENDING';
-  findings?: string;
+  result_summary?: string;
+  notes?: string;
+  file_url?: string;
+  findings?: ReportFinding[];
+  images?: ReportImage[];
 }
 
 export interface Notification {

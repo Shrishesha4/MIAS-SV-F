@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Integer, Date
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -29,6 +29,7 @@ class Faculty(Base):
     user = relationship("User", back_populates="faculty")
     approvals = relationship("Approval", back_populates="faculty")
     notifications = relationship("FacultyNotification", back_populates="faculty")
+    schedules = relationship("FacultySchedule", back_populates="faculty")
 
 
 class FacultyNotification(Base):
@@ -43,3 +44,19 @@ class FacultyNotification(Base):
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     faculty = relationship("Faculty", back_populates="notifications")
+
+
+class FacultySchedule(Base):
+    __tablename__ = "faculty_schedules"
+
+    id = Column(String, primary_key=True)
+    faculty_id = Column(String, ForeignKey("faculty.id"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    time_start = Column(String, nullable=False)  # e.g., "9:00 AM"
+    time_end = Column(String, nullable=False)    # e.g., "11:00 AM"
+    title = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # consultation, meeting, review
+    location = Column(String, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
+
+    faculty = relationship("Faculty", back_populates="schedules")

@@ -198,14 +198,37 @@ async def get_patient_prescriptions(
         .order_by(Prescription.date.desc())
     )
     prescriptions = result.scalars().all()
+
+    # Get patient info for prescriptions
+    patient_result = await db.execute(
+        select(Patient).where(Patient.id == patient_id)
+    )
+    patient = patient_result.scalar_one_or_none()
+
     return [
         {
             "id": p.id,
+            "prescription_id": p.prescription_id,
             "patient_id": p.patient_id,
             "date": p.date.isoformat() if p.date else None,
             "doctor": p.doctor,
+            "doctor_license": p.doctor_license,
             "department": p.department,
+            "hospital_name": p.hospital_name,
+            "hospital_address": p.hospital_address,
+            "hospital_contact": p.hospital_contact,
+            "hospital_email": p.hospital_email,
+            "hospital_website": p.hospital_website,
             "status": p.status.value if p.status else None,
+            "notes": p.notes,
+            "patient": {
+                "name": patient.name if patient else None,
+                "patient_id": patient.patient_id if patient else None,
+                "date_of_birth": patient.date_of_birth.isoformat() if patient and patient.date_of_birth else None,
+                "gender": patient.gender.value if patient and patient.gender else None,
+                "phone": patient.phone if patient else None,
+                "address": patient.address if patient else None,
+            } if patient else None,
             "medications": [
                 {
                     "id": m.id, "name": m.name, "dosage": m.dosage,
@@ -265,9 +288,17 @@ async def get_patient_admissions(
             "ward": a.ward,
             "bed_number": a.bed_number,
             "attending_doctor": a.attending_doctor,
+            "reason": a.reason,
             "diagnosis": a.diagnosis,
             "status": a.status,
             "notes": a.notes,
+            "program_duration_days": a.program_duration_days,
+            "related_admission_id": a.related_admission_id,
+            "transferred_from_department": a.transferred_from_department,
+            "referring_doctor": a.referring_doctor,
+            "discharge_summary": a.discharge_summary,
+            "discharge_instructions": a.discharge_instructions,
+            "follow_up_date": a.follow_up_date.isoformat() if a.follow_up_date else None,
         }
         for a in admissions
     ]
@@ -279,8 +310,13 @@ async def get_patient_reports(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models.report import ReportFinding, ReportImage
     result = await db.execute(
         select(Report)
+        .options(
+            selectinload(Report.findings),
+            selectinload(Report.images),
+        )
         .where(Report.patient_id == patient_id)
         .order_by(Report.date.desc())
     )
@@ -290,14 +326,37 @@ async def get_patient_reports(
             "id": r.id,
             "patient_id": r.patient_id,
             "date": r.date.isoformat() if r.date else None,
+            "time": r.time,
             "title": r.title,
             "type": r.type,
             "department": r.department,
             "ordered_by": r.ordered_by,
+            "performed_by": r.performed_by,
+            "supervised_by": r.supervised_by,
             "status": r.status.value if r.status else None,
             "result_summary": r.result_summary,
             "notes": r.notes,
             "file_url": r.file_url,
+            "findings": [
+                {
+                    "id": f.id,
+                    "parameter": f.parameter,
+                    "value": f.value,
+                    "reference": f.reference,
+                    "status": f.status,
+                }
+                for f in r.findings
+            ],
+            "images": [
+                {
+                    "id": i.id,
+                    "title": i.title,
+                    "description": i.description,
+                    "url": i.url,
+                    "type": i.type,
+                }
+                for i in r.images
+            ],
         }
         for r in reports
     ]

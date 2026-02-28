@@ -3,110 +3,86 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { facultyApi } from '$lib/api/faculty';
+	import { approvalsApi, type ApprovalItem } from '$lib/api/approvals';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
-		CheckCircle, XCircle, Clock, Clipboard, User, AlertTriangle,
-		FileText, Eye, Calendar, Stethoscope
+		CheckCircle, XCircle, Clock, ClipboardList, AlertTriangle,
+		FileText, Eye, Calendar, Stethoscope, ChevronLeft
 	} from 'lucide-svelte';
 
 	// State
 	let activeTab = $state('pending');
-	let approvals: any[] = $state([]);
+	let pendingApprovals: ApprovalItem[] = $state([]);
+	let historyApprovals: ApprovalItem[] = $state([]);
 	let loading = $state(true);
 	let facultyId = $state('');
-	let approvalStates = $state<Record<string, { status: string; score: number; comments: string }>>({});
-
-	// Comment modal state
-	let showCommentModal = $state(false);
-	let commentApprovalId = $state('');
-	let commentText = $state('');
-	let commentAction = $state<'APPROVED' | 'REJECTED'>('APPROVED');
+	let approvalType = $state('case-records');
+	let processingId = $state<string | null>(null);
+	let scores = $state<Record<string, number>>({});
 
 	const tabs = [
 		{ id: 'pending', label: 'Pending Approvals' },
 		{ id: 'history', label: 'Approval History' },
 	];
 
-	// Derive pending and history items
-	const pendingApprovals = $derived(
-		approvals.filter(a => getApprovalStatus(a.id) === 'PENDING')
-	);
+	// Approval type titles
+	const typeLabels: Record<string, string> = {
+		'case-records': 'Case Record Approvals',
+		'discharge': 'Discharge Summary Approvals',
+		'admissions': 'Admission Approvals',
+		'prescriptions': 'Prescription Approvals',
+	};
 
-	const historyApprovals = $derived(
-		approvals.filter(a => getApprovalStatus(a.id) !== 'PENDING')
-	);
-
-	function getApprovalStatus(id: string) {
-		return approvalStates[id]?.status || 'PENDING';
-	}
-
-	function getApprovalScore(id: string) {
-		return approvalStates[id]?.score || 0;
+	function getScore(id: string): number {
+		return scores[id] || 3;
 	}
 
 	function setScore(id: string, score: number) {
-		if (!approvalStates[id]) {
-			approvalStates[id] = { status: 'PENDING', score: 0, comments: '' };
-		}
-		approvalStates[id].score = score;
-		approvalStates = { ...approvalStates };
+		scores[id] = score;
+		scores = { ...scores };
 	}
 
-	function openCommentModal(id: string, action: 'APPROVED' | 'REJECTED') {
-		commentApprovalId = id;
-		commentAction = action;
-		commentText = '';
-		showCommentModal = true;
-	}
-
-	async function handleApprove(id: string, withComment = false) {
-		if (withComment) {
-			const comments = commentText;
-			showCommentModal = false;
-			try {
-				const score = getApprovalScore(id);
-				await facultyApi.processApproval(facultyId, id, { status: 'APPROVED', comments, score });
-				if (!approvalStates[id]) {
-					approvalStates[id] = { status: 'PENDING', score: 0, comments: '' };
-				}
-				approvalStates[id].status = 'APPROVED';
-				approvalStates[id].comments = comments;
-				approvalStates = { ...approvalStates };
-			} catch (err) {
-				console.error('Failed to approve', err);
+	async function handleApprove(id: string) {
+		processingId = id;
+		try {
+			const score = getScore(id);
+			await approvalsApi.processApproval(facultyId, id, { 
+				status: 'APPROVED', 
+				score,
+				comments: 'Approved'
+			});
+			// Move from pending to history
+			const item = pendingApprovals.find(a => a.id === id);
+			if (item) {
+				pendingApprovals = pendingApprovals.filter(a => a.id !== id);
+				historyApprovals = [{...item, status: 'APPROVED', score, processed_at: new Date().toISOString()}, ...historyApprovals];
 			}
-		} else {
-			openCommentModal(id, 'APPROVED');
+		} catch (err) {
+			console.error('Failed to approve', err);
+		} finally {
+			processingId = null;
 		}
 	}
 
-	async function handleReject(id: string, withComment = false) {
-		if (withComment) {
-			const comments = commentText;
-			showCommentModal = false;
-			try {
-				await facultyApi.processApproval(facultyId, id, { status: 'REJECTED', comments });
-				if (!approvalStates[id]) {
-					approvalStates[id] = { status: 'PENDING', score: 0, comments: '' };
-				}
-				approvalStates[id].status = 'REJECTED';
-				approvalStates[id].comments = comments;
-				approvalStates = { ...approvalStates };
-			} catch (err) {
-				console.error('Failed to reject', err);
+	async function handleReject(id: string) {
+		processingId = id;
+		try {
+			await approvalsApi.processApproval(facultyId, id, { 
+				status: 'REJECTED',
+				comments: 'Rejected'
+			});
+			// Move from pending to history
+			const item = pendingApprovals.find(a => a.id === id);
+			if (item) {
+				pendingApprovals = pendingApprovals.filter(a => a.id !== id);
+				historyApprovals = [{...item, status: 'REJECTED', processed_at: new Date().toISOString()}, ...historyApprovals];
 			}
-		} else {
-			openCommentModal(id, 'REJECTED');
-		}
-	}
-
-	function submitWithComment() {
-		if (commentAction === 'APPROVED') {
-			handleApprove(commentApprovalId, true);
-		} else {
-			handleReject(commentApprovalId, true);
+		} catch (err) {
+			console.error('Failed to reject', err);
+		} finally {
+			processingId = null;
 		}
 	}
 
@@ -124,20 +100,28 @@
 	}
 
 	onMount(async () => {
+		// Get approval type from URL
+		const urlType = page.url?.searchParams?.get('type') || 'case-records';
+		approvalType = urlType;
+
 		try {
 			const faculty = await facultyApi.getMe();
 			facultyId = faculty.id;
-			approvals = await facultyApi.getApprovals(faculty.id);
-
-			// Initialize approval states
-			approvals.forEach(a => {
-				if (!approvalStates[a.id]) {
-					approvalStates[a.id] = {
-						status: a.status || 'PENDING',
-						score: a.score || 0,
-						comments: a.comments || '',
-					};
-				}
+			
+			// Load pending approvals for this type
+			pendingApprovals = await approvalsApi.getPendingApprovals(faculty.id, approvalType);
+			
+			// Load history
+			historyApprovals = await approvalsApi.getApprovalHistory(faculty.id);
+			// Filter history by type
+			historyApprovals = historyApprovals.filter(a => {
+				const typeMap: Record<string, string> = {
+					'case-records': 'CASE_RECORD',
+					'discharge': 'DISCHARGE_SUMMARY',
+					'admissions': 'ADMISSION',
+					'prescriptions': 'PRESCRIPTION',
+				};
+				return a.type === typeMap[approvalType];
 			});
 		} catch (err) {
 			console.error('Failed to load approvals', err);
@@ -155,11 +139,18 @@
 	{:else}
 		<!-- Header -->
 		<div class="flex items-center gap-3 mb-2">
+			<button 
+				class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
+				style="background: linear-gradient(to bottom, #f8f9fb, #e8eef5); border: 1px solid rgba(0,0,0,0.1);"
+				onclick={() => goto('/dashboard')}
+			>
+				<ChevronLeft class="w-5 h-5 text-blue-600" />
+			</button>
 			<div class="w-10 h-10 rounded-lg flex items-center justify-center"
 				style="background: linear-gradient(to bottom, #3b82f620, #3b82f610); border: 1px solid rgba(59,130,246,0.3);">
-				<Clipboard class="w-5 h-5 text-blue-600" />
+				<ClipboardList class="w-5 h-5 text-blue-600" />
 			</div>
-			<h1 class="text-xl font-bold text-gray-800">Case Record Approvals</h1>
+			<h1 class="text-xl font-bold text-gray-800">{typeLabels[approvalType] || 'Approvals'}</h1>
 		</div>
 
 		<!-- Tab Bar -->
@@ -179,8 +170,9 @@
 
 		<!-- Pending Approvals Tab -->
 		{#if activeTab === 'pending'}
-			{#each pendingApprovals as approval}
-				{@const currentScore = getApprovalScore(approval.id)}
+			{#each pendingApprovals as approval (approval.id)}
+				{@const currentScore = getScore(approval.id)}
+				{@const isProcessing = processingId === approval.id}
 				<AquaCard padding={false}>
 					<div class="p-4">
 						<!-- Patient Info Header -->
@@ -190,22 +182,24 @@
 									<img src={approval.patient.photo} alt={approval.patient?.name || 'Patient'}
 										class="w-14 h-14 rounded-full object-cover border-2 border-white shadow" />
 								{:else}
-									<Avatar name={approval.patient?.name || approval.case_record?.patient_name || 'Patient'} size="lg" />
+									<Avatar name={approval.patient?.name || 'Patient'} size="lg" />
 								{/if}
 							</div>
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center justify-between">
 									<h3 class="text-base font-bold text-gray-800">
-										{approval.patient?.name || approval.case_record?.patient_name || 'Unknown Patient'}
+										{approval.patient?.name || 'Unknown Patient'}
 									</h3>
-									<button class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+									<button 
+										class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
 										style="background: rgba(0,0,0,0.05);"
-										onclick={() => goto(`/patients/${approval.patient?.id || approval.case_record?.patient_id}`)}>
+										onclick={() => goto(`/patients/${approval.patient?.id}`)}
+									>
 										<Eye class="w-4 h-4 text-gray-400" />
 									</button>
 								</div>
 								<p class="text-xs text-gray-500">
-									ID: {approval.patient?.patient_id || approval.case_record?.patient_id || 'N/A'}
+									ID: {approval.patient?.patient_id || 'N/A'}
 								</p>
 								<p class="text-xs text-gray-500">
 									{approval.patient?.age || '—'}, {approval.patient?.gender || '—'}, Blood: {approval.patient?.blood_group || '—'}
@@ -242,15 +236,15 @@
 						<!-- Procedure Details -->
 						<div class="mb-4">
 							<h4 class="text-sm font-bold text-gray-800 mb-1">
-								{approval.case_record?.type || 'Case Record'}
+								{approval.case_record?.procedure_name || approval.case_record?.type || 'Case Record'}
 							</h4>
 							<p class="text-sm text-gray-600 mb-2">
-								{approval.case_record?.description || 'No description provided'}
+								{approval.case_record?.description || approval.case_record?.procedure_description || 'No description provided'}
 							</p>
 							<div class="flex items-center gap-4 text-xs text-gray-500">
 								<span class="flex items-center gap-1">
 									<Stethoscope class="w-3 h-3" />
-									{approval.case_record?.doctor_name || approval.submitted_by || 'Unknown'}
+									{approval.case_record?.doctor_name || 'Unknown'}
 								</span>
 								<span class="flex items-center gap-1">
 									<Calendar class="w-3 h-3" />
@@ -270,6 +264,7 @@
 										       color: {currentScore === score ? 'white' : '#64748b'};
 										       border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(0,0,0,0.1)'};"
 										onclick={() => setScore(approval.id, score)}
+										disabled={isProcessing}
 									>
 										{score}
 									</button>
@@ -280,17 +275,19 @@
 						<!-- Action Buttons -->
 						<div class="flex gap-3">
 							<button
-								class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold cursor-pointer"
+								class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50"
 								style="background: white; color: #dc2626; border: 2px solid #fecaca;"
 								onclick={() => handleReject(approval.id)}
+								disabled={isProcessing}
 							>
 								<XCircle class="w-4 h-4" />
 								Reject
 							</button>
 							<button
-								class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-white text-sm font-semibold cursor-pointer"
+								class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-white text-sm font-semibold cursor-pointer disabled:opacity-50"
 								style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.1);"
 								onclick={() => handleApprove(approval.id)}
+								disabled={isProcessing}
 							>
 								<CheckCircle class="w-4 h-4" />
 								Approve
@@ -312,19 +309,18 @@
 		{:else if activeTab === 'history'}
 			<AquaCard>
 				{#snippet header()}
-					<Clipboard class="w-4 h-4 text-blue-600 mr-2" />
+					<ClipboardList class="w-4 h-4 text-blue-600 mr-2" />
 					<span class="text-blue-900 font-semibold text-sm">Approval History</span>
 					<span class="ml-auto text-xs text-gray-500">{historyApprovals.length} items</span>
 				{/snippet}
 
 				<div class="space-y-3">
-					{#each historyApprovals as approval}
-						{@const status = getApprovalStatus(approval.id)}
-						{@const score = getApprovalScore(approval.id)}
+					{#each historyApprovals as approval (approval.id)}
+						{@const isApproved = approval.status === 'APPROVED'}
 						<div class="flex items-center gap-3 py-3 border-b border-gray-100 last:border-0">
 							<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-								style="background: {status === 'APPROVED' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'};">
-								{#if status === 'APPROVED'}
+								style="background: {isApproved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'};">
+								{#if isApproved}
 									<CheckCircle class="w-5 h-5 text-green-500" />
 								{:else}
 									<XCircle class="w-5 h-5 text-red-500" />
@@ -332,18 +328,20 @@
 							</div>
 							<div class="flex-1 min-w-0">
 								<p class="text-sm font-semibold text-gray-800">
-									{approval.case_record?.type || 'Case Record'}
+									{approval.case_record?.procedure_name || approval.case_record?.type || 'Case Record'}
 								</p>
 								<p class="text-xs text-gray-500 truncate">
-									{approval.patient?.name || approval.case_record?.patient_name || 'Unknown'} · ID: {approval.patient?.patient_id || approval.case_record?.patient_id || 'N/A'}
+									{approval.patient?.name || 'Unknown'} · ID: {approval.patient?.patient_id || 'N/A'}
 								</p>
 							</div>
 							<div class="text-right shrink-0">
-								<p class="text-xs font-bold" style="color: {status === 'APPROVED' ? '#16a34a' : '#dc2626'};">
-									{status === 'APPROVED' ? 'Approved' : 'Rejected'}
+								<p class="text-xs font-bold px-2 py-0.5 rounded-full inline-block"
+									style="background: {isApproved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'};
+									       color: {isApproved ? '#16a34a' : '#dc2626'};">
+									{isApproved ? 'Approved' : 'Rejected'}
 								</p>
-								{#if status === 'APPROVED' && score > 0}
-									<p class="text-xs text-gray-500">Score: {score}</p>
+								{#if isApproved && approval.score}
+									<p class="text-xs text-gray-500">Score: {approval.score}</p>
 								{/if}
 								<p class="text-[10px] text-gray-400">
 									{formatDate(approval.processed_at || approval.created_at)}
@@ -363,40 +361,3 @@
 		{/if}
 	{/if}
 </div>
-
-<!-- Comment Modal -->
-{#if showCommentModal}
-	<div class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);">
-		<div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-			<h3 class="text-lg font-bold text-gray-800 mb-1">
-				{commentAction === 'APPROVED' ? 'Approve' : 'Reject'} Case Record
-			</h3>
-			<p class="text-sm text-gray-500 mb-4">Add optional comments for this action.</p>
-
-			<textarea
-				class="w-full p-3 rounded-lg text-sm resize-none"
-				style="border: 1px solid rgba(0,0,0,0.15); background: #f8f9fb;"
-				rows="4"
-				placeholder="Enter your comments (optional)..."
-				bind:value={commentText}
-			></textarea>
-
-			<div class="flex gap-3 mt-4">
-				<button
-					class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-					style="background: #f1f5f9; color: #64748b; border: 1px solid rgba(0,0,0,0.1);"
-					onclick={() => showCommentModal = false}
-				>
-					Cancel
-				</button>
-				<button
-					class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-					style="background: linear-gradient(to bottom, {commentAction === 'APPROVED' ? '#22c55e, #16a34a' : '#ef4444, #dc2626'});"
-					onclick={submitWithComment}
-				>
-					{commentAction === 'APPROVED' ? 'Approve' : 'Reject'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}

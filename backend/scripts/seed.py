@@ -25,10 +25,11 @@ from app.models.vital import Vital
 from app.models.medical_record import MedicalRecord, RecordType, MedicalFinding
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.admission import Admission
-from app.models.report import Report, ReportStatus
+from app.models.report import Report, ReportStatus, ReportFinding, ReportImage
 from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification
-from app.models.case_record import CaseRecord, Approval
+from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
+from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.core.security import get_password_hash
 
 
@@ -123,14 +124,58 @@ async def seed():
         ))
 
         # ──────────────────────────────────────────────
-        # 3. Additional patients (for student assignments)
+        # 3. Additional patients (for student assignments and approvals)
         # ──────────────────────────────────────────────
         extra_patients = []
-        for i, (name, dob, gender, bg, condition) in enumerate([
-            ("John Doe", date(1978, 3, 10), Gender.MALE, "A+", "Hypertension"),
-            ("Maria Garcia", date(1961, 7, 22), Gender.FEMALE, "B+", "Diabetes Type 2"),
-            ("Robert Chen", date(1989, 11, 5), Gender.MALE, "AB+", "Bronchitis"),
-        ], start=1):
+        extra_patient_data = [
+            {
+                "name": "John Doe",
+                "dob": date(1978, 3, 10),
+                "gender": Gender.MALE,
+                "bg": "O+",
+                "condition": "Hypertension",
+                "photo": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Penicillin", "HIGH")],
+            },
+            {
+                "name": "Emily Wilson",
+                "dob": date(1992, 8, 15),
+                "gender": Gender.FEMALE,
+                "bg": "A+",
+                "condition": "Asthma",
+                "photo": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Dust", "MEDIUM")],
+            },
+            {
+                "name": "Maria Garcia",
+                "dob": date(1961, 7, 22),
+                "gender": Gender.FEMALE,
+                "bg": "B+",
+                "condition": "Diabetes Type 2",
+                "photo": "https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [],
+            },
+            {
+                "name": "Robert Chen",
+                "dob": date(1989, 11, 5),
+                "gender": Gender.MALE,
+                "bg": "AB+",
+                "condition": "Bronchitis",
+                "photo": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [("Sulfa drugs", "HIGH")],
+            },
+            {
+                "name": "Lisa Thompson",
+                "dob": date(1985, 4, 18),
+                "gender": Gender.FEMALE,
+                "bg": "A-",
+                "condition": "Migraine",
+                "photo": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop&crop=faces",
+                "allergies": [],
+            },
+        ]
+        
+        for i, pdata in enumerate(extra_patient_data, start=1):
             pid = uid()
             extra_user_id = uid()
             db.add(User(
@@ -142,19 +187,27 @@ async def seed():
             ))
             p = Patient(
                 id=pid,
-                patient_id=f"SMC-2023-{5000+i}",
+                patient_id=f"SMC-2023-00{41+i}",
                 user_id=extra_user_id,
-                name=name,
-                date_of_birth=dob,
-                gender=gender,
-                blood_group=bg,
+                name=pdata["name"],
+                date_of_birth=pdata["dob"],
+                gender=pdata["gender"],
+                blood_group=pdata["bg"],
                 phone=f"+91 98765 4{3210+i}",
-                email=f"{name.lower().replace(' ', '.')}@email.com",
+                email=f"{pdata['name'].lower().replace(' ', '.')}@email.com",
                 address=f"{100+i} Main Street, Chennai 600001",
                 category=PatientCategory.GENERAL,
+                photo=pdata.get("photo"),
             )
             db.add(p)
-            extra_patients.append((pid, name, condition))
+            extra_patients.append((pid, pdata["name"], pdata["condition"], pdata.get("photo")))
+            
+            # Add allergies for this patient
+            for allergen, severity in pdata.get("allergies", []):
+                db.add(Allergy(
+                    id=uid(), patient_id=pid,
+                    allergen=allergen, severity=severity, reaction="Various symptoms",
+                ))
 
         # ──────────────────────────────────────────────
         # 4. Student
@@ -201,7 +254,8 @@ async def seed():
         ))
 
         # Assign patients to student
-        for pid, name, condition in extra_patients:
+        for patient_info in extra_patients:
+            pid = patient_info[0]
             db.add(StudentPatientAssignment(
                 id=uid(), student_id=student_id, patient_id=pid, status="Active",
             ))
@@ -212,16 +266,35 @@ async def seed():
         faculty_id = uid()
         faculty = Faculty(
             id=faculty_id,
-            faculty_id="FAC-2023-1234",
+            faculty_id="FAC-2023-0078",
             user_id=faculty_user_id,
-            name="Dr. James Wilson",
-            department="Internal Medicine",
-            specialty="Cardiology",
+            name="Dr. Sarah Johnson",
+            department="Cardiology",
+            specialty="Interventional Cardiology",
             phone="+91 44 2680 1050",
-            email="james.wilson@saveetha.com",
+            email="sarah.johnson@saveetha.com",
+            photo="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=200&h=200&fit=crop&crop=faces",
             availability="Mon, Wed, Fri – 9 AM to 4 PM",
         )
         db.add(faculty)
+
+        # Faculty schedule for today
+        today = date.today()
+        db.add(FacultySchedule(
+            id=uid(), faculty_id=faculty_id,
+            date=today, time_start="9:00 AM", time_end="11:00 AM",
+            title="Outpatient Consultations", type="consultation", location="OPD Block A",
+        ))
+        db.add(FacultySchedule(
+            id=uid(), faculty_id=faculty_id,
+            date=today, time_start="1:00 PM", time_end="2:00 PM",
+            title="Department Meeting", type="meeting", location="Conference Room 3",
+        ))
+        db.add(FacultySchedule(
+            id=uid(), faculty_id=faculty_id,
+            date=today, time_start="3:00 PM", time_end="5:00 PM",
+            title="Student Case Reviews", type="review", location="Teaching Lab B",
+        ))
 
         # ──────────────────────────────────────────────
         # 6. Vitals (30 days of data for the main patient)
@@ -280,58 +353,252 @@ async def seed():
         db.add(MedicalFinding(id=uid(), record_id=rec2_id, parameter="Hemoglobin", value="14.2 g/dL", reference="13.5-17.5 g/dL", status="Normal"))
 
         # ──────────────────────────────────────────────
-        # 8. Prescriptions
+        # 8. Prescriptions (with full hospital details)
         # ──────────────────────────────────────────────
-        rx_id = uid()
+        hospital_name = "Saveetha Medical College Hospital"
+        hospital_address = "Saveetha Nagar, Thandalam, Chennai 600077"
+        hospital_contact = "(044) 2680-1050"
+        hospital_email = "pharmacy@saveetha.com"
+        hospital_website = "www.saveethamedical.com"
+
+        # Active prescription 1
+        rx_id1 = uid()
         db.add(Prescription(
-            id=rx_id, patient_id=patient_id,
-            date=now - timedelta(days=5),
-            doctor="Dr. Sarah Johnson",
-            department="Internal Medicine",
+            id=rx_id1, prescription_id="RX-2023-0056",
+            patient_id=patient_id,
+            date=datetime(2023, 5, 15),
+            doctor="Dr. Sarah Johnson", doctor_license="SMC-DR-2023-0056",
+            department="Cardiology",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
             status=PrescriptionStatus.ACTIVE,
+            notes="Please take medications as prescribed. Contact your doctor if you experience any severe side effects. Prescription can be refilled at any Saveetha Medical College Hospital pharmacy.",
         ))
         db.add(PrescriptionMedication(
-            id=uid(), prescription_id=rx_id,
+            id=uid(), prescription_id=rx_id1,
             name="Lisinopril", dosage="10mg", frequency="Once daily",
-            duration="90 days", instructions="Take in the morning with food",
-            refills_remaining=2, start_date="2025-02-01", end_date="2025-05-01",
+            duration="3 months", instructions="Take in the morning with food",
+            refills_remaining=2, start_date="May 15, 2023", end_date="Aug 15, 2023",
         ))
         db.add(PrescriptionMedication(
-            id=uid(), prescription_id=rx_id,
-            name="Metformin", dosage="500mg", frequency="Twice daily",
-            duration="90 days", instructions="Take with meals",
-            refills_remaining=2, start_date="2025-02-01", end_date="2025-05-01",
+            id=uid(), prescription_id=rx_id1,
+            name="Aspirin", dosage="81mg", frequency="Once daily",
+            duration="3 months", instructions="Take with food",
+            refills_remaining=2, start_date="May 15, 2023", end_date="Aug 15, 2023",
         ))
 
-        rx2_id = uid()
+        # Active prescription 2
+        rx_id2 = uid()
         db.add(Prescription(
-            id=rx2_id, patient_id=patient_id,
-            date=now - timedelta(days=30),
-            doctor="Dr. Michael Chang",
+            id=rx_id2, prescription_id="RX-2023-0042",
+            patient_id=patient_id,
+            date=datetime(2023, 4, 10),
+            doctor="Dr. Michael Chang", doctor_license="SMC-DR-2023-0042",
+            department="Orthopedics",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
+            status=PrescriptionStatus.ACTIVE,
+            notes="For post-surgical pain management. Do not exceed prescribed dosage.",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id2,
+            name="Acetaminophen", dosage="500mg", frequency="Every 6 hours as needed",
+            duration="2 weeks", instructions="Take with or without food",
+            refills_remaining=1, start_date="Apr 10, 2023", end_date="Apr 24, 2023",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id2,
+            name="Ibuprofen", dosage="400mg", frequency="Three times daily",
+            duration="10 days", instructions="Take with food to avoid stomach upset",
+            refills_remaining=0, start_date="Apr 10, 2023", end_date="Apr 20, 2023",
+        ))
+
+        # Receive status prescription
+        rx_id3 = uid()
+        db.add(Prescription(
+            id=rx_id3, prescription_id="RX-2023-0035",
+            patient_id=patient_id,
+            date=datetime(2023, 3, 20),
+            doctor="Dr. Lisa Wong", doctor_license="SMC-DR-2023-0035",
+            department="Dermatology",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
+            status=PrescriptionStatus.RECEIVE,
+            notes="Apply as directed. Avoid sun exposure while using this medication.",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id3,
+            name="Tretinoin Cream", dosage="0.025%", frequency="Once daily at night",
+            duration="6 weeks", instructions="Apply thin layer to affected areas",
+            refills_remaining=2, start_date="Mar 20, 2023", end_date="May 1, 2023",
+        ))
+
+        # Completed prescription 1
+        rx_id4 = uid()
+        db.add(Prescription(
+            id=rx_id4, prescription_id="RX-2023-0028",
+            patient_id=patient_id,
+            date=datetime(2023, 2, 15),
+            doctor="Dr. James Wilson", doctor_license="SMC-DR-2023-0028",
             department="Internal Medicine",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
+            status=PrescriptionStatus.COMPLETED,
+            notes="Complete the entire course of antibiotics.",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id4,
+            name="Amoxicillin", dosage="500mg", frequency="Three times daily",
+            duration="7 days", instructions="Complete entire course even if symptoms improve",
+            refills_remaining=0, start_date="Feb 15, 2023", end_date="Feb 22, 2023",
+        ))
+
+        # Completed prescription 2
+        rx_id5 = uid()
+        db.add(Prescription(
+            id=rx_id5, prescription_id="RX-2023-0019",
+            patient_id=patient_id,
+            date=datetime(2023, 1, 25),
+            doctor="Dr. Emily Rodriguez", doctor_license="SMC-DR-2023-0019",
+            department="Pulmonology",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
             status=PrescriptionStatus.COMPLETED,
         ))
         db.add(PrescriptionMedication(
-            id=uid(), prescription_id=rx2_id,
-            name="Amoxicillin", dosage="500mg", frequency="Three times daily",
-            duration="7 days", instructions="Complete entire course",
-            refills_remaining=0,
-            start_date="2025-01-01", end_date="2025-01-08",
+            id=uid(), prescription_id=rx_id5,
+            name="Montelukast", dosage="10mg", frequency="Once daily at bedtime",
+            duration="30 days", instructions="Take at the same time each day",
+            refills_remaining=0, start_date="Jan 25, 2023", end_date="Feb 24, 2023",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id5,
+            name="Albuterol Inhaler", dosage="90mcg/puff", frequency="As needed",
+            duration="30 days", instructions="2 puffs every 4-6 hours as needed for breathing difficulty",
+            refills_remaining=0, start_date="Jan 25, 2023", end_date="Feb 24, 2023",
+        ))
+
+        # Bought prescription
+        rx_id6 = uid()
+        db.add(Prescription(
+            id=rx_id6, prescription_id="RX-2023-0012",
+            patient_id=patient_id,
+            date=datetime(2023, 1, 10),
+            doctor="Dr. Robert Kim", doctor_license="SMC-DR-2023-0012",
+            department="Gastroenterology",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
+            status=PrescriptionStatus.BOUGHT,
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id6,
+            name="Omeprazole", dosage="20mg", frequency="Once daily before breakfast",
+            duration="14 days", instructions="Take 30 minutes before eating",
+            refills_remaining=1, start_date="Jan 10, 2023", end_date="Jan 24, 2023",
+        ))
+
+        # One more active prescription
+        rx_id7 = uid()
+        db.add(Prescription(
+            id=rx_id7, prescription_id="RX-2023-0063",
+            patient_id=patient_id,
+            date=datetime(2023, 5, 20),
+            doctor="Dr. James Wilson", doctor_license="SMC-DR-2023-0063",
+            department="Internal Medicine",
+            hospital_name=hospital_name, hospital_address=hospital_address,
+            hospital_contact=hospital_contact, hospital_email=hospital_email,
+            hospital_website=hospital_website,
+            status=PrescriptionStatus.ACTIVE,
+            notes="Monitor blood glucose levels regularly.",
+        ))
+        db.add(PrescriptionMedication(
+            id=uid(), prescription_id=rx_id7,
+            name="Metformin", dosage="500mg", frequency="Twice daily",
+            duration="3 months", instructions="Take with meals",
+            refills_remaining=3, start_date="May 20, 2023", end_date="Aug 20, 2023",
         ))
 
         # ──────────────────────────────────────────────
-        # 9. Admissions
+        # 9. Admissions (with related admissions for transfers)
         # ──────────────────────────────────────────────
+        # First admission - Orthopedics (original)
+        admission1_id = uid()
         db.add(Admission(
-            id=uid(), patient_id=patient_id,
-            admission_date=now - timedelta(days=60),
-            discharge_date=now - timedelta(days=55),
-            department="Internal Medicine",
-            ward="Ward 3A", bed_number="B-12",
-            attending_doctor="Dr. James Wilson",
-            diagnosis="Hypertensive crisis – managed with IV antihypertensives",
+            id=admission1_id, patient_id=patient_id,
+            admission_date=datetime(2023, 2, 18),
+            discharge_date=datetime(2023, 2, 20),
+            department="Orthopedics",
+            ward="W-401", bed_number="B-15",
+            attending_doctor="Dr. Michael Chang",
+            reason="Right femur fracture - surgical repair",
+            diagnosis="Right femur fracture requiring ORIF",
             status="Discharged",
-            notes="Patient responded well to treatment. Discharged with modified oral regimen.",
+            notes="Successful ORIF procedure",
+            program_duration_days=2,
+            discharge_summary="Patient underwent successful open reduction internal fixation (ORIF) of right femur. Post-op recovery uneventful.",
+            discharge_instructions="Rest, physical therapy, follow-up in 2 weeks",
+        ))
+
+        # Second admission - Rehabilitation (transferred from Orthopedics)
+        admission2_id = uid()
+        db.add(Admission(
+            id=admission2_id, patient_id=patient_id,
+            admission_date=datetime(2023, 2, 20),
+            discharge_date=datetime(2023, 3, 15),
+            department="Physical Medicine and Rehabilitation",
+            ward="R-103", bed_number="B-07",
+            attending_doctor="Dr. Jessica Williams",
+            reason="Intensive rehabilitation following right femur ORIF",
+            diagnosis="Post-surgical rehabilitation of right femur fracture",
+            status="Discharged",
+            notes="Excellent progress in rehabilitation",
+            program_duration_days=23,
+            related_admission_id=admission1_id,
+            transferred_from_department="Orthopedics",
+            referring_doctor="Dr. Michael Chang",
+            discharge_summary="Patient completed rehabilitation program successfully. Full weight bearing achieved. Range of motion restored.",
+            discharge_instructions="Continue home exercises, outpatient PT 2x/week for 6 weeks",
+            follow_up_date=datetime(2023, 3, 29),
+        ))
+
+        # Third admission - Cardiology
+        admission3_id = uid()
+        db.add(Admission(
+            id=admission3_id, patient_id=patient_id,
+            admission_date=datetime(2023, 5, 15),
+            discharge_date=datetime(2023, 5, 18),
+            department="Cardiology",
+            ward="W-301", bed_number="B-12",
+            attending_doctor="Dr. Sarah Johnson",
+            reason="Hypertensive crisis evaluation and management",
+            diagnosis="Hypertensive crisis - blood pressure 210/120 mmHg",
+            status="Discharged",
+            notes="BP stabilized with IV medications, transitioned to oral regimen",
+            program_duration_days=3,
+            discharge_summary="Patient presented with severe hypertension. Managed with IV labetalol, then transitioned to oral medications. BP at discharge: 138/88 mmHg.",
+            discharge_instructions="Follow low-sodium diet, take medications as prescribed, monitor BP daily",
+        ))
+
+        # Fourth admission - Pulmonology (active)
+        admission4_id = uid()
+        db.add(Admission(
+            id=admission4_id, patient_id=patient_id,
+            admission_date=datetime(2023, 8, 10),
+            discharge_date=None,
+            department="Pulmonology",
+            ward="W-205", bed_number="B-04",
+            attending_doctor="Dr. Robert Miller",
+            reason="Pneumonia - community acquired",
+            diagnosis="Community-acquired pneumonia, right lower lobe",
+            status="Active",
+            notes="Started on IV antibiotics, responding well to treatment",
+            program_duration_days=None,
         ))
 
         # ──────────────────────────────────────────────
@@ -359,31 +626,173 @@ async def seed():
         ))
 
         # ──────────────────────────────────────────────
-        # 10. Reports
+        # 10. Reports (Investigation Reports)
         # ──────────────────────────────────────────────
+        # Pending report - LFT
+        report1_id = uid()
         db.add(Report(
-            id=uid(), patient_id=patient_id,
-            date=now - timedelta(days=15),
-            title="Complete Blood Count", type="Laboratory",
+            id=report1_id, patient_id=patient_id,
+            date=datetime(2023, 5, 15), time="09:30 AM",
+            title="Liver Function Test (LFT)", type="Laboratory",
             department="Pathology", ordered_by="Dr. Sarah Johnson",
-            status=ReportStatus.NORMAL,
-            result_summary="All values within normal limits except borderline glucose.",
+            performed_by="Lab Tech. Sarah Johnson",
+            supervised_by="Dr. Emily Rodriguez",
+            status=ReportStatus.PENDING,
+            result_summary="Results pending",
         ))
+
+        # Completed report - CBC with findings and images
+        report2_id = uid()
         db.add(Report(
-            id=uid(), patient_id=patient_id,
-            date=now - timedelta(days=10),
-            title="Chest X-Ray", type="Radiology",
-            department="Radiology", ordered_by="Dr. James Wilson",
-            status=ReportStatus.NORMAL,
-            result_summary="No acute cardiopulmonary disease.",
-        ))
-        db.add(Report(
-            id=uid(), patient_id=patient_id,
-            date=now - timedelta(days=2),
-            title="Lipid Panel", type="Laboratory",
+            id=report2_id, patient_id=patient_id,
+            date=datetime(2023, 5, 10), time="11:45 AM",
+            title="Complete Blood Count (CBC)", type="Laboratory",
             department="Pathology", ordered_by="Dr. Sarah Johnson",
+            performed_by="Lab Tech. Michael Wong",
+            supervised_by="Dr. Emily Rodriguez",
+            status=ReportStatus.NORMAL,
+            result_summary="All values within normal limits.",
+        ))
+        # CBC findings
+        db.add(ReportFinding(id=uid(), report_id=report2_id, parameter="Hemoglobin", value="14.2 g/dL", reference="13.5-17.5 g/dL", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report2_id, parameter="WBC Count", value="7.5 x 10^9/L", reference="4.5-11.0 x 10^9/L", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report2_id, parameter="Platelet Count", value="250 x 10^9/L", reference="150-450 x 10^9/L", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report2_id, parameter="RBC Count", value="4.8 x 10^12/L", reference="4.5-5.5 x 10^12/L", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report2_id, parameter="Hematocrit", value="42%", reference="38-50%", status="Normal"))
+        # CBC image
+        db.add(ReportImage(
+            id=uid(), report_id=report2_id,
+            title="Blood Smear Analysis",
+            description="Peripheral blood smear showing normal red blood cells, white blood cells, and platelets under 100x magnification.",
+            url="https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Sickle_cell_anemia.jpg/220px-Sickle_cell_anemia.jpg",
+            type="Blood Smear",
+        ))
+
+        # Abnormal report - Lipid Profile
+        report3_id = uid()
+        db.add(Report(
+            id=report3_id, patient_id=patient_id,
+            date=datetime(2023, 3, 22), time="09:15 AM",
+            title="Lipid Profile", type="Laboratory",
+            department="Pathology", ordered_by="Dr. James Wilson",
+            performed_by="Lab Tech. Jennifer Lee",
+            supervised_by="Dr. Emily Rodriguez",
             status=ReportStatus.ABNORMAL,
-            result_summary="LDL slightly elevated at 142 mg/dL (target <130).",
+            result_summary="LDL cholesterol elevated.",
+        ))
+        # Lipid profile findings
+        db.add(ReportFinding(id=uid(), report_id=report3_id, parameter="Total Cholesterol", value="242 mg/dL", reference="<200 mg/dL", status="High"))
+        db.add(ReportFinding(id=uid(), report_id=report3_id, parameter="LDL Cholesterol", value="158 mg/dL", reference="<100 mg/dL", status="High"))
+        db.add(ReportFinding(id=uid(), report_id=report3_id, parameter="HDL Cholesterol", value="52 mg/dL", reference=">40 mg/dL", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report3_id, parameter="Triglycerides", value="140 mg/dL", reference="<150 mg/dL", status="Normal"))
+        db.add(ReportImage(
+            id=uid(), report_id=report3_id,
+            title="Lipid Analysis Chart",
+            description="Graphical representation of lipid levels.",
+            url="https://via.placeholder.com/400x300?text=Lipid+Analysis",
+            type="Chart",
+        ))
+
+        # Radiology report - X-Ray Chest
+        report4_id = uid()
+        db.add(Report(
+            id=report4_id, patient_id=patient_id,
+            date=datetime(2023, 2, 28), time="11:00 AM",
+            title="X-Ray - Chest", type="Radiology",
+            department="Radiology", ordered_by="Dr. James Wilson",
+            performed_by="Rad. Tech. David Brown",
+            supervised_by="Dr. Robert Kim",
+            status=ReportStatus.NORMAL,
+            result_summary="No acute cardiopulmonary abnormality.",
+        ))
+        db.add(ReportFinding(id=uid(), report_id=report4_id, parameter="Heart Size", value="Normal", reference="Normal", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report4_id, parameter="Lung Fields", value="Clear", reference="Clear", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report4_id, parameter="Mediastinum", value="Normal", reference="Normal", status="Normal"))
+        db.add(ReportImage(
+            id=uid(), report_id=report4_id,
+            title="PA Chest X-Ray",
+            description="Posteroanterior view of chest showing normal heart size and clear lung fields.",
+            url="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c6/Chest_Xray_PA_3-8-2010.png/220px-Chest_Xray_PA_3-8-2010.png",
+            type="X-Ray",
+        ))
+        db.add(ReportImage(
+            id=uid(), report_id=report4_id,
+            title="Lateral Chest X-Ray",
+            description="Lateral view of chest.",
+            url="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/Medical_X-Ray_imaging_NJR04_nevridge_left_lateral.png/220px-Medical_X-Ray_imaging_NJR04_nevridge_left_lateral.png",
+            type="X-Ray",
+        ))
+
+        # Thyroid Function Test
+        report5_id = uid()
+        db.add(Report(
+            id=report5_id, patient_id=patient_id,
+            date=datetime(2023, 4, 5), time="10:30 AM",
+            title="Thyroid Function Test", type="Laboratory",
+            department="Pathology", ordered_by="Dr. Sarah Johnson",
+            performed_by="Lab Tech. Maria Garcia",
+            supervised_by="Dr. Emily Rodriguez",
+            status=ReportStatus.NORMAL,
+            result_summary="Thyroid function within normal limits.",
+        ))
+        db.add(ReportFinding(id=uid(), report_id=report5_id, parameter="TSH", value="2.1 mIU/L", reference="0.4-4.0 mIU/L", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report5_id, parameter="T4 (Free)", value="1.2 ng/dL", reference="0.8-1.8 ng/dL", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report5_id, parameter="T3 (Free)", value="3.0 pg/mL", reference="2.3-4.2 pg/mL", status="Normal"))
+
+        # Kidney Function Test
+        report6_id = uid()
+        db.add(Report(
+            id=report6_id, patient_id=patient_id,
+            date=datetime(2023, 1, 18), time="08:45 AM",
+            title="Kidney Function Test", type="Laboratory",
+            department="Pathology", ordered_by="Dr. James Wilson",
+            performed_by="Lab Tech. Robert Chen",
+            supervised_by="Dr. Emily Rodriguez",
+            status=ReportStatus.NORMAL,
+            result_summary="Kidney function normal.",
+        ))
+        db.add(ReportFinding(id=uid(), report_id=report6_id, parameter="Creatinine", value="0.9 mg/dL", reference="0.7-1.3 mg/dL", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report6_id, parameter="BUN", value="15 mg/dL", reference="7-20 mg/dL", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report6_id, parameter="eGFR", value="95 mL/min", reference=">90 mL/min", status="Normal"))
+
+        # Urinalysis
+        report7_id = uid()
+        db.add(Report(
+            id=report7_id, patient_id=patient_id,
+            date=datetime(2023, 4, 20), time="02:30 PM",
+            title="Urinalysis", type="Laboratory",
+            department="Pathology", ordered_by="Dr. Sarah Johnson",
+            performed_by="Lab Tech. Sarah Johnson",
+            supervised_by="Dr. Emily Rodriguez",
+            status=ReportStatus.NORMAL,
+            result_summary="No abnormalities detected.",
+        ))
+        db.add(ReportFinding(id=uid(), report_id=report7_id, parameter="pH", value="6.0", reference="5.0-8.0", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report7_id, parameter="Protein", value="Negative", reference="Negative", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report7_id, parameter="Glucose", value="Negative", reference="Negative", status="Normal"))
+
+        # ECG
+        report8_id = uid()
+        db.add(Report(
+            id=report8_id, patient_id=patient_id,
+            date=datetime(2023, 5, 8), time="03:15 PM",
+            title="Electrocardiogram (ECG)", type="Cardiology",
+            department="Cardiology", ordered_by="Dr. James Wilson",
+            performed_by="Cardio Tech. Lisa Wong",
+            supervised_by="Dr. James Wilson",
+            status=ReportStatus.NORMAL,
+            result_summary="Normal sinus rhythm.",
+        ))
+        db.add(ReportFinding(id=uid(), report_id=report8_id, parameter="Heart Rate", value="72 bpm", reference="60-100 bpm", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report8_id, parameter="PR Interval", value="160 ms", reference="120-200 ms", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report8_id, parameter="QRS Duration", value="90 ms", reference="<120 ms", status="Normal"))
+        db.add(ReportFinding(id=uid(), report_id=report8_id, parameter="QTc Interval", value="420 ms", reference="<450 ms", status="Normal"))
+        db.add(ReportImage(
+            id=uid(), report_id=report8_id,
+            title="ECG Tracing",
+            description="12-lead ECG showing normal sinus rhythm.",
+            url="https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/SinusRhythmLabels.svg/300px-SinusRhythmLabels.svg.png",
+            type="ECG",
         ))
 
         # ──────────────────────────────────────────────
@@ -426,63 +835,219 @@ async def seed():
             ))
 
         # ──────────────────────────────────────────────
-        # 13. Case Records (student-created)
+        # 13. Case Records and Approvals (comprehensive data)
         # ──────────────────────────────────────────────
-        cr1_id = uid()
-        db.add(CaseRecord(
-            id=cr1_id,
-            patient_id=extra_patients[0][0],
-            student_id=student_id,
-            date=now - timedelta(days=3),
-            time="10:30 AM",
-            type="Physical Examination",
-            description="Routine physical examination and vitals check",
-            department="Internal Medicine",
-            findings="BP 128/82 mmHg, HR 72 bpm, Temp 98.4°F",
-            diagnosis="Essential hypertension, well-controlled",
-            treatment="Continue current medication regimen",
-            notes="Patient compliant with medication",
-            grade="A",
-            provider="Sarah Smith (Student)",
-            status="Approved",
-            approved_by="Dr. James Wilson",
-            approved_at="May 25, 2025 – 2:30 PM",
-        ))
+        # Pending Case Record Approvals (8 pending as per mockup)
+        pending_case_records = [
+            {
+                "patient_idx": 0,  # John Doe
+                "type": "Echocardiogram",
+                "procedure_name": "Echocardiogram",
+                "procedure_description": "Routine echocardiogram to assess cardiac function following medication adjustment.",
+                "doctor_name": "Dr. Michael Chang",
+                "days_ago": 0,
+                "time": "09:30 AM",
+            },
+            {
+                "patient_idx": 1,  # Emily Wilson
+                "type": "Spirometry Test",
+                "procedure_name": "Spirometry",
+                "procedure_description": "Pulmonary function testing to evaluate asthma control.",
+                "doctor_name": "Dr. Sarah Johnson",
+                "days_ago": 0,
+                "time": "10:00 AM",
+            },
+            {
+                "patient_idx": 2,  # Maria Garcia
+                "type": "HbA1c Monitoring",
+                "procedure_name": "HbA1c Blood Test",
+                "procedure_description": "Quarterly glucose control assessment for diabetes management.",
+                "doctor_name": "Dr. Emily Watson",
+                "days_ago": 1,
+                "time": "11:30 AM",
+            },
+            {
+                "patient_idx": 3,  # Robert Chen
+                "type": "Chest X-Ray Review",
+                "procedure_name": "Chest Radiograph",
+                "procedure_description": "Follow-up imaging for bronchitis resolution assessment.",
+                "doctor_name": "Dr. James Wilson",
+                "days_ago": 1,
+                "time": "02:00 PM",
+            },
+            {
+                "patient_idx": 4,  # Lisa Thompson
+                "type": "Neurological Exam",
+                "procedure_name": "Neurological Assessment",
+                "procedure_description": "Comprehensive neurological examination for migraine management.",
+                "doctor_name": "Dr. Robert Kim",
+                "days_ago": 2,
+                "time": "09:00 AM",
+            },
+            {
+                "patient_idx": 0,  # John Doe (second case)
+                "type": "Blood Pressure Monitoring",
+                "procedure_name": "24-Hour BP Monitoring",
+                "procedure_description": "Ambulatory blood pressure assessment for hypertension control.",
+                "doctor_name": "Dr. Sarah Johnson",
+                "days_ago": 2,
+                "time": "03:30 PM",
+            },
+            {
+                "patient_idx": 1,  # Emily Wilson (second case)
+                "type": "Allergy Testing",
+                "procedure_name": "Skin Prick Test",
+                "procedure_description": "Comprehensive allergy panel to identify asthma triggers.",
+                "doctor_name": "Dr. Michael Chang",
+                "days_ago": 3,
+                "time": "10:30 AM",
+            },
+            {
+                "patient_idx": 3,  # Robert Chen (second case)
+                "type": "Physical Examination",
+                "procedure_name": "General Physical",
+                "procedure_description": "Routine physical examination and wellness check.",
+                "doctor_name": "Dr. Sarah Johnson",
+                "days_ago": 3,
+                "time": "11:00 AM",
+            },
+        ]
 
-        cr2_id = uid()
-        db.add(CaseRecord(
-            id=cr2_id,
-            patient_id=extra_patients[1][0],
-            student_id=student_id,
-            date=now - timedelta(days=7),
-            time="09:15 AM",
-            type="Blood Glucose Monitoring",
-            description="Fasting blood glucose measurement and HbA1c review",
-            department="Endocrinology",
-            findings="Fasting glucose 118 mg/dL, HbA1c 5.9%",
-            diagnosis="Pre-diabetic state, monitoring required",
-            treatment="Lifestyle modifications, re-check in 3 months",
-            notes="Discussed dietary changes with patient",
-            grade="B+",
-            provider="Sarah Smith (Student)",
-            status="Approved",
-            approved_by="Dr. James Wilson",
-            approved_at="May 21, 2025 – 4:00 PM",
-        ))
+        pending_cr_ids = []
+        for cr_data in pending_case_records:
+            cr_id = uid()
+            pending_cr_ids.append(cr_id)
+            patient_info = extra_patients[cr_data["patient_idx"]]
+            db.add(CaseRecord(
+                id=cr_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                date=now - timedelta(days=cr_data["days_ago"]),
+                time=cr_data["time"],
+                type=cr_data["type"],
+                description=cr_data["procedure_description"],
+                procedure_name=cr_data["procedure_name"],
+                procedure_description=cr_data["procedure_description"],
+                doctor_name=cr_data["doctor_name"],
+                department="Cardiology",
+                findings="Pending review",
+                diagnosis="Awaiting faculty approval",
+                treatment="To be determined",
+                notes="Case submitted for faculty review",
+                provider="Sarah Smith (Student)",
+                status="Pending",
+            ))
+            
+            # Create pending approval for each case record
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.CASE_RECORD,
+                case_record_id=cr_id,
+                faculty_id=faculty_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                status=ApprovalStatus.PENDING,
+                created_at=now - timedelta(days=cr_data["days_ago"]),
+            ))
 
-        # Approvals for case records
-        db.add(Approval(
-            id=uid(), case_record_id=cr1_id, faculty_id=faculty_id,
-            status="Approved", comments="Good clinical documentation",
-            created_at=now - timedelta(days=3),
-            processed_at=now - timedelta(days=3, hours=-4),
-        ))
-        db.add(Approval(
-            id=uid(), case_record_id=cr2_id, faculty_id=faculty_id,
-            status="Approved", comments="Well done",
-            created_at=now - timedelta(days=7),
-            processed_at=now - timedelta(days=7, hours=-4),
-        ))
+        # Approval History (Approved and Rejected case records)
+        history_case_records = [
+            {
+                "patient_idx": 0,  # John Doe
+                "type": "Physical Examination",
+                "procedure_name": "Physical Examination",
+                "status": "APPROVED",
+                "score": 4,
+                "days_ago": 7,
+            },
+            {
+                "patient_idx": 2,  # Maria Garcia
+                "type": "Blood Glucose Monitoring",
+                "procedure_name": "Blood Glucose Monitoring",
+                "status": "REJECTED",
+                "score": None,
+                "days_ago": 8,
+            },
+            {
+                "patient_idx": 3,  # Robert Chen
+                "type": "ECG Interpretation",
+                "procedure_name": "ECG Interpretation",
+                "status": "APPROVED",
+                "score": 5,
+                "days_ago": 10,
+            },
+        ]
+
+        for cr_data in history_case_records:
+            cr_id = uid()
+            patient_info = extra_patients[cr_data["patient_idx"]]
+            db.add(CaseRecord(
+                id=cr_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                date=now - timedelta(days=cr_data["days_ago"]),
+                time="09:30 AM",
+                type=cr_data["type"],
+                description=f"Case record for {cr_data['type'].lower()}",
+                procedure_name=cr_data["procedure_name"],
+                doctor_name="Dr. Sarah Johnson",
+                department="Cardiology",
+                provider="Sarah Smith (Student)",
+                status=cr_data["status"].capitalize(),
+                approved_by="Dr. Sarah Johnson",
+                approved_at=(now - timedelta(days=cr_data["days_ago"] - 1)).strftime("%Y-%m-%d %I:%M %p"),
+            ))
+            
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.CASE_RECORD,
+                case_record_id=cr_id,
+                faculty_id=faculty_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                status=ApprovalStatus.APPROVED if cr_data["status"] == "APPROVED" else ApprovalStatus.REJECTED,
+                score=cr_data["score"],
+                comments="Good clinical documentation" if cr_data["status"] == "APPROVED" else "Needs more detail",
+                created_at=now - timedelta(days=cr_data["days_ago"]),
+                processed_at=now - timedelta(days=cr_data["days_ago"] - 1),
+            ))
+
+        # Discharge Summary Approvals (3 pending)
+        for i, patient_info in enumerate(extra_patients[:3]):
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.DISCHARGE_SUMMARY,
+                faculty_id=faculty_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                status=ApprovalStatus.PENDING,
+                created_at=now - timedelta(days=i),
+            ))
+
+        # Admission Approvals (5 pending)
+        for i, patient_info in enumerate(extra_patients):
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.ADMISSION,
+                faculty_id=faculty_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                status=ApprovalStatus.PENDING,
+                created_at=now - timedelta(days=i),
+            ))
+
+        # Prescription Approvals (12 pending)
+        for i in range(12):
+            patient_info = extra_patients[i % len(extra_patients)]
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.PRESCRIPTION,
+                faculty_id=faculty_id,
+                patient_id=patient_info[0],
+                student_id=student_id,
+                status=ApprovalStatus.PENDING,
+                created_at=now - timedelta(days=i % 5),
+            ))
 
         await db.commit()
         print("✅ Database seeded successfully!")
