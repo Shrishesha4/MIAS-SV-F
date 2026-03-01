@@ -45,7 +45,7 @@
 		{ value: 'COMPLETED', label: 'Completed' },
 	];
 
-	const filteredPrescriptions = $derived(() => {
+	const filteredPrescriptions = $derived.by(() => {
 		let filtered = prescriptions;
 
 		if (searchQuery.trim()) {
@@ -148,7 +148,7 @@
 			style="background: linear-gradient(to bottom, #3b82f6, #2563eb);">
 			<span class="text-white font-semibold">Prescription History</span>
 			<span class="px-3 py-1 rounded-full text-xs font-medium bg-white text-blue-600">
-				{filteredPrescriptions().length} Prescriptions
+				{filteredPrescriptions.length} Prescriptions
 			</span>
 		</div>
 
@@ -164,7 +164,7 @@
 
 		<!-- Prescriptions List -->
 		<div class="space-y-3">
-			{#each filteredPrescriptions() as rx}
+			{#each filteredPrescriptions as rx}
 				<AquaCard padding={false}>
 					<div class="p-4 flex items-start gap-3">
 						<!-- Icon -->
@@ -210,7 +210,7 @@
 			{/each}
 		</div>
 
-		{#if filteredPrescriptions().length === 0}
+		{#if filteredPrescriptions.length === 0}
 			<div class="text-center py-12 text-gray-400">
 				<Pill class="w-12 h-12 mx-auto mb-3 opacity-50" />
 				<p class="text-sm">No prescriptions found</p>

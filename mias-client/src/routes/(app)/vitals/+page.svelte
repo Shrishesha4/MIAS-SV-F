@@ -10,8 +10,8 @@
 
 	Chart.register(...registerables);
 
-	let bpChartCanvas: HTMLCanvasElement;
-	let hrChartCanvas: HTMLCanvasElement;
+	let bpChartCanvas: HTMLCanvasElement | undefined = $state();
+	let hrChartCanvas: HTMLCanvasElement | undefined = $state();
 	let bpChart: Chart | null = null;
 	let hrChart: Chart | null = null;
 
@@ -231,7 +231,7 @@
 	<AquaCard>
 		{#snippet header()}
 			<HeartPulse class="w-4 h-4 text-red-500 mr-2" />
-			<span class="text-blue-900 font-semibold text-sm">BP Trend</span>
+			<span class="text-blue-900 font-semibold text-sm">Blood Pressure Trend</span>
 		{/snippet}
 		<div class="h-48">
 			<canvas bind:this={bpChartCanvas}></canvas>

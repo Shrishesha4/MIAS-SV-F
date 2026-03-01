@@ -122,4 +122,24 @@ export const studentApi = {
     const response = await client.post(`/students/${studentId}/case-records/submit`, data);
     return response.data;
   },
+
+  async submitAdmissionRequest(studentId: string, data: {
+    patient_id: string;
+    faculty_id: string;
+    department?: string;
+    ward?: string;
+    bed_number?: string;
+    reason: string;
+    diagnosis?: string;
+    notes?: string;
+    referring_doctor?: string;
+  }) {
+    const response = await client.post(`/students/${studentId}/admission-requests`, data);
+    return response.data;
+  },
+
+  async getAdmissionRequests(studentId: string) {
+    const response = await client.get(`/students/${studentId}/admission-requests`);
+    return response.data;
+  },
 };

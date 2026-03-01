@@ -26,8 +26,8 @@
 	// Faculty upload state
 	let photoUploading = $state(false);
 	let signatureUploading = $state(false);
-	let photoInput: HTMLInputElement;
-	let signatureInput: HTMLInputElement;
+	let photoInput = $state<HTMLInputElement>();
+	let signatureInput = $state<HTMLInputElement>();
 
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
@@ -438,7 +438,7 @@
 					{/if}
 					<button class="absolute -bottom-1 -right-1 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer shadow-md"
 						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 2px solid white;"
-						onclick={() => photoInput.click()}
+						onclick={() => photoInput?.click()}
 						disabled={photoUploading}>
 						{#if photoUploading}
 							<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
@@ -493,8 +493,8 @@
 
 			<button class="w-full mt-3 py-2.5 rounded-lg text-sm font-medium cursor-pointer flex items-center justify-center gap-2"
 				style="background: linear-gradient(to bottom, #4d90fe, #2563eb); color: white;
-				       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
-				onclick={() => signatureInput.click()}
+					   box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+				onclick={() => signatureInput?.click()}
 				disabled={signatureUploading}>
 				{#if signatureUploading}
 					<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>

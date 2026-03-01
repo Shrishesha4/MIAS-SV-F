@@ -10,11 +10,12 @@ import os
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Allergy
+from app.models.patient import Patient, Allergy, MedicalAlert
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseRecord
 from app.models.admission import Admission
 from app.models.prescription import Prescription
+from app.models.student import Student
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
@@ -216,8 +217,10 @@ async def get_pending_approvals(
         .options(
             selectinload(Approval.case_record),
             selectinload(Approval.patient).selectinload(Patient.allergies),
+            selectinload(Approval.patient).selectinload(Patient.medical_alerts),
             selectinload(Approval.admission),
             selectinload(Approval.prescription),
+            selectinload(Approval.student),
         )
         .where(Approval.faculty_id == faculty_id)
     )
@@ -270,8 +273,24 @@ async def get_pending_approvals(
                     {"allergen": allergy.allergen, "severity": allergy.severity}
                     for allergy in (a.patient.allergies or [])
                 ],
-                "primary_diagnosis": None,  # Could be fetched from medical records
+                "primary_diagnosis": a.patient.primary_diagnosis,
+                "medical_alerts": [
+                    {
+                        "id": alert.id,
+                        "type": alert.type,
+                        "severity": alert.severity,
+                        "title": alert.title,
+                        "description": alert.description,
+                        "is_active": alert.is_active,
+                    }
+                    for alert in (a.patient.medical_alerts or []) if alert.is_active
+                ],
             } if a.patient else None,
+            "submitted_by": {
+                "id": a.student.id,
+                "student_id": a.student.student_id,
+                "name": a.student.name,
+            } if a.student else None,
             "case_record": {
                 "id": a.case_record.id,
                 "type": a.case_record.type,
@@ -288,7 +307,13 @@ async def get_pending_approvals(
                 "id": a.admission.id,
                 "department": a.admission.department,
                 "ward": a.admission.ward,
+                "bed_number": a.admission.bed_number,
                 "diagnosis": a.admission.diagnosis,
+                "reason": a.admission.reason,
+                "attending_doctor": a.admission.attending_doctor,
+                "referring_doctor": a.admission.referring_doctor,
+                "status": a.admission.status,
+                "notes": a.admission.notes,
                 "admission_date": a.admission.admission_date.isoformat() if a.admission.admission_date else None,
             } if a.admission else None,
             "prescription": {
@@ -344,6 +369,13 @@ async def get_approval_history(
                 "type": a.case_record.type,
                 "procedure_name": a.case_record.procedure_name,
             } if a.case_record else None,
+            "admission": {
+                "id": a.admission.id,
+                "department": a.admission.department,
+                "reason": a.admission.reason,
+                "diagnosis": a.admission.diagnosis,
+                "status": a.admission.status,
+            } if a.admission else None,
         }
         for a in approvals
     ]
@@ -359,7 +391,10 @@ async def process_approval(
 ):
     result = await db.execute(
         select(Approval)
-        .options(selectinload(Approval.case_record))
+        .options(
+            selectinload(Approval.case_record),
+            selectinload(Approval.admission),
+        )
         .where(Approval.id == approval_id)
         .where(Approval.faculty_id == faculty_id)
     )
@@ -374,13 +409,23 @@ async def process_approval(
     approval.comments = body.get("comments")
     approval.processed_at = datetime.utcnow()
 
-    # Also update the case record
+    # Get faculty name for records
+    faculty_name = (
+        await db.execute(select(Faculty.name).where(Faculty.id == faculty_id))
+    ).scalar_one_or_none() or faculty_id
+
+    # Update the case record status
     if approval.case_record:
         approval.case_record.status = "Approved" if new_status == "APPROVED" else "Rejected"
-        approval.case_record.approved_by = (
-            await db.execute(select(Faculty.name).where(Faculty.id == faculty_id))
-        ).scalar_one_or_none() or faculty_id
+        approval.case_record.approved_by = faculty_name
         approval.case_record.approved_at = datetime.utcnow().isoformat()
+
+    # Update the admission status
+    if approval.admission:
+        if new_status == "APPROVED":
+            approval.admission.status = "Active"
+        else:
+            approval.admission.status = "Rejected"
 
     await db.commit()
     return {"message": "Approval processed", "status": approval.status.value}

@@ -18,6 +18,14 @@ export interface ApprovalItem {
     photo?: string;
     allergies?: { allergen: string; severity: string }[];
     primary_diagnosis?: string;
+    medical_alerts?: {
+      id: string;
+      type: string;
+      severity: string;
+      title: string;
+      description?: string;
+      is_active: boolean;
+    }[];
   };
   case_record?: {
     id: string;
@@ -29,7 +37,24 @@ export interface ApprovalItem {
     date: string;
     time: string;
   };
-  submitted_by?: string;
+  admission?: {
+    id: string;
+    department: string;
+    ward: string;
+    bed_number: string;
+    diagnosis: string;
+    reason: string;
+    attending_doctor: string;
+    referring_doctor?: string;
+    status: string;
+    notes?: string;
+    admission_date: string;
+  };
+  submitted_by?: {
+    id: string;
+    student_id: string;
+    name: string;
+  };
   submitted_at?: string;
 }
 

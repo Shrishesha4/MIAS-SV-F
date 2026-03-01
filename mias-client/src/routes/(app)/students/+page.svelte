@@ -455,36 +455,36 @@
 					{/if}
 
 					<div>
-						<label class="text-xs text-gray-500 mb-1 block">Username</label>
-						<input type="text" bind:value={newUsername} placeholder="student_username"
+						<label for="new-username" class="text-xs text-gray-500 mb-1 block">Username</label>
+						<input id="new-username" type="text" bind:value={newUsername} placeholder="student_username"
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15);" />
 					</div>
 
 					<div>
-						<label class="text-xs text-gray-500 mb-1 block">Password</label>
-						<input type="password" bind:value={newPassword} placeholder="Create a password"
+						<label for="new-password" class="text-xs text-gray-500 mb-1 block">Password</label>
+						<input id="new-password" type="password" bind:value={newPassword} placeholder="Create a password"
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15);" />
 					</div>
 
 					<div>
-						<label class="text-xs text-gray-500 mb-1 block">Email</label>
-						<input type="email" bind:value={newEmail} placeholder="student@email.com"
+						<label for="new-email" class="text-xs text-gray-500 mb-1 block">Email</label>
+						<input id="new-email" type="email" bind:value={newEmail} placeholder="student@email.com"
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15);" />
 					</div>
 
 					<div>
-						<label class="text-xs text-gray-500 mb-1 block">Full Name</label>
-						<input type="text" bind:value={newName} placeholder="Student Full Name"
+						<label for="new-name" class="text-xs text-gray-500 mb-1 block">Full Name</label>
+						<input id="new-name" type="text" bind:value={newName} placeholder="Student Full Name"
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15);" />
 					</div>
 
 					<div>
-						<label class="text-xs text-gray-500 mb-1 block">Program</label>
-						<select bind:value={newProgram}
+						<label for="new-program" class="text-xs text-gray-500 mb-1 block">Program</label>
+						<select id="new-program" bind:value={newProgram}
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none cursor-pointer"
 							style="border: 1px solid rgba(0,0,0,0.15);">
 							{#each programs as p}
@@ -495,8 +495,8 @@
 
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-xs text-gray-500 mb-1 block">Year</label>
-							<select bind:value={newYear}
+							<label for="new-year" class="text-xs text-gray-500 mb-1 block">Year</label>
+							<select id="new-year" bind:value={newYear}
 								class="w-full px-3 py-2.5 rounded-lg text-sm outline-none cursor-pointer"
 								style="border: 1px solid rgba(0,0,0,0.15);">
 								{#each [1, 2, 3, 4, 5] as y}
@@ -505,8 +505,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="text-xs text-gray-500 mb-1 block">Semester</label>
-							<select bind:value={newSemester}
+							<label for="new-semester" class="text-xs text-gray-500 mb-1 block">Semester</label>
+							<select id="new-semester" bind:value={newSemester}
 								class="w-full px-3 py-2.5 rounded-lg text-sm outline-none cursor-pointer"
 								style="border: 1px solid rgba(0,0,0,0.15);">
 								{#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as s}

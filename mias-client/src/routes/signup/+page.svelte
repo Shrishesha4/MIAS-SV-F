@@ -373,34 +373,34 @@
 						<h3 class="text-lg font-bold text-gray-800 mb-4">Create Your Account</h3>
 						<div class="space-y-4">
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Username</label>
+								<label for="username-input" class="text-xs text-gray-500 mb-1 block">Username</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<User class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="Choose a username" bind:value={username}
+									<input id="username-input" type="text" placeholder="Choose a username" bind:value={username}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Email</label>
+								<label for="email-input" class="text-xs text-gray-500 mb-1 block">Email</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Mail class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="email" placeholder="your@email.com" bind:value={email}
+									<input id="email-input" type="email" placeholder="your@email.com" bind:value={email}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Password</label>
+								<label for="password-input" class="text-xs text-gray-500 mb-1 block">Password</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<KeyRound class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="password" placeholder="Create a password" bind:value={password}
+									<input id="password-input" type="password" placeholder="Create a password" bind:value={password}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Confirm Password</label>
+								<label for="confirm-password-input" class="text-xs text-gray-500 mb-1 block">Confirm Password</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<KeyRound class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="password" placeholder="Confirm your password" bind:value={confirmPassword}
+									<input id="confirm-password-input" type="password" placeholder="Confirm your password" bind:value={confirmPassword}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
@@ -411,23 +411,23 @@
 						<h3 class="text-lg font-bold text-gray-800 mb-4">Personal Information</h3>
 						<div class="space-y-4">
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Full Name</label>
+								<label for="patient-name-input" class="text-xs text-gray-500 mb-1 block">Full Name</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<User class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="Enter your full name" bind:value={patientName}
+									<input id="patient-name-input" type="text" placeholder="Enter your full name" bind:value={patientName}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Date of Birth</label>
+								<label for="patient-dob-input" class="text-xs text-gray-500 mb-1 block">Date of Birth</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Calendar class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="date" bind:value={patientDob}
+									<input id="patient-dob-input" type="date" bind:value={patientDob}
 										class="flex-1 outline-none text-gray-700 bg-transparent" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Gender</label>
+								<label for="patient-gender-input" class="text-xs text-gray-500 mb-1 block">Gender</label>
 								<div class="flex gap-3">
 									{#each ['MALE', 'FEMALE', 'OTHER'] as g}
 										<button
@@ -443,10 +443,10 @@
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Blood Group</label>
+								<label for="patient-blood-group-input" class="text-xs text-gray-500 mb-1 block">Blood Group</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Droplet class="h-5 w-5 text-red-400 mr-3 shrink-0" />
-									<select bind:value={patientBloodGroup}
+									<select id="patient-blood-group-input" bind:value={patientBloodGroup}
 										class="flex-1 outline-none text-gray-700 bg-transparent cursor-pointer">
 										<option value="">Select blood group</option>
 										{#each bloodGroups as bg}
@@ -461,18 +461,18 @@
 						<h3 class="text-lg font-bold text-gray-800 mb-4">Contact Information</h3>
 						<div class="space-y-4">
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Phone Number</label>
+								<label for="patient-phone-input" class="text-xs text-gray-500 mb-1 block">Phone Number</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Phone class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="tel" placeholder="+91 XXXXX XXXXX" bind:value={patientPhone}
+									<input id="patient-phone-input" type="tel" placeholder="+91 XXXXX XXXXX" bind:value={patientPhone}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Address (Optional)</label>
+								<label for="patient-address-input" class="text-xs text-gray-500 mb-1 block">Address (Optional)</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<MapPin class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="Street address, City" bind:value={patientAddress}
+									<input id="patient-address-input" type="text" placeholder="Street address, City" bind:value={patientAddress}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
@@ -497,20 +497,20 @@
 							<div class="p-3 rounded-lg" style="background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.1);">
 								<div class="space-y-3">
 									<div>
-										<label class="text-xs text-gray-500 mb-1 block">Contact Name</label>
-										<input type="text" placeholder="Emergency contact name" bind:value={emergencyName}
+										<label for="emergency-name-input" class="text-xs text-gray-500 mb-1 block">Contact Name</label>
+										<input id="emergency-name-input" type="text" placeholder="Emergency contact name" bind:value={emergencyName}
 											class="w-full px-3 py-2.5 outline-none text-gray-700 text-sm rounded-lg"
 											style="border: 1px solid rgba(0,0,0,0.15);" />
 									</div>
 									<div>
-										<label class="text-xs text-gray-500 mb-1 block">Phone</label>
-										<input type="tel" placeholder="Phone number" bind:value={emergencyPhone}
+										<label for="emergency-phone-input" class="text-xs text-gray-500 mb-1 block">Phone</label>
+										<input id="emergency-phone-input" type="tel" placeholder="Phone number" bind:value={emergencyPhone}
 											class="w-full px-3 py-2.5 outline-none text-gray-700 text-sm rounded-lg"
 											style="border: 1px solid rgba(0,0,0,0.15);" />
 									</div>
 									<div>
-										<label class="text-xs text-gray-500 mb-1 block">Relationship</label>
-										<input type="text" placeholder="e.g., Spouse, Parent, Sibling" bind:value={emergencyRelation}
+										<label for="emergency-relation-input" class="text-xs text-gray-500 mb-1 block">Relationship</label>
+										<input id="emergency-relation-input" type="text" placeholder="e.g., Spouse, Parent, Sibling" bind:value={emergencyRelation}
 											class="w-full px-3 py-2.5 outline-none text-gray-700 text-sm rounded-lg"
 											style="border: 1px solid rgba(0,0,0,0.15);" />
 									</div>
@@ -523,18 +523,18 @@
 						<h3 class="text-lg font-bold text-gray-800 mb-4">Academic Information</h3>
 						<div class="space-y-4">
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Full Name</label>
+								<label for="student-name-input" class="text-xs text-gray-500 mb-1 block">Full Name</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<User class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="Enter your full name" bind:value={studentName}
+									<input id="student-name-input" type="text" placeholder="Enter your full name" bind:value={studentName}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Program</label>
+								<label for="student-program-input" class="text-xs text-gray-500 mb-1 block">Program</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<BookOpen class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<select bind:value={studentProgram}
+									<select id="student-program-input" bind:value={studentProgram}
 										class="flex-1 outline-none text-gray-700 bg-transparent cursor-pointer">
 										<option value="">Select programme</option>
 										{#each dbProgrammes as p}
@@ -545,8 +545,8 @@
 							</div>
 							<div class="grid grid-cols-2 gap-3">
 								<div>
-									<label class="text-xs text-gray-500 mb-1 block">Year</label>
-									<select bind:value={studentYear}
+									<label for="student-year-input" class="text-xs text-gray-500 mb-1 block">Year</label>
+									<select id="student-year-input" bind:value={studentYear}
 										class="w-full px-4 py-3 outline-none text-gray-700 cursor-pointer"
 										style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 										{#each [1, 2, 3, 4, 5] as y}
@@ -555,8 +555,8 @@
 									</select>
 								</div>
 								<div>
-									<label class="text-xs text-gray-500 mb-1 block">Semester</label>
-									<select bind:value={studentSemester}
+									<label for="student-semester-input" class="text-xs text-gray-500 mb-1 block">Semester</label>
+									<select id="student-semester-input" bind:value={studentSemester}
 										class="w-full px-4 py-3 outline-none text-gray-700 cursor-pointer"
 										style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 										{#each [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as s}
@@ -566,14 +566,14 @@
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Current GPA</label>
-								<input type="number" step="0.1" min="0" max="10" placeholder="e.g., 8.5" bind:value={studentGpa}
+								<label for="student-gpa-input" class="text-xs text-gray-500 mb-1 block">Current GPA</label>
+								<input id="student-gpa-input" type="number" step="0.1" min="0" max="10" placeholder="e.g., 8.5" bind:value={studentGpa}
 									class="w-full px-4 py-3 outline-none text-gray-700 text-sm"
 									style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;" />
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Academic Advisor (Optional)</label>
-								<input type="text" placeholder="Advisor name" bind:value={studentAdvisor}
+								<label for="student-advisor-input" class="text-xs text-gray-500 mb-1 block">Academic Advisor (Optional)</label>
+								<input id="student-advisor-input" type="text" placeholder="Advisor name" bind:value={studentAdvisor}
 									class="w-full px-4 py-3 outline-none text-gray-700 text-sm"
 									style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;" />
 							</div>
@@ -584,18 +584,18 @@
 						<h3 class="text-lg font-bold text-gray-800 mb-4">Professional Information</h3>
 						<div class="space-y-4">
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Full Name</label>
+								<label for="faculty-name-input" class="text-xs text-gray-500 mb-1 block">Full Name</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<User class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="Dr. Full Name" bind:value={facultyName}
+									<input id="faculty-name-input" type="text" placeholder="Dr. Full Name" bind:value={facultyName}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Department</label>
+								<label for="faculty-department-input" class="text-xs text-gray-500 mb-1 block">Department</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Building2 class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<select bind:value={facultyDepartment}
+									<select id="faculty-department-input" bind:value={facultyDepartment}
 										class="flex-1 outline-none text-gray-700 bg-transparent cursor-pointer">
 										<option value="">Select department</option>
 										{#each dbDepartments as d}
@@ -605,18 +605,18 @@
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Specialty (Optional)</label>
+								<label for="faculty-specialty-input" class="text-xs text-gray-500 mb-1 block">Specialty (Optional)</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Stethoscope class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="text" placeholder="e.g., Implantology, Cosmetic Dentistry" bind:value={facultySpecialty}
+									<input id="faculty-specialty-input" type="text" placeholder="e.g., Implantology, Cosmetic Dentistry" bind:value={facultySpecialty}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>
 							<div>
-								<label class="text-xs text-gray-500 mb-1 block">Phone (Optional)</label>
+								<label for="faculty-phone-input" class="text-xs text-gray-500 mb-1 block">Phone (Optional)</label>
 								<div class="flex items-center px-4 py-3" style="border: 1px solid rgba(0,0,0,0.15); border-radius: 8px;">
 									<Phone class="h-5 w-5 text-gray-400 mr-3 shrink-0" />
-									<input type="tel" placeholder="+91 XXXXX XXXXX" bind:value={facultyPhone}
+									<input id="faculty-phone-input" type="tel" placeholder="+91 XXXXX XXXXX" bind:value={facultyPhone}
 										class="flex-1 outline-none text-gray-700 bg-transparent placeholder-gray-400" />
 								</div>
 							</div>

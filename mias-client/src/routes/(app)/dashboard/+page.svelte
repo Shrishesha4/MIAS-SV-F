@@ -98,7 +98,7 @@
 	]);
 
 	// Derived medical alerts string
-	const medicalAlertsText = $derived(() => {
+	const medicalAlertsText = $derived.by(() => {
 		if (!patient?.allergies?.length && !patient?.medical_alerts?.length) return '';
 		const alerts: string[] = [];
 		patient?.allergies?.forEach((a: any) => alerts.push(`${a.allergen} Allergy`));
@@ -137,6 +137,7 @@
 			const result = await patientApi.logMedicationDose(patient.id, med.id, { status: 'TAKEN', scheduled_time: new Date().toISOString() });
 			if (result && result.id) {
 				medicationTakenSuccess = true;
+				dashboard = await patientApi.getDashboard(patient.id);
 				setTimeout(() => {
 					showMedicationReminder = false;
 					medicationTakenSuccess = false;
@@ -251,11 +252,11 @@
 			</div>
 			
 			<!-- Medical Alerts Bar -->
-			{#if medicalAlertsText()}
+			{#if medicalAlertsText}
 				<div class="px-4 py-2.5 flex items-center gap-2"
 					style="background: linear-gradient(to bottom, #fef2f2, #fee2e2); border-top: 1px solid #fecaca;">
 					<AlertTriangle class="w-4 h-4 text-red-500 shrink-0" />
-					<p class="text-sm text-red-700 font-medium truncate">{medicalAlertsText()}</p>
+					<p class="text-sm text-red-700 font-medium truncate">{medicalAlertsText}</p>
 				</div>
 			{/if}
 		</AquaCard>

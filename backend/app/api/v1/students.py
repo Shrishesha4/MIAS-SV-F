@@ -12,8 +12,9 @@ from app.models.student import (
     DisciplinaryAction, ClinicSession, Clinic, ClinicAppointment,
 )
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
-from app.models.patient import Patient, Allergy
+from app.models.patient import Patient, Allergy, MedicalAlert
 from app.models.faculty import Faculty
+from app.models.admission import Admission
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 
@@ -655,3 +656,125 @@ async def submit_case_record_for_approval(
     
     await db.commit()
     return {"id": record.id, "status": "submitted"}
+
+
+@router.post("/{student_id}/admission-requests")
+async def submit_admission_request(
+    student_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit an admission request for faculty approval.
+    
+    Student creates an admission record (status=Pending Approval)
+    and an Approval record linked to it.
+    """
+    import uuid
+
+    patient_id = body.get("patient_id")
+    faculty_id = body.get("faculty_id")
+    if not patient_id or not faculty_id:
+        raise HTTPException(status_code=400, detail="patient_id and faculty_id are required")
+
+    # Validate patient exists
+    patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Validate faculty exists
+    faculty_result = await db.execute(select(Faculty).where(Faculty.id == faculty_id))
+    faculty = faculty_result.scalar_one_or_none()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    # Create admission record with Pending Approval status
+    admission = Admission(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        admission_date=datetime.utcnow(),
+        department=body.get("department", faculty.department or "General"),
+        ward=body.get("ward", ""),
+        bed_number=body.get("bed_number", ""),
+        attending_doctor=faculty.name,
+        reason=body.get("reason", ""),
+        diagnosis=body.get("diagnosis", ""),
+        status="Pending Approval",
+        notes=body.get("notes", ""),
+        referring_doctor=body.get("referring_doctor", ""),
+    )
+    db.add(admission)
+    await db.flush()
+
+    # Create approval request
+    approval = Approval(
+        id=str(uuid.uuid4()),
+        approval_type=ApprovalType.ADMISSION,
+        admission_id=admission.id,
+        faculty_id=faculty_id,
+        patient_id=patient_id,
+        student_id=student_id,
+        status=ApprovalStatus.PENDING,
+    )
+    db.add(approval)
+
+    # Create notification for faculty
+    from app.models.faculty import FacultyNotification
+    notification = FacultyNotification(
+        id=str(uuid.uuid4()),
+        faculty_id=faculty_id,
+        type="APPROVAL_REQUEST",
+        title="New Admission Request",
+        message=f"Admission request for {patient.name} pending your approval",
+        is_read=False,
+    )
+    db.add(notification)
+
+    await db.commit()
+    return {"id": admission.id, "approval_id": approval.id, "status": "submitted"}
+
+
+@router.get("/{student_id}/admission-requests")
+async def get_student_admission_requests(
+    student_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all admission requests submitted by this student."""
+    result = await db.execute(
+        select(Approval)
+        .options(
+            selectinload(Approval.patient),
+            selectinload(Approval.admission),
+        )
+        .where(Approval.student_id == student_id)
+        .where(Approval.approval_type == ApprovalType.ADMISSION)
+        .order_by(Approval.created_at.desc())
+    )
+    approvals = result.scalars().all()
+
+    return [
+        {
+            "id": a.id,
+            "status": a.status.value if a.status else "PENDING",
+            "score": a.score,
+            "comments": a.comments,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "processed_at": a.processed_at.isoformat() if a.processed_at else None,
+            "patient": {
+                "id": a.patient.id,
+                "patient_id": a.patient.patient_id,
+                "name": a.patient.name,
+            } if a.patient else None,
+            "admission": {
+                "id": a.admission.id,
+                "department": a.admission.department,
+                "ward": a.admission.ward,
+                "reason": a.admission.reason,
+                "diagnosis": a.admission.diagnosis,
+                "status": a.admission.status,
+            } if a.admission else None,
+        }
+        for a in approvals
+    ]

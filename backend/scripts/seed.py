@@ -20,6 +20,7 @@ from app.models.vital import Vital
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.programme import Programme
 from app.models.admission import Admission
+from app.models.case_record import Approval, ApprovalType, ApprovalStatus
 from app.core.security import get_password_hash
 
 
@@ -410,6 +411,67 @@ async def seed():
                 discharge_summary=a.get("discharge_summary"),
                 discharge_instructions=a.get("discharge_instructions"),
                 follow_up_date=follow_up,
+            ))
+
+        # ── Pending Admission Approvals ──────────────────
+        # Create a few admission requests pending faculty approval
+        pending_admission_data = [
+            {
+                "patient_idx": 2,
+                "student_idx": 0,
+                "faculty_idx": 0,
+                "department": "Internal Medicine",
+                "ward": "General Ward A",
+                "bed_number": "A-15",
+                "reason": "Persistent high blood pressure unresponsive to medication adjustment",
+                "diagnosis": "Resistant Hypertension",
+            },
+            {
+                "patient_idx": 5,
+                "student_idx": 1,
+                "faculty_idx": 1,
+                "department": "Cardiology",
+                "ward": "General Ward C",
+                "bed_number": "C-08",
+                "reason": "Recurring chest pain and shortness of breath during physical activity",
+                "diagnosis": "Chronic Stable Angina",
+            },
+            {
+                "patient_idx": 6,
+                "student_idx": 2,
+                "faculty_idx": 2,
+                "department": "Pediatrics",
+                "ward": "Pediatric Ward",
+                "bed_number": "P-03",
+                "reason": "Severe dehydration and persistent vomiting",
+                "diagnosis": "Acute Gastroenteritis with Dehydration",
+            },
+        ]
+        for pa in pending_admission_data:
+            patient = all_patients[pa["patient_idx"]]
+            student = all_students[pa["student_idx"]]
+            faculty = faculty_list[pa["faculty_idx"]]
+            adm_id = uid()
+            db.add(Admission(
+                id=adm_id,
+                patient_id=patient.id,
+                admission_date=datetime.utcnow(),
+                department=pa["department"],
+                ward=pa["ward"],
+                bed_number=pa["bed_number"],
+                attending_doctor=faculty.name,
+                reason=pa["reason"],
+                diagnosis=pa["diagnosis"],
+                status="Pending Approval",
+            ))
+            db.add(Approval(
+                id=uid(),
+                approval_type=ApprovalType.ADMISSION,
+                admission_id=adm_id,
+                faculty_id=faculty.id,
+                patient_id=patient.id,
+                student_id=student.id,
+                status=ApprovalStatus.PENDING,
             ))
 
         await db.commit()

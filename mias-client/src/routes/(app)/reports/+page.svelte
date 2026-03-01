@@ -41,7 +41,7 @@
 		{ value: '365', label: 'Last Year' },
 	];
 
-	const filteredReports = $derived(() => {
+	const filteredReports = $derived.by(() => {
 		let filtered = reports;
 
 		// Filter by search query
@@ -71,9 +71,9 @@
 	});
 
 	// Group reports by date
-	const groupedReports = $derived(() => {
+	const groupedReports = $derived.by(() => {
 		const groups: Record<string, Report[]> = {};
-		filteredReports().forEach(r => {
+		filteredReports.forEach(r => {
 			const dateKey = new Date(r.date).toLocaleDateString('en-US', { 
 				weekday: 'long', 
 				year: 'numeric', 
@@ -185,12 +185,12 @@
 			style="background: linear-gradient(to bottom, #3b82f6, #2563eb);">
 			<span class="text-white font-semibold">Investigation Reports</span>
 			<span class="px-3 py-1 rounded-full text-xs font-medium bg-white text-blue-600">
-				{filteredReports().length} Reports
+				{filteredReports.length} Reports
 			</span>
 		</div>
 
 		<!-- Reports List grouped by date -->
-		{#each Object.entries(groupedReports()) as [dateKey, dateReports]}
+		{#each Object.entries(groupedReports) as [dateKey, dateReports]}
 			<div class="text-sm text-gray-500 font-medium px-1">{dateKey}</div>
 			
 			{#each dateReports as report}
@@ -257,7 +257,7 @@
 			{/each}
 		{/each}
 
-		{#if filteredReports().length === 0}
+		{#if filteredReports.length === 0}
 			<div class="text-center py-12 text-gray-400">
 				<TestTube class="w-12 h-12 mx-auto mb-3 opacity-50" />
 				<p class="text-sm">No reports found</p>

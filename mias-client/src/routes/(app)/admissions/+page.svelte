@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
+	import { studentApi } from '$lib/api/students';
 	import { authApi } from '$lib/api/auth';
 	import type { Admission } from '$lib/api/types';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -11,12 +12,13 @@
 	import { 
 		Bed, Calendar, User, Building, ChevronDown, ChevronUp, ChevronLeft,
 		Clock, Link, FileText, CheckCircle, Circle, ArrowRightCircle, X,
-		Plus, Search, LogOut, ArrowRight, Filter
+		Plus, Search, LogOut, ArrowRight, Filter, Send, AlertTriangle
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const role = auth.role;
 	const isFacultyOrAdmin = role === 'FACULTY' || role === 'ADMIN';
+	const isStudent = role === 'STUDENT';
 
 	// Shared state
 	let admissions: any[] = $state([]);
@@ -60,6 +62,23 @@
 	let transferBed = $state('');
 	let transferDoctor = $state('');
 	let transferNotes = $state('');
+
+	// Student admission request state
+	let studentId = $state('');
+	let admissionRequests: any[] = $state([]);
+	let showRequestModal = $state(false);
+	let assignedPatients: any[] = $state([]);
+	let facultyApprovers: any[] = $state([]);
+	let reqPatient = $state<any>(null);
+	let reqFaculty = $state('');
+	let reqDepartment = $state('');
+	let reqWard = $state('');
+	let reqBed = $state('');
+	let reqReason = $state('');
+	let reqDiagnosis = $state('');
+	let reqNotes = $state('');
+	let reqError = $state('');
+	let reqSubmitting = $state(false);
 
 	const filteredAdmissions = $derived(
 		filterStatus
@@ -217,6 +236,8 @@
 		try {
 			if (isFacultyOrAdmin) {
 				admissions = await patientApi.getAllAdmissions();
+			} else if (isStudent && studentId) {
+				admissionRequests = await studentApi.getAdmissionRequests(studentId);
 			} else {
 				const patient = await patientApi.getCurrentPatient();
 				admissions = await patientApi.getAdmissions(patient.id);
@@ -228,9 +249,56 @@
 		} finally { loading = false; }
 	}
 
+	function openRequestModal() {
+		reqPatient = null;
+		reqFaculty = '';
+		reqDepartment = '';
+		reqWard = '';
+		reqBed = '';
+		reqReason = '';
+		reqDiagnosis = '';
+		reqNotes = '';
+		reqError = '';
+		showRequestModal = true;
+	}
+
+	async function submitAdmissionRequest() {
+		if (!reqPatient) { reqError = 'Please select a patient'; return; }
+		if (!reqFaculty) { reqError = 'Please select approving faculty'; return; }
+		if (!reqReason) { reqError = 'Reason for admission is required'; return; }
+		reqSubmitting = true;
+		reqError = '';
+		try {
+			await studentApi.submitAdmissionRequest(studentId, {
+				patient_id: reqPatient.id,
+				faculty_id: reqFaculty,
+				department: reqDepartment || undefined,
+				ward: reqWard || undefined,
+				bed_number: reqBed || undefined,
+				reason: reqReason,
+				diagnosis: reqDiagnosis || undefined,
+				notes: reqNotes || undefined,
+			});
+			showRequestModal = false;
+			await loadAdmissions();
+		} catch (err: any) {
+			reqError = err?.response?.data?.detail || 'Failed to submit admission request';
+		} finally { reqSubmitting = false; }
+	}
+
 	onMount(async () => {
 		if (isFacultyOrAdmin) {
 			try {
+				const depts = await authApi.getDepartments();
+				dbDepartments = depts;
+			} catch {}
+		}
+		if (isStudent) {
+			try {
+				const me = await studentApi.getMe();
+				studentId = me.id;
+				assignedPatients = await studentApi.getAssignedPatients(me.id);
+				facultyApprovers = await studentApi.getFacultyApprovers();
 				const depts = await authApi.getDepartments();
 				dbDepartments = depts;
 			} catch {}
@@ -246,7 +314,7 @@
 			<ChevronLeft class="w-5 h-5 text-gray-600" />
 		</button>
 		<h1 class="text-lg font-bold text-gray-800 flex-1">
-			{isFacultyOrAdmin ? 'Admission Management' : 'Admission Records'}
+			{isFacultyOrAdmin ? 'Admission Management' : isStudent ? 'Admission Requests' : 'Admission Records'}
 		</h1>
 		{#if isFacultyOrAdmin}
 			<button
@@ -258,12 +326,205 @@
 				Admit
 			</button>
 		{/if}
+		{#if isStudent}
+			<button
+				class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-white text-sm font-medium cursor-pointer"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+				onclick={openRequestModal}
+			>
+				<Send class="w-4 h-4" />
+				Request
+			</button>
+		{/if}
 	</div>
+
+	<!-- Student: Admission Requests List -->
+	{#if isStudent}
+		{#if loading}
+			<div class="flex items-center justify-center py-20">
+				<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+			</div>
+		{:else if admissionRequests.length === 0}
+			<div class="text-center py-16">
+				<Bed class="w-14 h-14 text-gray-200 mx-auto mb-3" />
+				<p class="text-sm text-gray-400 mb-1">No admission requests yet</p>
+				<p class="text-xs text-gray-300">Submit a request to admit a patient for faculty approval</p>
+			</div>
+		{:else}
+			<div class="space-y-3">
+				{#each admissionRequests as req}
+					{@const isPending = req.status === 'PENDING'}
+					{@const isApproved = req.status === 'APPROVED'}
+					{@const isRejected = req.status === 'REJECTED'}
+					<AquaCard padding={false}>
+						<div class="p-4">
+							<div class="flex items-start justify-between mb-2">
+								<div>
+									<h3 class="text-sm font-bold text-gray-800">{req.patient?.name || 'Patient'}</h3>
+									<p class="text-xs text-gray-500">ID: {req.patient?.patient_id || 'N/A'}</p>
+								</div>
+								<span class="text-[10px] font-bold px-2 py-0.5 rounded-full"
+									style="background: {isPending ? 'rgba(245, 158, 11, 0.1)' : isApproved ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)'};
+									       color: {isPending ? '#d97706' : isApproved ? '#16a34a' : '#dc2626'};">
+									{req.status}
+								</span>
+							</div>
+							{#if req.admission}
+								<div class="grid grid-cols-2 gap-2 text-xs mb-2">
+									<div class="flex items-center gap-1 text-gray-500">
+										<Building class="w-3 h-3" />
+										{req.admission.department || 'N/A'}
+									</div>
+									<div class="flex items-center gap-1 text-gray-500">
+										<Bed class="w-3 h-3" />
+										{req.admission.ward || 'N/A'}
+									</div>
+								</div>
+								{#if req.admission.reason}
+									<p class="text-xs text-gray-600 mb-1">
+										<span class="font-semibold">Reason:</span> {req.admission.reason}
+									</p>
+								{/if}
+								{#if req.admission.diagnosis}
+									<p class="text-xs text-gray-600">
+										<span class="font-semibold">Diagnosis:</span> {req.admission.diagnosis}
+									</p>
+								{/if}
+							{/if}
+							{#if isApproved && req.score}
+								<p class="text-xs text-green-600 mt-2 font-medium">Score: {req.score}/5</p>
+							{/if}
+							{#if isRejected && req.comments}
+								<p class="text-xs text-red-500 mt-2">{req.comments}</p>
+							{/if}
+							<p class="text-[10px] text-gray-400 mt-2">
+								Submitted {formatDate(req.created_at)}
+								{#if req.processed_at}
+									· Processed {formatDate(req.processed_at)}
+								{/if}
+							</p>
+						</div>
+					</AquaCard>
+				{/each}
+			</div>
+		{/if}
+	{/if}
+
+	<!-- Student: Admission Request Modal -->
+	{#if showRequestModal}
+		<AquaModal title="Request Patient Admission" onclose={() => showRequestModal = false}>
+			<div class="space-y-4">
+				{#if reqError}
+					<div class="rounded-lg p-3" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
+						<div class="flex items-center gap-2">
+							<AlertTriangle class="w-4 h-4 text-red-500" />
+							<span class="text-sm text-red-600">{reqError}</span>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Patient Selection -->
+				<div>
+					<label for="request-patient" class="text-xs font-semibold text-gray-600 mb-1 block">Patient *</label>
+					<select
+						id="request-patient"
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+						onchange={(e) => {
+							const val = (e.target as HTMLSelectElement).value;
+							reqPatient = assignedPatients.find((p: any) => p.id === val) || null;
+						}}
+					>
+						<option value="">Select a patient...</option>
+						{#each assignedPatients as patient}
+							<option value={patient.id}>
+								{patient.name} ({patient.patient_id})
+							</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Faculty Approver -->
+				<div>
+					<label for="request-faculty" class="text-xs font-semibold text-gray-600 mb-1 block">Approving Faculty *</label>
+					<select
+						id="request-faculty"
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+						bind:value={reqFaculty}
+					>
+						<option value="">Select faculty...</option>
+						{#each facultyApprovers as f}
+							<option value={f.id}>{f.name} – {f.department}</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Department -->
+				<div>
+					<label for="request-department" class="text-xs font-semibold text-gray-600 mb-1 block">Department</label>
+					<select
+						id="request-department"
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+						bind:value={reqDepartment}
+					>
+						<option value="">Select department...</option>
+						{#each dbDepartments as dept}
+							<option value={dept.name}>{dept.name}</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Ward & Bed -->
+				<div class="grid grid-cols-2 gap-3">
+					<div>
+						<label for="request-ward" class="text-xs font-semibold text-gray-600 mb-1 block">Ward</label>
+						<input type="text" bind:value={reqWard} placeholder="e.g., General Ward A"
+							class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
+					</div>
+					<div>
+						<label for="request-bed" class="text-xs font-semibold text-gray-600 mb-1 block">Bed Number</label>
+						<input type="text" bind:value={reqBed} placeholder="e.g., A-12"
+							class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
+					</div>
+				</div>
+
+				<!-- Reason -->
+				<div>
+					<label for="request-reason" class="text-xs font-semibold text-gray-600 mb-1 block">Reason for Admission *</label>
+					<textarea bind:value={reqReason} rows={3} placeholder="Describe the reason for admission..."
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400 resize-none"></textarea>
+				</div>
+
+				<!-- Diagnosis -->
+				<div>
+					<label for="request-diagnosis" class="text-xs font-semibold text-gray-600 mb-1 block">Diagnosis</label>
+					<input type="text" bind:value={reqDiagnosis} placeholder="e.g., Essential Hypertension"
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
+				</div>
+
+				<!-- Notes -->
+				<div>
+					<label for="request-notes" class="text-xs font-semibold text-gray-600 mb-1 block">Additional Notes</label>
+					<textarea bind:value={reqNotes} rows={2} placeholder="Any additional notes..."
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400 resize-none"></textarea>
+				</div>
+
+				<!-- Submit Button -->
+				<button
+					class="w-full py-3 rounded-xl text-white text-sm font-semibold cursor-pointer disabled:opacity-50"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+					disabled={reqSubmitting}
+					onclick={submitAdmissionRequest}
+				>
+					{reqSubmitting ? 'Submitting...' : 'Submit Admission Request'}
+				</button>
+			</div>
+		</AquaModal>
+	{/if}
 
 	<!-- Faculty: Status Filter -->
 	{#if isFacultyOrAdmin}
 		<div class="flex gap-2 mb-3 overflow-x-auto pb-1">
-			{#each ['', 'Active', 'Discharged', 'Transferred'] as status}
+			{#each ['', 'Active', 'Pending Approval', 'Discharged', 'Transferred'] as status}
 				<button
 					class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors"
 					class:bg-blue-500={filterStatus === status}
@@ -282,7 +543,7 @@
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
 		</div>
-	{:else}
+	{:else if !isStudent}
 		<!-- Admissions List -->
 		{#each filteredAdmissions as admission}
 			{@const statusInfo = getStatusIcon(admission.status)}
@@ -557,7 +818,7 @@
 
 			<!-- Patient Search -->
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Patient</label>
+				<label for="admit-patient" class="text-xs text-gray-500 mb-1 block">Patient</label>
 				<div class="relative">
 					<div class="flex items-center px-3 py-2.5 rounded-xl border border-gray-200">
 						<Search class="w-4 h-4 text-gray-400 mr-2 shrink-0" />
@@ -596,8 +857,8 @@
 
 			<!-- Department -->
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Department</label>
-				<select bind:value={admitDepartment}
+				<label for="admit-department" class="text-xs text-gray-500 mb-1 block">Department</label>
+				<select id="admit-department" bind:value={admitDepartment}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
 					<option value="">Select department</option>
 					{#each dbDepartments as d}
@@ -609,35 +870,35 @@
 			<!-- Ward & Bed -->
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Ward</label>
-					<input type="text" placeholder="e.g., General Ward A" bind:value={admitWard}
+					<label for="admit-ward" class="text-xs text-gray-500 mb-1 block">Ward</label>
+					<input id="admit-ward" type="text" placeholder="e.g., General Ward A" bind:value={admitWard}
 						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">Bed Number</label>
-					<input type="text" placeholder="e.g., A-12" bind:value={admitBed}
+					<label for="admit-bed" class="text-xs text-gray-500 mb-1 block">Bed Number</label>
+					<input id="admit-bed" type="text" placeholder="e.g., A-12" bind:value={admitBed}
 						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 				</div>
 			</div>
 
 			<!-- Reason -->
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Reason for Admission</label>
-				<textarea placeholder="Describe the reason..." bind:value={admitReason} rows="2"
+				<label for="admit-reason" class="text-xs text-gray-500 mb-1 block">Reason for Admission</label>
+				<textarea id="admit-reason" placeholder="Describe the reason..." bind:value={admitReason} rows="2"
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
 			</div>
 
 			<!-- Diagnosis -->
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Initial Diagnosis</label>
-				<input type="text" placeholder="Diagnosis" bind:value={admitDiagnosis}
+				<label for="admit-diagnosis" class="text-xs text-gray-500 mb-1 block">Initial Diagnosis</label>
+				<input id="admit-diagnosis" type="text" placeholder="Diagnosis" bind:value={admitDiagnosis}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 			</div>
 
 			<!-- Notes -->
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Notes (Optional)</label>
-				<textarea placeholder="Additional notes..." bind:value={admitNotes} rows="2"
+				<label for="admit-notes" class="text-xs text-gray-500 mb-1 block">Notes (Optional)</label>
+				<textarea id="admit-notes" placeholder="Additional notes..." bind:value={admitNotes} rows="2"
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
 			</div>
 
@@ -678,26 +939,26 @@
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Final Diagnosis</label>
-				<input type="text" bind:value={dischargeDiagnosis}
+				<label for="discharge-diagnosis" class="text-xs text-gray-500 mb-1 block">Final Diagnosis</label>
+				<input id="discharge-diagnosis" type="text" bind:value={dischargeDiagnosis}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Discharge Summary *</label>
-				<textarea bind:value={dischargeSummary} rows="3" placeholder="Summary of treatment and outcomes..."
+				<label for="discharge-summary" class="text-xs text-gray-500 mb-1 block">Discharge Summary *</label>
+				<textarea id="discharge-summary" bind:value={dischargeSummary} rows="3" placeholder="Summary of treatment and outcomes..."
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Discharge Instructions</label>
-				<textarea bind:value={dischargeInstructions} rows="3" placeholder="Post-discharge care instructions..."
+				<label for="discharge-instructions" class="text-xs text-gray-500 mb-1 block">Discharge Instructions</label>
+				<textarea id="discharge-instructions" bind:value={dischargeInstructions} rows="3" placeholder="Post-discharge care instructions..."
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Follow-up Date</label>
-				<input type="date" bind:value={followUpDate}
+				<label for="follow-up-date" class="text-xs text-gray-500 mb-1 block">Follow-up Date</label>
+				<input id="follow-up-date" type="date" bind:value={followUpDate}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 			</div>
 
@@ -738,8 +999,8 @@
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Target Department</label>
-				<select bind:value={transferDepartment}
+				<label for="transfer-department" class="text-xs text-gray-500 mb-1 block">Target Department</label>
+				<select id="transfer-department" bind:value={transferDepartment}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
 					<option value="">Select department</option>
 					{#each dbDepartments as d}
@@ -750,26 +1011,26 @@
 
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">New Ward</label>
-					<input type="text" placeholder="e.g., ICU" bind:value={transferWard}
+					<label for="transfer-ward" class="text-xs text-gray-500 mb-1 block">New Ward</label>
+					<input id="transfer-ward" type="text" placeholder="e.g., ICU" bind:value={transferWard}
 						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 				</div>
 				<div>
-					<label class="text-xs text-gray-500 mb-1 block">New Bed</label>
-					<input type="text" placeholder="e.g., ICU-3" bind:value={transferBed}
+					<label for="transfer-bed" class="text-xs text-gray-500 mb-1 block">New Bed</label>
+					<input id="transfer-bed" type="text" placeholder="e.g., ICU-3" bind:value={transferBed}
 						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 				</div>
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Attending Doctor (Optional)</label>
-				<input type="text" placeholder="New attending doctor" bind:value={transferDoctor}
+				<label for="transfer-doctor" class="text-xs text-gray-500 mb-1 block">Attending Doctor (Optional)</label>
+				<input id="transfer-doctor" type="text" placeholder="New attending doctor" bind:value={transferDoctor}
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
 			</div>
 
 			<div>
-				<label class="text-xs text-gray-500 mb-1 block">Transfer Notes</label>
-				<textarea placeholder="Reason for transfer..." bind:value={transferNotes} rows="2"
+				<label for="transfer-notes" class="text-xs text-gray-500 mb-1 block">Transfer Notes</label>
+				<textarea id="transfer-notes" placeholder="Reason for transfer..." bind:value={transferNotes} rows="2"
 					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
 			</div>
 

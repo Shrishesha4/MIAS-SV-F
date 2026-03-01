@@ -43,6 +43,7 @@
     { icon: User, label: 'Profile', path: '/profile' },
     { icon: Users, label: 'Assigned Patients', path: '/patients' },
     { icon: Clipboard, label: 'Case Records', path: '/case-records' },
+    { icon: Bed, label: 'Admissions', path: '/admissions' },
     { icon: Calendar, label: 'Clinic Sessions', path: '/clinic-sessions' },
     { icon: Bell, label: 'Notifications', path: '/notifications' },
   ];
