@@ -61,8 +61,15 @@
 		}
 	}
 
-	function getAttendanceIcon(value: number) {
-		return value >= 90 ? 'good' : value >= 75 ? 'warn' : 'bad';
+	async function updateFacultyAvailability(status: 'Available' | 'Busy' | 'Unavailable') {
+		try {
+			await facultyApi.updateAvailabilityStatus(status);
+			if (faculty) {
+				faculty = { ...faculty, availability_status: status };
+			}
+		} catch (err) {
+			console.error('Failed to update availability status', err);
+		}
 	}
 
 	onMount(async () => {
@@ -451,6 +458,34 @@
 				<h2 class="text-xl font-bold text-blue-900 mt-3">{faculty.name}</h2>
 				<p class="text-sm text-gray-600 mt-1">{faculty.faculty_id}</p>
 				<StatusBadge variant="info">{faculty.department}</StatusBadge>
+			</div>
+		</AquaCard>
+
+		<!-- Availability Status -->
+		<AquaCard padding={false}>
+			<div class="px-4 py-3 flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<div 
+						class="w-3 h-3 rounded-full"
+						style="background: {faculty.availability_status === 'Available' ? '#22c55e' : faculty.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
+					></div>
+					<span class="text-sm font-semibold text-gray-700">Status: {faculty.availability_status || 'Available'}</span>
+				</div>
+				<div class="flex items-center gap-1.5">
+					{#each ['Available', 'Busy', 'Unavailable'] as status}
+						{@const isActive = (faculty.availability_status || 'Available') === status}
+						{@const statusColor = status === 'Available' ? '#22c55e' : status === 'Busy' ? '#f59e0b' : '#ef4444'}
+						<button
+							class="px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all"
+							style="background: {isActive ? statusColor : 'transparent'};
+								   color: {isActive ? 'white' : '#6b7280'};
+								   border: 1px solid {isActive ? statusColor : '#e5e7eb'};"
+							onclick={() => updateFacultyAvailability(status as 'Available' | 'Busy' | 'Unavailable')}
+						>
+							{status}
+						</button>
+					{/each}
+				</div>
 			</div>
 		</AquaCard>
 

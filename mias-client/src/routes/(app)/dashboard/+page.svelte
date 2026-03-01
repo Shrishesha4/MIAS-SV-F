@@ -151,16 +151,6 @@
 		}
 	}
 
-	async function updateFacultyAvailability(status: 'Available' | 'Busy' | 'Unavailable') {
-		try {
-			await facultyApi.updateAvailabilityStatus(status);
-			if (faculty) {
-				faculty = { ...faculty, availability_status: status };
-			}
-		} catch (err) {
-			console.error('Failed to update availability status', err);
-		}
-	}
 
 	onMount(async () => {
 		try {
@@ -702,33 +692,7 @@
 			</div>
 		</AquaCard>
 
-		<!-- Availability Status -->
-		<AquaCard padding={false}>
-			<div class="px-4 py-3 flex items-center justify-between">
-				<div class="flex items-center gap-2">
-					<div 
-						class="w-3 h-3 rounded-full"
-						style="background: {faculty.availability_status === 'Available' ? '#22c55e' : faculty.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
-					></div>
-					<span class="text-sm font-semibold text-gray-700">Status: {faculty.availability_status || 'Available'}</span>
-				</div>
-				<div class="flex items-center gap-1.5">
-					{#each ['Available', 'Busy', 'Unavailable'] as status}
-						{@const isActive = (faculty.availability_status || 'Available') === status}
-						{@const statusColor = status === 'Available' ? '#22c55e' : status === 'Busy' ? '#f59e0b' : '#ef4444'}
-						<button
-							class="px-3 py-1 rounded-full text-xs font-medium cursor-pointer transition-all"
-							style="background: {isActive ? statusColor : 'transparent'};
-								   color: {isActive ? 'white' : '#6b7280'};
-								   border: 1px solid {isActive ? statusColor : '#e5e7eb'};"
-							onclick={() => updateFacultyAvailability(status as 'Available' | 'Busy' | 'Unavailable')}
-						>
-							{status}
-						</button>
-					{/each}
-				</div>
-			</div>
-		</AquaCard>
+		
 
 		<!-- Approval Cards -->
 		<div class="space-y-3">
