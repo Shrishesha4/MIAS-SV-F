@@ -1,0 +1,35 @@
+# Ignore Python bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environment directories
+venv/
+env/
+.venv/
+
+# Ignore IDE-specific files
+.idea/
+.vscode/
+
+# Ignore log files
+*.log
+
+# npm
+node_modules/
+npm-debug.log
+
+# Ignore build artifacts
+dist/
+build/
+*.egg-info/
+.svelte-kit/
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+

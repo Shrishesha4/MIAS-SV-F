@@ -12,7 +12,8 @@
 	import { 
 		Bed, Calendar, User, Building, ChevronDown, ChevronUp, ChevronLeft,
 		Clock, Link, FileText, CheckCircle, Circle, ArrowRightCircle, X,
-		Plus, Search, LogOut, ArrowRight, Filter, Send, AlertTriangle
+		Plus, Search, LogOut, ArrowRight, Filter, Send, AlertTriangle,
+		Phone, Mail, Printer, Download, Hospital
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -111,6 +112,14 @@
 	function closeDischargeSummary() {
 		showDischargeSummary = false;
 		selectedAdmission = null;
+	}
+
+	function handlePrintSummary() {
+		window.print();
+	}
+
+	function handleDownloadSummary() {
+		window.print();
 	}
 
 	function getRelatedAdmission(id: string | undefined): any | undefined {
@@ -736,69 +745,285 @@
 	{/if}
 </div>
 
-<!-- Discharge Summary Modal -->
+<!-- Discharge Summary Modal - Mac OS X Aqua style -->
 {#if showDischargeSummary && selectedAdmission}
-	<AquaModal onClose={closeDischargeSummary}>
-		{#snippet header()}
-			<div class="flex items-center gap-2">
-				<FileText class="w-5 h-5 text-blue-600" />
-				<span class="font-semibold text-gray-800">Discharge Summary</span>
-			</div>
-		{/snippet}
-
-		<div class="space-y-4">
-			<div class="p-4 rounded-xl bg-gray-50">
-				<div class="grid grid-cols-2 gap-3 text-sm">
-					<div>
-						<span class="text-gray-500">Admitted:</span>
-						<span class="ml-1 text-gray-800 font-medium">{formatDate(selectedAdmission.admission_date)}</span>
+	{@const isRehab = selectedAdmission.department?.includes('Rehabilitation')}
+	{@const lengthOfStay = selectedAdmission.discharge_date
+		? Math.ceil((new Date(selectedAdmission.discharge_date).getTime() - new Date(selectedAdmission.admission_date).getTime()) / (1000 * 60 * 60 * 24))
+		: null}
+	{@const relatedAdmission = getRelatedAdmission(selectedAdmission.related_admission_id)}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div
+		class="fixed inset-0 flex items-center justify-center p-4 z-50 print:p-0 print:static print:bg-white"
+		style="background-color: rgba(0,0,0,0.5);"
+		onkeydown={(e) => e.key === 'Escape' && closeDischargeSummary()}
+	>
+		<div
+			class="w-full max-w-4xl max-h-[90vh] overflow-auto rounded-xl print:shadow-none print:max-w-none print:max-h-none print:w-full"
+			style="background-color: white; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.2);"
+		>
+			<!-- Report Header with Close Button -->
+			<div
+				class="sticky top-0 border-b border-gray-200 p-4 flex items-center justify-between z-10 print:hidden"
+				style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1);"
+			>
+				<div class="flex items-center">
+					<div class="flex mr-3">
+						<button
+							onclick={closeDischargeSummary}
+							class="w-3.5 h-3.5 rounded-full relative cursor-pointer group"
+							style="background: linear-gradient(to bottom, #ff5f57, #e0443e); box-shadow: 0 1px 1px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.25); border: 1px solid rgba(100,0,0,0.4);"
+						>
+							<X size={8} class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[#7d0000] opacity-0 group-hover:opacity-100" />
+						</button>
 					</div>
-					<div>
-						<span class="text-gray-500">Discharged:</span>
-						<span class="ml-1 text-gray-800 font-medium">{formatDate(selectedAdmission.discharge_date)}</span>
-					</div>
-					<div>
-						<span class="text-gray-500">Department:</span>
-						<span class="ml-1 text-gray-800">{selectedAdmission.department}</span>
-					</div>
-					<div>
-						<span class="text-gray-500">Doctor:</span>
-						<span class="ml-1 text-gray-800">{selectedAdmission.attending_doctor}</span>
-					</div>
+					<h2 class="text-base font-semibold text-gray-800">
+						{isRehab ? 'Rehabilitation Discharge Summary' : 'Discharge Summary'}
+					</h2>
+				</div>
+				<div class="flex space-x-2">
+					<button
+						onclick={handlePrintSummary}
+						class="p-2 rounded-lg cursor-pointer"
+						style="background: linear-gradient(to bottom, #f8f9fb, #d9e1ea); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+						title="Print Summary"
+					>
+						<Printer size={16} class="text-blue-700" />
+					</button>
+					<button
+						onclick={handleDownloadSummary}
+						class="p-2 rounded-lg cursor-pointer"
+						style="background: linear-gradient(to bottom, #f8f9fb, #d9e1ea); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+						title="Download Summary"
+					>
+						<Download size={16} class="text-blue-700" />
+					</button>
 				</div>
 			</div>
 
-			{#if selectedAdmission.diagnosis}
-				<div>
-					<h4 class="text-sm font-semibold text-gray-700 mb-2">Diagnosis</h4>
-					<p class="text-sm text-gray-800 p-3 rounded-lg bg-gray-50">{selectedAdmission.diagnosis}</p>
-				</div>
-			{/if}
+			<!-- Discharge Summary Content -->
+			<div class="p-6 print:p-8">
+				<!-- Institution Header -->
+				<div
+					class="text-white p-6 rounded-lg mb-6 print:bg-blue-600 overflow-hidden relative"
+					style="background: {isRehab
+						? 'linear-gradient(135deg, #9333ea 0%, #8b5cf6 50%, #7e22ce 100%)'
+						: 'linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%)'}; box-shadow: 0 2px 10px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.3); border: 1px solid rgba(0,0,0,0.15);"
+				>
+					<!-- Aqua glossy effect overlay -->
+					<div
+						class="absolute inset-0 pointer-events-none"
+						style="background: linear-gradient(to bottom, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.15) 30%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 51%, rgba(0,0,0,0.05) 100%); border-radius: 7px;"
+					></div>
 
-			<div>
-				<h4 class="text-sm font-semibold text-gray-700 mb-2">Summary</h4>
-				<p class="text-sm text-gray-800 p-3 rounded-lg bg-gray-50">{selectedAdmission.discharge_summary}</p>
-			</div>
-
-			{#if selectedAdmission.discharge_instructions}
-				<div>
-					<h4 class="text-sm font-semibold text-gray-700 mb-2">Discharge Instructions</h4>
-					<p class="text-sm text-gray-800 p-3 rounded-lg bg-blue-50">{selectedAdmission.discharge_instructions}</p>
-				</div>
-			{/if}
-
-			{#if selectedAdmission.follow_up_date}
-				<div class="p-3 rounded-xl border border-green-200 bg-green-50">
-					<div class="flex items-center gap-2">
-						<Calendar class="w-4 h-4 text-green-600" />
-						<span class="text-sm text-green-800">
-							Follow-up scheduled: <strong>{formatDate(selectedAdmission.follow_up_date)}</strong>
-						</span>
+					<div class="flex flex-col md:flex-row md:justify-between md:items-start gap-4 relative">
+						<div>
+							<h2 class="text-xl font-bold" style="color: white;">Saveetha Medical College Hospital</h2>
+							<p class="mt-1 font-medium" style="color: white;">Saveetha Nagar, Thandalam</p>
+							<p class="font-medium" style="color: white;">Chennai 600077</p>
+							<div class="flex items-center mt-2">
+								<Phone size={14} class="mr-1.5" style="color: white;" />
+								<p class="font-medium" style="color: white;">(044) 2680-1050</p>
+							</div>
+							<div class="flex items-center mt-1">
+								<Mail size={14} class="mr-1.5" style="color: white;" />
+								<p class="font-medium" style="color: white;">info@saveethamedical.com</p>
+							</div>
+						</div>
+						<div class="text-left md:text-right">
+							<h3 class="text-lg font-extrabold tracking-wide" style="color: white;">
+								{isRehab ? 'REHABILITATION DISCHARGE SUMMARY' : 'DISCHARGE SUMMARY'}
+							</h3>
+							<p class="mt-2 font-medium" style="color: white;">Admission ID: {selectedAdmission.id}</p>
+							<p class="mt-1 font-medium" style="color: white;">Admission Date: {formatDate(selectedAdmission.admission_date)}</p>
+							<p class="mt-1 font-medium" style="color: white;">Discharge Date: {formatDate(selectedAdmission.discharge_date)}</p>
+						</div>
 					</div>
 				</div>
-			{/if}
+
+				<!-- Admission Details - Mac OS X Aqua style -->
+				<div
+					class="bg-white p-5 rounded-lg mb-6 relative overflow-hidden"
+					style="border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
+				>
+					<div
+						class="absolute top-0 left-0 right-0 h-8 pointer-events-none"
+						style="background: linear-gradient(to bottom, rgba(240,245,250,0.8), rgba(240,245,250,0)); border-top-left-radius: 7px; border-top-right-radius: 7px;"
+					></div>
+					<h4 class="font-medium text-gray-800 mb-3 pb-2 border-b border-gray-200 flex items-center relative">
+						{#if isRehab}
+							<Hospital size={16} class="mr-2 text-purple-600" />
+						{:else}
+							<Bed size={16} class="mr-2 text-blue-600" />
+						{/if}
+						Admission Details
+					</h4>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+						<div>
+							<p class="text-sm mb-2">
+								<span class="font-medium">Ward & Bed:</span> {selectedAdmission.ward}, {selectedAdmission.bed_number}
+							</p>
+							<p class="text-sm mb-2">
+								<span class="font-medium">Department:</span> {selectedAdmission.department}
+							</p>
+							<p class="text-sm">
+								<span class="font-medium">Admitted Under:</span> {selectedAdmission.attending_doctor}
+							</p>
+						</div>
+						<div>
+							<p class="text-sm mb-2">
+								<span class="font-medium">Admission Type:</span> {isRehab ? 'Rehabilitation' : 'Inpatient'}
+							</p>
+							<p class="text-sm mb-2">
+								<span class="font-medium">Length of Stay:</span> {lengthOfStay ?? 'N/A'} days
+							</p>
+							<p class="text-sm">
+								<span class="font-medium">Discharge Status:</span> {selectedAdmission.status}
+							</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- Rehabilitation Transfer Details -->
+				{#if isRehab && relatedAdmission}
+					<div
+						class="mb-6 p-5 rounded-lg"
+						style="background-color: rgba(243, 232, 255, 0.5); border: 1px solid rgba(192, 132, 252, 0.3); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
+					>
+						<h4
+							class="font-medium text-gray-800 mb-3 pb-2 border-b border-purple-100 flex items-center"
+							style="text-shadow: 0 1px 0 rgba(255,255,255,0.5);"
+						>
+							<Hospital size={16} class="mr-2 text-purple-600" />
+							Rehabilitation Program
+						</h4>
+						<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 mb-4">
+							<div>
+								{#if selectedAdmission.program_duration_days}
+									<p class="text-sm mb-2">
+										<span class="font-medium">Duration:</span> {selectedAdmission.program_duration_days} days
+									</p>
+								{/if}
+								{#if selectedAdmission.transferred_from_department}
+									<p class="text-sm">
+										<span class="font-medium">Transferred From:</span> {selectedAdmission.transferred_from_department}
+									</p>
+								{/if}
+							</div>
+							<div>
+								{#if selectedAdmission.referring_doctor}
+									<p class="text-sm mb-2">
+										<span class="font-medium">Referring Doctor:</span> {selectedAdmission.referring_doctor}
+									</p>
+								{/if}
+							</div>
+						</div>
+					</div>
+				{/if}
+
+				<!-- Clinical Information -->
+				{#if selectedAdmission.diagnosis || selectedAdmission.reason}
+					<div
+						class="bg-white p-5 rounded-lg mb-6"
+						style="border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
+					>
+						<h4 class="font-medium text-gray-800 mb-3 pb-2 border-b border-gray-200">
+							Diagnosis & Complaints
+						</h4>
+						<div class="space-y-4">
+							{#if selectedAdmission.diagnosis}
+								<div>
+									<p class="text-sm font-medium mb-1">Discharge Diagnosis:</p>
+									<p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">{selectedAdmission.diagnosis}</p>
+								</div>
+							{/if}
+							{#if selectedAdmission.reason}
+								<div>
+									<p class="text-sm font-medium mb-1">Reason for Admission:</p>
+									<p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">{selectedAdmission.reason}</p>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Hospital Course / Summary -->
+				{#if selectedAdmission.discharge_summary}
+					<div
+						class="bg-white p-5 rounded-lg mb-6"
+						style="border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
+					>
+						<h4 class="font-medium text-gray-800 mb-3 pb-2 border-b border-gray-200">
+							Hospital Course
+						</h4>
+						<p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">{selectedAdmission.discharge_summary}</p>
+					</div>
+				{/if}
+
+				<!-- Discharge Instructions -->
+				{#if selectedAdmission.discharge_instructions || selectedAdmission.follow_up_date}
+					<div
+						class="bg-white p-5 rounded-lg mb-6"
+						style="border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
+					>
+						<h4 class="font-medium text-gray-800 mb-3 pb-2 border-b border-gray-200">
+							Discharge Instructions
+						</h4>
+						<div class="space-y-4">
+							{#if selectedAdmission.discharge_instructions}
+								<div>
+									<p class="text-sm font-medium mb-1">Instructions:</p>
+									<p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">{selectedAdmission.discharge_instructions}</p>
+								</div>
+							{/if}
+							{#if selectedAdmission.follow_up_date}
+								<div>
+									<p class="text-sm font-medium mb-2">Follow-up Appointment:</p>
+									<div class="bg-gray-50 p-3 rounded-md flex items-center gap-2">
+										<Calendar size={14} class="text-green-600" />
+										<p class="text-sm text-gray-700">
+											Scheduled: <strong>{formatDate(selectedAdmission.follow_up_date)}</strong>
+										</p>
+									</div>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
+				{#if selectedAdmission.notes}
+					<div
+						class="bg-white p-5 rounded-lg mb-6"
+						style="border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
+					>
+						<h4 class="font-medium text-gray-800 mb-3 pb-2 border-b border-gray-200">
+							Additional Notes
+						</h4>
+						<p class="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">{selectedAdmission.notes}</p>
+					</div>
+				{/if}
+
+				<!-- Footer -->
+				<div class="mt-10 pt-5 border-t border-gray-200 text-center">
+					<div class="flex items-center justify-center mb-2">
+						<Building size={16} class="text-gray-400 mr-2" />
+						<p class="text-sm text-gray-500">
+							Saveetha Medical College Hospital, Saveetha Nagar, Thandalam, Chennai 600077
+						</p>
+					</div>
+					<p class="text-xs text-gray-500">
+						This is an official discharge summary from Saveetha Medical College Hospital.
+					</p>
+					<p class="text-xs text-gray-500 mt-1">
+						For any inquiries, please contact our medical records department at records@saveethamedical.com
+					</p>
+					<p class="text-xs text-gray-500 mt-1">
+						Document generated on: {new Date().toLocaleString()}
+					</p>
+				</div>
+			</div>
 		</div>
-	</AquaModal>
+	</div>
 {/if}
 
 <!-- Admit Patient Modal -->

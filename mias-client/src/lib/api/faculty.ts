@@ -107,4 +107,19 @@ export const facultyApi = {
     });
     return response.data;
   },
+
+  // Student permissions
+  async getStudentPermissions(facultyId: string) {
+    const response = await client.get(`/faculty/${facultyId}/student-permissions`);
+    return response.data;
+  },
+
+  async grantStudentPermission(facultyId: string, data: { student_id: string; department: string }) {
+    const response = await client.post(`/faculty/${facultyId}/student-permissions`, data);
+    return response.data;
+  },
+
+  async revokeStudentPermission(facultyId: string, permissionId: string) {
+    await client.delete(`/faculty/${facultyId}/student-permissions/${permissionId}`);
+  },
 };

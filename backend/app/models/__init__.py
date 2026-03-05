@@ -23,3 +23,4 @@ from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.department import Department
 from app.models.programme import Programme
+from app.models.student_permission import StudentPermission

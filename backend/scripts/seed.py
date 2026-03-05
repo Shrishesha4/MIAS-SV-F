@@ -21,6 +21,7 @@ from app.models.prescription import Prescription, PrescriptionMedication, Prescr
 from app.models.programme import Programme
 from app.models.admission import Admission
 from app.models.case_record import Approval, ApprovalType, ApprovalStatus
+from app.models.student_permission import StudentPermission
 from app.core.security import get_password_hash
 
 
@@ -252,9 +253,12 @@ async def seed():
         all_students = stu_result.scalars().all()
         pat_result = await db.execute(select(Patient))
         all_patients = pat_result.scalars().all()
+        fac_result = await db.execute(select(Faculty))
+        all_faculty = fac_result.scalars().all()
 
         student_map = {s.student_id: s for s in all_students}
         patient_map = {p.patient_id: p for p in all_patients}
+        faculty_map = {f.faculty_id: f for f in all_faculty}
 
         # ── Student-Patient Assignments ──────────────────
         # Assign 3-4 patients to each student (round-robin with overlap)
@@ -268,6 +272,25 @@ async def seed():
                     patient_id=p.id,
                     assigned_date=datetime.utcnow() - timedelta(days=random.randint(5, 30)),
                     status="Active",
+                ))
+
+        # ── Student Department Permissions ──────────────
+        # Grant some departments to each student (granted by first faculty)
+        PERMISSION_DEPARTMENTS = [
+            "Internal Medicine", "Pediatrics", "Surgery",
+            "OB/GYN", "Psychiatry", "Emergency Medicine",
+        ]
+        granter = all_faculty[0]  # Dr. Arun Kumar
+        for i, s in enumerate(all_students):
+            # Give each student 2-4 departments based on their year
+            year = s.year if hasattr(s, 'year') and s.year else 2
+            num_depts = min(year + 1, len(PERMISSION_DEPARTMENTS))
+            for dept in PERMISSION_DEPARTMENTS[:num_depts]:
+                db.add(StudentPermission(
+                    id=uid(),
+                    student_id=s.id,
+                    department=dept,
+                    granted_by_faculty_id=granter.id,
                 ))
 
         # ── Sample Vitals for first 5 patients ──────────

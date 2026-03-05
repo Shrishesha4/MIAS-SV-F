@@ -118,6 +118,11 @@ export const studentApi = {
     return response.data;
   },
 
+  async getPermissions(studentId: string): Promise<{ id: string; department: string; granted_at: string }[]> {
+    const response = await client.get(`/students/${studentId}/permissions`);
+    return response.data;
+  },
+
   async submitCaseRecord(studentId: string, data: Record<string, unknown>) {
     const response = await client.post(`/students/${studentId}/case-records/submit`, data);
     return response.data;

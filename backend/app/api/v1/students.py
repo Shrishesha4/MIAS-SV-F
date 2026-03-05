@@ -17,6 +17,7 @@ from app.models.faculty import Faculty
 from app.models.admission import Admission
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
+from app.models.student_permission import StudentPermission
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -187,6 +188,30 @@ async def get_faculty_approvers(
             "department": f.department,
         }
         for f in faculty
+    ]
+
+
+@router.get("/{student_id}/permissions")
+async def get_student_permissions(
+    student_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get departments this student has permission to practice in."""
+    result = await db.execute(
+        select(StudentPermission).where(
+            StudentPermission.student_id == student_id,
+            StudentPermission.is_active == True,
+        )
+    )
+    perms = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "department": p.department,
+            "granted_at": p.granted_at.isoformat() if p.granted_at else None,
+        }
+        for p in perms
     ]
 
 
@@ -606,6 +631,23 @@ async def submit_case_record_for_approval(
 ):
     """Submit a case record for faculty approval"""
     import uuid
+
+    department = body.get("department")
+
+    # Check student has permission for this department
+    if department:
+        perm_result = await db.execute(
+            select(StudentPermission).where(
+                StudentPermission.student_id == student_id,
+                StudentPermission.department == department,
+                StudentPermission.is_active == True,
+            )
+        )
+        if not perm_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=403,
+                detail=f"You don't have permission to perform procedures in {department}",
+            )
 
     # Look up the student name for created_by
     stu_result = await db.execute(select(Student).where(Student.id == student_id))

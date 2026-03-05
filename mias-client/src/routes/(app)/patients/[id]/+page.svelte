@@ -6,8 +6,11 @@
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
+	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
@@ -71,18 +74,39 @@
 	// ── Case Record form ──────────────────────────────────────────
 	let crDepartment = $state('');
 	let crProcedure = $state('');
-	let crNotes = $state('');
-	let crFindings = $state('');
-	let crDiagnosis = $state('');
-	let crTreatment = $state('');
 	let crFacultyId = $state('');
-	let crSystolic = $state('');
-	let crDiastolic = $state('');
-	let crPatientPosition = $state('Sitting');
 	let crSubmitting = $state(false);
+	let crFormData: Record<string, string> = $state({});
+	let crDiagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
+	let crDiagnosisLoading = $state(false);
+	let crIcdCode = $state('');
+	let crIcdDescription = $state('');
+	let allowedDepartments: string[] = $state([]);
 
-	const availableProcedures = $derived(crDepartment ? (procedureMap[crDepartment] || []) : []);
-	const showVitalFields = $derived(crProcedure === 'Blood Pressure Monitoring');
+	const hasPermission = $derived(
+		role !== 'STUDENT' || !crDepartment || allowedDepartments.includes(crDepartment)
+	);
+	const availableProcedures = $derived(
+		crDepartment && hasPermission ? (procedureMap[crDepartment] || []) : []
+	);
+	const crFields: ProcedureField[] | null = $derived(
+		crDepartment && crProcedure ? getProcedureFields(crDepartment, crProcedure) : null
+	);
+
+	async function handleCrDiagnosisSearch(query: string) {
+		if (query.length < 2) { crDiagnosisSuggestions = []; return; }
+		crDiagnosisLoading = true;
+		try {
+			crDiagnosisSuggestions = await autocompleteApi.searchDiagnoses(query);
+		} catch { crDiagnosisSuggestions = []; }
+		finally { crDiagnosisLoading = false; }
+	}
+
+	function handleCrDiagnosisSelect(item: DiagnosisSuggestion) {
+		crFormData['diagnosis'] = item.text;
+		crIcdCode = item.icd_code || '';
+		crIcdDescription = item.icd_description || item.text;
+	}
 
 	// ── Add Vital form ────────────────────────────────────────────
 	let vSystolic = $state('');
@@ -131,6 +155,10 @@
 	let chartInstance: Chart | null = null;
 
 	const latestVital = $derived(vitals.length > 0 ? vitals[0] : null);
+
+	const activeAlerts = $derived(
+		patient?.medical_alerts?.filter((a: any) => a.is_active !== false) ?? []
+	);
 
 	const vitalCards = $derived(latestVital ? [
 		{ icon: HeartPulse, label: 'Blood\nPressure', value: `${latestVital.systolic_bp ?? '—'}/${latestVital.diastolic_bp ?? '—'}`, unit: 'mmHg', color: '#3b82f6' },
@@ -221,7 +249,7 @@
 				if (!studentData) {
 					studentData = await studentApi.getMe();
 				}
-				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs] =
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms] =
 					await Promise.all([
 						patientApi.getPatient(patientId),
 						studentApi.getCaseRecords(studentData.id, patientId),
@@ -231,6 +259,7 @@
 						studentApi.getProcedures().catch(() => ({})),
 						studentApi.getFacultyApprovers().catch(() => []),
 						patientApi.getPrescriptionRequests(patientId).catch(() => []),
+						studentApi.getPermissions(studentData.id).catch(() => []),
 					]);
 				patient = patientData;
 				caseRecords = caseData;
@@ -241,6 +270,7 @@
 				procedureMap = procs;
 				facultyApprovers = approvers;
 				prescriptionRequests = rxReqs;
+				allowedDepartments = perms.map((p: any) => p.department);
 			} else {
 				// FACULTY / ADMIN / PATIENT viewing a patient detail
 				if (role === 'FACULTY' && !facultyData) {
@@ -311,9 +341,9 @@
 
 	// ── Case Record Submit ────────────────────────────────────────
 	function resetCaseRecordForm() {
-		crDepartment = ''; crProcedure = ''; crNotes = ''; crFindings = '';
-		crDiagnosis = ''; crTreatment = ''; crFacultyId = '';
-		crSystolic = ''; crDiastolic = ''; crPatientPosition = 'Sitting';
+		crDepartment = ''; crProcedure = ''; crFacultyId = '';
+		crFormData = {}; crDiagnosisSuggestions = [];
+		crIcdCode = ''; crIcdDescription = '';
 	}
 
 	async function submitCaseRecord() {
@@ -322,25 +352,34 @@
 		crSubmitting = true;
 		try {
 			const now = new Date();
+			// Build procedure_description from all non-standard fields
+			const descParts: string[] = [];
+			if (crFields) {
+				for (const field of crFields) {
+					const val = crFormData[field.key];
+					if (val && field.key !== 'findings' && field.key !== 'diagnosis' && field.key !== 'treatment' && field.key !== 'notes') {
+						descParts.push(`${field.label}: ${val}`);
+					}
+				}
+			}
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: crDepartment,
 				procedure: crProcedure,
-				findings: crFindings,
-				diagnosis: crDiagnosis,
-				treatment: crTreatment,
-				notes: crNotes,
+				findings: crFormData['findings'] || '',
+				diagnosis: crFormData['diagnosis'] || '',
+				treatment: crFormData['treatment'] || '',
+				notes: crFormData['notes'] || '',
+				description: descParts.join(', '),
+				icd_code: crIcdCode || undefined,
+				icd_description: crIcdDescription || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
 			};
-			if (showVitalFields) {
-				payload.description = `BP: ${crSystolic}/${crDiastolic} mmHg, Position: ${crPatientPosition}`;
-			}
 			if (role === 'STUDENT') {
 				if (crFacultyId) payload.faculty_id = crFacultyId;
 				await studentApi.submitCaseRecord(studentData.id, payload);
 				caseRecords = await studentApi.getCaseRecords(studentData.id, patient.id);
 			} else {
-				// Faculty submits directly — auto-approved, no review needed
 				await patientApi.createCaseRecord(patient.id, payload);
 				caseRecords = await patientApi.getCaseRecords(patient.id);
 			}
@@ -504,10 +543,17 @@
 
 	async function removeAlert(alertId: string) {
 		if (!patient) return;
+		// Optimistic update: immediately mark alert inactive locally
+		patient.medical_alerts = patient.medical_alerts.map((a: any) =>
+			a.id === alertId ? { ...a, is_active: false } : a
+		);
 		try {
 			await patientApi.removeMedicalAlert(patient.id, alertId);
+		} catch (err) {
+			console.error('Failed to remove alert', err);
+			// Revert on failure
 			patient = await patientApi.getPatient(patient.id);
-		} catch (err) { console.error('Failed to remove alert', err); }
+		}
 	}
 
 	async function loadAlertHistory() {
@@ -605,9 +651,9 @@
 		</div>
 
 		<!-- Alert Tags -->
-		{#if patient.medical_alerts && patient.medical_alerts.length > 0}
+		{#if activeAlerts.length > 0}
 			<div class="px-4 pb-2 flex flex-wrap gap-2">
-				{#each patient.medical_alerts.filter((a: any) => a.is_active !== false) as alert}
+				{#each activeAlerts as alert}
 					<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-red-700"
 						style="background: rgba(255,255,255,0.5);">
 						{alert.title}
@@ -874,20 +920,20 @@
 			{#if !groupViewMode}
 				<div class="grid grid-cols-2 gap-3 mb-4">
 					<div>
-						<label for="vital-param" class="text-xs text-gray-500 mb-1 block font-medium">Vital Parameter</label>
+						<label for="vital-param" class="block text-xs font-medium text-gray-600 mb-1">Vital Parameter</label>
 						<select id="vital-param" bind:value={selectedParameter}
-							class="w-full px-3 py-2 rounded-lg text-sm bg-white cursor-pointer"
-							style="border: 1px solid rgba(0,0,0,0.15);">
+							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 							<option value="bp">BP (mmHg)</option>
 							<option value="hr">Heart Rate (bpm)</option>
 							<option value="spo2">SpO₂ (%)</option>
 						</select>
 					</div>
 					<div>
-						<label for="vital-range" class="text-xs text-gray-500 mb-1 block font-medium">Time Range</label>
+						<label for="vital-range" class="block text-xs font-medium text-gray-600 mb-1">Time Range</label>
 						<select id="vital-range" bind:value={selectedTimeRange}
-							class="w-full px-3 py-2 rounded-lg text-sm bg-white cursor-pointer"
-							style="border: 1px solid rgba(0,0,0,0.15);">
+							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 							<option value="7">Last 7 days</option>
 							<option value="14">Last 14 days</option>
 							<option value="30">Last 30 days</option>
@@ -896,10 +942,10 @@
 				</div>
 			{:else}
 				<div class="mb-4">
-					<label for="vital-range-g" class="text-xs text-gray-500 mb-1 block font-medium">Time Range</label>
+					<label for="vital-range-g" class="block text-xs font-medium text-gray-600 mb-1">Time Range</label>
 					<select id="vital-range-g" bind:value={selectedTimeRange}
-						class="w-full px-3 py-2 rounded-lg text-sm bg-white cursor-pointer"
-						style="border: 1px solid rgba(0,0,0,0.15);">
+						class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 						<option value="7">Last 7 days</option>
 						<option value="14">Last 14 days</option>
 						<option value="30">Last 30 days</option>
@@ -1117,185 +1163,241 @@
 
 <!-- Add Case Record Modal -->
 {#if showAddRecordModal}
-<AquaModal title="Add Case Record" onclose={() => { showAddRecordModal = false; resetCaseRecordForm(); }}>
+<AquaModal onclose={() => { showAddRecordModal = false; resetCaseRecordForm(); }}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<FileText class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">Add New Case Record Entry</span>
+		</div>
+	{/snippet}
+
 	<div class="space-y-4">
 		<div>
-			<label for="cr-dept" class="text-xs text-gray-500 mb-1 block font-medium">Department</label>
+			<label for="cr-dept" class="block text-sm font-medium text-gray-700 mb-1">
+				Department <span class="text-red-500">*</span>
+			</label>
 			<select id="cr-dept" bind:value={crDepartment}
-				class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
-				style="border: 1px solid rgba(0,0,0,0.15);"
-				onchange={() => { crProcedure = ''; }}>
+				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				onchange={() => { crProcedure = ''; crFormData = {}; crIcdCode = ''; crIcdDescription = ''; }}>
 				<option value="">Select Department</option>
 				{#each departments as dept}
 					<option value={dept}>{dept}</option>
 				{/each}
 			</select>
 		</div>
+
+		{#if crDepartment && hasPermission}
 		<div>
-			<label for="cr-proc" class="text-xs text-gray-500 mb-1 block font-medium">Procedure</label>
+			<label for="cr-proc" class="block text-sm font-medium text-gray-700 mb-1">
+				Procedure <span class="text-red-500">*</span>
+			</label>
 			<select id="cr-proc" bind:value={crProcedure}
-				class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
-				style="border: 1px solid rgba(0,0,0,0.15);"
-				disabled={!crDepartment}>
+				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				onchange={() => { crFormData = {}; crIcdCode = ''; crIcdDescription = ''; }}>
 				<option value="">Select Procedure</option>
 				{#each availableProcedures as proc}
 					<option value={proc}>{proc}</option>
 				{/each}
 			</select>
 		</div>
-
-		{#if showVitalFields}
-			<div class="rounded-xl p-3" style="background: #f0f7ff; border: 1px solid rgba(59,130,246,0.15);">
-				<p class="text-xs font-semibold text-blue-700 mb-2">Blood Pressure</p>
-				<div class="grid grid-cols-2 gap-3">
-					<div>
-						<label for="cr-sys" class="text-xs text-gray-500 mb-1 block">Systolic</label>
-						<input id="cr-sys" type="number" bind:value={crSystolic}
-							class="w-full px-3 py-2 rounded-lg text-sm"
-							style="border: 1px solid rgba(0,0,0,0.15);" placeholder="120" />
-					</div>
-					<div>
-						<label for="cr-dia" class="text-xs text-gray-500 mb-1 block">Diastolic</label>
-						<input id="cr-dia" type="number" bind:value={crDiastolic}
-							class="w-full px-3 py-2 rounded-lg text-sm"
-							style="border: 1px solid rgba(0,0,0,0.15);" placeholder="80" />
-					</div>
-				</div>
-				<div class="mt-2">
-					<label for="cr-pos" class="text-xs text-gray-500 mb-1 block">Patient Position</label>
-					<select id="cr-pos" bind:value={crPatientPosition}
-						class="w-full px-3 py-2 rounded-lg text-sm bg-white cursor-pointer"
-						style="border: 1px solid rgba(0,0,0,0.15);">
-						<option value="Sitting">Sitting</option>
-						<option value="Standing">Standing</option>
-						<option value="Supine">Supine</option>
-					</select>
-				</div>
-			</div>
+		{:else if crDepartment && !hasPermission}
+		<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
+			<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {crDepartment}.</p>
+			<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>
+		</div>
 		{/if}
 
-		<div>
-			<label for="cr-notes" class="text-xs text-gray-500 mb-1 block font-medium">Notes</label>
-			<textarea id="cr-notes" bind:value={crNotes}
-				class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="2"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Additional notes..."></textarea>
-		</div>
-		<div>
-			<label for="cr-find" class="text-xs text-gray-500 mb-1 block font-medium">Findings</label>
-			<textarea id="cr-find" bind:value={crFindings}
-				class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Document findings..."></textarea>
-		</div>
-		<div>
-			<label for="cr-diag" class="text-xs text-gray-500 mb-1 block font-medium">Diagnosis</label>
-			<input id="cr-diag" type="text" bind:value={crDiagnosis}
-				class="w-full px-3 py-2 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Enter diagnosis" />
-		</div>
-		<div>
-			<label for="cr-treat" class="text-xs text-gray-500 mb-1 block font-medium">Treatment</label>
-			<textarea id="cr-treat" bind:value={crTreatment}
-				class="w-full px-3 py-2 rounded-lg text-sm resize-none" rows="3"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Treatment plan..."></textarea>
-		</div>
-		{#if role !== 'FACULTY'}
-		<div>
-			<label for="cr-fac" class="text-xs text-gray-500 mb-1 block font-medium">Faculty for Approval</label>
-			<select id="cr-fac" bind:value={crFacultyId}
-				class="w-full px-3 py-2.5 rounded-lg text-sm bg-white cursor-pointer"
-				style="border: 1px solid rgba(0,0,0,0.15);">
-				<option value="">Select Faculty</option>
-				{#each facultyApprovers as fac}
-					<option value={fac.id}>{fac.name} — {fac.department}</option>
-				{/each}
-			</select>
-		</div>
+		<!-- Dynamic procedure-specific fields -->
+		{#if crFields}
+			{#each crFields as field (field.key)}
+				<div>
+					{#if field.type === 'diagnosis'}
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label class="block text-sm font-medium text-gray-700 mb-1">
+							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+						</label>
+						<Autocomplete
+							placeholder="Search ICD-10 code or diagnosis..."
+							bind:value={crFormData[field.key]}
+							items={crDiagnosisSuggestions}
+							labelKey="text"
+							sublabelKey="icd_description"
+							badgeKey="icd_code"
+							onInput={handleCrDiagnosisSearch}
+							onSelect={handleCrDiagnosisSelect}
+							onClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
+							loading={crDiagnosisLoading}
+							minChars={2}
+						/>
+						{#if crIcdCode}
+							<div class="mt-1.5 flex items-center gap-1.5">
+								<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{crIcdCode}</span>
+								<span class="text-[10px] text-gray-500 truncate">{crIcdDescription}</span>
+							</div>
+						{/if}
+					{:else if field.type === 'select'}
+						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+						</label>
+						<select id="cr-{field.key}" bind:value={crFormData[field.key]}
+							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
+							<option value="">Select {field.label}</option>
+							{#each field.options ?? [] as opt}
+								<option value={opt}>{opt}</option>
+							{/each}
+						</select>
+					{:else if field.type === 'textarea'}
+						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+						</label>
+						<textarea id="cr-{field.key}" bind:value={crFormData[field.key]}
+							class="block w-full px-3 py-2 rounded-md text-sm resize-y" rows={field.rows ?? 3}
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+							placeholder={field.placeholder ?? ''}></textarea>
+					{:else}
+						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+						</label>
+						<input id="cr-{field.key}" type={field.type} bind:value={crFormData[field.key]}
+							class="block w-full px-3 py-2 rounded-md text-sm"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+							placeholder={field.placeholder ?? ''} />
+					{/if}
+				</div>
+			{/each}
+
+			{#if role !== 'FACULTY'}
+			<div>
+				<label for="cr-fac" class="block text-sm font-medium text-gray-700 mb-1">
+					Faculty for Approval <span class="text-red-500">*</span>
+				</label>
+				<select id="cr-fac" bind:value={crFacultyId}
+					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
+					<option value="">Select Approver</option>
+					{#each facultyApprovers as fac}
+						<option value={fac.id}>{fac.name} — {fac.department}</option>
+					{/each}
+				</select>
+			</div>
+			{/if}
 		{/if}
 	</div>
-	<div class="flex gap-3 mt-6">
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-			style="background: #f1f5f9; color: #64748b;"
+
+	{#if crFields}
+	<div class="flex justify-end gap-2 mt-6">
+		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
 			onclick={() => { showAddRecordModal = false; resetCaseRecordForm(); }}
 			disabled={crSubmitting}>Cancel</button>
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #2563eb);
-			       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitCaseRecord}
 			disabled={crSubmitting || !crDepartment || !crProcedure}>
 			{crSubmitting ? 'Submitting...' : (role === 'FACULTY' ? 'Save Record' : 'Submit for Review')}
 		</button>
 	</div>
+	{/if}
 </AquaModal>
 {/if}
 
 <!-- Add Vital Modal -->
 {#if showAddVitalModal}
-<AquaModal title="Add Vital Reading" onclose={() => { showAddVitalModal = false; resetVitalForm(); }}>
+<AquaModal onclose={() => { showAddVitalModal = false; resetVitalForm(); }}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<HeartPulse class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">Add New Vital Reading</span>
+		</div>
+	{/snippet}
+
 	<div class="space-y-4">
-		<div class="grid grid-cols-2 gap-3">
+		<div class="grid grid-cols-2 gap-4">
 			<div>
-				<label for="v-sys" class="text-xs text-gray-500 mb-1 block font-medium">Systolic BP</label>
+				<label for="v-sys" class="block text-sm font-medium text-gray-700 mb-1">Systolic (mmHg)</label>
 				<input id="v-sys" type="number" bind:value={vSystolic}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="120" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 120" />
 			</div>
 			<div>
-				<label for="v-dia" class="text-xs text-gray-500 mb-1 block font-medium">Diastolic BP</label>
+				<label for="v-dia" class="block text-sm font-medium text-gray-700 mb-1">Diastolic (mmHg)</label>
 				<input id="v-dia" type="number" bind:value={vDiastolic}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="80" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 80" />
 			</div>
 		</div>
-		<div class="grid grid-cols-2 gap-3">
+		<div class="grid grid-cols-2 gap-4">
 			<div>
-				<label for="v-hr" class="text-xs text-gray-500 mb-1 block font-medium">Heart Rate (bpm)</label>
+				<label for="v-hr" class="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
 				<input id="v-hr" type="number" bind:value={vHeartRate}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="72" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 72" />
 			</div>
 			<div>
-				<label for="v-spo2" class="text-xs text-gray-500 mb-1 block font-medium">SpO₂ (%)</label>
+				<label for="v-spo2" class="block text-sm font-medium text-gray-700 mb-1">SpO₂ (%)</label>
 				<input id="v-spo2" type="number" bind:value={vSpO2}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="98" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 98" />
 			</div>
 		</div>
-		<div class="grid grid-cols-2 gap-3">
+		<div class="grid grid-cols-2 gap-4">
 			<div>
-				<label for="v-temp" class="text-xs text-gray-500 mb-1 block font-medium">Temperature (°F)</label>
+				<label for="v-temp" class="block text-sm font-medium text-gray-700 mb-1">Temperature (°F)</label>
 				<input id="v-temp" type="number" step="0.1" bind:value={vTemp}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="98.6" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 98.6" />
 			</div>
 			<div>
-				<label for="v-wt" class="text-xs text-gray-500 mb-1 block font-medium">Weight (lbs)</label>
+				<label for="v-wt" class="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
 				<input id="v-wt" type="number" bind:value={vWeight}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="150" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 150" />
 			</div>
 		</div>
-		<div class="grid grid-cols-2 gap-3">
+		<div class="grid grid-cols-2 gap-4">
 			<div>
-				<label for="v-rr" class="text-xs text-gray-500 mb-1 block font-medium">Respiratory Rate</label>
+				<label for="v-rr" class="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
 				<input id="v-rr" type="number" bind:value={vRespRate}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="16" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 16" />
 			</div>
 			<div>
-				<label for="v-glu" class="text-xs text-gray-500 mb-1 block font-medium">Blood Glucose</label>
+				<label for="v-glu" class="block text-sm font-medium text-gray-700 mb-1">Blood Glucose</label>
 				<input id="v-glu" type="number" bind:value={vGlucose}
-					class="w-full px-3 py-2 rounded-lg text-sm"
-					style="border: 1px solid rgba(0,0,0,0.15);" placeholder="100" />
+					class="block w-full px-3 py-2 rounded-md text-sm"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					placeholder="e.g. 100" />
 			</div>
+		</div>
+		<div>
+			<label for="v-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+			<textarea id="v-notes"
+				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="2"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="Add any relevant notes about this reading"></textarea>
 		</div>
 	</div>
-	<div class="flex gap-3 mt-6">
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-			style="background: #f1f5f9; color: #64748b;"
+	<div class="flex justify-end gap-2 mt-6">
+		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
 			onclick={() => { showAddVitalModal = false; resetVitalForm(); }}
 			disabled={vSubmitting}>Cancel</button>
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitVital}
 			disabled={vSubmitting}>
 			{vSubmitting ? 'Saving...' : 'Save Vital'}
@@ -1314,32 +1416,32 @@
 		</div>
 	{/snippet}
 
-	<h4 class="text-sm font-semibold text-blue-700 mb-4">Add New Prescription</h4>
-
 	<div class="space-y-4">
 		<div>
-			<label for="rx-name" class="text-sm font-medium text-gray-700 mb-1 block">
+			<label for="rx-name" class="block text-sm font-medium text-gray-700 mb-1">
 				Medication Name <span class="text-red-500">*</span>
 			</label>
 			<input id="rx-name" type="text" bind:value={rxName}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g. Lisinopril" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="e.g. Lisinopril" />
 		</div>
 		<div>
-			<label for="rx-dose" class="text-sm font-medium text-gray-700 mb-1 block">
+			<label for="rx-dose" class="block text-sm font-medium text-gray-700 mb-1">
 				Dosage <span class="text-red-500">*</span>
 			</label>
 			<input id="rx-dose" type="text" bind:value={rxDosage}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g. 10mg" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="e.g. 10mg" />
 		</div>
 		<div>
-			<label for="rx-freq" class="text-sm font-medium text-gray-700 mb-1 block">
+			<label for="rx-freq" class="block text-sm font-medium text-gray-700 mb-1">
 				Frequency <span class="text-red-500">*</span>
 			</label>
 			<select id="rx-freq" bind:value={rxFrequency}
-				class="w-full px-4 py-3 rounded-lg text-sm bg-white cursor-pointer"
-				style="border: 1px solid rgba(0,0,0,0.15);">
+				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 				<option value="">Select frequency</option>
 				<option value="Once daily">Once daily</option>
 				<option value="Twice daily">Twice daily</option>
@@ -1352,28 +1454,33 @@
 			</select>
 		</div>
 		<div>
-			<label for="rx-start" class="text-sm font-medium text-gray-700 mb-1 block">Start Date</label>
+			<label for="rx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
 			<input id="rx-start" type="date" bind:value={rxStartDate}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="rx-end" class="text-sm font-medium text-gray-700 mb-1 block">End Date</label>
+			<label for="rx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
 			<input id="rx-end" type="date" bind:value={rxEndDate}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="rx-inst" class="text-sm font-medium text-gray-700 mb-1 block">Instructions</label>
+			<label for="rx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
 			<textarea id="rx-inst" bind:value={rxInstructions}
-				class="w-full px-4 py-3 rounded-lg text-sm resize-y" rows="3"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="Special instructions for taking this medication"></textarea>
+				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="Special instructions for taking this medication"></textarea>
 		</div>
 	</div>
-	<div class="flex justify-end mt-6">
-		<button class="px-6 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #2563eb);
-			       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+	<div class="flex justify-end gap-2 mt-6">
+		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+			onclick={() => { showAddPrescriptionModal = false; resetPrescriptionForm(); }}>Cancel</button>
+		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitPrescription}
 			disabled={rxSubmitting || !rxName || !rxDosage || !rxFrequency}>
 			{rxSubmitting ? 'Adding...' : 'Add Prescription'}
@@ -1384,38 +1491,49 @@
 
 <!-- Patient Prescription Request Modal -->
 {#if showRequestPrescriptionModal}
-<AquaModal title="Request Prescription" onclose={() => { showRequestPrescriptionModal = false; resetRequestForm(); }}>
+<AquaModal onclose={() => { showRequestPrescriptionModal = false; resetRequestForm(); }}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<Send class="w-5 h-5 text-orange-600" />
+			<span class="font-semibold text-gray-800">Request Prescription</span>
+		</div>
+	{/snippet}
+
 	<p class="text-xs text-gray-500 mb-4">Submit a request for a prescription refill or new medication</p>
 	<div class="space-y-4">
 		<div>
-			<label for="pr-med" class="text-sm font-medium text-gray-700 mb-1 block">
+			<label for="pr-med" class="block text-sm font-medium text-gray-700 mb-1">
 				Medication <span class="text-red-500">*</span>
 			</label>
 			<input id="pr-med" type="text" bind:value={prMedication}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g. Metformin" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="e.g. Metformin" />
 		</div>
 		<div>
-			<label for="pr-dose" class="text-sm font-medium text-gray-700 mb-1 block">Dosage</label>
+			<label for="pr-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage</label>
 			<input id="pr-dose" type="text" bind:value={prDosage}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g. 500mg" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="e.g. 500mg" />
 		</div>
 		<div>
-			<label for="pr-notes" class="text-sm font-medium text-gray-700 mb-1 block">Notes</label>
+			<label for="pr-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
 			<textarea id="pr-notes" bind:value={prNotes}
-				class="w-full px-4 py-3 rounded-lg text-sm resize-none" rows="3"
-				style="border: 1px solid rgba(0,0,0,0.15);" placeholder="e.g. Running low on medication, need refill"></textarea>
+				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+				placeholder="e.g. Running low on medication, need refill"></textarea>
 		</div>
 	</div>
-	<div class="flex gap-3 mt-6">
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-			style="background: #f1f5f9; color: #64748b;"
+	<div class="flex justify-end gap-2 mt-6">
+		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
 			onclick={() => { showRequestPrescriptionModal = false; resetRequestForm(); }}
 			disabled={prSubmitting}>Cancel</button>
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #f97316, #ea580c);
-			       box-shadow: 0 2px 6px rgba(234,88,12,0.3);"
+		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #f97316, #ea580c); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitPrescriptionRequest}
 			disabled={prSubmitting || !prMedication}>
 			{prSubmitting ? 'Submitting...' : 'Submit Request'}
@@ -1426,19 +1544,27 @@
 
 <!-- Edit Prescription Modal -->
 {#if showEditPrescriptionModal}
-<AquaModal title="Edit Prescription" onclose={() => { showEditPrescriptionModal = false; resetEditForm(); }}>
+<AquaModal onclose={() => { showEditPrescriptionModal = false; resetEditForm(); }}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<Edit class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">Edit Prescription</span>
+		</div>
+	{/snippet}
+
 	<div class="space-y-4">
 		<!-- Status Toggle -->
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="text-sm font-medium text-gray-700 mb-2 block">Status</label>
+			<label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
 			<div class="flex gap-2">
 				{#each ['ACTIVE', 'COMPLETED'] as st}
 					<button
-						class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-						style="background: {editRxStatus === st ? (st === 'ACTIVE' ? 'linear-gradient(to bottom, #22c55e, #16a34a)' : 'linear-gradient(to bottom, #6b7280, #4b5563)') : '#f1f5f9'};
+						class="flex-1 py-2 rounded-md text-sm font-medium cursor-pointer"
+						style="background: {editRxStatus === st ? (st === 'ACTIVE' ? 'linear-gradient(to bottom, #4cd964, #2ac845)' : 'linear-gradient(to bottom, #6b7280, #4b5563)') : 'linear-gradient(to bottom, #f0f4fa, #d5dde8)'};
 						       color: {editRxStatus === st ? 'white' : '#64748b'};
-						       border: 1px solid {editRxStatus === st ? 'transparent' : 'rgba(0,0,0,0.1)'};"
+						       border: 1px solid rgba(0,0,0,0.2);
+						       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,{editRxStatus === st ? '0.4' : '0.8'});"
 						onclick={() => editRxStatus = st}>
 						{st === 'ACTIVE' ? 'Active' : 'Inactive'}
 					</button>
@@ -1446,22 +1572,22 @@
 			</div>
 		</div>
 		<div>
-			<label for="erx-name" class="text-sm font-medium text-gray-700 mb-1 block">Medication Name</label>
+			<label for="erx-name" class="block text-sm font-medium text-gray-700 mb-1">Medication Name</label>
 			<input id="erx-name" type="text" bind:value={editRxName}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="erx-dose" class="text-sm font-medium text-gray-700 mb-1 block">Dosage</label>
+			<label for="erx-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage</label>
 			<input id="erx-dose" type="text" bind:value={editRxDosage}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="erx-freq" class="text-sm font-medium text-gray-700 mb-1 block">Frequency</label>
+			<label for="erx-freq" class="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
 			<select id="erx-freq" bind:value={editRxFrequency}
-				class="w-full px-4 py-3 rounded-lg text-sm bg-white cursor-pointer"
-				style="border: 1px solid rgba(0,0,0,0.15);">
+				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 				<option value="">Select frequency</option>
 				<option value="Once daily">Once daily</option>
 				<option value="Twice daily">Twice daily</option>
@@ -1474,32 +1600,33 @@
 			</select>
 		</div>
 		<div>
-			<label for="erx-start" class="text-sm font-medium text-gray-700 mb-1 block">Start Date</label>
+			<label for="erx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
 			<input id="erx-start" type="date" bind:value={editRxStartDate}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="erx-end" class="text-sm font-medium text-gray-700 mb-1 block">End Date</label>
+			<label for="erx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
 			<input id="erx-end" type="date" bind:value={editRxEndDate}
-				class="w-full px-4 py-3 rounded-lg text-sm"
-				style="border: 1px solid rgba(0,0,0,0.15);" />
+				class="block w-full px-3 py-2 rounded-md text-sm"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
 		</div>
 		<div>
-			<label for="erx-inst" class="text-sm font-medium text-gray-700 mb-1 block">Instructions</label>
+			<label for="erx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
 			<textarea id="erx-inst" bind:value={editRxInstructions}
-				class="w-full px-4 py-3 rounded-lg text-sm resize-y" rows="3"
-				style="border: 1px solid rgba(0,0,0,0.15);"></textarea>
+				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"></textarea>
 		</div>
 	</div>
-	<div class="flex gap-3 mt-6">
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium cursor-pointer"
-			style="background: #f1f5f9; color: #64748b;"
+	<div class="flex justify-end gap-2 mt-6">
+		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
 			onclick={() => { showEditPrescriptionModal = false; resetEditForm(); }}
 			disabled={editRxSubmitting}>Cancel</button>
-		<button class="flex-1 py-2.5 rounded-lg text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #2563eb);
-			       box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitEditPrescription}
 			disabled={editRxSubmitting}>
 			{editRxSubmitting ? 'Saving...' : 'Save Changes'}

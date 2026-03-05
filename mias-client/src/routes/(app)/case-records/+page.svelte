@@ -2,11 +2,12 @@
 	import { onMount } from 'svelte';
 	import { studentApi } from '$lib/api/students';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
+	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
-	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Activity } from 'lucide-svelte';
+	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus } from 'lucide-svelte';
 
 	let expandedId = $state<string | null>(null);
 	let caseRecords: any[] = $state([]);
@@ -25,18 +26,17 @@
 	let selectedDepartment = $state('');
 	let selectedProcedure = $state('');
 	let selectedPatientId = $state('');
-	let systolic = $state('');
-	let diastolic = $state('');
-	let patientPosition = $state('Sitting');
-	let notes = $state('');
-	let findings = $state('');
-	let diagnosis = $state('');
+	let formData: Record<string, string> = $state({});
 	let icdCode = $state('');
 	let icdDescription = $state('');
 	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let diagnosisLoading = $state(false);
-	let treatment = $state('');
 	let selectedFacultyId = $state('');
+	let allowedDepartments: string[] = $state([]);
+
+	const crFields: ProcedureField[] | null = $derived(
+		selectedDepartment && selectedProcedure ? getProcedureFields(selectedDepartment, selectedProcedure) : null
+	);
 
 	async function handleDiagnosisSearch(query: string) {
 		if (query.length < 2) {
@@ -55,13 +55,17 @@
 	}
 
 	function handleDiagnosisSelect(item: DiagnosisSuggestion) {
-		diagnosis = item.text;
+		formData['diagnosis'] = item.text;
 		icdCode = item.icd_code || '';
 		icdDescription = item.icd_description || item.text;
 	}
 
+	const hasPermission = $derived(
+		!selectedDepartment || allowedDepartments.includes(selectedDepartment)
+	);
+
 	const availableProcedures = $derived(
-		selectedDepartment ? (procedures[selectedDepartment] || []) : []
+		selectedDepartment && hasPermission ? (procedures[selectedDepartment] || []) : []
 	);
 
 	const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'pending'> = {
@@ -71,29 +75,26 @@
 		REJECTED: 'error' as any,
 	};
 
-	const positionOptions = ['Sitting', 'Standing', 'Supine', 'Prone', 'Left Lateral', 'Right Lateral'];
-
 	async function openCreateModal() {
-		// Load form data
-		[departments, procedures, facultyApprovers] = await Promise.all([
+		// Load form data + permissions
+		const [depts, procs, approvers, perms] = await Promise.all([
 			studentApi.getDepartments(),
 			studentApi.getProcedures(),
 			studentApi.getFacultyApprovers(),
+			student ? studentApi.getPermissions(student.id) : Promise.resolve([]),
 		]);
+		departments = depts;
+		procedures = procs;
+		facultyApprovers = approvers;
+		allowedDepartments = perms.map((p: any) => p.department);
 		// Reset form
 		selectedDepartment = '';
 		selectedProcedure = '';
 		selectedPatientId = '';
-		systolic = '';
-		diastolic = '';
-		patientPosition = 'Sitting';
-		notes = '';
-		findings = '';
-		diagnosis = '';
+		formData = {};
 		icdCode = '';
 		icdDescription = '';
 		diagnosisSuggestions = [];
-		treatment = '';
 		selectedFacultyId = '';
 		showCreateModal = true;
 	}
@@ -104,15 +105,21 @@
 		}
 		submitting = true;
 		try {
+			// Build procedure_description from non-standard fields
+			const standardKeys = new Set(['findings', 'diagnosis', 'treatment', 'notes']);
+			const descParts = Object.entries(formData)
+				.filter(([k, v]) => !standardKeys.has(k) && v)
+				.map(([k, v]) => `${k.replace(/_/g,' ')}: ${v}`);
+
 			await studentApi.submitCaseRecord(student.id, {
 				patient_id: selectedPatientId,
 				department: selectedDepartment,
 				procedure: selectedProcedure,
-				procedure_description: `BP: ${systolic}/${diastolic} mmHg (${patientPosition})`,
-				notes,
-				findings,
-				diagnosis,
-				treatment,
+				procedure_description: descParts.join('; ') || undefined,
+				notes: formData['notes'] || '',
+				findings: formData['findings'] || '',
+				diagnosis: formData['diagnosis'] || '',
+				treatment: formData['treatment'] || '',
 				icd_code: icdCode || undefined,
 				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
@@ -295,14 +302,23 @@
 </button>
 
 <!-- Create Case Record Modal -->
-<AquaModal open={showCreateModal} title="New Case Record" onclose={() => showCreateModal = false}>
+<AquaModal open={showCreateModal} onclose={() => showCreateModal = false}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<Clipboard class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">New Case Record</span>
+		</div>
+	{/snippet}
 	{#snippet children()}
 		<div class="space-y-4">
 			<!-- Patient Selection -->
 			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Patient</span>
-				<select
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+				<label for="cr-patient" class="block text-sm font-medium text-gray-700 mb-1">
+					Patient <span class="text-red-500">*</span>
+				</label>
+				<select id="cr-patient"
+					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 					bind:value={selectedPatientId}
 				>
 					<option value="">Select a patient</option>
@@ -314,11 +330,14 @@
 
 			<!-- Department Selection -->
 			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Department</span>
-				<select
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+				<label for="cr-dept" class="block text-sm font-medium text-gray-700 mb-1">
+					Department <span class="text-red-500">*</span>
+				</label>
+				<select id="cr-dept"
+					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 					bind:value={selectedDepartment}
-					onchange={() => selectedProcedure = ''}
+					onchange={() => { selectedProcedure = ''; formData = {}; icdCode = ''; icdDescription = ''; }}
 				>
 					<option value="">Select department</option>
 					{#each departments as dept}
@@ -328,12 +347,16 @@
 			</div>
 
 			<!-- Procedure Selection -->
+			{#if selectedDepartment && hasPermission}
 			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Procedure</span>
-				<select
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+				<label for="cr-proc" class="block text-sm font-medium text-gray-700 mb-1">
+					Procedure <span class="text-red-500">*</span>
+				</label>
+				<select id="cr-proc"
+					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 					bind:value={selectedProcedure}
-					disabled={!selectedDepartment}
+					onchange={() => { formData = {}; icdCode = ''; icdDescription = ''; }}
 				>
 					<option value="">Select procedure</option>
 					{#each availableProcedures as proc}
@@ -341,125 +364,109 @@
 					{/each}
 				</select>
 			</div>
-
-			<!-- Blood Pressure -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
-					<Activity class="w-3 h-3" />
-					Blood Pressure
-				</span>
-				<div class="flex items-center gap-2">
-					<input
-						type="number"
-						placeholder="Systolic"
-						class="flex-1 px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-						bind:value={systolic}
-					/>
-					<span class="text-gray-400">/</span>
-					<input
-						type="number"
-						placeholder="Diastolic"
-						class="flex-1 px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-						bind:value={diastolic}
-					/>
-					<span class="text-xs text-gray-500">mmHg</span>
-				</div>
+			{:else if selectedDepartment && !hasPermission}
+			<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
+				<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {selectedDepartment}.</p>
+				<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>
 			</div>
+			{/if}
 
-			<!-- Patient Position -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Patient Position</span>
-				<select
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-					bind:value={patientPosition}
-				>
-					{#each positionOptions as pos}
-						<option value={pos}>{pos}</option>
-					{/each}
-				</select>
-			</div>
-
-			<!-- Notes -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Notes</span>
-				<textarea
-					placeholder="Additional notes..."
-					rows="2"
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-					bind:value={notes}
-				></textarea>
-			</div>
-
-			<!-- Findings -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Findings</span>
-				<textarea
-					placeholder="Clinical findings..."
-					rows="2"
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-					bind:value={findings}
-				></textarea>
-			</div>
-
-			<!-- Diagnosis with ICD Autocomplete -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Diagnosis</span>
-				<Autocomplete
-					placeholder="Search ICD-10 code or diagnosis..."
-					bind:value={diagnosis}
-					items={diagnosisSuggestions}
-					labelKey="text"
-					sublabelKey="icd_description"
-					badgeKey="icd_code"
-					onInput={handleDiagnosisSearch}
-					onSelect={handleDiagnosisSelect}
-					onClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
-					loading={diagnosisLoading}
-					minChars={2}
-				/>
-				{#if icdCode}
-					<div class="mt-1.5 flex items-center gap-1.5">
-						<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{icdCode}</span>
-						<span class="text-[10px] text-gray-500 truncate">{icdDescription}</span>
+			<!-- Dynamic procedure-specific fields -->
+			{#if crFields}
+				{#each crFields as field (field.key)}
+					<div>
+						{#if field.type === 'diagnosis'}
+							<!-- svelte-ignore a11y_label_has_associated_control -->
+							<label class="block text-sm font-medium text-gray-700 mb-1">
+								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+							</label>
+							<Autocomplete
+								placeholder="Search ICD-10 code or diagnosis..."
+								bind:value={formData[field.key]}
+								items={diagnosisSuggestions}
+								labelKey="text"
+								sublabelKey="icd_description"
+								badgeKey="icd_code"
+								onInput={handleDiagnosisSearch}
+								onSelect={handleDiagnosisSelect}
+								onClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
+								loading={diagnosisLoading}
+								minChars={2}
+							/>
+							{#if icdCode}
+								<div class="mt-1.5 flex items-center gap-1.5">
+									<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{icdCode}</span>
+									<span class="text-[10px] text-gray-500 truncate">{icdDescription}</span>
+								</div>
+							{/if}
+						{:else if field.type === 'select'}
+							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+							</label>
+							<select id="cr-{field.key}" bind:value={formData[field.key]}
+								class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
+								<option value="">Select {field.label}</option>
+								{#each field.options ?? [] as opt}
+									<option value={opt}>{opt}</option>
+								{/each}
+							</select>
+						{:else if field.type === 'textarea'}
+							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+							</label>
+							<textarea id="cr-{field.key}" bind:value={formData[field.key]}
+								class="block w-full px-3 py-2 rounded-md text-sm resize-y" rows={field.rows ?? 3}
+								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+								placeholder={field.placeholder ?? ''}></textarea>
+						{:else}
+							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
+								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+							</label>
+							<input id="cr-{field.key}" type={field.type} bind:value={formData[field.key]}
+								class="block w-full px-3 py-2 rounded-md text-sm"
+								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+								placeholder={field.placeholder ?? ''} />
+						{/if}
 					</div>
-				{/if}
-			</div>
+				{/each}
 
-			<!-- Treatment -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Treatment</span>
-				<textarea
-					placeholder="Treatment plan..."
-					rows="2"
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-					bind:value={treatment}
-				></textarea>
-			</div>
+				<!-- Faculty Approver -->
+				<div>
+					<label for="cr-faculty" class="block text-sm font-medium text-gray-700 mb-1">
+						Request Approval From <span class="text-red-500">*</span>
+					</label>
+					<select id="cr-faculty"
+						class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+						bind:value={selectedFacultyId}
+					>
+						<option value="">Select faculty</option>
+						{#each facultyApprovers as faculty}
+							<option value={faculty.id}>{faculty.name} ({faculty.department})</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
 
-			<!-- Faculty Approver -->
-			<div>
-				<span class="block text-xs font-semibold text-gray-700 mb-1">Request Approval From</span>
-				<select
-					class="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-					bind:value={selectedFacultyId}
+			<!-- Buttons -->
+			<div class="flex justify-end gap-2 pt-2">
+				<button
+					class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+					       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+					onclick={() => showCreateModal = false}
+				>Cancel</button>
+				<button
+					class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+					       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
+					onclick={handleSubmit}
+					disabled={submitting || !selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId}
 				>
-					<option value="">Select faculty</option>
-					{#each facultyApprovers as faculty}
-						<option value={faculty.id}>{faculty.name} ({faculty.department})</option>
-					{/each}
-				</select>
+					{submitting ? 'Submitting...' : 'Submit for Approval'}
+				</button>
 			</div>
-
-			<!-- Submit Button -->
-			<button
-				class="w-full py-3 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
-				       box-shadow: 0 2px 6px rgba(37, 99, 235, 0.3);"
-				onclick={handleSubmit}
-				disabled={submitting || !selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId}
-			>
-				{submitting ? 'Submitting...' : 'Submit for Approval'}
-			</button>
 		</div>
 	{/snippet}
 </AquaModal>
