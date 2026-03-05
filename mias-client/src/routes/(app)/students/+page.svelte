@@ -49,8 +49,8 @@
 
 	const filteredStudents = $derived(
 		students.filter(s =>
-			s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-			(s.student_id || '').toLowerCase().includes(searchQuery.toLowerCase())
+			String(s.name ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+			String(s.student_id ?? '').toLowerCase().includes(searchQuery.toLowerCase())
 		)
 	);
 
@@ -155,18 +155,20 @@
 			// Derive unique students from approvals data
 			const studentMap = new Map<string, any>();
 			for (const approval of approvals) {
-				const studentName = approval.submitted_by || approval.case_record?.student_name || 'Unknown';
-				if (!studentMap.has(studentName)) {
-					studentMap.set(studentName, {
-						id: approval.student_id || studentName,
-						student_id: approval.case_record?.student_id || '',
+				const submittedBy = approval.submitted_by;
+				const studentName = submittedBy?.name || approval.case_record?.student_name || 'Unknown';
+				const studentKey = submittedBy?.id || studentName;
+				if (!studentMap.has(studentKey)) {
+					studentMap.set(studentKey, {
+						id: submittedBy?.id || studentKey,
+						student_id: submittedBy?.student_id || approval.case_record?.student_id || '',
 						name: studentName,
 						cases_completed: 0,
 						cases_pending: 0,
 						status: 'Active',
 					});
 				}
-				const student = studentMap.get(studentName)!;
+				const student = studentMap.get(studentKey)!;
 				if (approval.status === 'APPROVED') {
 					student.cases_completed++;
 				} else {

@@ -14,7 +14,7 @@
   };
 
   const initials = $derived(
-    name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    String(name ?? '').split(' ').map(n => n[0]).filter(Boolean).join('').toUpperCase().slice(0, 2) || '?'
   );
 </script>
 
