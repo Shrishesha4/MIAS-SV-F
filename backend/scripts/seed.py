@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import AsyncSessionLocal, engine, Base
+from sqlalchemy import text
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Gender, PatientCategory, MedicalAlert
 from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment
@@ -145,7 +146,8 @@ async def seed():
     import app.models  # noqa: F401
 
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(text("DROP SCHEMA public CASCADE"))
+        await conn.execute(text("CREATE SCHEMA public"))
         await conn.run_sync(Base.metadata.create_all)
 
     async with AsyncSessionLocal() as db:
