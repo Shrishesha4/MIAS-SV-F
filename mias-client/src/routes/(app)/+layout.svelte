@@ -52,6 +52,12 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/admin');
 				}
+			} else if (a.role === 'RECEPTION') {
+				userName = 'Reception';
+				userIdDisplay = 'RECEPTION';
+				if (window.location.pathname === '/dashboard') {
+					goto('/reception');
+				}
 			}
 		} catch {
 			// If API fails, use defaults

@@ -160,6 +160,30 @@ async def seed():
             password_hash=get_password_hash("admin"),
             role=UserRole.ADMIN,
         ))
+        # Additional admin user with short credentials
+        db.add(User(
+            id=uid(),
+            username="a",
+            email="a@saveetha.com",
+            password_hash=get_password_hash("a"),
+            role=UserRole.ADMIN,
+        ))
+
+        # ── Reception ───────────────────────────────────
+        db.add(User(
+            id=uid(),
+            username="r1",
+            email="r1@saveetha.com",
+            password_hash=get_password_hash("r1"),
+            role=UserRole.RECEPTION,
+        ))
+        db.add(User(
+            id=uid(),
+            username="r",
+            email="r@saveetha.com",
+            password_hash=get_password_hash("r"),
+            role=UserRole.RECEPTION,
+        ))
 
         # ── Doctors ──────────────────────────────────────
         for d in DOCTORS:
@@ -507,10 +531,17 @@ async def seed():
     print("LOGIN CREDENTIALS")
     print("=" * 50)
 
-    print("\n🔑 Admin (1):")
+    print("\n🔑 Admin (2):")
     print(f"  {'Username':<10} {'Password':<10}")
     print(f"  {'─'*10} {'─'*10}")
     print(f"  {'admin':<10} {'admin':<10}")
+    print(f"  {'a':<10} {'a':<10}")
+
+    print("\n🏢 Reception (2):")
+    print(f"  {'Username':<10} {'Password':<10}")
+    print(f"  {'─'*10} {'─'*10}")
+    print(f"  {'r1':<10} {'r1':<10}")
+    print(f"  {'r':<10} {'r':<10}")
 
     print("\n🩺 Doctors (3):")
     print(f"  {'Username':<10} {'Password':<10} {'Name':<25} {'Department'}")

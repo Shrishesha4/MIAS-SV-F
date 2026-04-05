@@ -66,11 +66,18 @@
     { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
   ];
 
+  const receptionMenuItems = [
+    { icon: Home, label: 'Dashboard', path: '/reception' },
+    { icon: Users, label: 'Patient Queue', path: '/reception' },
+    { icon: Calendar, label: 'Appointments', path: '/clinic-sessions' },
+  ];
+
   const menuItems = $derived(
     role === 'PATIENT' ? patientMenuItems :
     role === 'STUDENT' ? studentMenuItems :
     role === 'FACULTY' ? facultyMenuItems :
     role === 'ADMIN' ? adminMenuItems :
+    role === 'RECEPTION' ? receptionMenuItems :
     patientMenuItems
   );
 
