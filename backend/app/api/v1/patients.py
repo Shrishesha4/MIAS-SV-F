@@ -9,7 +9,7 @@ import uuid
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Appointment, MedicalAlert
+from app.models.patient import Patient, Appointment, MedicalAlert, InsurancePolicy
 from app.models.vital import Vital
 from app.models.prescription import (
     Prescription, PrescriptionStatus, PrescriptionMedication,
@@ -39,6 +39,7 @@ async def get_current_patient(
             selectinload(Patient.emergency_contact),
             selectinload(Patient.allergies),
             selectinload(Patient.medical_alerts),
+            selectinload(Patient.insurance_policies),
         )
         .where(Patient.user_id == user.id)
     )
@@ -62,6 +63,7 @@ async def get_patient(
             selectinload(Patient.emergency_contact),
             selectinload(Patient.allergies),
             selectinload(Patient.medical_alerts),
+            selectinload(Patient.insurance_policies),
         )
         .where(Patient.id == patient_id)
     )
@@ -1539,3 +1541,64 @@ async def renew_prescription(
         "prescription_id": new_rx_display_id,
         "message": "Prescription renewed successfully",
     }
+
+
+# ── Insurance CRUD ──────────────────────────────────────────────
+@router.post("/{patient_id}/insurance")
+async def add_insurance_policy(
+    patient_id: str,
+    data: dict,
+    user: User = Depends(require_role(UserRole.PATIENT)),
+    db: AsyncSession = Depends(get_db),
+):
+    patient = (await db.execute(select(Patient).where(Patient.user_id == user.id))).scalar_one_or_none()
+    if not patient or patient.id != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from datetime import date as d
+    valid_until = None
+    if data.get("valid_until"):
+        try:
+            valid_until = d.fromisoformat(data["valid_until"])
+        except (ValueError, TypeError):
+            valid_until = None
+
+    policy = InsurancePolicy(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        provider=data["provider"],
+        policy_number=data["policy_number"],
+        valid_until=valid_until,
+        coverage_type=data.get("coverage_type"),
+    )
+    db.add(policy)
+    await db.commit()
+    return {
+        "id": policy.id,
+        "provider": policy.provider,
+        "policy_number": policy.policy_number,
+        "valid_until": policy.valid_until.isoformat() if policy.valid_until else None,
+        "coverage_type": policy.coverage_type,
+    }
+
+
+@router.delete("/{patient_id}/insurance/{policy_id}")
+async def delete_insurance_policy(
+    patient_id: str,
+    policy_id: str,
+    user: User = Depends(require_role(UserRole.PATIENT)),
+    db: AsyncSession = Depends(get_db),
+):
+    patient = (await db.execute(select(Patient).where(Patient.user_id == user.id))).scalar_one_or_none()
+    if not patient or patient.id != patient_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    policy = (await db.execute(
+        select(InsurancePolicy).where(InsurancePolicy.id == policy_id, InsurancePolicy.patient_id == patient_id)
+    )).scalar_one_or_none()
+    if not policy:
+        raise HTTPException(status_code=404, detail="Insurance policy not found")
+
+    await db.delete(policy)
+    await db.commit()
+    return {"message": "Insurance policy deleted"}

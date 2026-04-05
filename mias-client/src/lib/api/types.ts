@@ -25,14 +25,25 @@ export interface Patient {
   emergency_contact?: EmergencyContact;
   allergies: Allergy[];
   medical_alerts: MedicalAlert[];
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface EmergencyContact {
   id: string;
   name: string;
   relationship: string;
+  relationship_?: string;
   phone: string;
   email?: string;
+  address?: string;
+}
+
+export interface InsurancePolicy {
+  id: string;
+  provider: string;
+  policy_number: string;
+  valid_until?: string;
+  coverage_type?: string;
 }
 
 export interface Allergy {

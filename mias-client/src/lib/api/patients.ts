@@ -98,6 +98,11 @@ export const patientApi = {
     return response.data;
   },
 
+  async markNotificationsRead(patientId: string) {
+    const response = await client.put(`/patients/${patientId}/notifications/read`);
+    return response.data;
+  },
+
   async getWalletTransactions(patientId: string, walletType: 'hospital' | 'pharmacy'): Promise<WalletTransaction[]> {
     const response = await client.get(`/patients/${patientId}/wallet/${walletType}/transactions`);
     return response.data;
@@ -125,6 +130,16 @@ export const patientApi = {
 
   async getWalletBalance(patientId: string, walletType: 'hospital' | 'pharmacy'): Promise<{ balance: number }> {
     const response = await client.get(`/wallet/balance/${patientId}/${walletType}`);
+    return response.data;
+  },
+
+  async addInsurancePolicy(patientId: string, data: { provider: string; policy_number: string; valid_until?: string; coverage_type?: string }) {
+    const response = await client.post(`/patients/${patientId}/insurance`, data);
+    return response.data;
+  },
+
+  async deleteInsurancePolicy(patientId: string, policyId: string) {
+    const response = await client.delete(`/patients/${patientId}/insurance/${policyId}`);
     return response.data;
   },
 

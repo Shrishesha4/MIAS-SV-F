@@ -12,7 +12,7 @@
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
 		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot,
-		Upload, PenTool, Camera, Image
+		Upload, PenTool, Camera, Image, Plus, Trash2, CreditCard, Droplet
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -28,6 +28,11 @@
 	let signatureUploading = $state(false);
 	let photoInput = $state<HTMLInputElement>();
 	let signatureInput = $state<HTMLInputElement>();
+
+	// Insurance state
+	let showAddInsurance = $state(false);
+	let newInsurance = $state({ provider: '', policy_number: '', valid_until: '' });
+	let addingInsurance = $state(false);
 
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
@@ -69,6 +74,41 @@
 			}
 		} catch (err) {
 			console.error('Failed to update availability status', err);
+		}
+	}
+
+	async function handleAddInsurance() {
+		if (!newInsurance.provider || !newInsurance.policy_number || !patient) return;
+		addingInsurance = true;
+		try {
+			const result = await patientApi.addInsurancePolicy(patient.id, {
+				provider: newInsurance.provider,
+				policy_number: newInsurance.policy_number,
+				valid_until: newInsurance.valid_until || undefined,
+			});
+			patient = {
+				...patient,
+				insurance_policies: [...(patient.insurance_policies || []), result],
+			};
+			newInsurance = { provider: '', policy_number: '', valid_until: '' };
+			showAddInsurance = false;
+		} catch (err) {
+			console.error('Failed to add insurance', err);
+		} finally {
+			addingInsurance = false;
+		}
+	}
+
+	async function handleDeleteInsurance(policyId: string) {
+		if (!patient) return;
+		try {
+			await patientApi.deleteInsurancePolicy(patient.id, policyId);
+			patient = {
+				...patient,
+				insurance_policies: (patient.insurance_policies || []).filter((p: any) => p.id !== policyId),
+			};
+		} catch (err) {
+			console.error('Failed to delete insurance', err);
 		}
 	}
 
@@ -335,84 +375,300 @@
 		</AquaCard>
 
 	{:else if role === 'PATIENT' && patient}
-		<!-- Patient Profile -->
-		<AquaCard>
-			<div class="text-center">
-				<Avatar name={patient.name} size="lg" />
-				<div class="mt-3 flex items-center justify-center gap-2">
-					<h2 class="text-xl font-bold text-blue-900">{patient.name}</h2>
+		<!-- Patient Header with Blue Gradient Banner -->
+		<div class="rounded-xl overflow-hidden shadow-md"
+			style="background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1), 0 0 1px rgba(0,0,0,0.25); border: 1px solid rgba(0,0,0,0.1);">
+			<div class="relative h-36"
+				style="background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #2563eb 100%); box-shadow: inset 0 -1px 0 rgba(255,255,255,0.3);">
+				<!-- Glossy overlay -->
+				<div class="absolute inset-0 pointer-events-none rounded-t-xl"
+					style="background: linear-gradient(to bottom, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.15) 30%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 51%, rgba(0,0,0,0.05) 100%);"></div>
+				<!-- Avatar positioned at bottom-left -->
+				<div class="absolute -bottom-16 left-4">
+					<div class="h-28 w-28 rounded-xl overflow-hidden shadow-lg"
+						style="border: 3px solid white;">
+						{#if patient.photo}
+							<img src="{API_BASE}{patient.photo}" alt={patient.name} class="h-full w-full object-cover" />
+						{:else}
+							<div class="h-full w-full flex items-center justify-center text-3xl font-bold text-white"
+								style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+								{patient.name?.charAt(0) ?? '?'}
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
+			<div class="pt-20 pb-4 px-4">
+				<div class="flex items-center gap-2">
+					<h2 class="text-xl font-bold text-gray-800">{patient.name}</h2>
 					{#if patient.category === 'ELITE'}
 						<Crown class="w-5 h-5 text-yellow-500" />
 					{/if}
 				</div>
-				<p class="text-sm text-gray-600 mt-1">{patient.patient_id}</p>
-				<div class="flex justify-center gap-2 mt-2">
+				<p class="text-sm text-gray-500">Patient ID: {patient.patient_id}</p>
+				<div class="flex gap-2 mt-2">
 					<StatusBadge variant="success">
 						<BadgeCheck class="w-3 h-3 mr-1" /> Verified
 					</StatusBadge>
 					<StatusBadge variant="info">{patient.category}</StatusBadge>
 				</div>
 			</div>
-		</AquaCard>
+		</div>
 
-		<AquaCard>
-			{#snippet header()}
-				<User class="w-4 h-4 text-blue-600 mr-2" />
-				<span class="text-blue-900 font-semibold text-sm">Personal Information</span>
-			{/snippet}
-			<div class="space-y-3">
-				<div class="flex items-center gap-3">
-					<Calendar class="w-4 h-4 text-gray-400" />
-					<div>
-						<p class="text-xs text-gray-500">Date of Birth</p>
-						<p class="text-sm text-gray-800">{new Date(patient.date_of_birth).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+		<!-- Personal Information -->
+		<div class="rounded-xl overflow-hidden"
+			style="background-color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.1);">
+			<div class="px-4 py-3 border-b flex items-center"
+				style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1);">
+				<Shield class="w-4 h-4 text-blue-600 mr-2" />
+				<h3 class="font-medium text-gray-800">Personal Information</h3>
+			</div>
+			<div class="p-4 space-y-4">
+				{#if patient.aadhaar_id}
+					<div class="flex flex-col">
+						<span class="text-sm text-gray-500">Aadhaar ID</span>
+						<div class="flex items-center mt-1">
+							<span class="text-gray-800 font-medium">{patient.aadhaar_id}</span>
+							<div class="ml-2 px-2 py-0.5 rounded text-xs font-medium"
+								style="background: linear-gradient(to bottom, #a7f3d0, #6ee7b7); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.7); border: 1px solid rgba(16,185,129,0.3); color: #065f46;">
+								Verified
+							</div>
+						</div>
+					</div>
+				{/if}
+				{#if patient.abha_id}
+					<div class="flex flex-col">
+						<span class="text-sm text-gray-500">ABHA ID</span>
+						<div class="flex items-center mt-1">
+							<span class="text-gray-800 font-medium">{patient.abha_id}</span>
+							<div class="ml-2 px-2 py-0.5 rounded text-xs font-medium"
+								style="background: linear-gradient(to bottom, #a7f3d0, #6ee7b7); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.7); border: 1px solid rgba(16,185,129,0.3); color: #065f46;">
+								Verified
+							</div>
+						</div>
+					</div>
+				{/if}
+				<div class="flex flex-col">
+					<span class="text-sm text-gray-500">Date of Birth</span>
+					<div class="flex items-center mt-1">
+						<Calendar class="w-3.5 h-3.5 text-blue-600 mr-2" />
+						<span class="text-gray-800">{new Date(patient.date_of_birth).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
 					</div>
 				</div>
-				<div class="flex items-center gap-3">
-					<Heart class="w-4 h-4 text-gray-400" />
-					<div>
-						<p class="text-xs text-gray-500">Blood Group</p>
-						<p class="text-sm text-gray-800">{patient.blood_group}</p>
+				<div class="flex flex-col">
+					<span class="text-sm text-gray-500">Gender</span>
+					<div class="flex items-center mt-1">
+						<User class="w-3.5 h-3.5 text-blue-600 mr-2" />
+						<span class="text-gray-800">{patient.gender}</span>
 					</div>
 				</div>
-				<div class="flex items-center gap-3">
-					<Phone class="w-4 h-4 text-gray-400" />
-					<div>
-						<p class="text-xs text-gray-500">Phone</p>
-						<p class="text-sm text-gray-800">{patient.phone}</p>
-					</div>
-				</div>
-				<div class="flex items-center gap-3">
-					<Mail class="w-4 h-4 text-gray-400" />
-					<div>
-						<p class="text-xs text-gray-500">Email</p>
-						<p class="text-sm text-gray-800">{patient.email}</p>
-					</div>
-				</div>
-				<div class="flex items-center gap-3">
-					<MapPin class="w-4 h-4 text-gray-400" />
-					<div>
-						<p class="text-xs text-gray-500">Address</p>
-						<p class="text-sm text-gray-800">{patient.address}</p>
+				<div class="flex flex-col">
+					<span class="text-sm text-gray-500">Blood Group</span>
+					<div class="flex items-center mt-1">
+						<Droplet class="w-3.5 h-3.5 text-red-600 mr-2" />
+						<span class="text-gray-800">{patient.blood_group}</span>
 					</div>
 				</div>
 			</div>
-		</AquaCard>
+		</div>
 
-		{#if patient.emergency_contact}
-			<AquaCard>
-				{#snippet header()}
-					<Phone class="w-4 h-4 text-red-500 mr-2" />
-					<span class="text-blue-900 font-semibold text-sm">Emergency Contact</span>
-				{/snippet}
-				<div class="space-y-2">
-					<div class="flex justify-between"><span class="text-sm text-gray-500">Name</span><span class="text-sm text-gray-800 font-medium">{patient.emergency_contact.name}</span></div>
-					<div class="flex justify-between"><span class="text-sm text-gray-500">Relationship</span><span class="text-sm text-gray-800">{patient.emergency_contact.relationship_ || patient.emergency_contact.relationship}</span></div>
-					<div class="flex justify-between"><span class="text-sm text-gray-500">Phone</span><span class="text-sm text-blue-600">{patient.emergency_contact.phone}</span></div>
+		<!-- Contact Information -->
+		<div class="rounded-xl overflow-hidden"
+			style="background-color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.1);">
+			<div class="px-4 py-3 border-b flex items-center"
+				style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1);">
+				<Phone class="w-4 h-4 text-blue-600 mr-2" />
+				<h3 class="font-medium text-gray-800">Contact Information</h3>
+			</div>
+			<div class="p-4 space-y-4">
+				<div class="flex items-start p-3 rounded-lg"
+					style="background-color: rgba(249,250,251,0.7); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1);">
+					<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+						style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+						<Phone class="w-3.5 h-3.5 text-white" />
+					</div>
+					<div>
+						<span class="text-gray-800 font-medium">{patient.phone}</span>
+						<p class="text-xs text-gray-500">Primary</p>
+					</div>
 				</div>
-			</AquaCard>
+				{#if patient.email}
+					<div class="flex items-start p-3 rounded-lg"
+						style="background-color: rgba(249,250,251,0.7); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1);">
+						<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+							style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+							<Mail class="w-3.5 h-3.5 text-white" />
+						</div>
+						<div>
+							<span class="text-gray-800 font-medium">{patient.email}</span>
+							<p class="text-xs text-gray-500">Email</p>
+						</div>
+					</div>
+				{/if}
+				<div class="flex items-start p-3 rounded-lg"
+					style="background-color: rgba(249,250,251,0.7); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.1);">
+					<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+						style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+						<MapPin class="w-3.5 h-3.5 text-white" />
+					</div>
+					<div>
+						<span class="text-gray-800 font-medium">{patient.address}</span>
+						<p class="text-xs text-gray-500">Address</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<!-- Emergency Contact -->
+		{#if patient.emergency_contact}
+			<div class="rounded-xl overflow-hidden"
+				style="background-color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.1);">
+				<div class="px-4 py-3 border-b flex items-center"
+					style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1);">
+					<AlertTriangle class="w-4 h-4 text-red-600 mr-2" />
+					<h3 class="font-medium text-gray-800">Emergency Contact</h3>
+				</div>
+				<div class="p-4">
+					<div class="p-3 rounded-lg"
+						style="background-color: rgba(254,242,242,0.4); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(252,165,165,0.3);">
+						<div class="flex items-start mb-3">
+							<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+								style="background: linear-gradient(to bottom, #f87171, #dc2626); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+								<User class="w-3.5 h-3.5 text-white" />
+							</div>
+							<div>
+								<span class="text-gray-800 font-medium">{patient.emergency_contact.name}</span>
+								<p class="text-xs text-gray-500">{patient.emergency_contact.relationship_ || patient.emergency_contact.relationship}</p>
+							</div>
+						</div>
+						<div class="flex items-start">
+							<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+								style="background: linear-gradient(to bottom, #f87171, #dc2626); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+								<Phone class="w-3.5 h-3.5 text-white" />
+							</div>
+							<div>
+								<span class="text-gray-800 font-medium">{patient.emergency_contact.phone}</span>
+								<p class="text-xs text-gray-500">Mobile</p>
+							</div>
+						</div>
+						{#if patient.emergency_contact.email}
+							<div class="flex items-start mt-3">
+								<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+									style="background: linear-gradient(to bottom, #f87171, #dc2626); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+									<Mail class="w-3.5 h-3.5 text-white" />
+								</div>
+								<div>
+									<span class="text-gray-800 font-medium">{patient.emergency_contact.email}</span>
+									<p class="text-xs text-gray-500">Email</p>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+			</div>
 		{/if}
 
+		<!-- Insurance Information -->
+		<div class="rounded-xl overflow-hidden"
+			style="background-color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.1);">
+			<div class="px-4 py-3 border-b flex items-center justify-between"
+				style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1);">
+				<div class="flex items-center">
+					<CreditCard class="w-4 h-4 text-blue-600 mr-2" />
+					<h3 class="font-medium text-gray-800">Insurance Information</h3>
+				</div>
+				<button
+					onclick={() => showAddInsurance = !showAddInsurance}
+					class="px-2.5 py-1 rounded-md text-xs flex items-center cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);">
+					{#if showAddInsurance}
+						<span class="text-blue-700 font-medium">Cancel</span>
+					{:else}
+						<Plus class="w-3 h-3 mr-1 text-blue-700" />
+						<span class="text-blue-700 font-medium">Add</span>
+					{/if}
+				</button>
+			</div>
+
+			<!-- Add Insurance Form -->
+			{#if showAddInsurance}
+				<div class="p-4 border-b" style="background-color: rgba(243,244,246,0.6); border-bottom: 1px solid rgba(0,0,0,0.1);">
+					<div class="space-y-3">
+						<div>
+							<label for="ins-provider" class="block text-sm text-gray-600 mb-1">Insurance Provider</label>
+							<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+								<input id="ins-provider" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+									placeholder="Provider name" bind:value={newInsurance.provider} />
+							</div>
+						</div>
+						<div>
+							<label for="ins-policy" class="block text-sm text-gray-600 mb-1">Policy Number</label>
+							<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+								<input id="ins-policy" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+									placeholder="Policy number" bind:value={newInsurance.policy_number} />
+							</div>
+						</div>
+						<div>
+							<label for="ins-valid" class="block text-sm text-gray-600 mb-1">Valid Until</label>
+							<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+								<input id="ins-valid" type="date" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+									bind:value={newInsurance.valid_until} />
+							</div>
+						</div>
+						<button
+							onclick={handleAddInsurance}
+							disabled={addingInsurance || !newInsurance.provider || !newInsurance.policy_number}
+							class="w-full py-2 rounded-md text-white text-sm font-medium cursor-pointer disabled:opacity-50"
+							style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+							{addingInsurance ? 'Adding...' : 'Add Insurance'}
+						</button>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Insurance List -->
+			<div>
+				{#if patient.insurance_policies && patient.insurance_policies.length > 0}
+					{#each patient.insurance_policies as insurance}
+						<div class="p-4 border-b last:border-b-0" style="border-bottom: 1px solid rgba(0,0,0,0.05);">
+							<div class="flex items-start">
+								<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3 shrink-0"
+									style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+									<CreditCard class="w-3.5 h-3.5 text-white" />
+								</div>
+								<div class="flex-1">
+									<span class="text-gray-800 font-medium">{insurance.provider}</span>
+									<div class="flex justify-between items-center mt-1">
+										<div>
+											<p class="text-sm text-gray-600">Policy: {insurance.policy_number}</p>
+											{#if insurance.valid_until}
+												<p class="text-xs text-gray-500">Valid until: {new Date(insurance.valid_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+											{/if}
+										</div>
+										<button
+											onclick={() => handleDeleteInsurance(insurance.id)}
+											class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+											style="background: linear-gradient(to bottom, #fee2e2, #fca5a5); border: 1px solid rgba(220,38,38,0.3); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.7);">
+											<Trash2 class="w-3.5 h-3.5 text-red-700" />
+										</button>
+									</div>
+								</div>
+							</div>
+						</div>
+					{/each}
+				{:else}
+					<div class="p-6 text-center" style="background-color: rgba(249,250,251,0.7);">
+						<div class="w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center"
+							style="background: linear-gradient(to bottom, #e5e7eb, #d1d5db); box-shadow: 0 1px 3px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.1);">
+							<AlertTriangle class="w-5 h-5 text-gray-400" />
+						</div>
+						<p class="text-gray-500 text-sm">No insurance information added yet</p>
+					</div>
+				{/if}
+			</div>
+		</div>
+
+		<!-- Allergies -->
 		{#if patient.allergies && patient.allergies.length > 0}
 			<AquaCard>
 				{#snippet header()}
@@ -465,7 +721,7 @@
 		<AquaCard padding={false}>
 			<div class="px-4 py-3 flex items-center justify-between">
 				<div class="flex items-center gap-2">
-					<div 
+					<div
 						class="w-3 h-3 rounded-full"
 						style="background: {faculty.availability_status === 'Available' ? '#22c55e' : faculty.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
 					></div>

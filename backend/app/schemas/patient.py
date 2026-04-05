@@ -23,6 +23,17 @@ class EmergencyContactResponse(BaseModel):
     relationship_: str
     phone: str
     email: Optional[str] = None
+    address: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class InsurancePolicyResponse(BaseModel):
+    id: str
+    provider: str
+    policy_number: str
+    valid_until: Optional[date] = None
+    coverage_type: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -76,5 +87,6 @@ class PatientDetailResponse(PatientResponse):
     emergency_contact: Optional[EmergencyContactResponse] = None
     allergies: List[AllergyResponse] = []
     medical_alerts: List[MedicalAlertResponse] = []
+    insurance_policies: List[InsurancePolicyResponse] = []
 
     model_config = {"from_attributes": True}
