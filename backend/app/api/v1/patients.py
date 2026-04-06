@@ -75,6 +75,38 @@ async def get_patient(
     return patient
 
 
+@router.put("/{patient_id}/profile")
+async def update_patient_profile(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update patient personal information."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    if "name" in body:
+        patient.name = body["name"]
+    if "phone" in body:
+        patient.phone = body["phone"]
+    if "email" in body:
+        patient.email = body["email"]
+    if "address" in body:
+        patient.address = body["address"]
+    if "blood_group" in body:
+        patient.blood_group = body["blood_group"]
+
+    await db.commit()
+    return {
+        "message": "Profile updated successfully",
+        "id": patient.id,
+        "name": patient.name,
+    }
+
+
 @router.get("/{patient_id}/case-records")
 async def get_patient_case_records(
     patient_id: str,

@@ -3,6 +3,8 @@
 	import { studentApi } from '$lib/api/students';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -47,7 +49,7 @@
 		try {
 			diagnosisSuggestions = await autocompleteApi.searchDiagnoses(query);
 		} catch (err) {
-			console.error('Failed to search diagnoses', err);
+			toastStore.addToast('Failed to search diagnoses', 'error');
 			diagnosisSuggestions = [];
 		} finally {
 			diagnosisLoading = false;
@@ -129,13 +131,14 @@
 			// Refresh case records
 			caseRecords = await studentApi.getCaseRecords(student.id);
 		} catch (err) {
-			console.error('Failed to submit case record', err);
+			toastStore.addToast('Failed to submit case record', 'error');
 		} finally {
 			submitting = false;
 		}
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['STUDENT'])) return;
 		try {
 			student = await studentApi.getMe();
 			[caseRecords, assignedPatients] = await Promise.all([
@@ -143,14 +146,14 @@
 				studentApi.getAssignedPatients(student.id),
 			]);
 		} catch (err) {
-			console.error('Failed to load case records', err);
+			toastStore.addToast('Failed to load case records', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-4 py-4 space-y-3">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-3">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

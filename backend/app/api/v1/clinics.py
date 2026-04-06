@@ -1,14 +1,16 @@
 """Clinic management endpoints accessible by all authenticated roles."""
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
+from typing import Optional
 
 from app.database import get_db
-from app.api.deps import get_current_user
-from app.models.user import User
+from app.api.deps import get_current_user, require_role
+from app.models.user import User, UserRole
 from app.models.student import (
     Clinic, ClinicSession, ClinicAppointment,
     Student, StudentPatientAssignment,
@@ -40,6 +42,38 @@ async def list_clinics(
         }
         for c in clinics
     ]
+
+
+class CreateClinicRequest(BaseModel):
+    name: str
+    department: str
+    location: Optional[str] = None
+    faculty_id: Optional[str] = None
+
+
+@router.post("")
+async def create_clinic(
+    request: CreateClinicRequest,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new clinic (admin only)."""
+    clinic = Clinic(
+        id=str(uuid.uuid4()),
+        name=request.name,
+        department=request.department,
+        location=request.location,
+        faculty_id=request.faculty_id,
+    )
+    db.add(clinic)
+    await db.commit()
+    return {
+        "id": clinic.id,
+        "name": clinic.name,
+        "department": clinic.department,
+        "location": clinic.location,
+        "faculty_id": clinic.faculty_id,
+    }
 
 
 @router.get("/{clinic_id}")
@@ -134,6 +168,144 @@ async def update_appointment_status(
     appointment.status = new_status
     await db.commit()
     return {"message": "Status updated", "status": new_status}
+
+
+@router.get("/{clinic_id}/search-patient")
+async def search_patient_for_checkin(
+    clinic_id: str,
+    q: str = Query(""),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search for a patient by ID or name for clinic check-in."""
+    if not q or len(q) < 2:
+        return []
+    result = await db.execute(
+        select(Patient)
+        .where(
+            Patient.patient_id.ilike(f"%{q}%") | Patient.name.ilike(f"%{q}%")
+        )
+        .limit(10)
+    )
+    patients = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "patient_id": p.patient_id,
+            "name": p.name,
+            "gender": p.gender.value if p.gender else None,
+            "blood_group": p.blood_group,
+            "phone": p.phone,
+        }
+        for p in patients
+    ]
+
+
+@router.post("/{clinic_id}/check-in")
+async def check_in_patient(
+    clinic_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check in a patient to a clinic by creating an appointment."""
+    patient_id = body.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="patient_id is required")
+
+    # Look up patient — accept either the internal UUID or the display patient_id
+    result = await db.execute(
+        select(Patient).where(
+            (Patient.id == patient_id) | (Patient.patient_id == patient_id)
+        )
+    )
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Check clinic exists
+    clinic_result = await db.execute(select(Clinic).where(Clinic.id == clinic_id))
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    now = datetime.now()
+    appointment = ClinicAppointment(
+        id=str(uuid.uuid4()),
+        clinic_id=clinic_id,
+        patient_id=patient.id,
+        appointment_date=now,
+        appointment_time=now.strftime("%I:%M %p"),
+        provider_name=body.get("provider_name", clinic.faculty.name if hasattr(clinic, 'faculty') and clinic.faculty else ""),
+        status="Checked In",
+    )
+    db.add(appointment)
+    await db.commit()
+
+    return {
+        "id": appointment.id,
+        "patient_id": patient.patient_id,
+        "patient_name": patient.name,
+        "status": "Checked In",
+        "message": f"{patient.name} checked in successfully",
+    }
+
+
+@router.post("/{clinic_id}/appointments")
+async def create_appointment(
+    clinic_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new clinic appointment."""
+    patient_id = body.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="patient_id is required")
+
+    # Look up patient
+    result = await db.execute(
+        select(Patient).where(
+            (Patient.id == patient_id) | (Patient.patient_id == patient_id)
+        )
+    )
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Verify clinic
+    clinic_result = await db.execute(
+        select(Clinic).options(selectinload(Clinic.faculty)).where(Clinic.id == clinic_id)
+    )
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    appt_date_str = body.get("date")
+    if appt_date_str:
+        appt_date = datetime.strptime(appt_date_str, "%Y-%m-%d")
+    else:
+        appt_date = datetime.now()
+
+    appointment = ClinicAppointment(
+        id=str(uuid.uuid4()),
+        clinic_id=clinic_id,
+        patient_id=patient.id,
+        appointment_date=appt_date,
+        appointment_time=body.get("time", "09:00 AM"),
+        provider_name=body.get("provider_name", clinic.faculty.name if clinic.faculty else ""),
+        status=body.get("status", "Scheduled"),
+    )
+    db.add(appointment)
+    await db.commit()
+
+    return {
+        "id": appointment.id,
+        "patient_id": patient.patient_id,
+        "patient_name": patient.name,
+        "status": appointment.status,
+        "message": "Appointment created successfully",
+    }
 
 
 @router.get("/faculty/{faculty_id}/clinics")

@@ -8,6 +8,7 @@
 	let password = $state('');
 	let loading = $state(false);
 	let error = $state('');
+	let showForgotMsg = $state(false);
 
 	async function handleLogin() {
 		if (!username || !password) {
@@ -22,7 +23,7 @@
 			goto('/dashboard');
 		} catch (err: any) {
 			if (err?.response?.status === 401) {
-				error = 'Invalid credentials. Try p/p, s/s, d1/d1, r/r, or a/a';
+				error = 'Invalid username or password';
 			} else {
 				error = 'Connection error. Please check if the server is running.';
 			}
@@ -37,7 +38,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="min-h-screen flex flex-col" onkeydown={handleKeydown}>
+<div class="min-h-screen flex flex-col max-w-md mx-auto" onkeydown={handleKeydown}>
 	<!-- Hospital Banner Section -->
 	<div class="relative overflow-hidden" style="min-height: 280px;">
 		<!-- Background gradient simulating hospital image -->
@@ -158,9 +159,15 @@
 					<button
 						class="text-sm text-blue-600 cursor-pointer hover:text-blue-800 transition-colors"
 						style="text-shadow: 0 1px 0 rgba(255,255,255,0.5);"
+						onclick={() => showForgotMsg = true}
 					>
 						Forgot Password?
 					</button>
+					{#if showForgotMsg}
+						<p class="text-xs text-gray-600 bg-blue-50 rounded-lg px-3 py-2 border border-blue-200">
+							Please contact hospital support at <span class="font-medium">support@saveethamedical.com</span> to reset your password.
+						</p>
+					{/if}
 
 					<div class="relative flex items-center py-2">
 						<div class="flex-grow border-t border-gray-300"></div>

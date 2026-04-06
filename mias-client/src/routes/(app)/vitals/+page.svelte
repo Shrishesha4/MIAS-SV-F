@@ -4,6 +4,8 @@
 	import { Chart, registerables } from 'chart.js';
 	import { patientApi } from '$lib/api/patients';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -216,19 +218,20 @@
 			addVitalValue = '';
 			addVitalValue2 = '';
 		} catch (err) {
-			console.error('Failed to add vital', err);
+			toastStore.addToast('Failed to add vital', 'error');
 		} finally {
 			addingVital = false;
 		}
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			const patient = await patientApi.getCurrentPatient();
 			patientId = patient.id;
 			vitals = await patientApi.getVitals(patient.id, 365);
 		} catch (err) {
-			console.error('Failed to load vitals', err);
+			toastStore.addToast('Failed to load vitals', 'error');
 		} finally {
 			loading = false;
 		}
@@ -249,7 +252,7 @@
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -273,7 +276,7 @@
 	</div>
 
 	<!-- Primary Vitals Grid -->
-	<div class="grid grid-cols-2 gap-3">
+	<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 		{#each primaryVitalDefs as vital}
 			{@const isActive = activeVitalId === vital.id}
 			{@const warn = latestVital ? vital.isWarning(latestVital) : false}

@@ -3,6 +3,8 @@
 	import { onMount } from 'svelte';
 	import { patientApi } from '$lib/api/patients';
 	import { walletApi } from '$lib/api/wallet';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import {
 		Wallet, ArrowUp, ArrowDown, CreditCard, ChevronDown, ChevronUp,
 		Plus, Building, FileText, Clock, X
@@ -37,6 +39,7 @@
 	);
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			const patient = await patientApi.getCurrentPatient();
 			const wt = walletType === 'PHARMACY' ? 'pharmacy' : 'hospital';
@@ -47,14 +50,14 @@
 			allTransactions = txns;
 			walletBalance = bal;
 		} catch (err) {
-			console.error('Failed to load wallet data', err);
+			toastStore.addToast('Failed to load wallet data', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-3 py-4 space-y-3">
+<div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

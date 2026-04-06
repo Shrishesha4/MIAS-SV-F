@@ -122,4 +122,29 @@ export const facultyApi = {
   async revokeStudentPermission(facultyId: string, permissionId: string) {
     await client.delete(`/faculty/${facultyId}/student-permissions/${permissionId}`);
   },
+
+  async markNotificationsRead(facultyId: string) {
+    const response = await client.put(`/faculty/${facultyId}/notifications/read`);
+    return response.data;
+  },
+
+  async getTodaySchedule(facultyId: string) {
+    const response = await client.get(`/faculty/${facultyId}/today-schedule`);
+    return response.data;
+  },
+
+  async createScheduleItem(facultyId: string, data: Record<string, unknown>) {
+    const response = await client.post(`/faculty/${facultyId}/schedule`, data);
+    return response.data;
+  },
+
+  async updateScheduleItem(facultyId: string, itemId: string, data: Record<string, unknown>) {
+    const response = await client.put(`/faculty/${facultyId}/schedule/${itemId}`, data);
+    return response.data;
+  },
+
+  async deleteScheduleItem(facultyId: string, itemId: string) {
+    const response = await client.delete(`/faculty/${facultyId}/schedule/${itemId}`);
+    return response.data;
+  },
 };

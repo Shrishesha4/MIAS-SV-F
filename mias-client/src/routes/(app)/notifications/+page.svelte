@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
@@ -73,19 +74,22 @@
 				notifications = await facultyApi.getNotifications(cachedEntityId);
 			}
 		} catch (err) {
-			console.error('Failed to load notifications', err);
+			toastStore.addToast('Failed to load notifications', 'error');
 		}
 	}
 
 	async function markAllRead() {
-		if (cachedRole === 'PATIENT') {
-			try {
+		try {
+			if (cachedRole === 'PATIENT') {
 				await patientApi.markNotificationsRead(cachedEntityId);
-				await loadNotifications();
-			} catch { /* ignore */ }
-		} else {
-			// Client-side only for student/faculty
-			notifications = notifications.map(n => ({ ...n, is_read: true }));
+			} else if (cachedRole === 'STUDENT') {
+				await studentApi.markNotificationsRead(cachedEntityId);
+			} else if (cachedRole === 'FACULTY') {
+				await facultyApi.markNotificationsRead(cachedEntityId);
+			}
+			await loadNotifications();
+		} catch (err) {
+			toastStore.addToast('Failed to mark notifications as read', 'error');
 		}
 	}
 
@@ -103,10 +107,15 @@
 			} else if (role === 'FACULTY') {
 				const faculty = await facultyApi.getMe();
 				cachedEntityId = faculty.id;
+			} else if (role === 'ADMIN' || role === 'RECEPTION') {
+				// Admin and Reception roles don't have notifications
+				notifications = [];
+				loading = false;
+				return;
 			}
 			await loadNotifications();
 		} catch (err) {
-			console.error('Failed to load notifications', err);
+			toastStore.addToast('Failed to load notifications', 'error');
 		} finally {
 			loading = false;
 		}
@@ -119,7 +128,7 @@
 	});
 </script>
 
-<div class="px-3 py-4 space-y-3">
+<div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

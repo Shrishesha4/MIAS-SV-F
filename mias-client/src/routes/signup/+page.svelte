@@ -31,7 +31,7 @@
 	// Patient fields
 	let patientName = $state('');
 	let patientDob = $state('');
-	let patientGender = $state('MALE');
+	let patientGender = $state('');
 	let patientBloodGroup = $state('');
 	let patientPhone = $state('');
 	let patientAddress = $state('');
@@ -121,13 +121,15 @@
 	function validatePatientPersonalStep() {
 		if (!patientName) { error = 'Please enter your full name'; return false; }
 		if (!patientDob) { error = 'Please enter your date of birth'; return false; }
+		if (!patientGender) { error = 'Please select your gender'; return false; }
 		if (!patientBloodGroup) { error = 'Please select your blood group'; return false; }
 		error = '';
 		return true;
 	}
 
 	function validatePatientContactStep() {
-		if (!patientPhone || patientPhone.length < 10) { error = 'Please enter a valid phone number'; return false; }
+		if (!patientPhone || !/^\d{10}$/.test(patientPhone)) { error = 'Phone number must be exactly 10 digits'; return false; }
+		if (patientAadhaar && !/^\d{12}$/.test(patientAadhaar)) { error = 'Aadhaar number must be exactly 12 digits'; return false; }
 		error = '';
 		return true;
 	}
@@ -240,7 +242,7 @@
 	}
 </script>
 
-<div class="min-h-screen flex flex-col">
+<div class="min-h-screen flex flex-col max-w-md mx-auto">
 	<!-- Hospital Banner Section -->
 	<div class="relative overflow-hidden" style="min-height: 160px;">
 		<div class="absolute inset-0" style="
@@ -428,6 +430,9 @@
 							</div>
 							<div>
 								<label for="patient-gender-input" class="text-xs text-gray-500 mb-1 block">Gender</label>
+								{#if !patientGender}
+									<p class="text-xs text-gray-400 mb-2">Select Gender</p>
+								{/if}
 								<div class="flex gap-3">
 									{#each ['MALE', 'FEMALE', 'OTHER'] as g}
 										<button

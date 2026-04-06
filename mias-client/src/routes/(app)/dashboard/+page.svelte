@@ -3,6 +3,7 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
 	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
@@ -13,6 +14,7 @@
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
+	import PatientProfile from '$lib/components/PatientProfile.svelte';
 	import {
 		HeartPulse, FileText, Pill, Activity, TestTube, Wallet,
 		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight,
@@ -40,12 +42,15 @@
 	let student: any = $state(null);
 	let assignedPatients: AssignedPatient[] = $state([]);
 	let clinicSessions: any[] = $state([]);
-	let studentTab = $state('patients');
+	let studentTab = $state('today');
+	let selectedPatient: AssignedPatient | null = $state(null);
 	let emergencyContacts: EmergencyContact[] = $state([]);
 	let clinics: Clinic[] = $state([]);
 	let selectedClinic: Clinic | null = $state(null);
 	let clinicPatients: ClinicPatient[] = $state([]);
 	let showAllPatients = $state(false);
+	let previousPatients: any[] = $state([]);
+	let previousPatientsLoading = $state(false);
 
 	// Faculty state
 	let faculty: any = $state(null);
@@ -60,9 +65,9 @@
 	let todaySchedule: ScheduleItem[] = $state([]);
 
 	const studentTabs = [
-		{ id: 'patients', label: 'My Patients', icon: Users },
-		{ id: 'clinic', label: 'Clinic', icon: Hospital },
-		{ id: 'emergency', label: 'Emergency', icon: PhoneCall },
+		{ id: 'clinic', label: 'Clinic' },
+		{ id: 'today', label: 'Today' },
+		{ id: 'previous', label: 'Previous' },
 	];
 
 	// Faculty approval cards config
@@ -144,10 +149,7 @@
 				}, 1500);
 			}
 		} catch (err) {
-			console.error('Failed to log medication dose', err);
-			// Show error to user
-			error = 'Failed to log medication dose. Please try again.';
-			setTimeout(() => error = '', 3000);
+			toastStore.addToast('Failed to log medication dose. Please try again.', 'error');
 		}
 	}
 
@@ -175,7 +177,7 @@
 			}
 		} catch (err: any) {
 			error = 'Failed to load dashboard data';
-			console.error(err);
+			toastStore.addToast('Failed to load dashboard data', 'error');
 		} finally {
 			loading = false;
 		}
@@ -195,14 +197,14 @@
 					approvalStats = await approvalsApi.getApprovalStats(faculty.id);
 				}
 			} catch (err) {
-				console.error('Auto-refresh failed', err);
+				toastStore.addToast('Auto-refresh failed', 'error');
 			}
 		}, 30000);
 		return () => clearInterval(interval);
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -311,7 +313,7 @@
 		<!-- PATIENT SERVICES Section -->
 		<div>
 			<p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-1">Patient Services</p>
-			<div class="grid grid-cols-2 gap-3">
+			<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
 				<button
 					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
 					style="background-color: white; border-radius: 12px;
@@ -335,7 +337,7 @@
 						style="background: linear-gradient(to bottom, #3b82f6cc, #3b82f6);">
 						<Bed class="w-5 h-5 text-white" />
 					</div>
-					<span class="text-sm font-semibold text-gray-800 truncate">Admission Recor...</span>
+					<span class="text-sm font-semibold text-gray-800">Admissions</span>
 				</button>
 
 				<button
@@ -375,7 +377,7 @@
 		<!-- MEDICAL SERVICES Section -->
 		<div>
 			<p class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 px-1">Medical Services</p>
-			<div class="grid grid-cols-2 gap-3">
+			<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
 				<button
 					class="flex items-center gap-3 p-4 rounded-xl cursor-pointer text-left"
 					style="background-color: white; border-radius: 12px;
@@ -418,257 +420,175 @@
 		</div>
 
 	{:else if role === 'STUDENT' && student}
-		<!-- Student Welcome Card -->
-		<AquaCard>
-			<div class="flex items-center gap-4">
-				<div class="relative">
-					<Avatar name={student.name} size="lg" />
-					<div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center"
-						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 2px solid white;">
-						<CheckCircle2 class="w-3 h-3 text-white" />
-					</div>
-				</div>
-				<div class="flex-1">
-					<h2 class="text-lg font-bold text-gray-800">Welcome, {student.name}</h2>
-					<p class="text-sm text-gray-500">
-						ID: {student.student_id} · Year: {student.year} · Semester: {student.semester}
-					</p>
-				</div>
-			</div>
-			<!-- Stats Row -->
-			<div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
-				<div class="flex items-center gap-2">
-					<Award class="w-4 h-4 text-gray-500" />
-					<span class="text-sm text-gray-700">Current GPA: <strong>{student.gpa}/4.0</strong></span>
-				</div>
-				<button class="flex items-center gap-1 text-sm text-blue-600 font-medium cursor-pointer hover:underline"
-					onclick={() => goto('/profile')}>
-					<BarChart3 class="w-4 h-4" /> Scores
-				</button>
-			</div>
-			<div class="mt-1">
-				<span class="text-sm text-gray-500">Attendance: {student.attendance?.overall ?? '--'}%</span>
-			</div>
-		</AquaCard>
-
-		<!-- Tab Bar -->
-		<TabBar tabs={studentTabs} activeTab={studentTab} onchange={(id) => studentTab = id} />
-
-		<!-- Tab Content -->
-		{#if studentTab === 'patients'}
-			<!-- My Patients Tab -->
-			<AquaCard>
-				<div class="flex items-center justify-between mb-4">
-					<div class="flex items-center gap-2">
-						<Users class="w-5 h-5 text-blue-600" />
-						<h3 class="font-bold text-gray-800">Patients Assigned to Me</h3>
-					</div>
-					<button
-						class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg cursor-pointer"
-						style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
-						       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);
-						       box-shadow: 0 1px 2px rgba(0,0,0,0.08);"
-						onclick={async () => {
-							assignedPatients = await studentApi.getAssignedPatients(student.id);
-						}}
-					>
-						<RefreshCw class="w-3 h-3" /> Refresh List
-					</button>
+		<!-- Student Dashboard - Master Detail -->
+		<div class="flex gap-0 md:gap-4" style="min-height: calc(100vh - 7rem);">
+			<!-- Left Panel: Patient List -->
+			<div class="w-full md:w-80 lg:w-96 flex flex-col shrink-0 rounded-xl overflow-hidden"
+				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
+				<!-- Tabs -->
+				<div class="p-2">
+					<TabBar tabs={studentTabs} activeTab={studentTab} onchange={async (id) => {
+						studentTab = id;
+						selectedPatient = null;
+						if (id === 'previous' && previousPatients.length === 0 && student) {
+							previousPatientsLoading = true;
+							try {
+								previousPatients = await studentApi.getPreviousPatients(student.id);
+							} catch (err) {
+								toastStore.addToast('Failed to load previous patients', 'error');
+							} finally {
+								previousPatientsLoading = false;
+							}
+						}
+					}} />
 				</div>
 
-				<div class="space-y-3">
-					{#each (showAllPatients ? assignedPatients : assignedPatients.slice(0, 3)) as patient}
-						<button
-							class="w-full flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-gray-50 transition-colors text-left border border-gray-100"
-							onclick={() => goto(`/patients/${patient.id}`)}
-						>
-							<div class="relative shrink-0">
-								{#if patient.photo}
-									<img src={patient.photo} alt={patient.name} class="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm" />
-								{:else}
-									<Avatar name={patient.name} size="md" />
-								{/if}
-							</div>
-							<div class="flex-1 min-w-0">
-								<div class="flex items-center gap-2">
-									<p class="font-semibold text-gray-800">{patient.name}</p>
-									<span class="text-xs text-gray-400">· {patient.age} years · {patient.gender}</span>
-								</div>
-								<p class="text-sm text-gray-600 truncate">{patient.primary_diagnosis || 'Awaiting assessment'}</p>
-								<p class="text-xs text-gray-400 mt-0.5">ID: {patient.patient_id} · Blood: {patient.blood_group}</p>
-							</div>
-							<div
-								class="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
-								style="background: linear-gradient(to bottom, #e8edf5, #d5dde8);
-								       border: 1px solid rgba(0,0,0,0.1);"
-							>
-								<ArrowRight class="w-4 h-4 text-blue-600" />
-							</div>
-						</button>
-					{/each}
-				</div>
-
-				{#if assignedPatients.length > 3}
-					<div class="mt-4 flex justify-center">
-						<button
-							class="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium cursor-pointer"
-							style="background: linear-gradient(to bottom, {showAllPatients ? '#f0f4fa' : '#4d90fe'}, {showAllPatients ? '#d5dde8' : '#0066cc'});
-							       color: {showAllPatients ? '#1e40af' : 'white'}; border: 1px solid rgba(0,0,0,0.15);
-							       box-shadow: 0 2px 6px {showAllPatients ? 'rgba(0,0,0,0.1)' : 'rgba(0,102,204,0.3)'}, inset 0 1px 0 rgba(255,255,255,0.3);"
-							onclick={() => showAllPatients = !showAllPatients}
-						>
-							{showAllPatients ? 'Show Less' : `View All ${assignedPatients.length} Patients`}
-							{#if !showAllPatients}
-								<ChevronRight class="w-4 h-4" />
-							{/if}
-						</button>
-					</div>
-				{/if}
-
-				{#if assignedPatients.length === 0}
-					<p class="text-sm text-gray-400 text-center py-4">No patients assigned yet</p>
-				{/if}
-			</AquaCard>
-
-		{:else if studentTab === 'clinic'}
-			<!-- Clinic Tab -->
-			<AquaCard>
-				<div class="flex items-center justify-between mb-3">
-					<div class="flex items-center gap-2">
-						<Building class="w-5 h-5 text-blue-600" />
-						<h3 class="font-bold text-gray-800">Select Clinic</h3>
-					</div>
-				</div>
-				{#if clinics.length > 0}
-					<div class="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-						{#each clinics as clinic}
+				<!-- Patient List -->
+				<div class="flex-1 overflow-y-auto">
+					{#if studentTab === 'today'}
+						{#each assignedPatients as ap}
 							<button
-								class="shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-all cursor-pointer"
-								style="background: {selectedClinic?.id === clinic.id ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #f8fafc, #f1f5f9)'};
-								       color: {selectedClinic?.id === clinic.id ? 'white' : '#475569'};
-								       border: 1px solid {selectedClinic?.id === clinic.id ? '#2563eb' : '#e2e8f0'};
-								       box-shadow: {selectedClinic?.id === clinic.id ? '0 2px 4px rgba(37, 99, 235, 0.3)' : 'none'};"
-								onclick={async () => {
-									selectedClinic = clinic;
-									clinicPatients = await studentApi.getClinicPatients(clinic.id);
+								class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
+								class:bg-blue-50={selectedPatient?.id === ap.id}
+								onclick={() => {
+									if (window.innerWidth < 768) {
+										goto(`/patients/${ap.id}`);
+									} else {
+										selectedPatient = ap;
+									}
 								}}
 							>
-								{clinic.name}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			</AquaCard>
-
-			{#if selectedClinic}
-				<AquaCard>
-					<div class="flex items-center justify-between mb-3">
-						<div>
-							<h3 class="font-bold text-gray-800">{selectedClinic.name}</h3>
-							<p class="text-xs text-gray-500">{selectedClinic.department} · {selectedClinic.location}</p>
-						</div>
-						<span class="text-xs text-blue-600 font-medium">Today's Patients</span>
-					</div>
-
-					{#if clinicPatients.length > 0}
-						<div class="space-y-2">
-							{#each clinicPatients as patient}
-								<div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-									<Avatar name={patient.patient_name || 'Patient'} size="sm" />
-									<div class="flex-1 min-w-0">
-										<p class="text-sm font-semibold text-gray-800">{patient.patient_name}</p>
-										<p class="text-xs text-gray-500">{patient.appointment_time} · {patient.provider_name}</p>
-									</div>
-									<span 
-										class="px-2 py-1 text-xs font-medium rounded-full"
-										style="background: {patient.status === 'Completed' ? 'rgba(34, 197, 94, 0.1)' : patient.status === 'In Progress' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(251, 191, 36, 0.1)'};
-										       color: {patient.status === 'Completed' ? '#16a34a' : patient.status === 'In Progress' ? '#2563eb' : '#d97706'};"
-									>
-										{patient.status}
-									</span>
-								</div>
-							{/each}
-						</div>
-					{:else}
-						<p class="text-sm text-gray-400 text-center py-4">No patients scheduled for today</p>
-					{/if}
-				</AquaCard>
-			{/if}
-
-		{:else if studentTab === 'emergency'}
-			<!-- Emergency Tab -->
-			<AquaCard>
-				<div class="flex items-center gap-2 mb-4">
-					<PhoneCall class="w-5 h-5 text-red-500" />
-					<h3 class="font-bold text-gray-800">Emergency Contacts</h3>
-				</div>
-
-				<div class="space-y-4">
-					{#each emergencyContacts as contact}
-						<div class="p-4 rounded-xl border border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
-							<div class="flex items-start gap-3">
-								<div class="relative shrink-0">
-									{#if contact.photo}
-										<img src={contact.photo} alt={contact.name} class="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md" />
-									{:else}
-										<Avatar name={contact.name} size="lg" />
-									{/if}
-									<div 
-										class="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white"
-										style="background: {contact.availability_status === 'Available' ? '#22c55e' : contact.availability_status === 'Busy' ? '#f59e0b' : '#ef4444'};"
-									></div>
+								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
+									<User class="w-5 h-5 text-white" />
 								</div>
 								<div class="flex-1 min-w-0">
-									<div class="flex items-center gap-2">
-										<p class="font-semibold text-gray-800">{contact.name}</p>
-										<span 
-											class="px-2 py-0.5 text-[10px] font-bold rounded-full uppercase"
-											style="background: {contact.availability_status === 'Available' ? 'rgba(34, 197, 94, 0.1)' : contact.availability_status === 'Busy' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'};
-											       color: {contact.availability_status === 'Available' ? '#16a34a' : contact.availability_status === 'Busy' ? '#d97706' : '#dc2626'};"
-										>
-											{contact.availability_status}
-										</span>
-									</div>
-									<p class="text-sm text-gray-600">{contact.specialty}</p>
-									<p class="text-xs text-gray-500">{contact.department} · {contact.availability}</p>
+									<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
+									<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
 								</div>
+								<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
+							</button>
+						{/each}
+						{#if assignedPatients.length === 0}
+							<div class="flex flex-col items-center justify-center py-16 text-center px-4">
+								<Users class="w-8 h-8 text-gray-300 mb-2" />
+								<p class="text-sm text-gray-400">No patients assigned today</p>
 							</div>
+						{/if}
 
-							<!-- Contact Actions -->
-							<div class="flex items-center gap-2 mt-3">
-								<a 
-									href="tel:{contact.phone}"
-									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
-									style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
-									       box-shadow: 0 2px 4px rgba(22, 163, 74, 0.3);"
+					{:else if studentTab === 'clinic'}
+						<!-- Clinic Selector -->
+						{#if clinics.length > 0}
+							<div class="flex gap-2 overflow-x-auto p-3 border-b border-gray-100">
+								{#each clinics as clinic}
+									<button
+										class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
+										style="background: {selectedClinic?.id === clinic.id ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
+											   color: {selectedClinic?.id === clinic.id ? 'white' : '#475569'};
+											   border: 1px solid {selectedClinic?.id === clinic.id ? '#2563eb' : '#e2e8f0'};"
+										onclick={async () => {
+											selectedClinic = clinic;
+											clinicPatients = await studentApi.getClinicPatients(clinic.id);
+										}}
+									>
+										{clinic.name}
+									</button>
+								{/each}
+							</div>
+						{/if}
+						{#each clinicPatients as cp}
+							<div class="flex items-center gap-3 px-4 py-3 border-b border-gray-50">
+								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
+									<User class="w-5 h-5 text-white" />
+								</div>
+								<div class="flex-1 min-w-0">
+									<p class="font-semibold text-gray-800 text-sm">{cp.patient_name}</p>
+									<p class="text-xs text-gray-500 truncate">{cp.appointment_time} · {cp.provider_name}</p>
+								</div>
+								<span
+									class="px-2 py-0.5 text-[10px] font-medium rounded-full shrink-0"
+									style="background: {cp.status === 'Completed' ? 'rgba(34, 197, 94, 0.1)' : cp.status === 'In Progress' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(251, 191, 36, 0.1)'};
+										   color: {cp.status === 'Completed' ? '#16a34a' : cp.status === 'In Progress' ? '#2563eb' : '#d97706'};"
 								>
-									<Phone class="w-4 h-4" /> Call
-								</a>
-								<a 
-									href="mailto:{contact.email}"
-									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
-									style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
-									       box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);"
+									{cp.status}
+								</span>
+							</div>
+						{/each}
+						{#if clinicPatients.length === 0}
+							<div class="flex flex-col items-center justify-center py-16 text-center px-4">
+								<Building class="w-8 h-8 text-gray-300 mb-2" />
+								<p class="text-sm text-gray-400">No patients in this clinic</p>
+							</div>
+						{/if}
+
+					{:else if studentTab === 'previous'}
+						{#if previousPatientsLoading}
+							<div class="flex items-center justify-center py-16">
+								<div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+							</div>
+						{:else}
+							{#each previousPatients as ap}
+								<button
+									class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
+									class:bg-blue-50={selectedPatient?.id === ap.id}
+									onclick={() => {
+										if (window.innerWidth < 768) {
+											goto(`/patients/${ap.id}`);
+										} else {
+											selectedPatient = ap;
+										}
+									}}
 								>
-									<Mail class="w-4 h-4" /> Email
-								</a>
-								<button 
-									class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium cursor-pointer"
-									style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9); color: #475569;
-									       border: 1px solid #e2e8f0;"
-								>
-									<MessageSquare class="w-4 h-4" /> Message
+									<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+										style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
+										<User class="w-5 h-5 text-white" />
+									</div>
+									<div class="flex-1 min-w-0">
+										<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
+										<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
+									</div>
+									<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
 								</button>
-							</div>
-						</div>
-					{/each}
-
-					{#if emergencyContacts.length === 0}
-						<p class="text-sm text-gray-400 text-center py-4">No emergency contacts available</p>
+							{/each}
+							{#if previousPatients.length === 0}
+								<div class="flex flex-col items-center justify-center py-16 text-center px-4">
+									<Clock class="w-8 h-8 text-gray-300 mb-2" />
+									<p class="text-sm text-gray-400">No previous patients</p>
+								</div>
+							{/if}
+						{/if}
 					{/if}
 				</div>
-			</AquaCard>
-		{/if}
+			</div>
+
+			<!-- Right Panel: Detail (Desktop only) -->
+			<div class="hidden md:flex flex-1 rounded-xl overflow-hidden flex-col"
+				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
+				{#if selectedPatient}
+					<div class="flex-1 overflow-y-auto relative">
+						<button class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(255,255,255,0.9); box-shadow: 0 1px 4px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);"
+							onclick={() => selectedPatient = null}>
+							<X class="w-4 h-4 text-gray-500" />
+						</button>
+						<PatientProfile patientId={selectedPatient.id} />
+					</div>
+				{:else}
+					<!-- Empty State -->
+					<div class="flex-1 flex flex-col items-center justify-center text-center p-8">
+						<div class="w-20 h-20 rounded-full flex items-center justify-center mb-4"
+							style="background: linear-gradient(to bottom, #f0f4fa, #e2e8f0);">
+							<Users class="w-10 h-10 text-gray-400" />
+						</div>
+						<h3 class="text-lg font-semibold text-gray-700 mb-1">Select a Patient</h3>
+						<p class="text-sm text-gray-400 max-w-xs">
+							Choose a patient from the sidebar to view their detailed profile, medical history, and active treatments.
+						</p>
+					</div>
+				{/if}
+			</div>
+		</div>
 
 	{:else if role === 'FACULTY' && faculty}
 		<!-- Faculty Welcome Card (Matching Design) -->
@@ -695,7 +615,7 @@
 		
 
 		<!-- Approval Cards -->
-		<div class="space-y-3">
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
 			{#each approvalCards as card}
 				<button
 					class="w-full text-left cursor-pointer"

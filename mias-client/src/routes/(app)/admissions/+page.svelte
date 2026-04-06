@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { authApi } from '$lib/api/auth';
@@ -50,6 +51,33 @@
 	let admitDiagnosis = $state('');
 	let admitNotes = $state('');
 	let dbDepartments: { id: string; name: string; code: string }[] = $state([]);
+
+	// Assessment form expanded fields
+	let assessmentSection = $state(0); // 0-based step index
+	let triageCategory = $state('');
+	let chiefComplaint = $state('');
+	let onsetDuration = $state('');
+	let vitalsSystolic = $state('');
+	let vitalsDiastolic = $state('');
+	let vitalsHR = $state('');
+	let vitalsRR = $state('');
+	let vitalsTemp = $state('');
+	let vitalsSpO2 = $state('');
+	let vitalsWeight = $state('');
+	let gcsBestEye = $state(4);
+	let gcsBestVerbal = $state(5);
+	let gcsBestMotor = $state(6);
+	const gcsTotal = $derived(gcsBestEye + gcsBestVerbal + gcsBestMotor);
+	let cbgValue = $state('');
+	let painScore = $state(0);
+	let clinicalHistory = $state('');
+	let pastMedicalHistory = $state('');
+	let allergiesText = $state('');
+	let currentMedications = $state('');
+	let assessmentPlan = $state('');
+	let treatmentPlan = $state('');
+
+	const assessmentSteps = ['Triage', 'Vitals', 'Neuro/Pain', 'History', 'Plan'];
 
 	// Discharge form fields
 	let dischargeSummary = $state('');
@@ -154,6 +182,28 @@
 		admitDiagnosis = '';
 		admitNotes = '';
 		actionError = '';
+		assessmentSection = 0;
+		triageCategory = '';
+		chiefComplaint = '';
+		onsetDuration = '';
+		vitalsSystolic = '';
+		vitalsDiastolic = '';
+		vitalsHR = '';
+		vitalsRR = '';
+		vitalsTemp = '';
+		vitalsSpO2 = '';
+		vitalsWeight = '';
+		gcsBestEye = 4;
+		gcsBestVerbal = 5;
+		gcsBestMotor = 6;
+		cbgValue = '';
+		painScore = 0;
+		clinicalHistory = '';
+		pastMedicalHistory = '';
+		allergiesText = '';
+		currentMedications = '';
+		assessmentPlan = '';
+		treatmentPlan = '';
 		showAdmitModal = true;
 	}
 
@@ -172,11 +222,34 @@
 				reason: admitReason,
 				diagnosis: admitDiagnosis,
 				notes: admitNotes,
+				triage_category: triageCategory || undefined,
+				chief_complaint: chiefComplaint || undefined,
+				onset_duration: onsetDuration || undefined,
+				vitals: (vitalsSystolic || vitalsHR) ? {
+					systolic_bp: vitalsSystolic ? Number(vitalsSystolic) : undefined,
+					diastolic_bp: vitalsDiastolic ? Number(vitalsDiastolic) : undefined,
+					heart_rate: vitalsHR ? Number(vitalsHR) : undefined,
+					respiratory_rate: vitalsRR ? Number(vitalsRR) : undefined,
+					temperature: vitalsTemp ? Number(vitalsTemp) : undefined,
+					oxygen_saturation: vitalsSpO2 ? Number(vitalsSpO2) : undefined,
+					weight: vitalsWeight ? Number(vitalsWeight) : undefined,
+				} : undefined,
+				gcs: { eye: gcsBestEye, verbal: gcsBestVerbal, motor: gcsBestMotor, total: gcsTotal },
+				cbg: cbgValue || undefined,
+				pain_score: painScore || undefined,
+				clinical_history: clinicalHistory || undefined,
+				past_medical_history: pastMedicalHistory || undefined,
+				allergies: allergiesText || undefined,
+				current_medications: currentMedications || undefined,
+				assessment_plan: assessmentPlan || undefined,
+				treatment_plan: treatmentPlan || undefined,
 			});
 			showAdmitModal = false;
+			toastStore.addToast('Patient admitted successfully', 'success');
 			await loadAdmissions();
 		} catch (err: any) {
 			actionError = err?.response?.data?.detail || 'Failed to create admission';
+			toastStore.addToast(actionError, 'error');
 		} finally { submitting = false; }
 	}
 
@@ -202,9 +275,11 @@
 				follow_up_date: followUpDate || null,
 			});
 			showDischargeModal = false;
+			toastStore.addToast('Patient discharged successfully', 'success');
 			await loadAdmissions();
 		} catch (err: any) {
 			actionError = err?.response?.data?.detail || 'Failed to discharge';
+			toastStore.addToast(actionError, 'error');
 		} finally { submitting = false; }
 	}
 
@@ -234,9 +309,11 @@
 				notes: transferNotes || undefined,
 			});
 			showTransferModal = false;
+			toastStore.addToast('Patient transferred successfully', 'success');
 			await loadAdmissions();
 		} catch (err: any) {
 			actionError = err?.response?.data?.detail || 'Failed to transfer';
+			toastStore.addToast(actionError, 'error');
 		} finally { submitting = false; }
 	}
 
@@ -254,7 +331,7 @@
 			admissionsMap = {};
 			admissions.forEach((a: any) => { admissionsMap[a.id] = a; });
 		} catch (err) {
-			console.error('Failed to load admissions', err);
+			toastStore.addToast('Failed to load admissions', 'error');
 		} finally { loading = false; }
 	}
 
@@ -289,9 +366,11 @@
 				notes: reqNotes || undefined,
 			});
 			showRequestModal = false;
+			toastStore.addToast('Admission request submitted successfully', 'success');
 			await loadAdmissions();
 		} catch (err: any) {
 			reqError = err?.response?.data?.detail || 'Failed to submit admission request';
+			toastStore.addToast(reqError, 'error');
 		} finally { reqSubmitting = false; }
 	}
 
@@ -316,7 +395,7 @@
 	});
 </script>
 
-<div class="px-4 py-4 space-y-2">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-2">
 	<!-- Header -->
 	<div class="flex items-center gap-3 mb-4">
 		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
@@ -1032,7 +1111,7 @@
 		{#snippet header()}
 			<div class="flex items-center gap-2">
 				<Plus class="w-5 h-5 text-blue-600" />
-				<span class="font-semibold text-gray-800">Admit Patient</span>
+				<span class="font-semibold text-gray-800">Admission Assessment</span>
 			</div>
 		{/snippet}
 
@@ -1041,7 +1120,22 @@
 				<div class="p-3 rounded-lg bg-red-50 text-red-600 text-sm">{actionError}</div>
 			{/if}
 
-			<!-- Patient Search -->
+			<!-- Step indicator -->
+			<div class="flex items-center gap-1">
+				{#each assessmentSteps as step, i}
+					<button
+						class="flex-1 text-center py-1.5 text-[10px] font-bold rounded-md cursor-pointer transition-colors"
+						style="background: {i === assessmentSection ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : i < assessmentSection ? '#dbeafe' : '#f1f5f9'};
+						       color: {i === assessmentSection ? 'white' : i < assessmentSection ? '#2563eb' : '#94a3b8'};
+						       border: 1px solid {i === assessmentSection ? '#2563eb' : 'transparent'};"
+						onclick={() => assessmentSection = i}
+					>
+						{step}
+					</button>
+				{/each}
+			</div>
+
+			<!-- Patient Search (always visible at top) -->
 			<div>
 				<label for="admit-patient" class="text-xs text-gray-500 mb-1 block">Patient</label>
 				<div class="relative">
@@ -1080,64 +1174,294 @@
 				{/if}
 			</div>
 
-			<!-- Department -->
-			<div>
-				<label for="admit-department" class="text-xs text-gray-500 mb-1 block">Department</label>
-				<select id="admit-department" bind:value={admitDepartment}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
-					<option value="">Select department</option>
-					{#each dbDepartments as d}
-						<option value={d.name}>{d.name}</option>
-					{/each}
-				</select>
-			</div>
+			<!-- STEP 0: Triage / Primary Survey -->
+			{#if assessmentSection === 0}
+				<div class="space-y-3">
+					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Triage & Primary Survey</p>
 
-			<!-- Ward & Bed -->
-			<div class="grid grid-cols-2 gap-3">
-				<div>
-					<label for="admit-ward" class="text-xs text-gray-500 mb-1 block">Ward</label>
-					<input id="admit-ward" type="text" placeholder="e.g., General Ward A" bind:value={admitWard}
-						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+					<div>
+						<label for="triage-category" class="text-xs text-gray-500 mb-1 block">Triage Category</label>
+						<select id="triage-category" bind:value={triageCategory}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
+							<option value="">Select triage category</option>
+							<option value="RED">Red – Immediate (Life-threatening)</option>
+							<option value="YELLOW">Yellow – Urgent</option>
+							<option value="GREEN">Green – Delayed (Minor)</option>
+							<option value="BLACK">Black – Expectant</option>
+						</select>
+					</div>
+
+					{#if triageCategory}
+						<div class="px-3 py-2 rounded-lg text-xs font-medium"
+							style="background: {triageCategory === 'RED' ? '#fee2e2' : triageCategory === 'YELLOW' ? '#fef3c7' : triageCategory === 'GREEN' ? '#dcfce7' : '#f3f4f6'};
+							       color: {triageCategory === 'RED' ? '#991b1b' : triageCategory === 'YELLOW' ? '#92400e' : triageCategory === 'GREEN' ? '#166534' : '#374151'};">
+							{triageCategory === 'RED' ? 'Immediate resuscitation needed' : triageCategory === 'YELLOW' ? 'Urgent care within 30 minutes' : triageCategory === 'GREEN' ? 'Can safely wait for treatment' : 'Comfort measures only'}
+						</div>
+					{/if}
+
+					<div>
+						<label for="chief-complaint" class="text-xs text-gray-500 mb-1 block">Chief Complaint *</label>
+						<textarea id="chief-complaint" placeholder="Primary presenting complaint..." bind:value={chiefComplaint} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="onset-duration" class="text-xs text-gray-500 mb-1 block">Onset / Duration</label>
+						<input id="onset-duration" type="text" placeholder="e.g., 2 days ago, sudden onset" bind:value={onsetDuration}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+					</div>
+
+					<!-- Department & Location -->
+					<div>
+						<label for="admit-department" class="text-xs text-gray-500 mb-1 block">Department *</label>
+						<select id="admit-department" bind:value={admitDepartment}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
+							<option value="">Select department</option>
+							{#each dbDepartments as d}
+								<option value={d.name}>{d.name}</option>
+							{/each}
+						</select>
+					</div>
+
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label for="admit-ward" class="text-xs text-gray-500 mb-1 block">Ward *</label>
+							<input id="admit-ward" type="text" placeholder="e.g., General Ward A" bind:value={admitWard}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+						<div>
+							<label for="admit-bed" class="text-xs text-gray-500 mb-1 block">Bed Number *</label>
+							<input id="admit-bed" type="text" placeholder="e.g., A-12" bind:value={admitBed}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+					</div>
 				</div>
-				<div>
-					<label for="admit-bed" class="text-xs text-gray-500 mb-1 block">Bed Number</label>
-					<input id="admit-bed" type="text" placeholder="e.g., A-12" bind:value={admitBed}
-						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+
+			<!-- STEP 1: Vitals -->
+			{:else if assessmentSection === 1}
+				<div class="space-y-3">
+					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Vital Signs</p>
+
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label for="v-systolic" class="text-xs text-gray-500 mb-1 block">Systolic BP (mmHg)</label>
+							<input id="v-systolic" type="number" placeholder="120" bind:value={vitalsSystolic}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+						<div>
+							<label for="v-diastolic" class="text-xs text-gray-500 mb-1 block">Diastolic BP (mmHg)</label>
+							<input id="v-diastolic" type="number" placeholder="80" bind:value={vitalsDiastolic}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+					</div>
+
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label for="v-hr" class="text-xs text-gray-500 mb-1 block">Heart Rate (bpm)</label>
+							<input id="v-hr" type="number" placeholder="72" bind:value={vitalsHR}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+						<div>
+							<label for="v-rr" class="text-xs text-gray-500 mb-1 block">Respiratory Rate (/min)</label>
+							<input id="v-rr" type="number" placeholder="16" bind:value={vitalsRR}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+					</div>
+
+					<div class="grid grid-cols-3 gap-3">
+						<div>
+							<label for="v-temp" class="text-xs text-gray-500 mb-1 block">Temp (°F)</label>
+							<input id="v-temp" type="number" step="0.1" placeholder="98.6" bind:value={vitalsTemp}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+						<div>
+							<label for="v-spo2" class="text-xs text-gray-500 mb-1 block">SpO2 (%)</label>
+							<input id="v-spo2" type="number" placeholder="98" bind:value={vitalsSpO2}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+						<div>
+							<label for="v-weight" class="text-xs text-gray-500 mb-1 block">Weight (kg)</label>
+							<input id="v-weight" type="number" step="0.1" placeholder="70" bind:value={vitalsWeight}
+								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+						</div>
+					</div>
 				</div>
-			</div>
 
-			<!-- Reason -->
-			<div>
-				<label for="admit-reason" class="text-xs text-gray-500 mb-1 block">Reason for Admission</label>
-				<textarea id="admit-reason" placeholder="Describe the reason..." bind:value={admitReason} rows="2"
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-			</div>
+			<!-- STEP 2: Neuro / Pain Assessment -->
+			{:else if assessmentSection === 2}
+				<div class="space-y-3">
+					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Glasgow Coma Scale (GCS)</p>
 
-			<!-- Diagnosis -->
-			<div>
-				<label for="admit-diagnosis" class="text-xs text-gray-500 mb-1 block">Initial Diagnosis</label>
-				<input id="admit-diagnosis" type="text" placeholder="Diagnosis" bind:value={admitDiagnosis}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-			</div>
+					<div class="p-3 rounded-xl" style="background: #f8fafc; border: 1px solid #e2e8f0;">
+						<div class="flex items-center justify-between mb-3">
+							<span class="text-sm font-semibold text-gray-700">GCS Total</span>
+							<span class="text-xl font-bold" style="color: {gcsTotal <= 8 ? '#dc2626' : gcsTotal <= 12 ? '#f59e0b' : '#16a34a'};">
+								{gcsTotal}/15
+							</span>
+						</div>
 
-			<!-- Notes -->
-			<div>
-				<label for="admit-notes" class="text-xs text-gray-500 mb-1 block">Notes (Optional)</label>
-				<textarea id="admit-notes" placeholder="Additional notes..." bind:value={admitNotes} rows="2"
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-			</div>
+						<div class="space-y-2">
+							<div>
+								<div class="flex items-center justify-between mb-1">
+									<label for="gcs-eye" class="text-xs text-gray-500">Eye Opening (E)</label>
+									<span class="text-xs font-bold text-gray-700">{gcsBestEye}</span>
+								</div>
+								<input id="gcs-eye" type="range" min="1" max="4" bind:value={gcsBestEye}
+									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
+								<div class="flex justify-between text-[9px] text-gray-400">
+									<span>None</span><span>Pain</span><span>Voice</span><span>Spont.</span>
+								</div>
+							</div>
 
-			<button
-				class="w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
-				onclick={submitAdmit}
-				disabled={submitting}
-			>
-				{#if submitting}
-					<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+							<div>
+								<div class="flex items-center justify-between mb-1">
+									<label for="gcs-verbal" class="text-xs text-gray-500">Verbal Response (V)</label>
+									<span class="text-xs font-bold text-gray-700">{gcsBestVerbal}</span>
+								</div>
+								<input id="gcs-verbal" type="range" min="1" max="5" bind:value={gcsBestVerbal}
+									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
+								<div class="flex justify-between text-[9px] text-gray-400">
+									<span>None</span><span>Sounds</span><span>Words</span><span>Confused</span><span>Oriented</span>
+								</div>
+							</div>
+
+							<div>
+								<div class="flex items-center justify-between mb-1">
+									<label for="gcs-motor" class="text-xs text-gray-500">Motor Response (M)</label>
+									<span class="text-xs font-bold text-gray-700">{gcsBestMotor}</span>
+								</div>
+								<input id="gcs-motor" type="range" min="1" max="6" bind:value={gcsBestMotor}
+									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
+								<div class="flex justify-between text-[9px] text-gray-400">
+									<span>None</span><span>Ext.</span><span>Flex.</span><span>With.</span><span>Local.</span><span>Obeys</span>
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div>
+						<label for="cbg-value" class="text-xs text-gray-500 mb-1 block">CBG (mg/dL)</label>
+						<input id="cbg-value" type="number" placeholder="e.g., 110" bind:value={cbgValue}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+					</div>
+
+					<div>
+						<p class="text-xs text-gray-500 mb-2">Pain Score (VAS 0–10)</p>
+						<div class="flex items-center gap-3">
+							<input type="range" min="0" max="10" bind:value={painScore}
+								class="flex-1 h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: {painScore <= 3 ? '#22c55e' : painScore <= 6 ? '#f59e0b' : '#ef4444'};" />
+							<span class="text-lg font-bold min-w-[2ch] text-right"
+								style="color: {painScore <= 3 ? '#16a34a' : painScore <= 6 ? '#d97706' : '#dc2626'};">
+								{painScore}
+							</span>
+						</div>
+						<div class="flex justify-between text-[9px] text-gray-400 mt-0.5">
+							<span>No pain</span><span>Mild</span><span>Moderate</span><span>Severe</span><span>Worst</span>
+						</div>
+					</div>
+				</div>
+
+			<!-- STEP 3: Clinical History -->
+			{:else if assessmentSection === 3}
+				<div class="space-y-3">
+					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Clinical History</p>
+
+					<div>
+						<label for="clinical-history" class="text-xs text-gray-500 mb-1 block">History of Present Illness</label>
+						<textarea id="clinical-history" placeholder="Detailed clinical history..." bind:value={clinicalHistory} rows="3"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="past-medical-history" class="text-xs text-gray-500 mb-1 block">Past Medical History</label>
+						<textarea id="past-medical-history" placeholder="DM, HTN, surgeries, hospitalizations..." bind:value={pastMedicalHistory} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="allergies-text" class="text-xs text-gray-500 mb-1 block">Known Allergies</label>
+						<input id="allergies-text" type="text" placeholder="e.g., Penicillin, Sulfa drugs, NKDA" bind:value={allergiesText}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+					</div>
+
+					<div>
+						<label for="current-meds" class="text-xs text-gray-500 mb-1 block">Current Medications</label>
+						<textarea id="current-meds" placeholder="List current medications..." bind:value={currentMedications} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+				</div>
+
+			<!-- STEP 4: Assessment & Plan -->
+			{:else if assessmentSection === 4}
+				<div class="space-y-3">
+					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Assessment & Plan</p>
+
+					<div>
+						<label for="admit-reason" class="text-xs text-gray-500 mb-1 block">Reason for Admission *</label>
+						<textarea id="admit-reason" placeholder="Describe the reason..." bind:value={admitReason} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="admit-diagnosis" class="text-xs text-gray-500 mb-1 block">Initial Diagnosis</label>
+						<input id="admit-diagnosis" type="text" placeholder="Working diagnosis" bind:value={admitDiagnosis}
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
+					</div>
+
+					<div>
+						<label for="assessment-plan" class="text-xs text-gray-500 mb-1 block">Assessment & Differential Diagnosis</label>
+						<textarea id="assessment-plan" placeholder="Assessment with differential diagnoses..." bind:value={assessmentPlan} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="treatment-plan" class="text-xs text-gray-500 mb-1 block">Treatment Plan</label>
+						<textarea id="treatment-plan" placeholder="Investigations, management plan..." bind:value={treatmentPlan} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+
+					<div>
+						<label for="admit-notes" class="text-xs text-gray-500 mb-1 block">Additional Notes</label>
+						<textarea id="admit-notes" placeholder="Additional notes..." bind:value={admitNotes} rows="2"
+							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
+					</div>
+				</div>
+			{/if}
+
+			<!-- Navigation buttons -->
+			<div class="flex gap-3">
+				{#if assessmentSection > 0}
+					<button
+						class="flex-1 py-3 rounded-xl font-medium text-sm cursor-pointer"
+						style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); color: #1e40af;
+						       border: 1px solid rgba(0,0,0,0.12);"
+						onclick={() => assessmentSection--}
+					>
+						Previous
+					</button>
 				{/if}
-				Admit Patient
-			</button>
+				{#if assessmentSection < assessmentSteps.length - 1}
+					<button
+						class="flex-1 py-3 rounded-xl text-white font-medium text-sm cursor-pointer"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+						onclick={() => assessmentSection++}
+					>
+						Next
+					</button>
+				{:else}
+					<button
+						class="flex-1 py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+						style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+						onclick={submitAdmit}
+						disabled={submitting}
+					>
+						{#if submitting}
+							<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+						{/if}
+						Admit Patient
+					</button>
+				{/if}
+			</div>
 		</div>
 	</AquaModal>
 {/if}

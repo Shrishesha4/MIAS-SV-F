@@ -2,11 +2,13 @@
 	import { onMount } from 'svelte';
 	import { patientApi } from '$lib/api/patients';
 	import type { Prescription } from '$lib/api/types';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaInput from '$lib/components/ui/AquaInput.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { 
+	import {
 		Pill, Search, ChevronLeft, Eye, Download, Printer, Calendar,
 		User, Building, Phone, Mail, ExternalLink, RefreshCw, X,
 		ShoppingCart, CheckCircle
@@ -38,7 +40,7 @@
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
 	const statusFilters = [
-		{ value: 'all', label: 'Al' },
+		{ value: 'all', label: 'All' },
 		{ value: 'ACTIVE', label: 'Active' },
 		{ value: 'RECEIVE', label: 'To Receive' },
 		{ value: 'BOUGHT', label: 'Bought' },
@@ -83,15 +85,34 @@
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			patient = await patientApi.getCurrentPatient();
 			prescriptions = await patientApi.getPrescriptions(patient.id);
 		} catch (err) {
-			console.error('Failed to load prescriptions', err);
+			toastStore.addToast('Failed to load prescriptions', 'error');
 		} finally {
 			loading = false;
 		}
 	});
+
+	let buyingId = $state('');
+
+	async function buyPrescription(rx: Prescription) {
+		if (!patient || buyingId) return;
+		buyingId = rx.id;
+		try {
+			await patientApi.updatePrescriptionStatus(patient.id, rx.id, { status: 'BOUGHT' });
+			prescriptions = await patientApi.getPrescriptions(patient.id);
+			toastStore.addToast('Prescription marked as bought', 'success');
+			showModal = false;
+			selectedPrescription = null;
+		} catch (err) {
+			toastStore.addToast('Failed to buy prescription', 'error');
+		} finally {
+			buyingId = '';
+		}
+	}
 
 	async function renewPrescription(rx: Prescription) {
 		if (!patient || renewingId) return;
@@ -102,14 +123,14 @@
 			showModal = false;
 			selectedPrescription = null;
 		} catch (err) {
-			console.error('Failed to renew prescription', err);
+			toastStore.addToast('Failed to renew prescription', 'error');
 		} finally {
 			renewingId = '';
 		}
 	}
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	<!-- Header -->
 	<div class="flex items-center gap-3">
 		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
@@ -226,7 +247,7 @@
 			<div class="flex items-center justify-between w-full">
 				<span class="font-semibold text-gray-800">Prescription Details</span>
 				<div class="flex items-center gap-2">
-					<button class="p-2 hover:bg-gray-100 rounded-full">
+					<button class="p-2 hover:bg-gray-100 rounded-full cursor-pointer" onclick={() => window.print()}>
 						<Printer class="w-5 h-5 text-gray-600" />
 					</button>
 					<button class="p-2 hover:bg-gray-100 rounded-full">
@@ -246,12 +267,19 @@
 					{statusLabels[selectedPrescription.status]}
 				</StatusBadge>
 				{#if selectedPrescription.status === 'ACTIVE' || selectedPrescription.status === 'RECEIVE'}
-					<button 
-						class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
+					<button
+						class="px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 cursor-pointer"
 						style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;"
+						onclick={() => buyPrescription(selectedPrescription!)}
+						disabled={!!buyingId}
 					>
-						<ShoppingCart class="w-4 h-4" />
-						Buy
+						{#if buyingId === selectedPrescription.id}
+							<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+							Buying...
+						{:else}
+							<ShoppingCart class="w-4 h-4" />
+							Buy
+						{/if}
 					</button>
 				{/if}
 				{#if selectedPrescription.status === 'COMPLETED'}

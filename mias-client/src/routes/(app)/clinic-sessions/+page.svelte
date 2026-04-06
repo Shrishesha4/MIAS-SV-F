@@ -3,16 +3,18 @@
 	import { get } from 'svelte/store';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
 	import { clinicsApi, type ClinicInfo, type ClinicPatientInfo, type PatientAppointmentInfo } from '$lib/api/clinics';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import {
 		Building, MapPin, ChevronRight, Users,
 		Clock, RefreshCw, User, ArrowRight, Calendar,
-		Stethoscope
+		Stethoscope, Plus
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -23,6 +25,17 @@
 	let selectedClinic: ClinicInfo | null = $state(null);
 	let clinicPatients: ClinicPatientInfo[] = $state([]);
 	let showClinicSelector = $state(false);
+
+	// Appointment creation
+	let showAddApptModal = $state(false);
+	let apptPatientSearch = $state('');
+	let apptPatientResults: any[] = $state([]);
+	let selectedApptPatient: any = $state(null);
+	let apptDate = $state('');
+	let apptTime = $state('09:00 AM');
+	let addingAppt = $state(false);
+	let searchingPatient = $state(false);
+	let searchTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	// Patient-specific
 	let patient: any = $state(null);
@@ -44,13 +57,62 @@
 		}
 	}
 
+	function handlePatientSearch(query: string) {
+		apptPatientSearch = query;
+		if (searchTimeout) clearTimeout(searchTimeout);
+		if (!query.trim() || !selectedClinic) {
+			apptPatientResults = [];
+			return;
+		}
+		searchTimeout = setTimeout(async () => {
+			searchingPatient = true;
+			try {
+				apptPatientResults = await clinicsApi.searchPatient(selectedClinic!.id, query.trim());
+			} catch (err) {
+				toastStore.addToast('Failed to search patients', 'error');
+				apptPatientResults = [];
+			} finally {
+				searchingPatient = false;
+			}
+		}, 400);
+	}
+
+	function resetApptModal() {
+		apptPatientSearch = '';
+		apptPatientResults = [];
+		selectedApptPatient = null;
+		apptDate = '';
+		apptTime = '09:00 AM';
+		addingAppt = false;
+	}
+
+	async function handleCreateAppointment() {
+		if (!selectedClinic || !selectedApptPatient) return;
+		addingAppt = true;
+		try {
+			await clinicsApi.createAppointment(selectedClinic.id, {
+				patient_id: selectedApptPatient.id,
+				date: apptDate || undefined,
+				time: apptTime || undefined
+			});
+			toastStore.addToast('Appointment created successfully', 'success');
+			showAddApptModal = false;
+			resetApptModal();
+			clinicPatients = await clinicsApi.getClinicPatients(selectedClinic.id);
+		} catch (err) {
+			toastStore.addToast('Failed to create appointment', 'error');
+		} finally {
+			addingAppt = false;
+		}
+	}
+
 	async function selectClinic(clinic: ClinicInfo) {
 		selectedClinic = clinic;
 		showClinicSelector = false;
 		try {
 			clinicPatients = await clinicsApi.getClinicPatients(clinic.id);
 		} catch (err) {
-			console.error('Failed to load clinic patients', err);
+			toastStore.addToast('Failed to load clinic patients', 'error');
 			clinicPatients = [];
 		}
 	}
@@ -60,7 +122,7 @@
 		try {
 			clinicPatients = await clinicsApi.getClinicPatients(selectedClinic.id);
 		} catch (err) {
-			console.error('Failed to refresh', err);
+			toastStore.addToast('Failed to refresh patients', 'error');
 		}
 	}
 
@@ -70,7 +132,7 @@
 			await clinicsApi.updateAppointmentStatus(selectedClinic.id, appointmentId, status);
 			clinicPatients = await clinicsApi.getClinicPatients(selectedClinic.id);
 		} catch (err) {
-			console.error('Failed to update status', err);
+			toastStore.addToast('Failed to update status', 'error');
 		}
 	}
 
@@ -102,7 +164,7 @@
 				}
 			}
 		} catch (err) {
-			console.error('Failed to load clinic data', err);
+			toastStore.addToast('Failed to load clinic data', 'error');
 		} finally {
 			loading = false;
 		}
@@ -120,7 +182,7 @@
 	const completedCount = $derived(clinicPatients.filter(p => p.status === 'Completed').length);
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -201,12 +263,23 @@
 							{/if}
 						</div>
 					</div>
-					<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-						style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
-						       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);"
-						onclick={() => showClinicSelector = !showClinicSelector}>
-						Change Clinic
-					</button>
+					<div class="flex items-center gap-2">
+						{#if role === 'FACULTY' || role === 'ADMIN' || role === 'STUDENT' || role === 'RECEPTION'}
+							<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+								style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+								       color: white; border: 1px solid rgba(0,0,0,0.15);
+								       box-shadow: 0 1px 2px rgba(0,0,0,0.1);"
+								onclick={() => showAddApptModal = true}>
+								<Plus class="w-3 h-3" /> Add Appointment
+							</button>
+						{/if}
+						<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+							style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
+							       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);"
+							onclick={() => showClinicSelector = !showClinicSelector}>
+							Change Clinic
+						</button>
+					</div>
 				</div>
 				{#if selectedClinic?.faculty_name}
 					<div class="mt-2 flex items-center gap-1 text-xs text-gray-500">
@@ -312,3 +385,91 @@
 		{/if}
 	{/if}
 </div>
+
+<!-- Add Appointment Modal -->
+<AquaModal open={showAddApptModal} title="Add Appointment" onclose={() => { showAddApptModal = false; resetApptModal(); }}>
+	<div class="space-y-4">
+		<!-- Patient Search -->
+		<div>
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<label class="block text-xs font-medium text-gray-600 mb-1">Search Patient</label>
+			{#if selectedApptPatient}
+				<div class="flex items-center justify-between p-3 rounded-xl" style="background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.2);">
+					<div>
+						<p class="text-sm font-semibold text-gray-800">{selectedApptPatient.name || selectedApptPatient.full_name}</p>
+						<p class="text-xs text-gray-500">{selectedApptPatient.patient_id || selectedApptPatient.id}</p>
+					</div>
+					<button class="text-xs text-blue-600 font-medium cursor-pointer" onclick={() => { selectedApptPatient = null; apptPatientSearch = ''; apptPatientResults = []; }}>
+						Change
+					</button>
+				</div>
+			{:else}
+				<input
+					type="text"
+					class="w-full px-3 py-2 text-sm rounded-lg"
+					style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.1); outline: none;"
+					placeholder="Type patient name or ID..."
+					value={apptPatientSearch}
+					oninput={(e) => handlePatientSearch(e.currentTarget.value)}
+				/>
+				{#if searchingPatient}
+					<p class="text-xs text-gray-400 mt-1">Searching...</p>
+				{/if}
+				{#if apptPatientResults.length > 0}
+					<div class="mt-2 space-y-1 max-h-40 overflow-y-auto">
+						{#each apptPatientResults as pt}
+							<button class="w-full text-left p-2 rounded-lg text-sm cursor-pointer"
+								style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);"
+								onclick={() => { selectedApptPatient = pt; apptPatientResults = []; apptPatientSearch = ''; }}>
+								<p class="font-medium text-gray-800">{pt.name || pt.full_name}</p>
+								<p class="text-xs text-gray-500">{pt.patient_id || pt.id}</p>
+							</button>
+						{/each}
+					</div>
+				{:else if apptPatientSearch.trim() && !searchingPatient}
+					<p class="text-xs text-gray-400 mt-1">No patients found</p>
+				{/if}
+			{/if}
+		</div>
+
+		<!-- Date -->
+		<div>
+			<label for="appt-date" class="block text-xs font-medium text-gray-600 mb-1">Appointment Date</label>
+			<input
+				id="appt-date"
+				type="date"
+				class="w-full px-3 py-2 text-sm rounded-lg"
+				style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.1); outline: none;"
+				bind:value={apptDate}
+			/>
+		</div>
+
+		<!-- Time -->
+		<div>
+			<label for="appt-time" class="block text-xs font-medium text-gray-600 mb-1">Appointment Time</label>
+			<input
+				id="appt-time"
+				type="text"
+				class="w-full px-3 py-2 text-sm rounded-lg"
+				style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.1); outline: none;"
+				placeholder="e.g. 09:00 AM"
+				bind:value={apptTime}
+			/>
+		</div>
+
+		<!-- Submit -->
+		<button
+			class="w-full py-2.5 rounded-xl text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+			style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+			       color: white; border: 1px solid rgba(0,0,0,0.15);
+			       box-shadow: 0 2px 4px rgba(37,99,235,0.3);"
+			disabled={!selectedApptPatient || addingAppt}
+			onclick={handleCreateAppointment}>
+			{#if addingAppt}
+				Creating...
+			{:else}
+				Create Appointment
+			{/if}
+		</button>
+	</div>
+</AquaModal>

@@ -32,7 +32,6 @@ export interface EmergencyContact {
   id: string;
   name: string;
   relationship: string;
-  relationship_?: string;
   phone: string;
   email?: string;
   address?: string;
@@ -78,6 +77,7 @@ export interface Vital {
   blood_glucose?: number;
   cholesterol?: number;
   bmi?: number;
+  notes?: string;
 }
 
 export interface MedicalRecord {
@@ -237,7 +237,7 @@ export interface Notification {
   title: string;
   message: string;
   type: 'INFO' | 'WARNING' | 'ERROR' | 'SUCCESS';
-  read: boolean;
+  is_read: boolean | number;
   created_at: string;
 }
 
@@ -269,10 +269,17 @@ export interface Faculty {
 export interface Approval {
   id: string;
   type: string;
-  submitted_by: string;
+  submitted_by: { id: string; student_id?: string; name: string } | string | null;
   submitted_at: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
-  description: string;
+  description?: string;
+  patient?: any;
+  case_record?: any;
+  admission?: any;
+  prescription?: any;
+  score?: number;
+  comments?: string;
+  processed_at?: string;
 }
 
 export interface CaseRecord {
@@ -282,17 +289,30 @@ export interface CaseRecord {
   date: string;
   time?: string;
   department?: string;
-  chief_complaint: string;
-  history: string;
-  examination: string;
+  procedure?: string;
+  chief_complaint?: string;
+  description?: string;
+  history?: string;
+  examination?: string;
+  findings?: string;
   diagnosis: string;
-  treatment_plan: string;
-  status: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+  icd_code?: string;
+  treatment_plan?: string;
+  treatment?: string;
+  notes?: string;
+  status: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'Pending' | 'Approved' | 'Rejected';
   grade?: string;
+  score?: number;
   faculty_comments?: string;
   provider?: string;
+  created_by?: string;
+  created_by_name?: string;
+  created_by_role?: string;
   approver?: string;
+  approver_name?: string;
   approved_at?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ------- New types for redesigned views -------

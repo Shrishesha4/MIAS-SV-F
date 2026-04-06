@@ -7,6 +7,7 @@
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import { toastStore } from '$lib/stores/toast';
 	import {
 		Users, UserCheck, Clock, Calendar, Building, Search, X,
 		AlertCircle, CheckCircle, Loader2, Zap, GraduationCap,
@@ -67,8 +68,35 @@
 		try {
 			await clinicsApi.updateAppointmentStatus(selectedClinic.id, appointmentId, status);
 			await loadClinicPatients();
+			toastStore.addToast(`Status updated to ${status}`, 'success');
 		} catch (err) {
 			console.error('Failed to update status', err);
+			toastStore.addToast('Failed to update status', 'error');
+		}
+	}
+
+	async function handleCheckIn() {
+		if (!selectedClinic || !patientIdInput.trim()) return;
+		isSearching = true;
+		lookupError = '';
+		try {
+			const results = await clinicsApi.searchPatient(selectedClinic.id, patientIdInput.trim());
+			if (results.length === 0) {
+				lookupError = 'No patient found with that ID or name.';
+				isSearching = false;
+				return;
+			}
+			const patient = results[0];
+			const result = await clinicsApi.checkInPatient(selectedClinic.id, { patient_id: patient.id });
+			toastStore.addToast(result.message || `${patient.name} checked in successfully`, 'success');
+			patientIdInput = '';
+			lookupError = '';
+			await loadClinicPatients();
+		} catch (err: any) {
+			lookupError = err?.response?.data?.detail || 'Failed to check in patient.';
+			toastStore.addToast(lookupError, 'error');
+		} finally {
+			isSearching = false;
 		}
 	}
 
@@ -98,7 +126,7 @@
 	});
 </script>
 
-<div class="px-3 py-4 space-y-4">
+<div class="px-3 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -241,7 +269,7 @@
 							placeholder="Enter Patient ID (e.g. PAT-001)"
 							class="flex-1 outline-none text-sm text-gray-700 bg-transparent"
 							bind:value={patientIdInput}
-							onkeydown={(e) => { if (e.key === 'Enter') { /* lookup */ } }}
+							onkeydown={(e) => { if (e.key === 'Enter') handleCheckIn(); }}
 						/>
 						{#if patientIdInput}
 							<button class="cursor-pointer" onclick={() => { patientIdInput = ''; lookupError = ''; }}>
@@ -255,6 +283,7 @@
 							   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
 							   border: 1px solid rgba(0,0,0,0.15);"
 						disabled={!patientIdInput.trim() || isSearching}
+						onclick={handleCheckIn}
 					>
 						{#if isSearching}
 							<Loader2 class="w-3.5 h-3.5 animate-spin" />

@@ -9,8 +9,6 @@
 	<title>MIAS - Medical Information Application System</title>
 </svelte:head>
 
-<div class="app-background min-h-screen flex justify-center">
-	<div class="w-full max-w-md relative">
-		{@render children()}
-	</div>
+<div class="app-background min-h-screen">
+	{@render children()}
 </div>

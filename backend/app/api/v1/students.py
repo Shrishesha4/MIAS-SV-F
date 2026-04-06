@@ -622,6 +622,69 @@ async def get_student_notifications(
     ]
 
 
+@router.put("/{student_id}/notifications/read")
+async def mark_student_notifications_read(
+    student_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark all unread notifications as read for a student."""
+    result = await db.execute(
+        select(StudentNotification)
+        .where(StudentNotification.student_id == student_id)
+        .where(StudentNotification.is_read == 0)
+    )
+    notifications = result.scalars().all()
+    count = 0
+    for n in notifications:
+        n.is_read = 1
+        count += 1
+    await db.commit()
+    return {"message": f"Marked {count} notifications as read"}
+
+
+@router.get("/{student_id}/previous-patients")
+async def get_previous_patients(
+    student_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get previously assigned patients (no longer active) for the student."""
+    result = await db.execute(
+        select(StudentPatientAssignment)
+        .options(
+            selectinload(StudentPatientAssignment.patient)
+        )
+        .where(
+            StudentPatientAssignment.student_id == student_id,
+            StudentPatientAssignment.status != "Active",
+        )
+    )
+    assignments = result.scalars().all()
+
+    patients = []
+    for a in assignments:
+        if not a.patient:
+            continue
+        age = None
+        if a.patient.date_of_birth:
+            today = date.today()
+            dob = a.patient.date_of_birth
+            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+        patients.append({
+            "id": a.patient.id,
+            "patient_id": a.patient.patient_id,
+            "name": a.patient.name,
+            "age": age,
+            "gender": a.patient.gender.value if a.patient.gender else None,
+            "blood_group": a.patient.blood_group,
+            "photo": a.patient.photo,
+            "status": a.status,
+            "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
+        })
+    return patients
+
+
 @router.post("/{student_id}/case-records/submit")
 async def submit_case_record_for_approval(
     student_id: str,

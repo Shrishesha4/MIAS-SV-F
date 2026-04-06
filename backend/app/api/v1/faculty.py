@@ -528,6 +528,121 @@ async def get_faculty_notifications(
     ]
 
 
+@router.put("/{faculty_id}/notifications/read")
+async def mark_faculty_notifications_read(
+    faculty_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark all unread notifications as read for a faculty member."""
+    result = await db.execute(
+        select(FacultyNotification)
+        .where(FacultyNotification.faculty_id == faculty_id)
+        .where(FacultyNotification.is_read == 0)
+    )
+    notifications = result.scalars().all()
+    count = 0
+    for n in notifications:
+        n.is_read = 1
+        count += 1
+    await db.commit()
+    return {"message": f"Marked {count} notifications as read"}
+
+
+@router.post("/{faculty_id}/schedule")
+async def create_schedule_item(
+    faculty_id: str,
+    body: dict,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new schedule item for faculty."""
+    schedule_date = body.get("date")
+    if schedule_date:
+        schedule_date = datetime.strptime(schedule_date, "%Y-%m-%d").date()
+    else:
+        schedule_date = date.today()
+
+    item = FacultySchedule(
+        id=str(uuid.uuid4()),
+        faculty_id=faculty_id,
+        date=schedule_date,
+        time_start=body.get("time_start", "09:00"),
+        time_end=body.get("time_end", "10:00"),
+        title=body.get("title", ""),
+        type=body.get("type", "Clinical"),
+        location=body.get("location", ""),
+        student_count=body.get("student_count", 0),
+    )
+    db.add(item)
+    await db.commit()
+    return {
+        "id": item.id,
+        "title": item.title,
+        "date": item.date.isoformat(),
+        "message": "Schedule item created",
+    }
+
+
+@router.put("/{faculty_id}/schedule/{item_id}")
+async def update_schedule_item(
+    faculty_id: str,
+    item_id: str,
+    body: dict,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a schedule item."""
+    result = await db.execute(
+        select(FacultySchedule).where(
+            FacultySchedule.id == item_id,
+            FacultySchedule.faculty_id == faculty_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Schedule item not found")
+
+    if "title" in body:
+        item.title = body["title"]
+    if "time_start" in body:
+        item.time_start = body["time_start"]
+    if "time_end" in body:
+        item.time_end = body["time_end"]
+    if "type" in body:
+        item.type = body["type"]
+    if "location" in body:
+        item.location = body["location"]
+    if "date" in body:
+        item.date = datetime.strptime(body["date"], "%Y-%m-%d").date()
+
+    await db.commit()
+    return {"message": "Schedule item updated", "id": item.id}
+
+
+@router.delete("/{faculty_id}/schedule/{item_id}")
+async def delete_schedule_item(
+    faculty_id: str,
+    item_id: str,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a schedule item."""
+    result = await db.execute(
+        select(FacultySchedule).where(
+            FacultySchedule.id == item_id,
+            FacultySchedule.faculty_id == faculty_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Schedule item not found")
+
+    await db.delete(item)
+    await db.commit()
+    return {"message": "Schedule item deleted"}
+
+
 @router.get("/{faculty_id}/students")
 async def get_students_list(
     faculty_id: str,

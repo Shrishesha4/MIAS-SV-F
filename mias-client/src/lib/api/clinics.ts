@@ -61,4 +61,19 @@ export const clinicsApi = {
     const response = await client.get(`/clinics/patient/${patientId}/appointments`);
     return response.data;
   },
+
+  async searchPatient(clinicId: string, query: string) {
+    const response = await client.get(`/clinics/${clinicId}/search-patient`, { params: { q: query } });
+    return response.data;
+  },
+
+  async checkInPatient(clinicId: string, data: { patient_id: string; provider_name?: string }) {
+    const response = await client.post(`/clinics/${clinicId}/check-in`, data);
+    return response.data;
+  },
+
+  async createAppointment(clinicId: string, data: { patient_id: string; date?: string; time?: string; provider_name?: string; status?: string }) {
+    const response = await client.post(`/clinics/${clinicId}/appointments`, data);
+    return response.data;
+  },
 };

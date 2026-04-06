@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import { patientApi } from '$lib/api/patients';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -56,6 +58,7 @@
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			const auth = get(authStore);
 			const role = auth.role;
@@ -64,14 +67,14 @@
 				records = await patientApi.getRecords(patient.id);
 			}
 		} catch (err) {
-			console.error('Failed to load records', err);
+			toastStore.addToast('Failed to load records', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-3 py-4 space-y-3">
+<div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

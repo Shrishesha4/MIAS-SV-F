@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type AdminUser } from '$lib/api/admin';
+	import { toastStore } from '$lib/stores/toast';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -120,6 +121,7 @@
 		{ id: 'STUDENT', label: 'Students' },
 		{ id: 'FACULTY', label: 'Faculty' },
 		{ id: 'ADMIN', label: 'Admins' },
+		{ id: 'RECEPTION', label: 'Reception' },
 	];
 
 	function roleColor(role: string) {
@@ -128,12 +130,13 @@
 			STUDENT: '#f59e0b',
 			FACULTY: '#8b5cf6',
 			ADMIN: '#ef4444',
+			RECEPTION: '#3b82f6',
 		};
 		return map[role] || '#6b7280';
 	}
 </script>
 
-<div class="px-4 py-4 space-y-4 max-w-4xl mx-auto">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4 max-w-4xl mx-auto">
 	<!-- Header -->
 	<div class="flex items-center gap-3">
 		<button class="text-blue-600 cursor-pointer" onclick={() => goto('/admin')}>

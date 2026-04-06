@@ -147,4 +147,14 @@ export const studentApi = {
     const response = await client.get(`/students/${studentId}/admission-requests`);
     return response.data;
   },
+
+  async markNotificationsRead(studentId: string) {
+    const response = await client.put(`/students/${studentId}/notifications/read`);
+    return response.data;
+  },
+
+  async getPreviousPatients(studentId: string) {
+    const response = await client.get(`/students/${studentId}/previous-patients`);
+    return response.data;
+  },
 };

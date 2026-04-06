@@ -4,6 +4,8 @@
 	import { goto } from '$app/navigation';
 	import { facultyApi } from '$lib/api/faculty';
 	import { approvalsApi, type ApprovalItem } from '$lib/api/approvals';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -22,6 +24,7 @@
 	let approvalType = $state('case-records');
 	let processingId = $state<string | null>(null);
 	let scores = $state<Record<string, number>>({});
+	let approvalComments: Record<string, string> = $state({});
 	let detailModal = $state<ApprovalItem | null>(null);
 
 	const tabs = [
@@ -52,10 +55,10 @@
 		processingId = id;
 		try {
 			const score = getScore(id);
-			await approvalsApi.processApproval(facultyId, id, { 
-				status: 'APPROVED', 
+			await approvalsApi.processApproval(facultyId, id, {
+				status: 'APPROVED',
 				score,
-				comments: 'Approved'
+				comments: approvalComments[id] || 'Approved'
 			});
 			const item = pendingApprovals.find(a => a.id === id);
 			if (item) {
@@ -64,7 +67,7 @@
 			}
 			if (detailModal?.id === id) detailModal = null;
 		} catch (err) {
-			console.error('Failed to approve', err);
+			toastStore.addToast('Failed to approve', 'error');
 		} finally {
 			processingId = null;
 		}
@@ -73,9 +76,9 @@
 	async function handleReject(id: string) {
 		processingId = id;
 		try {
-			await approvalsApi.processApproval(facultyId, id, { 
+			await approvalsApi.processApproval(facultyId, id, {
 				status: 'REJECTED',
-				comments: 'Rejected'
+				comments: approvalComments[id] || 'Rejected'
 			});
 			const item = pendingApprovals.find(a => a.id === id);
 			if (item) {
@@ -84,7 +87,7 @@
 			}
 			if (detailModal?.id === id) detailModal = null;
 		} catch (err) {
-			console.error('Failed to reject', err);
+			toastStore.addToast('Failed to reject', 'error');
 		} finally {
 			processingId = null;
 		}
@@ -108,6 +111,8 @@
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['FACULTY'])) return;
+
 		const urlType = page.url?.searchParams?.get('type') || 'case-records';
 		approvalType = urlType;
 
@@ -127,7 +132,7 @@
 				return a.type === typeMap[approvalType];
 			});
 		} catch (err) {
-			console.error('Failed to load approvals', err);
+			toastStore.addToast('Failed to load approvals', 'error');
 		} finally {
 			loading = false;
 		}
@@ -139,14 +144,14 @@
 			try {
 				pendingApprovals = await approvalsApi.getPendingApprovals(facultyId, approvalType);
 			} catch (err) {
-				console.error('Auto-refresh failed', err);
+				toastStore.addToast('Auto-refresh failed', 'error');
 			}
 		}, 30000);
 		return () => clearInterval(interval);
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -359,6 +364,22 @@
 									</button>
 								{/each}
 							</div>
+						</div>
+
+						<!-- Comments -->
+						<div class="mb-4">
+							<p class="text-xs text-gray-500 mb-2">Comments (optional):</p>
+							<textarea
+								class="w-full rounded-lg border border-gray-200 p-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+								rows="2"
+								placeholder="Add comments..."
+								value={approvalComments[approval.id] || ''}
+								oninput={(e) => {
+									approvalComments[approval.id] = e.currentTarget.value;
+									approvalComments = { ...approvalComments };
+								}}
+								disabled={isProcessing}
+							></textarea>
 						</div>
 
 						<!-- Action Buttons -->
@@ -718,6 +739,22 @@
 							</button>
 						{/each}
 					</div>
+				</div>
+
+				<!-- Comments -->
+				<div>
+					<p class="text-xs text-gray-500 mb-2 font-semibold">Comments (optional):</p>
+					<textarea
+						class="w-full rounded-lg border border-gray-200 p-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+						rows="3"
+						placeholder="Add comments..."
+						value={approvalComments[approval.id] || ''}
+						oninput={(e) => {
+							approvalComments[approval.id] = e.currentTarget.value;
+							approvalComments = { ...approvalComments };
+						}}
+						disabled={isProcessing}
+					></textarea>
 				</div>
 
 				<!-- Action Buttons -->

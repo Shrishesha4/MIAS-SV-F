@@ -2,17 +2,19 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
 		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot,
-		Upload, PenTool, Camera, Image, Plus, Trash2, CreditCard, Droplet
+		Upload, PenTool, Camera, Image, Plus, Trash2, CreditCard, Droplet, Edit3
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -34,6 +36,14 @@
 	let newInsurance = $state({ provider: '', policy_number: '', valid_until: '' });
 	let addingInsurance = $state(false);
 
+	// Patient edit state
+	let showEditModal = $state(false);
+	let editName = $state('');
+	let editPhone = $state('');
+	let editEmail = $state('');
+	let editAddress = $state('');
+	let savingProfile = $state(false);
+
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
 	async function handlePhotoUpload(event: Event) {
@@ -45,7 +55,7 @@
 			const result = await facultyApi.uploadPhoto(file);
 			faculty = { ...faculty, photo: result.photo };
 		} catch (err) {
-			console.error('Failed to upload photo', err);
+			toastStore.addToast('Failed to upload photo', 'error');
 		} finally {
 			photoUploading = false;
 		}
@@ -60,7 +70,7 @@
 			const result = await facultyApi.uploadSignature(file);
 			faculty = { ...faculty, signature_image: result.signature_image };
 		} catch (err) {
-			console.error('Failed to upload signature', err);
+			toastStore.addToast('Failed to upload signature', 'error');
 		} finally {
 			signatureUploading = false;
 		}
@@ -73,7 +83,7 @@
 				faculty = { ...faculty, availability_status: status };
 			}
 		} catch (err) {
-			console.error('Failed to update availability status', err);
+			toastStore.addToast('Failed to update availability status', 'error');
 		}
 	}
 
@@ -93,7 +103,7 @@
 			newInsurance = { provider: '', policy_number: '', valid_until: '' };
 			showAddInsurance = false;
 		} catch (err) {
-			console.error('Failed to add insurance', err);
+			toastStore.addToast('Failed to add insurance', 'error');
 		} finally {
 			addingInsurance = false;
 		}
@@ -108,7 +118,36 @@
 				insurance_policies: (patient.insurance_policies || []).filter((p: any) => p.id !== policyId),
 			};
 		} catch (err) {
-			console.error('Failed to delete insurance', err);
+			toastStore.addToast('Failed to delete insurance', 'error');
+		}
+	}
+
+	function openEditModal() {
+		if (!patient) return;
+		editName = patient.name || '';
+		editPhone = patient.phone || '';
+		editEmail = patient.email || '';
+		editAddress = patient.address || '';
+		showEditModal = true;
+	}
+
+	async function handleSaveProfile() {
+		if (!patient) return;
+		savingProfile = true;
+		try {
+			await patientApi.updateProfile(patient.id, {
+				name: editName,
+				phone: editPhone,
+				email: editEmail,
+				address: editAddress,
+			});
+			patient = await patientApi.getCurrentPatient();
+			showEditModal = false;
+			toastStore.addToast('Profile updated successfully', 'success');
+		} catch (err) {
+			toastStore.addToast('Failed to update profile', 'error');
+		} finally {
+			savingProfile = false;
 		}
 	}
 
@@ -122,14 +161,14 @@
 				faculty = await facultyApi.getMe();
 			}
 		} catch (err) {
-			console.error('Failed to load profile', err);
+			toastStore.addToast('Failed to load profile', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -276,7 +315,7 @@
 					</div>
 					<div>
 						<p class="font-semibold text-gray-800 text-sm">{sp.emergency_contact.name}</p>
-						<p class="text-xs text-gray-500">{sp.emergency_contact.relationship_ || sp.emergency_contact.relationship}</p>
+						<p class="text-xs text-gray-500">{sp.emergency_contact.relationship}</p>
 					</div>
 				</div>
 				<div class="space-y-2 ml-10">
@@ -415,13 +454,24 @@
 			</div>
 		</div>
 
+		<!-- Personal & Contact Info Grid -->
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 		<!-- Personal Information -->
 		<div class="rounded-xl overflow-hidden"
 			style="background-color: white; box-shadow: 0 2px 6px rgba(0,0,0,0.08), 0 0 1px rgba(0,0,0,0.2); border: 1px solid rgba(0,0,0,0.1);">
-			<div class="px-4 py-3 border-b flex items-center"
+			<div class="px-4 py-3 border-b flex items-center justify-between"
 				style="background-image: linear-gradient(to bottom, #f8f9fb, #d9e1ea); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1);">
-				<Shield class="w-4 h-4 text-blue-600 mr-2" />
-				<h3 class="font-medium text-gray-800">Personal Information</h3>
+				<div class="flex items-center">
+					<Shield class="w-4 h-4 text-blue-600 mr-2" />
+					<h3 class="font-medium text-gray-800">Personal Information</h3>
+				</div>
+				<button
+					onclick={openEditModal}
+					class="px-2.5 py-1 rounded-md text-xs flex items-center cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);">
+					<Edit3 class="w-3 h-3 mr-1 text-blue-700" />
+					<span class="text-blue-700 font-medium">Edit</span>
+				</button>
 			</div>
 			<div class="p-4 space-y-4">
 				{#if patient.aadhaar_id}
@@ -518,6 +568,7 @@
 				</div>
 			</div>
 		</div>
+		</div> <!-- end Personal & Contact grid -->
 
 		<!-- Emergency Contact -->
 		{#if patient.emergency_contact}
@@ -538,7 +589,7 @@
 							</div>
 							<div>
 								<span class="text-gray-800 font-medium">{patient.emergency_contact.name}</span>
-								<p class="text-xs text-gray-500">{patient.emergency_contact.relationship_ || patient.emergency_contact.relationship}</p>
+								<p class="text-xs text-gray-500">{patient.emergency_contact.relationship}</p>
 							</div>
 						</div>
 						<div class="flex items-start">
@@ -687,6 +738,47 @@
 				</div>
 			</AquaCard>
 		{/if}
+
+		<!-- Edit Profile Modal -->
+		<AquaModal open={showEditModal} title="Edit Personal Info" onclose={() => showEditModal = false}>
+			<form onsubmit={(e) => { e.preventDefault(); handleSaveProfile(); }} class="space-y-4">
+				<div>
+					<label for="edit-name" class="block text-sm text-gray-600 mb-1">Name</label>
+					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+						<input id="edit-name" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+							placeholder="Full name" bind:value={editName} />
+					</div>
+				</div>
+				<div>
+					<label for="edit-phone" class="block text-sm text-gray-600 mb-1">Phone</label>
+					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+						<input id="edit-phone" type="tel" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+							placeholder="Phone number" bind:value={editPhone} />
+					</div>
+				</div>
+				<div>
+					<label for="edit-email" class="block text-sm text-gray-600 mb-1">Email</label>
+					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+						<input id="edit-email" type="email" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+							placeholder="Email address" bind:value={editEmail} />
+					</div>
+				</div>
+				<div>
+					<label for="edit-address" class="block text-sm text-gray-600 mb-1">Address</label>
+					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
+						<input id="edit-address" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
+							placeholder="Address" bind:value={editAddress} />
+					</div>
+				</div>
+				<button
+					type="submit"
+					disabled={savingProfile || !editName || !editPhone}
+					class="w-full py-2 rounded-md text-white text-sm font-medium cursor-pointer disabled:opacity-50"
+					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
+					{savingProfile ? 'Saving...' : 'Save Changes'}
+				</button>
+			</form>
+		</AquaModal>
 
 	{:else if role === 'FACULTY' && faculty}
 		<!-- Faculty Profile Header with Photo Upload -->

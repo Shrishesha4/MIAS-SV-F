@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type Department, type FacultyItem } from '$lib/api/admin';
+	import { toastStore } from '$lib/stores/toast';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -114,14 +115,14 @@
 			deleteModal = false;
 			await loadData();
 		} catch (e: any) {
-			error = e.response?.data?.detail || 'Delete failed';
+			error = e.response?.data?.detail || 'Deactivate failed';
 		} finally {
 			deleteLoading = false;
 		}
 	}
 </script>
 
-<div class="px-4 py-4 space-y-4 max-w-4xl mx-auto">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4 max-w-4xl mx-auto">
 	<!-- Header -->
 	<div class="flex items-center justify-between">
 		<div class="flex items-center gap-3">
@@ -276,7 +277,7 @@
 
 <!-- Delete Confirm Modal -->
 {#if deleteModal && deletingDept}
-	<AquaModal title="Delete Department" onclose={() => deleteModal = false}>
+	<AquaModal title="Deactivate Department" onclose={() => deleteModal = false}>
 		<div class="p-4 space-y-4">
 			<p class="text-sm text-gray-700">
 				Deactivate department <strong>{deletingDept.name}</strong>?
@@ -287,7 +288,7 @@
 					Cancel
 				</AquaButton>
 				<AquaButton variant="danger" fullWidth disabled={deleteLoading} onclick={doDelete}>
-					{deleteLoading ? 'Deleting...' : 'Deactivate'}
+					{deleteLoading ? 'Deactivating...' : 'Deactivate'}
 				</AquaButton>
 			</div>
 		</div>

@@ -6,8 +6,10 @@
 	import AquaInput from '$lib/components/ui/AquaInput.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { 
-		TestTube, Search, Filter, ChevronLeft, Eye, Download, Clock, 
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
+	import {
+		TestTube, Search, Filter, ChevronLeft, Eye, Download, Clock,
 		Image as ImageIcon, CheckCircle, AlertTriangle, X, ZoomIn
 	} from 'lucide-svelte';
 
@@ -107,18 +109,19 @@
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			const patient = await patientApi.getCurrentPatient();
 			reports = await patientApi.getReports(patient.id);
 		} catch (err) {
-			console.error('Failed to load reports', err);
+			toastStore.addToast('Failed to load reports', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	<!-- Header -->
 	<div class="flex items-center gap-3">
 		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
@@ -279,7 +282,7 @@
 					<span class="font-semibold text-gray-800">{report.title}</span>
 				</div>
 				{#if report.status !== 'PENDING'}
-					<button class="p-2 hover:bg-gray-100 rounded-full">
+					<button class="p-2 hover:bg-gray-100 rounded-full" onclick={() => window.print()}>
 						<Download class="w-5 h-5 text-gray-600" />
 					</button>
 				{/if}
@@ -369,7 +372,10 @@
 											alt={image.title} 
 											class="w-full h-48 object-cover"
 										/>
-										<button class="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
+										<button
+											class="absolute bottom-2 left-2 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center shadow-lg"
+											onclick={() => window.open(image.url, '_blank')}
+										>
 											<ZoomIn class="w-4 h-4 text-white" />
 										</button>
 									</div>
@@ -428,9 +434,10 @@
 				{/if}
 
 				<!-- Download Button -->
-				<button 
+				<button
 					class="w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2"
 					style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+					onclick={() => window.print()}
 				>
 					<Download class="w-5 h-5" />
 					Download Report

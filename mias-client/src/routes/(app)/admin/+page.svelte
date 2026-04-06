@@ -4,6 +4,8 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type AdminDashboard, type AdminUser, type Department, type Programme } from '$lib/api/admin';
+	import { toastStore } from '$lib/stores/toast';
+	import { debounce } from '$lib/utils/debounce';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
@@ -121,14 +123,23 @@
 		else if (activeTab === 'programmes') loadProgrammes();
 	});
 
+	// Debounced search for user input
+	const debouncedLoadUsers = debounce(() => loadUsers(), 300);
+
 	// Reload users when filters change
 	$effect(() => {
 		if (activeTab !== 'users') return;
 		// Touch dependencies
-		userSearch;
 		userRoleFilter;
 		usersPage;
 		loadUsers();
+	});
+
+	// Debounce search input separately
+	$effect(() => {
+		if (activeTab !== 'users') return;
+		userSearch;
+		debouncedLoadUsers();
 	});
 
 	onMount(async () => {
@@ -151,7 +162,7 @@
 	});
 </script>
 
-<div class="px-3 py-4 space-y-4">
+<div class="px-3 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="animate-spin w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full"></div>

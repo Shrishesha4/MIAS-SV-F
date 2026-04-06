@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { facultyApi, type StudentForAssignment, type UnassignedPatient } from '$lib/api/faculty';
+	import { studentApi } from '$lib/api/students';
 	import { authApi } from '$lib/api/auth';
+	import { toastStore } from '$lib/stores/toast';
+	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { GraduationCap, Search, BookOpen, BarChart3, ChevronRight, Users, Plus, X, UserPlus, UserCheck, Link, Unlink, Shield } from 'lucide-svelte';
+	import { GraduationCap, Search, BookOpen, Users, Plus, X, UserPlus, UserCheck, Link, Unlink, Shield } from 'lucide-svelte';
 
 	// Tab state
 	let activeTab = $state('students');
@@ -16,9 +19,7 @@
 		{ id: 'permissions', label: 'Permissions', icon: Shield },
 	];
 
-	// Students are loaded from approvals (listing distinct students who submitted)
-	// Since there's no dedicated /faculty/{id}/students endpoint, we derive from approvals
-	let students: any[] = $state([]);
+	let students: StudentForAssignment[] = $state([]);
 	let allStudents: StudentForAssignment[] = $state([]);
 	let unassignedPatients: UnassignedPatient[] = $state([]);
 	let loading = $state(true);
@@ -44,10 +45,7 @@
 	let selectedPermDept: string = $state('');
 	let granting = $state(false);
 
-	const ALL_DEPARTMENTS = [
-		'Internal Medicine', 'Pediatrics', 'Surgery',
-		'OB/GYN', 'Psychiatry', 'Emergency Medicine',
-	];
+	let departments: string[] = $state([]);
 
 	const filteredPermissions = $derived(
 		permissions.filter((p: any) =>
@@ -84,13 +82,6 @@
 		)
 	);
 
-	function gpaColor(gpa: number): string {
-		if (gpa >= 3.7) return '#22c55e';
-		if (gpa >= 3.3) return '#3b82f6';
-		if (gpa >= 3.0) return '#f97316';
-		return '#ef4444';
-	}
-
 	function openCreateModal() {
 		showCreateModal = true;
 		createError = '';
@@ -123,17 +114,17 @@
 			});
 			createSuccess = true;
 			// Add to local list
-			students = [...students, {
+			const newStudent: StudentForAssignment = {
 				id: newUsername,
 				student_id: '',
 				name: newName,
-				cases_completed: 0,
-				cases_pending: 0,
-				status: 'Active',
 				year: newYear,
 				semester: newSemester,
-				program: newProgram,
-			}];
+				department: '',
+				assigned_patient_count: 0,
+			};
+			students = [...students, newStudent];
+			allStudents = [...allStudents, newStudent];
 			setTimeout(() => {
 				showCreateModal = false;
 				createSuccess = false;
@@ -157,7 +148,7 @@
 					: s
 			);
 		} catch (err) {
-			console.error('Failed to assign patient', err);
+			toastStore.addToast('Failed to assign patient', 'error');
 		} finally {
 			assigning = false;
 		}
@@ -175,7 +166,7 @@
 			selectedPermStudent = '';
 			selectedPermDept = '';
 		} catch (err) {
-			console.error('Failed to grant permission', err);
+			toastStore.addToast('Failed to grant permission', 'error');
 		} finally {
 			granting = false;
 		}
@@ -187,55 +178,34 @@
 			await facultyApi.revokeStudentPermission(faculty.id, permissionId);
 			permissions = permissions.map(p => p.id === permissionId ? { ...p, is_active: false } : p);
 		} catch (err) {
-			console.error('Failed to revoke permission', err);
+			toastStore.addToast('Failed to revoke permission', 'error');
 		}
 	}
 
 	onMount(async () => {
+		if (!redirectIfUnauthorized(['FACULTY'])) return;
 		try {
 			faculty = await facultyApi.getMe();
-			const [approvals, studentsData, patientsData, permsData] = await Promise.all([
-				facultyApi.getApprovals(faculty.id),
+			const [studentsData, patientsData, permsData, depts] = await Promise.all([
 				facultyApi.getStudents(faculty.id),
 				facultyApi.getUnassignedPatients(faculty.id),
 				facultyApi.getStudentPermissions(faculty.id),
+				studentApi.getDepartments(),
 			]);
 			allStudents = studentsData;
+			students = studentsData;
 			unassignedPatients = patientsData;
 			permissions = permsData;
-			// Derive unique students from approvals data
-			const studentMap = new Map<string, any>();
-			for (const approval of approvals) {
-				const submittedBy = approval.submitted_by;
-				const studentName = submittedBy?.name || approval.case_record?.student_name || 'Unknown';
-				const studentKey = submittedBy?.id || studentName;
-				if (!studentMap.has(studentKey)) {
-					studentMap.set(studentKey, {
-						id: submittedBy?.id || studentKey,
-						student_id: submittedBy?.student_id || approval.case_record?.student_id || '',
-						name: studentName,
-						cases_completed: 0,
-						cases_pending: 0,
-						status: 'Active',
-					});
-				}
-				const student = studentMap.get(studentKey)!;
-				if (approval.status === 'APPROVED') {
-					student.cases_completed++;
-				} else {
-					student.cases_pending++;
-				}
-			}
-			students = Array.from(studentMap.values());
+			departments = depts;
 		} catch (err) {
-			console.error('Failed to load students', err);
+			toastStore.addToast('Failed to load students', 'error');
 		} finally {
 			loading = false;
 		}
 	});
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -286,18 +256,14 @@
 		</div>
 
 		<!-- Summary -->
-		<div class="grid grid-cols-3 gap-2">
+		<div class="grid grid-cols-2 gap-2">
 			<div class="text-center p-2 rounded-lg bg-blue-50">
 				<p class="text-lg font-bold text-blue-600">{students.length}</p>
-				<p class="text-[10px] text-gray-500">Total</p>
+				<p class="text-[10px] text-gray-500">Total Students</p>
 			</div>
 			<div class="text-center p-2 rounded-lg bg-green-50">
-				<p class="text-lg font-bold text-green-600">{students.reduce((a, s) => a + s.cases_completed, 0)}</p>
-				<p class="text-[10px] text-gray-500">Cases Done</p>
-			</div>
-			<div class="text-center p-2 rounded-lg bg-orange-50">
-				<p class="text-lg font-bold text-orange-600">{students.reduce((a, s) => a + s.cases_pending, 0)}</p>
-				<p class="text-[10px] text-gray-500">Pending</p>
+				<p class="text-lg font-bold text-green-600">{students.reduce((a, s) => a + s.assigned_patient_count, 0)}</p>
+				<p class="text-[10px] text-gray-500">Assigned Patients</p>
 			</div>
 		</div>
 	</AquaCard>
@@ -319,21 +285,17 @@
 							<BookOpen class="w-3 h-3" />
 							Year {student.year} · Sem {student.semester}
 						</span>
-						{#if student.gpa}
-						<span class="flex items-center gap-1 font-semibold" style="color: {gpaColor(student.gpa)}">
-							<BarChart3 class="w-3 h-3" />
-							GPA {student.gpa.toFixed(1)}
+						{#if student.department}
+						<span class="flex items-center gap-1 text-gray-500">
+							{student.department}
 						</span>
 						{/if}
 					</div>
 					{/if}
 				</div>
 				<div class="text-right shrink-0">
-					<p class="text-xs text-gray-400">Cases</p>
-					<p class="text-sm font-bold text-gray-700">{student.cases_completed}</p>
-					{#if student.cases_pending > 0}
-						<p class="text-[10px] text-orange-500 font-medium">{student.cases_pending} pending</p>
-					{/if}
+					<p class="text-xs text-gray-400">Patients</p>
+					<p class="text-sm font-bold text-gray-700">{student.assigned_patient_count}</p>
 				</div>
 			</div>
 		</AquaCard>
@@ -498,7 +460,7 @@
 					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
 					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
 					<option value="">Select Department</option>
-					{#each ALL_DEPARTMENTS as dept}
+					{#each departments as dept}
 						<option value={dept}>{dept}</option>
 					{/each}
 				</select>

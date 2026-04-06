@@ -1,12 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { authStore, userRole } from '$lib/stores/auth';
+  import { getMenuItems } from '$lib/config/menuItems';
   import Avatar from '../ui/Avatar.svelte';
-  import {
-    X, Home, User, FileText, Clipboard, Pill, Activity,
-    TestTube, Wallet, Bell, Settings, LogOut, GraduationCap,
-    Users, CheckCircle, Bed, Calendar, Shield, Building, BarChart3
-  } from 'lucide-svelte';
+  import { X, LogOut } from 'lucide-svelte';
 
   interface Props {
     open: boolean;
@@ -24,62 +21,7 @@
     userId = '',
   }: Props = $props();
 
-  const patientMenuItems = [
-    { icon: Home, label: 'Dashboard', path: '/dashboard' },
-    { icon: User, label: 'Profile', path: '/profile' },
-    { icon: FileText, label: 'Medical Records', path: '/records' },
-    { icon: Bed, label: 'Admissions', path: '/admissions' },
-    { icon: Pill, label: 'Prescriptions', path: '/prescriptions' },
-    { icon: Activity, label: 'Vitals', path: '/vitals' },
-    { icon: TestTube, label: 'Reports', path: '/reports' },
-    { icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
-    { icon: Wallet, label: 'Hospital Wallet', path: '/wallet/hospital' },
-    { icon: Wallet, label: 'Pharmacy Wallet', path: '/wallet/pharmacy' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
-  ];
-
-  const studentMenuItems = [
-    { icon: Home, label: 'Dashboard', path: '/dashboard' },
-    { icon: User, label: 'Profile', path: '/profile' },
-    { icon: Users, label: 'Assigned Patients', path: '/patients' },
-    { icon: Clipboard, label: 'Case Records', path: '/case-records' },
-    { icon: Bed, label: 'Admissions', path: '/admissions' },
-    { icon: Calendar, label: 'Clinic Sessions', path: '/clinic-sessions' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
-  ];
-
-  const facultyMenuItems = [
-    { icon: Home, label: 'Dashboard', path: '/dashboard' },
-    { icon: User, label: 'Profile', path: '/profile' },
-    { icon: CheckCircle, label: 'Approvals', path: '/approvals' },
-    { icon: GraduationCap, label: 'Students', path: '/students' },
-    { icon: Bed, label: 'Admissions', path: '/admissions' },
-    { icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
-    { icon: Bell, label: 'Notifications', path: '/notifications' },
-  ];
-
-  const adminMenuItems = [
-    { icon: Home, label: 'Dashboard', path: '/admin' },
-    { icon: Users, label: 'User Management', path: '/admin/users' },
-    { icon: Building, label: 'Departments', path: '/admin/departments' },
-    { icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
-    { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
-  ];
-
-  const receptionMenuItems = [
-    { icon: Home, label: 'Dashboard', path: '/reception' },
-    { icon: Users, label: 'Patient Queue', path: '/reception' },
-    { icon: Calendar, label: 'Appointments', path: '/clinic-sessions' },
-  ];
-
-  const menuItems = $derived(
-    role === 'PATIENT' ? patientMenuItems :
-    role === 'STUDENT' ? studentMenuItems :
-    role === 'FACULTY' ? facultyMenuItems :
-    role === 'ADMIN' ? adminMenuItems :
-    role === 'RECEPTION' ? receptionMenuItems :
-    patientMenuItems
-  );
+  const menuItems = $derived(getMenuItems(role));
 
   function navigate(path: string) {
     goto(path);

@@ -261,4 +261,14 @@ export const patientApi = {
     const response = await client.post(`/patients/${patientId}/admissions/${admissionId}/transfer`, data);
     return response.data;
   },
+
+  async updateProfile(patientId: string, data: { name?: string; phone?: string; email?: string; address?: string; blood_group?: string }) {
+    const response = await client.put(`/patients/${patientId}/profile`, data);
+    return response.data;
+  },
+
+  async updatePrescriptionStatus(patientId: string, rxId: string, data: { status: string }) {
+    const response = await client.put(`/patients/${patientId}/prescriptions/${rxId}/status`, data);
+    return response.data;
+  },
 };
