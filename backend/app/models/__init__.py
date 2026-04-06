@@ -17,6 +17,7 @@ from app.models.prescription import (
     PrescriptionRequest, PrescriptionRequestStatus,
 )
 from app.models.admission import Admission
+from app.models.io_event import IOEvent, SOAPNote, AdmissionEquipment
 from app.models.report import Report, ReportStatus, ReportFinding, ReportImage
 from app.models.wallet import WalletTransaction, WalletType, TransactionType, TransactionItem
 from app.models.notification import PatientNotification, ScheduledNotification

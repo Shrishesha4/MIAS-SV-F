@@ -7,9 +7,26 @@
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
+	import {
+		defaultPrescriptionCreateFields,
+		defaultPrescriptionEditFields,
+		defaultVitalEntryFields,
+	} from '$lib/config/default-form-definitions';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
+	import {
+		appendSupplementalText,
+		asOptionalNumber,
+		asOptionalString,
+		buildCaseRecordDescription,
+		buildCaseRecordProcedureMap,
+		buildSupplementalFormDescription,
+		mergeProcedureMaps,
+		persistFormFiles,
+		resolveCaseRecordFields,
+		resolveFormFieldsByType,
+		stringifyFormValue,
+	} from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -103,6 +120,15 @@
 	const crFields: FormFieldDefinition[] | null = $derived(
 		crDepartment && crProcedure ? resolveCaseRecordFields(caseRecordForms, crDepartment, crProcedure) : null
 	);
+	const vitalEntryFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'VITAL_ENTRY', defaultVitalEntryFields)
+	);
+	const prescriptionCreateFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_CREATE', defaultPrescriptionCreateFields)
+	);
+	const prescriptionEditFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_EDIT', defaultPrescriptionEditFields)
+	);
 
 	async function handleCrDiagnosisSearch(query: string) {
 		if (query.length < 2) { crDiagnosisSuggestions = []; return; }
@@ -119,34 +145,18 @@
 	}
 
 	// ── Add Vital form ────────────────────────────────────────────
-	let vSystolic = $state('');
-	let vDiastolic = $state('');
-	let vHeartRate = $state('');
-	let vSpO2 = $state('');
-	let vTemp = $state('');
-	let vWeight = $state('');
-	let vRespRate = $state('');
-	let vGlucose = $state('');
-	let vNotes = $state('');
+	let vitalFormData: Record<string, any> = $state({});
 	let vSubmitting = $state(false);
 
 	// ── Add Prescription form ─────────────────────────────────────
-	let rxName = $state('');
-	let rxDosage = $state('');
-	let rxFrequency = $state('');
-	let rxStartDate = $state(new Date().toISOString().split('T')[0]);
-	let rxEndDate = $state('');
-	let rxInstructions = $state('');
+	let prescriptionFormData: Record<string, any> = $state({
+		start_date: new Date().toISOString().split('T')[0],
+	});
 	let rxSubmitting = $state(false);
 
 	// ── Edit Prescription form ────────────────────────────────────
 	let editRxId = $state('');
-	let editRxName = $state('');
-	let editRxDosage = $state('');
-	let editRxFrequency = $state('');
-	let editRxStartDate = $state('');
-	let editRxEndDate = $state('');
-	let editRxInstructions = $state('');
+	let editPrescriptionFormData: Record<string, any> = $state({});
 	let editRxStatus = $state('ACTIVE');
 	let editRxMedId = $state('');
 	let editRxSubmitting = $state(false);
@@ -189,6 +199,10 @@
 
 	const currentAdmission = $derived(
 		admissions.find((a: any) => a.status === 'Active') ?? null
+	);
+
+	const pendingAdmission = $derived(
+		admissions.find((a: any) => a.status === 'Pending Approval') ?? null
 	);
 
 	const vitalCards = $derived(latestVital ? [
@@ -288,7 +302,7 @@
 					patientApi.getPrescriptionRequests(patientId).catch(() => []),
 					studentApi.getPermissions(studentData.id).catch(() => []),
 					patientApi.getAdmissions(patientId).catch(() => []),
-					formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
+					formsApi.getForms().catch(() => []),
 				]);
 			const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
 			patient = patientData;
@@ -356,25 +370,30 @@
 
 	// ── Vital submit ──────────────────────────────────────────────
 	function resetVitalForm() {
-		vSystolic = ''; vDiastolic = ''; vHeartRate = ''; vSpO2 = '';
-		vTemp = ''; vWeight = ''; vRespRate = ''; vGlucose = '';
-		vNotes = '';
+		vitalFormData = {};
 	}
 
 	async function submitVital() {
 		if (!patient || vSubmitting) return;
 		vSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				vitalEntryFields,
+				vitalFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patients-vital'
+			);
 			await patientApi.createVital(patient.id, {
-				systolic_bp: vSystolic ? parseInt(vSystolic) : undefined,
-				diastolic_bp: vDiastolic ? parseInt(vDiastolic) : undefined,
-				heart_rate: vHeartRate ? parseInt(vHeartRate) : undefined,
-				oxygen_saturation: vSpO2 ? parseInt(vSpO2) : undefined,
-				temperature: vTemp ? parseFloat(vTemp) : undefined,
-				weight: vWeight ? parseFloat(vWeight) : undefined,
-				respiratory_rate: vRespRate ? parseInt(vRespRate) : undefined,
-				blood_glucose: vGlucose ? parseInt(vGlucose) : undefined,
-				notes: vNotes || undefined,
+				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
+				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
+				heart_rate: asOptionalNumber(submittedValues.heart_rate),
+				oxygen_saturation: asOptionalNumber(submittedValues.oxygen_saturation),
+				temperature: asOptionalNumber(submittedValues.temperature),
+				weight: asOptionalNumber(submittedValues.weight),
+				respiratory_rate: asOptionalNumber(submittedValues.respiratory_rate),
+				blood_glucose: asOptionalNumber(submittedValues.blood_glucose),
+				cholesterol: asOptionalNumber(submittedValues.cholesterol),
+				bmi: asOptionalNumber(submittedValues.bmi),
 				recorded_by: studentData?.name || 'Student',
 			});
 			vitals = await patientApi.getVitals(patient.id, 30);
@@ -386,21 +405,38 @@
 
 	// ── Prescription submit ───────────────────────────────────────
 	function resetPrescriptionForm() {
-		rxName = ''; rxDosage = ''; rxFrequency = '';
-		rxStartDate = new Date().toISOString().split('T')[0];
-		rxEndDate = ''; rxInstructions = '';
+		prescriptionFormData = { start_date: new Date().toISOString().split('T')[0] };
 	}
 
 	async function submitPrescription() {
 		if (!patient || rxSubmitting) return;
 		rxSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				prescriptionCreateFields,
+				prescriptionFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patients-prescription'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					prescriptionCreateFields,
+					submittedValues,
+					new Set(['name', 'dosage', 'frequency', 'start_date', 'end_date', 'instructions', 'notes'])
+				)
+			);
 			await patientApi.createPrescription(patient.id, {
 				doctor: studentData?.name || '',
 				department: '',
+				notes,
 				medications: [{
-					name: rxName, dosage: rxDosage, frequency: rxFrequency,
-					start_date: rxStartDate, end_date: rxEndDate, instructions: rxInstructions,
+					name: asOptionalString(submittedValues.name) || '',
+					dosage: asOptionalString(submittedValues.dosage) || '',
+					frequency: asOptionalString(submittedValues.frequency) || '',
+					start_date: asOptionalString(submittedValues.start_date) || new Date().toISOString().split('T')[0],
+					end_date: asOptionalString(submittedValues.end_date) || new Date().toISOString().split('T')[0],
+					instructions: asOptionalString(submittedValues.instructions),
 				}],
 			});
 			prescriptions = await patientApi.getPrescriptions(patient.id);
@@ -414,16 +450,23 @@
 	function openEditPrescription(rx: any) {
 		editRxId = rx.id; editRxStatus = rx.status || 'ACTIVE';
 		const med = rx.medications?.[0];
-		editRxMedId = med?.id || ''; editRxName = med?.name || '';
-		editRxDosage = med?.dosage || ''; editRxFrequency = med?.frequency || '';
-		editRxStartDate = med?.start_date || ''; editRxEndDate = med?.end_date || '';
-		editRxInstructions = med?.instructions || '';
+		editRxMedId = med?.id || '';
+		editPrescriptionFormData = {
+			status: rx.status || 'ACTIVE',
+			name: med?.name || '',
+			dosage: med?.dosage || '',
+			frequency: med?.frequency || '',
+			start_date: med?.start_date || '',
+			end_date: med?.end_date || '',
+			instructions: med?.instructions || '',
+			notes: rx.notes || '',
+		};
 		showEditPrescriptionModal = true;
 	}
 
 	function resetEditForm() {
-		editRxId = ''; editRxName = ''; editRxDosage = ''; editRxFrequency = '';
-		editRxStartDate = ''; editRxEndDate = ''; editRxInstructions = '';
+		editRxId = '';
+		editPrescriptionFormData = {};
 		editRxStatus = 'ACTIVE'; editRxMedId = '';
 	}
 
@@ -431,12 +474,31 @@
 		if (!patient || editRxSubmitting) return;
 		editRxSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				prescriptionEditFields,
+				editPrescriptionFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patients-prescription-edit'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					prescriptionEditFields,
+					submittedValues,
+					new Set(['status', 'name', 'dosage', 'frequency', 'start_date', 'end_date', 'instructions', 'notes'])
+				)
+			);
 			await patientApi.updatePrescription(patient.id, editRxId, {
-				status: editRxStatus,
+				status: asOptionalString(submittedValues.status) || editRxStatus,
+				notes,
 				medications: [{
 					id: editRxMedId || undefined,
-					name: editRxName, dosage: editRxDosage, frequency: editRxFrequency,
-					start_date: editRxStartDate, end_date: editRxEndDate, instructions: editRxInstructions,
+					name: asOptionalString(submittedValues.name) || '',
+					dosage: asOptionalString(submittedValues.dosage) || '',
+					frequency: asOptionalString(submittedValues.frequency) || '',
+					start_date: asOptionalString(submittedValues.start_date) || new Date().toISOString().split('T')[0],
+					end_date: asOptionalString(submittedValues.end_date) || new Date().toISOString().split('T')[0],
+					instructions: asOptionalString(submittedValues.instructions),
 				}],
 			});
 			prescriptions = await patientApi.getPrescriptions(patient.id);
@@ -446,23 +508,121 @@
 		finally { editRxSubmitting = false; }
 	}
 
-	// ── Admit Patient ─────────────────────────────────────────────
+	// ── Admission Assessment Form ────────────────────────────────
+	let showAdmitModal = $state(false);
+	let admitStep = $state(1);
 	let admitSubmitting = $state(false);
 
-	async function admitPatient() {
+	// Step 1 - Triage
+	let admitAccompaniedBy = $state('');
+	let admitAccompaniedContact = $state('');
+	let admitAirway = $state(true);
+	let admitBreathing = $state(true);
+	let admitPulse = $state(true);
+	let admitCRT = $state('');
+	// Step 1 - Ward info
+	let admitDepartment = $state('');
+	let admitWard = $state('');
+	let admitBedNumber = $state('');
+	let admitReason = $state('');
+
+	// Step 2 - Vitals
+	let admitBP = $state('');
+	let admitHR = $state('');
+	let admitRR = $state('');
+	let admitSpO2 = $state('');
+	let admitTemp = $state('');
+	let admitWeight = $state('');
+
+	// Step 3 - GCS + extras
+	let admitGCSEye = $state(4);
+	let admitGCSVerbal = $state(5);
+	let admitGCSMotor = $state(6);
+	let admitCBG = $state('');
+	let admitPainScore = $state(0);
+
+	// Step 4 - Clinical History
+	let admitDrugAllergy = $state('');
+	let admitMenstrualHistory = $state('');
+	let admitLMP = $state('');
+	let admitIdentificationMarks = $state('');
+	let admitChiefComplaints = $state('');
+	let admitHPI = $state('');
+	let admitPastMedHx = $state('');
+	let admitMedHx = $state('');
+	let admitSurgicalHx = $state('');
+	let admitPhysicalExam = $state('');
+
+	// Step 5 - Assessment & Plan
+	let admitProvDiagnosis = $state('');
+	let admitExpectedCost = $state('');
+	let admitProposedPlan = $state('');
+	let admitFacultyId = $state('');
+
+	function resetAdmitForm() {
+		admitStep = 1;
+		admitAccompaniedBy = ''; admitAccompaniedContact = '';
+		admitAirway = true; admitBreathing = true; admitPulse = true; admitCRT = '';
+		admitDepartment = departments[0] || ''; admitWard = ''; admitBedNumber = ''; admitReason = '';
+		admitBP = ''; admitHR = ''; admitRR = ''; admitSpO2 = ''; admitTemp = ''; admitWeight = '';
+		admitGCSEye = 4; admitGCSVerbal = 5; admitGCSMotor = 6; admitCBG = ''; admitPainScore = 0;
+		admitDrugAllergy = ''; admitMenstrualHistory = ''; admitLMP = ''; admitIdentificationMarks = '';
+		admitChiefComplaints = ''; admitHPI = ''; admitPastMedHx = ''; admitMedHx = '';
+		admitSurgicalHx = ''; admitPhysicalExam = '';
+		admitProvDiagnosis = ''; admitExpectedCost = ''; admitProposedPlan = '';
+		admitFacultyId = facultyApprovers[0]?.id || '';
+	}
+
+	async function submitAdmissionForm() {
 		if (!patient || admitSubmitting) return;
 		admitSubmitting = true;
 		try {
 			await patientApi.createAdmission(patient.id, {
-				department: departments[0] || 'General',
-				ward: 'General Ward',
-				bed_number: '',
-				attending_doctor: studentData?.name || '',
-				reason: patient.primary_diagnosis || '',
+				department: admitDepartment || departments[0] || 'General',
+				ward: admitWard,
+				bed_number: admitBedNumber,
+				reason: admitReason,
+				faculty_approver_id: admitFacultyId || null,
+				accompanied_by: admitAccompaniedBy,
+				accompanied_by_contact: admitAccompaniedContact,
+				airway_patent: admitAirway,
+				breathing_adequate: admitBreathing,
+				pulse_present: admitPulse,
+				capillary_refill_time: admitCRT ? parseFloat(admitCRT) : null,
+				bp_admission: admitBP,
+				heart_rate_admission: admitHR,
+				resp_rate_admission: admitRR,
+				spo2_admission: admitSpO2,
+				temp_admission: admitTemp,
+				weight_admission: admitWeight,
+				gcs_eye: admitGCSEye,
+				gcs_verbal: admitGCSVerbal,
+				gcs_motor: admitGCSMotor,
+				cbg: admitCBG,
+				pain_score: admitPainScore,
+				drug_allergy: admitDrugAllergy,
+				menstrual_history: admitMenstrualHistory,
+				lmp: admitLMP || null,
+				identification_marks: admitIdentificationMarks,
+				chief_complaints: admitChiefComplaints,
+				history_of_present_illness: admitHPI,
+				past_medical_history: admitPastMedHx,
+				medication_history: admitMedHx,
+				surgical_history: admitSurgicalHx,
+				physical_examination: admitPhysicalExam,
+				provisional_diagnosis: admitProvDiagnosis,
+				expected_cost: admitExpectedCost ? parseFloat(admitExpectedCost) : null,
+				proposed_plan: admitProposedPlan,
 			});
 			admissions = await patientApi.getAdmissions(patient.id);
-		} catch (err) { toastStore.addToast('Failed to admit patient', 'error'); }
-		finally { admitSubmitting = false; }
+			showAdmitModal = false;
+			resetAdmitForm();
+			toastStore.addToast('Admission request sent for faculty approval', 'success');
+		} catch (err) {
+			toastStore.addToast('Failed to submit admission', 'error');
+		} finally {
+			admitSubmitting = false;
+		}
 	}
 
 	// ── Medical Alerts ────────────────────────────────────────────
@@ -826,7 +986,8 @@
 			</div>
 
 			<!-- ── ADMISSION STATUS BAR ────────────────────────── -->
-			<div class="rounded-xl px-4 py-3 flex items-center justify-between"
+			<!-- ── ADMISSION STATUS BAR ────────────────────────── -->
+			<div class="rounded-xl px-4 py-3 flex items-center justify-between gap-3"
 				style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 3px rgba(0,0,0,0.06);">
 				<div class="flex items-center gap-2.5 min-w-0">
 					<ClipboardList class="w-4 h-4 text-gray-500 shrink-0" />
@@ -834,27 +995,43 @@
 					{#if currentAdmission}
 						<span class="text-xs font-bold px-2 py-0.5 rounded shrink-0"
 							style="background: rgba(34,197,94,0.12); color: #15803d;">
-							{currentAdmission.status} — {currentAdmission.ward || 'Ward'}
+							ADMITTED — {currentAdmission.ward || 'Ward'} {currentAdmission.bed_number ? `· Bed ${currentAdmission.bed_number}` : ''}
+						</span>
+					{:else if pendingAdmission}
+						<span class="text-xs font-bold px-2 py-0.5 rounded shrink-0"
+							style="background: rgba(245,158,11,0.12); color: #b45309;">
+							Pending Faculty Approval
 						</span>
 					{:else}
 						<Clock class="w-3.5 h-3.5 text-gray-400 shrink-0" />
 						<span class="text-xs text-gray-400 truncate">Not currently admitted</span>
 					{/if}
 				</div>
-				{#if !currentAdmission}
+
+				{#if currentAdmission}
+					<!-- State 3: Active → REVIEW & VITALS link -->
+					<a href="/patients/{patient.id}/review"
+						class="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold"
+						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
+						       border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 3px rgba(37,99,235,0.4);">
+						REVIEW & VITALS <ChevronRight class="w-3 h-3" />
+					</a>
+				{:else if pendingAdmission}
+					<!-- State 2: Pending → outline button -->
+					<button class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-not-allowed flex items-center gap-1.5"
+						style="background: transparent; border: 1.5px solid #16a34a; color: #16a34a;" disabled>
+						<Send class="w-3 h-3" /> Sent for Approval
+					</button>
+				{:else}
+					<!-- State 1: No admission → Admit Patient button -->
 					<button
 						class="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer flex items-center gap-1.5"
 						style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.2);
 						       box-shadow: 0 1px 3px rgba(22,163,74,0.4);"
-						onclick={admitPatient} disabled={admitSubmitting}
+						onclick={() => { resetAdmitForm(); showAdmitModal = true; }}
 					>
-						{#if admitSubmitting}
-							<div class="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
-						{/if}
-						Admit Patient
+						<Plus class="w-3 h-3" /> Admit Patient
 					</button>
-				{:else}
-					<span class="text-xs text-gray-400 shrink-0">Since {currentAdmission.admission_date}</span>
 				{/if}
 			</div>
 
@@ -1211,77 +1388,11 @@
 		</div>
 	{/snippet}
 	<div class="space-y-4">
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-sys" class="block text-sm font-medium text-gray-700 mb-1">Systolic (mmHg)</label>
-				<input id="v-sys" type="number" bind:value={vSystolic}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="120" />
-			</div>
-			<div>
-				<label for="v-dia" class="block text-sm font-medium text-gray-700 mb-1">Diastolic (mmHg)</label>
-				<input id="v-dia" type="number" bind:value={vDiastolic}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="80" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-hr" class="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
-				<input id="v-hr" type="number" bind:value={vHeartRate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="72" />
-			</div>
-			<div>
-				<label for="v-spo2" class="block text-sm font-medium text-gray-700 mb-1">SpO₂ (%)</label>
-				<input id="v-spo2" type="number" bind:value={vSpO2}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="98" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-temp" class="block text-sm font-medium text-gray-700 mb-1">Temperature (°F)</label>
-				<input id="v-temp" type="number" step="0.1" bind:value={vTemp}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="98.6" />
-			</div>
-			<div>
-				<label for="v-wt" class="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
-				<input id="v-wt" type="number" bind:value={vWeight}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="150" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-rr" class="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
-				<input id="v-rr" type="number" bind:value={vRespRate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="16" />
-			</div>
-			<div>
-				<label for="v-glu" class="block text-sm font-medium text-gray-700 mb-1">Blood Glucose</label>
-				<input id="v-glu" type="number" bind:value={vGlucose}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="100" />
-			</div>
-		</div>
-		<div>
-			<label for="v-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
-			<textarea id="v-notes" bind:value={vNotes}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="2"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="Add any relevant notes about this reading"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={vitalEntryFields}
+			bind:values={vitalFormData}
+			idPrefix="patients-vital"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1310,57 +1421,11 @@
 		</div>
 	{/snippet}
 	<div class="space-y-4">
-		<div>
-			<label for="rx-name" class="block text-sm font-medium text-gray-700 mb-1">Medication Name <span class="text-red-500">*</span></label>
-			<input id="rx-name" type="text" bind:value={rxName}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. Lisinopril" />
-		</div>
-		<div>
-			<label for="rx-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage <span class="text-red-500">*</span></label>
-			<input id="rx-dose" type="text" bind:value={rxDosage}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. 10mg" />
-		</div>
-		<div>
-			<label for="rx-freq" class="block text-sm font-medium text-gray-700 mb-1">Frequency <span class="text-red-500">*</span></label>
-			<select id="rx-freq" bind:value={rxFrequency}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-				<option value="">Select frequency</option>
-				<option>Once daily</option>
-				<option>Twice daily</option>
-				<option>Three times daily</option>
-				<option>Four times daily</option>
-				<option>Every 8 hours</option>
-				<option>Every 12 hours</option>
-				<option>As needed</option>
-				<option>Once weekly</option>
-			</select>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="rx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-				<input id="rx-start" type="date" bind:value={rxStartDate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-			</div>
-			<div>
-				<label for="rx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-				<input id="rx-end" type="date" bind:value={rxEndDate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-			</div>
-		</div>
-		<div>
-			<label for="rx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
-			<textarea id="rx-inst" bind:value={rxInstructions}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="Special instructions"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={prescriptionCreateFields}
+			bind:values={prescriptionFormData}
+			idPrefix="patients-prescription"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1371,7 +1436,7 @@
 			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
 			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitPrescription}
-			disabled={rxSubmitting || !rxName || !rxDosage || !rxFrequency}>
+			disabled={rxSubmitting || !prescriptionFormData.name || !prescriptionFormData.dosage || !prescriptionFormData.frequency}>
 			{rxSubmitting ? 'Adding...' : 'Add Prescription'}
 		</button>
 	</div>
@@ -1388,69 +1453,11 @@
 		</div>
 	{/snippet}
 	<div class="space-y-4">
-		<div>
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
-			<div class="flex gap-2">
-				{#each ['ACTIVE', 'COMPLETED'] as st}
-					<button class="flex-1 py-2 rounded-md text-sm font-medium cursor-pointer"
-						style="background: {editRxStatus === st ? (st === 'ACTIVE' ? 'linear-gradient(to bottom, #4cd964, #2ac845)' : 'linear-gradient(to bottom, #6b7280, #4b5563)') : 'linear-gradient(to bottom, #f0f4fa, #d5dde8)'};
-						       color: {editRxStatus === st ? 'white' : '#64748b'};
-						       border: 1px solid rgba(0,0,0,0.2);"
-						onclick={() => editRxStatus = st}>
-						{st === 'ACTIVE' ? 'Active' : 'Inactive'}
-					</button>
-				{/each}
-			</div>
-		</div>
-		<div>
-			<label for="erx-name" class="block text-sm font-medium text-gray-700 mb-1">Medication Name</label>
-			<input id="erx-name" type="text" bind:value={editRxName}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage</label>
-			<input id="erx-dose" type="text" bind:value={editRxDosage}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-freq" class="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
-			<select id="erx-freq" bind:value={editRxFrequency}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-				<option value="">Select frequency</option>
-				<option>Once daily</option>
-				<option>Twice daily</option>
-				<option>Three times daily</option>
-				<option>Four times daily</option>
-				<option>Every 8 hours</option>
-				<option>Every 12 hours</option>
-				<option>As needed</option>
-				<option>Once weekly</option>
-			</select>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="erx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-				<input id="erx-start" type="date" bind:value={editRxStartDate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-			</div>
-			<div>
-				<label for="erx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-				<input id="erx-end" type="date" bind:value={editRxEndDate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-			</div>
-		</div>
-		<div>
-			<label for="erx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
-			<textarea id="erx-inst" bind:value={editRxInstructions}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={prescriptionEditFields}
+			bind:values={editPrescriptionFormData}
+			idPrefix="patients-prescription-edit"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1465,6 +1472,365 @@
 			disabled={editRxSubmitting}>
 			{editRxSubmitting ? 'Saving...' : 'Save Changes'}
 		</button>
+	</div>
+</AquaModal>
+{/if}
+
+<!-- ══════════════════════════════════════════════════════════
+     ADMISSION ASSESSMENT FORM MODAL (5-step)
+     ══════════════════════════════════════════════════════════ -->
+{#if showAdmitModal}
+<AquaModal onclose={() => { showAdmitModal = false; resetAdmitForm(); }}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<ClipboardList class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">Admission Assessment — {patient?.name}</span>
+		</div>
+	{/snippet}
+
+	<!-- Step indicators -->
+	<div class="flex items-center gap-1 mb-5">
+		{#each [['1','Triage'],['2','Vitals'],['3','GCS'],['4','History'],['5','Plan']] as [n, lbl]}
+			{@const stepN = parseInt(n)}
+			<div class="flex-1 flex flex-col items-center gap-0.5">
+				<div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+					style="background: {admitStep === stepN ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : admitStep > stepN ? '#22c55e' : '#e2e8f0'};
+					       color: {admitStep >= stepN ? 'white' : '#94a3b8'};">
+					{admitStep > stepN ? '✓' : n}
+				</div>
+				<span class="text-[9px] font-medium" style="color: {admitStep === stepN ? '#2563eb' : '#94a3b8'};">{lbl}</span>
+			</div>
+			{#if parseInt(n) < 5}
+				<div class="flex-1 h-0.5 mb-3.5 rounded" style="background: {admitStep > stepN ? '#22c55e' : '#e2e8f0'};"></div>
+			{/if}
+		{/each}
+	</div>
+
+	<!-- ── STEP 1: Triage / Primary Survey ── -->
+	{#if admitStep === 1}
+	<div class="space-y-3">
+		<p class="text-xs font-bold text-gray-500 uppercase tracking-wide">Ward Assignment</p>
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Department *</label>
+				<select bind:value={admitDepartment} class="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);">
+					{#each departments as dept}
+						<option value={dept}>{dept}</option>
+					{/each}
+				</select>
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Ward</label>
+				<input bind:value={admitWard} placeholder="e.g. General Ward A" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Bed Number</label>
+				<input bind:value={admitBedNumber} placeholder="e.g. A-12" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Reason for Admission</label>
+				<input bind:value={admitReason} placeholder="Chief reason…" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+		</div>
+
+		<p class="text-xs font-bold text-gray-500 uppercase tracking-wide pt-1">Accompanied By</p>
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Name</label>
+				<input bind:value={admitAccompaniedBy} placeholder="Relative name & relation"
+					class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Contact</label>
+				<input bind:value={admitAccompaniedContact} placeholder="+91 XXXXX XXXXX"
+					class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+		</div>
+
+		<p class="text-xs font-bold text-gray-500 uppercase tracking-wide pt-1">Primary Survey (ABCDE)</p>
+		<div class="grid grid-cols-2 gap-3">
+			<label class="flex items-center gap-2 p-2 rounded-lg cursor-pointer"
+				style="background: {admitAirway ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)'}; border: 1px solid {admitAirway ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'};">
+				<input type="checkbox" bind:checked={admitAirway} class="w-4 h-4" />
+				<div>
+					<p class="text-xs font-semibold text-gray-700">A — Airway</p>
+					<p class="text-[10px] text-gray-500">{admitAirway ? 'Patent' : 'Compromised'}</p>
+				</div>
+			</label>
+			<label class="flex items-center gap-2 p-2 rounded-lg cursor-pointer"
+				style="background: {admitBreathing ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)'}; border: 1px solid {admitBreathing ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'};">
+				<input type="checkbox" bind:checked={admitBreathing} class="w-4 h-4" />
+				<div>
+					<p class="text-xs font-semibold text-gray-700">B — Breathing</p>
+					<p class="text-[10px] text-gray-500">{admitBreathing ? 'Adequate' : 'Inadequate'}</p>
+				</div>
+			</label>
+			<label class="flex items-center gap-2 p-2 rounded-lg cursor-pointer"
+				style="background: {admitPulse ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.06)'}; border: 1px solid {admitPulse ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'};">
+				<input type="checkbox" bind:checked={admitPulse} class="w-4 h-4" />
+				<div>
+					<p class="text-xs font-semibold text-gray-700">C — Circulation</p>
+					<p class="text-[10px] text-gray-500">{admitPulse ? 'Pulse present' : 'No pulse'}</p>
+				</div>
+			</label>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">CRT (seconds)</label>
+				<input bind:value={admitCRT} type="number" step="0.5" min="0" max="10" placeholder="e.g. 2.0"
+					class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+		</div>
+	</div>
+
+	<!-- ── STEP 2: Vitals ── -->
+	{:else if admitStep === 2}
+	<div class="space-y-3">
+		<p class="text-xs font-bold text-gray-500 uppercase tracking-wide">Vitals at Admission</p>
+		<div class="grid grid-cols-2 gap-3">
+			{#each [
+				['admitBP', 'BP (mmHg)', 'e.g. 120/80'],
+				['admitHR', 'Heart Rate (bpm)', 'e.g. 76'],
+				['admitRR', 'Resp. Rate (/min)', 'e.g. 18'],
+				['admitSpO2', 'SpO₂ (%)', 'e.g. 98'],
+				['admitTemp', 'Temperature (°F)', 'e.g. 98.6'],
+				['admitWeight', 'Weight (kg)', 'e.g. 72'],
+			] as [field, label, ph]}
+				<div>
+					<label class="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+					{#if field === 'admitBP'}
+						<input bind:value={admitBP} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{:else if field === 'admitHR'}
+						<input bind:value={admitHR} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{:else if field === 'admitRR'}
+						<input bind:value={admitRR} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{:else if field === 'admitSpO2'}
+						<input bind:value={admitSpO2} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{:else if field === 'admitTemp'}
+						<input bind:value={admitTemp} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{:else}
+						<input bind:value={admitWeight} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+							style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+					{/if}
+				</div>
+			{/each}
+		</div>
+	</div>
+
+	<!-- ── STEP 3: GCS + CBG + Pain ── -->
+	{:else if admitStep === 3}
+	<div class="space-y-4">
+		<p class="text-xs font-bold text-gray-500 uppercase tracking-wide">Glasgow Coma Scale (GCS)</p>
+		<div class="space-y-3">
+			{#each [
+				['Eye Opening', admitGCSEye, 4, ['None','To Pain','To Voice','Spontaneous']] as const,
+				['Verbal Response', admitGCSVerbal, 5, ['None','Incomprehensible','Inappropriate','Confused','Oriented']] as const,
+				['Motor Response', admitGCSMotor, 6, ['None','Extension','Abnormal Flex','Withdrawal','Localises','Obeys']] as const,
+			] as [label, val, max, opts]}
+				<div>
+					<div class="flex justify-between items-center mb-1">
+						<label class="text-xs font-medium text-gray-600">{label}</label>
+						<span class="text-xs font-bold text-blue-600">{val}/{max}</span>
+					</div>
+					<div class="flex gap-1">
+						{#each {length: max} as _, i}
+							{@const score = i + 1}
+							<button class="flex-1 py-2 rounded text-xs font-bold cursor-pointer transition-all"
+								style="background: {val === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
+								       color: {val === score ? 'white' : '#64748b'};"
+								onclick={() => {
+									if (label === 'Eye Opening') admitGCSEye = score;
+									else if (label === 'Verbal Response') admitGCSVerbal = score;
+									else admitGCSMotor = score;
+								}}>
+								{score}
+							</button>
+						{/each}
+					</div>
+					<p class="text-[10px] text-gray-400 mt-0.5">{opts[val - 1] || ''}</p>
+				</div>
+			{/each}
+		</div>
+		<div class="flex gap-2 p-2 rounded-lg text-center"
+			style="background: rgba(59,130,246,0.06); border: 1px solid rgba(59,130,246,0.15);">
+			<span class="text-sm font-bold text-blue-700">Total GCS:</span>
+			<span class="text-sm font-bold text-blue-900">{admitGCSEye + admitGCSVerbal + admitGCSMotor}/15</span>
+		</div>
+
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">CBG (mg/dL)</label>
+				<input bind:value={admitCBG} placeholder="e.g. 110" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+		</div>
+
+		<div>
+			<div class="flex justify-between items-center mb-2">
+				<label class="text-xs font-medium text-gray-600">Pain Score (VAS: 0–10)</label>
+				<span class="text-sm font-bold" style="color: {admitPainScore <= 3 ? '#22c55e' : admitPainScore <= 6 ? '#f97316' : '#ef4444'};">
+					{admitPainScore}/10
+				</span>
+			</div>
+			<div class="flex gap-1">
+				{#each {length: 11} as _, i}
+					<button class="flex-1 py-2 rounded text-xs font-bold cursor-pointer transition-all"
+						style="background: {admitPainScore === i ? (i <= 3 ? '#22c55e' : i <= 6 ? '#f97316' : '#ef4444') : '#f1f5f9'};
+						       color: {admitPainScore === i ? 'white' : '#64748b'};"
+						onclick={() => admitPainScore = i}>
+						{i}
+					</button>
+				{/each}
+			</div>
+			<div class="flex justify-between text-[9px] text-gray-400 mt-1 px-0.5">
+				<span>No Pain</span><span>Moderate</span><span>Worst Pain</span>
+			</div>
+		</div>
+	</div>
+
+	<!-- ── STEP 4: Clinical History ── -->
+	{:else if admitStep === 4}
+	<div class="space-y-3">
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Drug Allergy</label>
+				<input bind:value={admitDrugAllergy} placeholder="e.g. Penicillin - rash"
+					class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">Identification Marks</label>
+				<input bind:value={admitIdentificationMarks} placeholder="e.g. Scar on left arm"
+					class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+			</div>
+			{#if patient?.gender === 'FEMALE' || patient?.gender === 'Female'}
+				<div>
+					<label class="block text-xs font-medium text-gray-600 mb-1">Menstrual History</label>
+					<input bind:value={admitMenstrualHistory} placeholder="Cycle details"
+						class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+				</div>
+				<div>
+					<label class="block text-xs font-medium text-gray-600 mb-1">LMP</label>
+					<input type="date" bind:value={admitLMP} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+				</div>
+			{/if}
+		</div>
+		{#each [
+			['Chief Complaints *', admitChiefComplaints, 'e.g. Headache since 2 days', 3] as const,
+			['History of Present Illness', admitHPI, 'Detailed narrative of current illness', 3] as const,
+			['Past Medical History', admitPastMedHx, 'Previous diagnoses, hospitalizations', 2] as const,
+			['Medication History', admitMedHx, 'Current and recent medications with doses', 2] as const,
+			['Surgical History', admitSurgicalHx, 'Previous surgeries and procedures', 2] as const,
+			['Physical Examination', admitPhysicalExam, 'General and systemic examination findings', 3] as const,
+		] as [label, val, ph, rows]}
+			<div>
+				<label class="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+				<textarea {rows} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);"
+					value={val}
+					oninput={(e) => {
+						if (label.startsWith('Chief')) admitChiefComplaints = (e.target as HTMLTextAreaElement).value;
+						else if (label.startsWith('History of Present')) admitHPI = (e.target as HTMLTextAreaElement).value;
+						else if (label.startsWith('Past Medical')) admitPastMedHx = (e.target as HTMLTextAreaElement).value;
+						else if (label.startsWith('Medication')) admitMedHx = (e.target as HTMLTextAreaElement).value;
+						else if (label.startsWith('Surgical')) admitSurgicalHx = (e.target as HTMLTextAreaElement).value;
+						else admitPhysicalExam = (e.target as HTMLTextAreaElement).value;
+					}}
+				></textarea>
+			</div>
+		{/each}
+	</div>
+
+	<!-- ── STEP 5: Assessment & Plan ── -->
+	{:else if admitStep === 5}
+	<div class="space-y-3">
+		<div>
+			<label class="block text-xs font-medium text-gray-600 mb-1">Provisional Diagnosis *</label>
+			<input bind:value={admitProvDiagnosis} placeholder="e.g. Essential Hypertension Stage 2"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label class="block text-xs font-medium text-gray-600 mb-1">Proposed Plan</label>
+			<textarea rows={3} bind:value={admitProposedPlan} placeholder="Treatment plan, investigations ordered…"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);">
+			</textarea>
+		</div>
+		<div>
+			<label class="block text-xs font-medium text-gray-600 mb-1">Expected Cost (₹)</label>
+			<input bind:value={admitExpectedCost} type="number" min="0" placeholder="e.g. 25000"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<label class="block text-xs font-medium text-gray-600 mb-1">Requesting Faculty Approval From *</label>
+			<select bind:value={admitFacultyId} class="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);">
+				<option value="">— Select Faculty —</option>
+				{#each facultyApprovers as f}
+					<option value={f.id}>{f.name} — {f.department}</option>
+				{/each}
+			</select>
+		</div>
+
+		<!-- Summary card -->
+		<div class="p-3 rounded-xl space-y-1" style="background: rgba(59,130,246,0.04); border: 1px solid rgba(59,130,246,0.15);">
+			<p class="text-xs font-bold text-blue-700 mb-2">Admission Summary</p>
+			<p class="text-xs text-gray-600"><strong>Ward:</strong> {admitDepartment} · {admitWard || 'TBD'} · Bed {admitBedNumber || 'TBD'}</p>
+			<p class="text-xs text-gray-600"><strong>GCS:</strong> E{admitGCSEye}V{admitGCSVerbal}M{admitGCSMotor} = {admitGCSEye + admitGCSVerbal + admitGCSMotor}/15</p>
+			<p class="text-xs text-gray-600"><strong>Vitals:</strong> BP {admitBP || '—'} · HR {admitHR || '—'} · SpO₂ {admitSpO2 || '—'}%</p>
+			<p class="text-xs text-gray-600"><strong>Pain Score:</strong> {admitPainScore}/10</p>
+		</div>
+	</div>
+	{/if}
+
+	<!-- Navigation buttons -->
+	<div class="flex justify-between gap-2 mt-6 pt-4" style="border-top: 1px solid rgba(0,0,0,0.08);">
+		{#if admitStep > 1}
+			<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
+				style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);"
+				onclick={() => admitStep--}>Previous</button>
+		{:else}
+			<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
+				style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);"
+				onclick={() => { showAdmitModal = false; resetAdmitForm(); }}>Cancel</button>
+		{/if}
+
+		{#if admitStep < 5}
+			<button class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.2);
+				       box-shadow: 0 2px 4px rgba(37,99,235,0.3);"
+				onclick={() => admitStep++}>
+				Next <ChevronRight class="inline w-3.5 h-3.5" />
+			</button>
+		{:else}
+			<button class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer flex items-center gap-1.5"
+				style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.2);
+				       box-shadow: 0 2px 4px rgba(22,163,74,0.3);"
+				onclick={submitAdmissionForm}
+				disabled={admitSubmitting || !admitProvDiagnosis}>
+				{#if admitSubmitting}
+					<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+				{:else}
+					<Send class="w-3.5 h-3.5" />
+				{/if}
+				Send for Approval
+			</button>
+		{/if}
 	</div>
 </AquaModal>
 {/if}

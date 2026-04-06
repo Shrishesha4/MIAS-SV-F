@@ -3,13 +3,18 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
+	import { formsApi } from '$lib/api/forms';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { defaultProfileEditFields } from '$lib/config/default-form-definitions';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import type { FormDefinition } from '$lib/types/forms';
+	import { asOptionalString, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
 	import {
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
@@ -38,11 +43,13 @@
 
 	// Patient edit state
 	let showEditModal = $state(false);
-	let editName = $state('');
-	let editPhone = $state('');
-	let editEmail = $state('');
-	let editAddress = $state('');
+	let profileForms: FormDefinition[] = $state([]);
+	let profileFormValues: Record<string, any> = $state({});
 	let savingProfile = $state(false);
+
+	const profileEditFields = $derived(
+		resolveFormFieldsByType(profileForms, 'PROFILE_EDIT', defaultProfileEditFields)
+	);
 
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
@@ -124,10 +131,13 @@
 
 	function openEditModal() {
 		if (!patient) return;
-		editName = patient.name || '';
-		editPhone = patient.phone || '';
-		editEmail = patient.email || '';
-		editAddress = patient.address || '';
+		profileFormValues = {
+			name: patient.name || '',
+			phone: patient.phone || '',
+			email: patient.email || '',
+			address: patient.address || '',
+			blood_group: patient.blood_group || '',
+		};
 		showEditModal = true;
 	}
 
@@ -135,14 +145,22 @@
 		if (!patient) return;
 		savingProfile = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				profileEditFields,
+				profileFormValues,
+				(file, options) => formsApi.uploadFile(file, options),
+				'profile-edit'
+			);
 			await patientApi.updateProfile(patient.id, {
-				name: editName,
-				phone: editPhone,
-				email: editEmail,
-				address: editAddress,
+				name: asOptionalString(submittedValues.name),
+				phone: asOptionalString(submittedValues.phone),
+				email: asOptionalString(submittedValues.email),
+				address: asOptionalString(submittedValues.address),
+				blood_group: asOptionalString(submittedValues.blood_group),
 			});
 			patient = await patientApi.getCurrentPatient();
 			showEditModal = false;
+			profileFormValues = {};
 			toastStore.addToast('Profile updated successfully', 'success');
 		} catch (err) {
 			toastStore.addToast('Failed to update profile', 'error');
@@ -154,7 +172,12 @@
 	onMount(async () => {
 		try {
 			if (role === 'PATIENT') {
-				patient = await patientApi.getCurrentPatient();
+				const [patientData, forms] = await Promise.all([
+					patientApi.getCurrentPatient(),
+					formsApi.getForms({ form_type: 'PROFILE_EDIT' }).catch(() => []),
+				]);
+				patient = patientData;
+				profileForms = forms;
 			} else if (role === 'STUDENT') {
 				sp = await studentApi.getMe();
 			} else if (role === 'FACULTY') {
@@ -740,39 +763,16 @@
 		{/if}
 
 		<!-- Edit Profile Modal -->
-		<AquaModal open={showEditModal} title="Edit Personal Info" onclose={() => showEditModal = false}>
+		<AquaModal open={showEditModal} title="Edit Personal Info" onclose={() => { showEditModal = false; profileFormValues = {}; }}>
 			<form onsubmit={(e) => { e.preventDefault(); handleSaveProfile(); }} class="space-y-4">
-				<div>
-					<label for="edit-name" class="block text-sm text-gray-600 mb-1">Name</label>
-					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-						<input id="edit-name" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-							placeholder="Full name" bind:value={editName} />
-					</div>
-				</div>
-				<div>
-					<label for="edit-phone" class="block text-sm text-gray-600 mb-1">Phone</label>
-					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-						<input id="edit-phone" type="tel" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-							placeholder="Phone number" bind:value={editPhone} />
-					</div>
-				</div>
-				<div>
-					<label for="edit-email" class="block text-sm text-gray-600 mb-1">Email</label>
-					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-						<input id="edit-email" type="email" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-							placeholder="Email address" bind:value={editEmail} />
-					</div>
-				</div>
-				<div>
-					<label for="edit-address" class="block text-sm text-gray-600 mb-1">Address</label>
-					<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-						<input id="edit-address" type="text" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-							placeholder="Address" bind:value={editAddress} />
-					</div>
-				</div>
+				<DynamicFormRenderer
+					fields={profileEditFields}
+					bind:values={profileFormValues}
+					idPrefix="profile-edit"
+				/>
 				<button
 					type="submit"
-					disabled={savingProfile || !editName || !editPhone}
+					disabled={savingProfile || !profileFormValues.name || !profileFormValues.phone}
 					class="w-full py-2 rounded-md text-white text-sm font-medium cursor-pointer disabled:opacity-50"
 					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
 					{savingProfile ? 'Saving...' : 'Save Changes'}

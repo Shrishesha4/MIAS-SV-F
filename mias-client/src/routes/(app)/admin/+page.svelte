@@ -979,8 +979,17 @@
 											<select class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorType}>
 												<option value="CASE_RECORD">CASE_RECORD</option>
 												<option value="ADMISSION">ADMISSION</option>
+												<option value="ADMISSION_REQUEST">ADMISSION_REQUEST</option>
+												<option value="ADMISSION_INTAKE">ADMISSION_INTAKE</option>
+												<option value="ADMISSION_DISCHARGE">ADMISSION_DISCHARGE</option>
+												<option value="ADMISSION_TRANSFER">ADMISSION_TRANSFER</option>
 												<option value="PROFILE">PROFILE</option>
+												<option value="PROFILE_EDIT">PROFILE_EDIT</option>
 												<option value="PRESCRIPTION">PRESCRIPTION</option>
+												<option value="PRESCRIPTION_CREATE">PRESCRIPTION_CREATE</option>
+												<option value="PRESCRIPTION_EDIT">PRESCRIPTION_EDIT</option>
+												<option value="PRESCRIPTION_REQUEST">PRESCRIPTION_REQUEST</option>
+												<option value="VITAL_ENTRY">VITAL_ENTRY</option>
 												<option value="CUSTOM">CUSTOM</option>
 											</select>
 										</div>

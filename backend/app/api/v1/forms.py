@@ -1,8 +1,10 @@
+import os
 import re
 import uuid
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +15,10 @@ from app.models.form_definition import FormDefinition
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/forms", tags=["Forms"])
+UPLOADS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))),
+    "uploads",
+)
 
 
 class FormFieldPayload(BaseModel):
@@ -65,6 +71,11 @@ def _build_slug(payload: FormDefinitionPayload) -> str:
         parts.append(payload.procedure_name)
     parts.append(payload.name)
     return _slugify("-".join(parts))
+
+
+def _safe_upload_context(value: Optional[str]) -> str:
+    cleaned = _slugify(value or "general")
+    return cleaned or "general"
 
 
 def _serialize_form(form: FormDefinition) -> dict:
@@ -210,3 +221,32 @@ async def update_form_definition(
     await db.flush()
     await db.refresh(form)
     return _serialize_form(form)
+
+
+@router.post("/uploads", status_code=201)
+async def upload_form_file(
+    file: UploadFile = File(...),
+    context: Optional[str] = Form(None),
+    field_key: Optional[str] = Form(None),
+    user: User = Depends(get_current_user),
+):
+    safe_context = _safe_upload_context(context)
+    safe_field_key = _safe_upload_context(field_key)
+    target_dir = os.path.join(UPLOADS_DIR, "forms", safe_context)
+    os.makedirs(target_dir, exist_ok=True)
+
+    ext = os.path.splitext(file.filename or "upload.bin")[1] or ".bin"
+    filename = f"{safe_field_key}_{user.id}_{uuid.uuid4().hex[:10]}{ext}"
+    filepath = os.path.join(target_dir, filename)
+
+    content = await file.read()
+    with open(filepath, "wb") as handle:
+        handle.write(content)
+
+    return {
+        "name": file.filename or filename,
+        "url": f"/uploads/forms/{safe_context}/{filename}",
+        "content_type": file.content_type,
+        "size": len(content),
+        "uploaded_at": datetime.utcnow().isoformat(),
+    }

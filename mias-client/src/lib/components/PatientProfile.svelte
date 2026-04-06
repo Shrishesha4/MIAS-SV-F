@@ -8,8 +8,26 @@
 	import { formsApi } from '$lib/api/forms';
 	import { facultyApi } from '$lib/api/faculty';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
+	import {
+		defaultPrescriptionCreateFields,
+		defaultPrescriptionEditFields,
+		defaultPrescriptionRequestFields,
+		defaultVitalEntryFields,
+	} from '$lib/config/default-form-definitions';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
-	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
+	import {
+		appendSupplementalText,
+		asOptionalNumber,
+		asOptionalString,
+		buildCaseRecordDescription,
+		buildCaseRecordProcedureMap,
+		buildSupplementalFormDescription,
+		mergeProcedureMaps,
+		persistFormFiles,
+		resolveCaseRecordFields,
+		resolveFormFieldsByType,
+		stringifyFormValue,
+	} from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
@@ -102,6 +120,18 @@
 	const crFields: FormFieldDefinition[] | null = $derived(
 		crDepartment && crProcedure ? resolveCaseRecordFields(caseRecordForms, crDepartment, crProcedure) : null
 	);
+	const vitalEntryFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'VITAL_ENTRY', defaultVitalEntryFields)
+	);
+	const prescriptionCreateFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_CREATE', defaultPrescriptionCreateFields)
+	);
+	const prescriptionEditFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_EDIT', defaultPrescriptionEditFields)
+	);
+	const prescriptionRequestFields = $derived(
+		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_REQUEST', defaultPrescriptionRequestFields)
+	);
 
 	async function handleCrDiagnosisSearch(query: string) {
 		if (query.length < 2) { crDiagnosisSuggestions = []; return; }
@@ -119,40 +149,23 @@
 	}
 
 	// ── Add Vital form ────────────────────────────────────────────
-	let vSystolic = $state('');
-	let vDiastolic = $state('');
-	let vHeartRate = $state('');
-	let vSpO2 = $state('');
-	let vTemp = $state('');
-	let vWeight = $state('');
-	let vRespRate = $state('');
-	let vGlucose = $state('');
+	let vitalFormData: Record<string, any> = $state({});
 	let vSubmitting = $state(false);
 
 	// ── Add Prescription form ─────────────────────────────────────
-	let rxName = $state('');
-	let rxDosage = $state('');
-	let rxFrequency = $state('');
-	let rxStartDate = $state(new Date().toISOString().split('T')[0]);
-	let rxEndDate = $state('');
-	let rxInstructions = $state('');
+	let prescriptionFormData: Record<string, any> = $state({
+		start_date: new Date().toISOString().split('T')[0],
+	});
 	let rxSubmitting = $state(false);
 
 	// ── Patient Prescription Request form ─────────────────────────
-	let prMedication = $state('');
-	let prDosage = $state('');
-	let prNotes = $state('');
+	let prescriptionRequestFormData: Record<string, any> = $state({});
 	let prSubmitting = $state(false);
 
 	// ── Edit Prescription ─────────────────────────────────────────
 	let showEditPrescriptionModal = $state(false);
 	let editRxId = $state('');
-	let editRxName = $state('');
-	let editRxDosage = $state('');
-	let editRxFrequency = $state('');
-	let editRxStartDate = $state('');
-	let editRxEndDate = $state('');
-	let editRxInstructions = $state('');
+	let editPrescriptionFormData: Record<string, any> = $state({});
 	let editRxStatus = $state('ACTIVE');
 	let editRxMedId = $state('');
 	let editRxSubmitting = $state(false);
@@ -270,7 +283,7 @@
 						studentApi.getFacultyApprovers().catch(() => []),
 						patientApi.getPrescriptionRequests(patientId).catch(() => []),
 						studentApi.getPermissions(studentData.id).catch(() => []),
-						formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
+						formsApi.getForms().catch(() => []),
 					]);
 				const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
 				patient = patientData;
@@ -300,7 +313,7 @@
 					fetchList.push(
 						studentApi.getDepartments().catch(() => []),
 						studentApi.getProcedures().catch(() => ({})),
-						formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
+						formsApi.getForms().catch(() => []),
 					);
 				}
 				const results = await Promise.all(fetchList);
@@ -414,23 +427,30 @@
 
 	// ── Vital Submit ──────────────────────────────────────────────
 	function resetVitalForm() {
-		vSystolic = ''; vDiastolic = ''; vHeartRate = ''; vSpO2 = '';
-		vTemp = ''; vWeight = ''; vRespRate = ''; vGlucose = '';
+		vitalFormData = {};
 	}
 
 	async function submitVital() {
 		if (!patient || vSubmitting) return;
 		vSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				vitalEntryFields,
+				vitalFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-vital'
+			);
 			await patientApi.createVital(patient.id, {
-				systolic_bp: vSystolic ? parseInt(vSystolic) : undefined,
-				diastolic_bp: vDiastolic ? parseInt(vDiastolic) : undefined,
-				heart_rate: vHeartRate ? parseInt(vHeartRate) : undefined,
-				oxygen_saturation: vSpO2 ? parseInt(vSpO2) : undefined,
-				temperature: vTemp ? parseFloat(vTemp) : undefined,
-				weight: vWeight ? parseFloat(vWeight) : undefined,
-				respiratory_rate: vRespRate ? parseInt(vRespRate) : undefined,
-				blood_glucose: vGlucose ? parseInt(vGlucose) : undefined,
+				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
+				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
+				heart_rate: asOptionalNumber(submittedValues.heart_rate),
+				oxygen_saturation: asOptionalNumber(submittedValues.oxygen_saturation),
+				temperature: asOptionalNumber(submittedValues.temperature),
+				weight: asOptionalNumber(submittedValues.weight),
+				respiratory_rate: asOptionalNumber(submittedValues.respiratory_rate),
+				blood_glucose: asOptionalNumber(submittedValues.blood_glucose),
+				cholesterol: asOptionalNumber(submittedValues.cholesterol),
+				bmi: asOptionalNumber(submittedValues.bmi),
 				recorded_by: studentData?.name || 'Student',
 			});
 			vitals = await patientApi.getVitals(patient.id, 30);
@@ -442,24 +462,38 @@
 
 	// ── Prescription Submit ───────────────────────────────────────
 	function resetPrescriptionForm() {
-		rxName = ''; rxDosage = ''; rxFrequency = ''; rxStartDate = new Date().toISOString().split('T')[0];
-		rxEndDate = ''; rxInstructions = '';
+		prescriptionFormData = { start_date: new Date().toISOString().split('T')[0] };
 	}
 
 	async function submitPrescription() {
 		if (!patient || rxSubmitting) return;
 		rxSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				prescriptionCreateFields,
+				prescriptionFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-prescription'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					prescriptionCreateFields,
+					submittedValues,
+					new Set(['name', 'dosage', 'frequency', 'start_date', 'end_date', 'instructions', 'notes'])
+				)
+			);
 			await patientApi.createPrescription(patient.id, {
-				doctor: studentData?.name || '',
-				department: '',
+				doctor: studentData?.name || facultyData?.name || '',
+				department: facultyData?.department || '',
+				notes,
 				medications: [{
-					name: rxName,
-					dosage: rxDosage,
-					frequency: rxFrequency,
-					start_date: rxStartDate,
-					end_date: rxEndDate,
-					instructions: rxInstructions,
+					name: asOptionalString(submittedValues.name) || '',
+					dosage: asOptionalString(submittedValues.dosage) || '',
+					frequency: asOptionalString(submittedValues.frequency) || '',
+					start_date: asOptionalString(submittedValues.start_date) || new Date().toISOString().split('T')[0],
+					end_date: asOptionalString(submittedValues.end_date) || new Date().toISOString().split('T')[0],
+					instructions: asOptionalString(submittedValues.instructions),
 				}],
 			});
 			prescriptions = await patientApi.getPrescriptions(patient.id);
@@ -472,7 +506,7 @@
 
 	// ── Prescription Request Submit ───────────────────────────────
 	function resetRequestForm() {
-		prMedication = ''; prDosage = ''; prNotes = '';
+		prescriptionRequestFormData = {};
 	}
 
 	// ── Edit Prescription ─────────────────────────────────────────
@@ -481,18 +515,22 @@
 		editRxStatus = rx.status || 'ACTIVE';
 		const med = rx.medications?.[0];
 		editRxMedId = med?.id || '';
-		editRxName = med?.name || '';
-		editRxDosage = med?.dosage || '';
-		editRxFrequency = med?.frequency || '';
-		editRxStartDate = med?.start_date || '';
-		editRxEndDate = med?.end_date || '';
-		editRxInstructions = med?.instructions || '';
+		editPrescriptionFormData = {
+			status: rx.status || 'ACTIVE',
+			name: med?.name || '',
+			dosage: med?.dosage || '',
+			frequency: med?.frequency || '',
+			start_date: med?.start_date || '',
+			end_date: med?.end_date || '',
+			instructions: med?.instructions || '',
+			notes: rx.notes || '',
+		};
 		showEditPrescriptionModal = true;
 	}
 
 	function resetEditForm() {
-		editRxId = ''; editRxName = ''; editRxDosage = ''; editRxFrequency = '';
-		editRxStartDate = ''; editRxEndDate = ''; editRxInstructions = '';
+		editRxId = '';
+		editPrescriptionFormData = {};
 		editRxStatus = 'ACTIVE'; editRxMedId = '';
 	}
 
@@ -500,16 +538,31 @@
 		if (!patient || editRxSubmitting) return;
 		editRxSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				prescriptionEditFields,
+				editPrescriptionFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-prescription-edit'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					prescriptionEditFields,
+					submittedValues,
+					new Set(['status', 'name', 'dosage', 'frequency', 'start_date', 'end_date', 'instructions', 'notes'])
+				)
+			);
 			await patientApi.updatePrescription(patient.id, editRxId, {
-				status: editRxStatus,
+				status: asOptionalString(submittedValues.status) || editRxStatus,
+				notes,
 				medications: [{
 					id: editRxMedId || undefined,
-					name: editRxName,
-					dosage: editRxDosage,
-					frequency: editRxFrequency,
-					start_date: editRxStartDate,
-					end_date: editRxEndDate,
-					instructions: editRxInstructions,
+					name: asOptionalString(submittedValues.name) || '',
+					dosage: asOptionalString(submittedValues.dosage) || '',
+					frequency: asOptionalString(submittedValues.frequency) || '',
+					start_date: asOptionalString(submittedValues.start_date) || new Date().toISOString().split('T')[0],
+					end_date: asOptionalString(submittedValues.end_date) || new Date().toISOString().split('T')[0],
+					instructions: asOptionalString(submittedValues.instructions),
 				}],
 			});
 			prescriptions = await patientApi.getPrescriptions(patient.id);
@@ -524,10 +577,24 @@
 		if (!patient || prSubmitting) return;
 		prSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				prescriptionRequestFields,
+				prescriptionRequestFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-prescription-request'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					prescriptionRequestFields,
+					submittedValues,
+					new Set(['medication', 'dosage', 'notes'])
+				)
+			);
 			await patientApi.createPrescriptionRequest(patient.id, {
-				medication: prMedication,
-				dosage: prDosage,
-				notes: prNotes,
+				medication: asOptionalString(submittedValues.medication) || '',
+				dosage: asOptionalString(submittedValues.dosage),
+				notes,
 			});
 			prescriptionRequests = await patientApi.getPrescriptionRequests(patient.id);
 			showRequestPrescriptionModal = false;
@@ -1299,77 +1366,11 @@
 	{/snippet}
 
 	<div class="space-y-4">
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-sys" class="block text-sm font-medium text-gray-700 mb-1">Systolic (mmHg)</label>
-				<input id="v-sys" type="number" bind:value={vSystolic}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 120" />
-			</div>
-			<div>
-				<label for="v-dia" class="block text-sm font-medium text-gray-700 mb-1">Diastolic (mmHg)</label>
-				<input id="v-dia" type="number" bind:value={vDiastolic}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 80" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-hr" class="block text-sm font-medium text-gray-700 mb-1">Heart Rate (bpm)</label>
-				<input id="v-hr" type="number" bind:value={vHeartRate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 72" />
-			</div>
-			<div>
-				<label for="v-spo2" class="block text-sm font-medium text-gray-700 mb-1">SpO₂ (%)</label>
-				<input id="v-spo2" type="number" bind:value={vSpO2}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 98" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-temp" class="block text-sm font-medium text-gray-700 mb-1">Temperature (°F)</label>
-				<input id="v-temp" type="number" step="0.1" bind:value={vTemp}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 98.6" />
-			</div>
-			<div>
-				<label for="v-wt" class="block text-sm font-medium text-gray-700 mb-1">Weight (lbs)</label>
-				<input id="v-wt" type="number" bind:value={vWeight}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 150" />
-			</div>
-		</div>
-		<div class="grid grid-cols-2 gap-4">
-			<div>
-				<label for="v-rr" class="block text-sm font-medium text-gray-700 mb-1">Respiratory Rate</label>
-				<input id="v-rr" type="number" bind:value={vRespRate}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 16" />
-			</div>
-			<div>
-				<label for="v-glu" class="block text-sm font-medium text-gray-700 mb-1">Blood Glucose</label>
-				<input id="v-glu" type="number" bind:value={vGlucose}
-					class="block w-full px-3 py-2 rounded-md text-sm"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					placeholder="e.g. 100" />
-			</div>
-		</div>
-		<div>
-			<label for="v-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
-			<textarea id="v-notes"
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="2"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="Add any relevant notes about this reading"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={vitalEntryFields}
+			bind:values={vitalFormData}
+			idPrefix="patient-profile-vital"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1399,61 +1400,11 @@
 	{/snippet}
 
 	<div class="space-y-4">
-		<div>
-			<label for="rx-name" class="block text-sm font-medium text-gray-700 mb-1">
-				Medication Name <span class="text-red-500">*</span>
-			</label>
-			<input id="rx-name" type="text" bind:value={rxName}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. Lisinopril" />
-		</div>
-		<div>
-			<label for="rx-dose" class="block text-sm font-medium text-gray-700 mb-1">
-				Dosage <span class="text-red-500">*</span>
-			</label>
-			<input id="rx-dose" type="text" bind:value={rxDosage}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. 10mg" />
-		</div>
-		<div>
-			<label for="rx-freq" class="block text-sm font-medium text-gray-700 mb-1">
-				Frequency <span class="text-red-500">*</span>
-			</label>
-			<select id="rx-freq" bind:value={rxFrequency}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-				<option value="">Select frequency</option>
-				<option value="Once daily">Once daily</option>
-				<option value="Twice daily">Twice daily</option>
-				<option value="Three times daily">Three times daily</option>
-				<option value="Four times daily">Four times daily</option>
-				<option value="Every 8 hours">Every 8 hours</option>
-				<option value="Every 12 hours">Every 12 hours</option>
-				<option value="As needed">As needed</option>
-				<option value="Once weekly">Once weekly</option>
-			</select>
-		</div>
-		<div>
-			<label for="rx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-			<input id="rx-start" type="date" bind:value={rxStartDate}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="rx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-			<input id="rx-end" type="date" bind:value={rxEndDate}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="rx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
-			<textarea id="rx-inst" bind:value={rxInstructions}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="Special instructions for taking this medication"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={prescriptionCreateFields}
+			bind:values={prescriptionFormData}
+			idPrefix="patient-profile-prescription"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1464,7 +1415,7 @@
 			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
 			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitPrescription}
-			disabled={rxSubmitting || !rxName || !rxDosage || !rxFrequency}>
+			disabled={rxSubmitting || !prescriptionFormData.name || !prescriptionFormData.dosage || !prescriptionFormData.frequency}>
 			{rxSubmitting ? 'Adding...' : 'Add Prescription'}
 		</button>
 	</div>
@@ -1483,29 +1434,11 @@
 
 	<p class="text-xs text-gray-500 mb-4">Submit a request for a prescription refill or new medication</p>
 	<div class="space-y-4">
-		<div>
-			<label for="pr-med" class="block text-sm font-medium text-gray-700 mb-1">
-				Medication <span class="text-red-500">*</span>
-			</label>
-			<input id="pr-med" type="text" bind:value={prMedication}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. Metformin" />
-		</div>
-		<div>
-			<label for="pr-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage</label>
-			<input id="pr-dose" type="text" bind:value={prDosage}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. 500mg" />
-		</div>
-		<div>
-			<label for="pr-notes" class="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-			<textarea id="pr-notes" bind:value={prNotes}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				placeholder="e.g. Running low on medication, need refill"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={prescriptionRequestFields}
+			bind:values={prescriptionRequestFormData}
+			idPrefix="patient-profile-prescription-request"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
@@ -1517,7 +1450,7 @@
 			style="background: linear-gradient(to bottom, #f97316, #ea580c); border: 1px solid rgba(0,0,0,0.2);
 			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitPrescriptionRequest}
-			disabled={prSubmitting || !prMedication}>
+			disabled={prSubmitting || !prescriptionRequestFormData.medication}>
 			{prSubmitting ? 'Submitting...' : 'Submit Request'}
 		</button>
 	</div>
@@ -1533,72 +1466,12 @@
 			<span class="font-semibold text-gray-800">Edit Prescription</span>
 		</div>
 	{/snippet}
-
 	<div class="space-y-4">
-		<!-- Status Toggle -->
-		<div>
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
-			<div class="flex gap-2">
-				{#each ['ACTIVE', 'COMPLETED'] as st}
-					<button
-						class="flex-1 py-2 rounded-md text-sm font-medium cursor-pointer"
-						style="background: {editRxStatus === st ? (st === 'ACTIVE' ? 'linear-gradient(to bottom, #4cd964, #2ac845)' : 'linear-gradient(to bottom, #6b7280, #4b5563)') : 'linear-gradient(to bottom, #f0f4fa, #d5dde8)'};
-						       color: {editRxStatus === st ? 'white' : '#64748b'};
-						       border: 1px solid rgba(0,0,0,0.2);
-						       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,{editRxStatus === st ? '0.4' : '0.8'});"
-						onclick={() => editRxStatus = st}>
-						{st === 'ACTIVE' ? 'Active' : 'Inactive'}
-					</button>
-				{/each}
-			</div>
-		</div>
-		<div>
-			<label for="erx-name" class="block text-sm font-medium text-gray-700 mb-1">Medication Name</label>
-			<input id="erx-name" type="text" bind:value={editRxName}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-dose" class="block text-sm font-medium text-gray-700 mb-1">Dosage</label>
-			<input id="erx-dose" type="text" bind:value={editRxDosage}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-freq" class="block text-sm font-medium text-gray-700 mb-1">Frequency</label>
-			<select id="erx-freq" bind:value={editRxFrequency}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-				<option value="">Select frequency</option>
-				<option value="Once daily">Once daily</option>
-				<option value="Twice daily">Twice daily</option>
-				<option value="Three times daily">Three times daily</option>
-				<option value="Four times daily">Four times daily</option>
-				<option value="Every 8 hours">Every 8 hours</option>
-				<option value="Every 12 hours">Every 12 hours</option>
-				<option value="As needed">As needed</option>
-				<option value="Once weekly">Once weekly</option>
-			</select>
-		</div>
-		<div>
-			<label for="erx-start" class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-			<input id="erx-start" type="date" bind:value={editRxStartDate}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-end" class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-			<input id="erx-end" type="date" bind:value={editRxEndDate}
-				class="block w-full px-3 py-2 rounded-md text-sm"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);" />
-		</div>
-		<div>
-			<label for="erx-inst" class="block text-sm font-medium text-gray-700 mb-1">Instructions</label>
-			<textarea id="erx-inst" bind:value={editRxInstructions}
-				class="block w-full px-3 py-2 rounded-md text-sm resize-none" rows="3"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"></textarea>
-		</div>
+		<DynamicFormRenderer
+			fields={prescriptionEditFields}
+			bind:values={editPrescriptionFormData}
+			idPrefix="patient-profile-prescription-edit"
+		/>
 	</div>
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"

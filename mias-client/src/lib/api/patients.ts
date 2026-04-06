@@ -271,4 +271,52 @@ export const patientApi = {
     const response = await client.put(`/patients/${patientId}/prescriptions/${rxId}/status`, data);
     return response.data;
   },
+
+  // IO Events (for admitted patients)
+  async getIOEvents(admissionId: string) {
+    const response = await client.get(`/admissions/${admissionId}/io-events`);
+    return response.data;
+  },
+
+  async addIOEvent(admissionId: string, data: { event_time: string; event_type: string; description?: string; amount_ml?: number }) {
+    const response = await client.post(`/admissions/${admissionId}/io-events`, data);
+    return response.data;
+  },
+
+  async deleteIOEvent(admissionId: string, eventId: string) {
+    const response = await client.delete(`/admissions/${admissionId}/io-events/${eventId}`);
+    return response.data;
+  },
+
+  // SOAP Notes
+  async getSOAPNotes(admissionId: string) {
+    const response = await client.get(`/admissions/${admissionId}/soap-notes`);
+    return response.data;
+  },
+
+  async createSOAPNote(admissionId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string }) {
+    const response = await client.post(`/admissions/${admissionId}/soap-notes`, data);
+    return response.data;
+  },
+
+  async updateSOAPNote(admissionId: string, noteId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string }) {
+    const response = await client.put(`/admissions/${admissionId}/soap-notes/${noteId}`, data);
+    return response.data;
+  },
+
+  // Connected Equipment
+  async getEquipment(admissionId: string) {
+    const response = await client.get(`/admissions/${admissionId}/equipment`);
+    return response.data;
+  },
+
+  async connectEquipment(admissionId: string, data: { equipment_type: string; equipment_id?: string }) {
+    const response = await client.post(`/admissions/${admissionId}/equipment`, data);
+    return response.data;
+  },
+
+  async disconnectEquipment(admissionId: string, equipId: string) {
+    const response = await client.delete(`/admissions/${admissionId}/equipment/${equipId}`);
+    return response.data;
+  },
 };

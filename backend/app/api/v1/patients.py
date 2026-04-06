@@ -515,6 +515,8 @@ async def get_patient_admissions(
         {
             "id": a.id,
             "patient_id": a.patient_id,
+            "submitted_by_student_id": a.submitted_by_student_id,
+            "faculty_approver_id": a.faculty_approver_id,
             "admission_date": a.admission_date.isoformat() if a.admission_date else None,
             "discharge_date": a.discharge_date.isoformat() if a.discharge_date else None,
             "department": a.department,
@@ -526,12 +528,51 @@ async def get_patient_admissions(
             "status": a.status,
             "notes": a.notes,
             "program_duration_days": a.program_duration_days,
+            # Triage
+            "accompanied_by": a.accompanied_by,
+            "accompanied_by_contact": a.accompanied_by_contact,
+            "airway_patent": a.airway_patent,
+            "breathing_adequate": a.breathing_adequate,
+            "pulse_present": a.pulse_present,
+            "capillary_refill_time": a.capillary_refill_time,
+            # Vitals at admission
+            "bp_admission": a.bp_admission,
+            "heart_rate_admission": a.heart_rate_admission,
+            "resp_rate_admission": a.resp_rate_admission,
+            "spo2_admission": a.spo2_admission,
+            "temp_admission": a.temp_admission,
+            "weight_admission": a.weight_admission,
+            # GCS
+            "gcs_eye": a.gcs_eye,
+            "gcs_verbal": a.gcs_verbal,
+            "gcs_motor": a.gcs_motor,
+            # Metrics
+            "cbg": a.cbg,
+            "pain_score": a.pain_score,
+            # Clinical history
+            "drug_allergy": a.drug_allergy,
+            "menstrual_history": a.menstrual_history,
+            "lmp": a.lmp.isoformat() if a.lmp else None,
+            "identification_marks": a.identification_marks,
+            "chief_complaints": a.chief_complaints,
+            "history_of_present_illness": a.history_of_present_illness,
+            "past_medical_history": a.past_medical_history,
+            "medication_history": a.medication_history,
+            "surgical_history": a.surgical_history,
+            "physical_examination": a.physical_examination,
+            # Assessment & plan
+            "pain_score_reassessment": a.pain_score_reassessment,
+            "provisional_diagnosis": a.provisional_diagnosis,
+            "expected_cost": a.expected_cost,
+            "proposed_plan": a.proposed_plan,
+            # Misc
             "related_admission_id": a.related_admission_id,
             "transferred_from_department": a.transferred_from_department,
             "referring_doctor": a.referring_doctor,
             "discharge_summary": a.discharge_summary,
             "discharge_instructions": a.discharge_instructions,
             "follow_up_date": a.follow_up_date.isoformat() if a.follow_up_date else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
         }
         for a in admissions
     ]
@@ -544,44 +585,125 @@ async def create_admission(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new admission for a patient (faculty/admin only)."""
-    # Verify patient exists
+    """Create a new admission for a patient.
+    - STUDENT: creates a 'Pending Approval' admission and auto-creates an Approval record
+    - FACULTY/ADMIN: creates an 'Active' admission directly
+    """
+    from app.models.case_record import Approval, ApprovalType, ApprovalStatus
+    from app.models.student import Student
+
     patient = (await db.execute(select(Patient).where(Patient.id == patient_id))).scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    # Auto-resolve attending doctor from logged-in faculty
+    is_student = user.role == UserRole.STUDENT
+    is_faculty = user.role == UserRole.FACULTY
+
+    # Resolve attending doctor / submitted-by
     attending_doctor = body.get("attending_doctor", "")
-    if not attending_doctor and user.role == UserRole.FACULTY:
+    submitted_by_student_id = None
+    faculty_approver_id = body.get("faculty_id")
+
+    if is_student:
+        stu = (await db.execute(select(Student).where(Student.user_id == user.id))).scalar_one_or_none()
+        if stu:
+            submitted_by_student_id = stu.id
+            attending_doctor = attending_doctor or stu.name
+    elif is_faculty and not attending_doctor:
         fac = (await db.execute(select(Faculty).where(Faculty.user_id == user.id))).scalar_one_or_none()
         if fac:
             attending_doctor = fac.name
+            faculty_approver_id = faculty_approver_id or fac.id
 
     admission_date = body.get("admission_date")
-    if admission_date:
-        if isinstance(admission_date, str):
-            try:
-                admission_date = datetime.fromisoformat(admission_date)
-            except ValueError:
-                admission_date = datetime.utcnow()
+    if admission_date and isinstance(admission_date, str):
+        try:
+            admission_date = datetime.fromisoformat(admission_date)
+        except ValueError:
+            admission_date = datetime.utcnow()
     else:
         admission_date = datetime.utcnow()
+
+    # Parse LMP date
+    lmp = None
+    lmp_val = body.get("lmp")
+    if lmp_val and isinstance(lmp_val, str):
+        try:
+            from datetime import date as _date
+            lmp = _date.fromisoformat(lmp_val)
+        except ValueError:
+            pass
+
+    status = "Pending Approval" if is_student else "Active"
 
     admission = Admission(
         id=str(uuid.uuid4()),
         patient_id=patient_id,
+        submitted_by_student_id=submitted_by_student_id,
+        faculty_approver_id=faculty_approver_id,
         admission_date=admission_date,
         department=body.get("department", ""),
         ward=body.get("ward", ""),
         bed_number=body.get("bed_number", ""),
-        attending_doctor=body.get("attending_doctor", ""),
+        attending_doctor=attending_doctor,
         reason=body.get("reason"),
-        diagnosis=body.get("diagnosis"),
-        status="Active",
+        diagnosis=body.get("diagnosis") or body.get("provisional_diagnosis"),
+        status=status,
         notes=body.get("notes"),
         referring_doctor=body.get("referring_doctor"),
+        # Triage
+        accompanied_by=body.get("accompanied_by"),
+        accompanied_by_contact=body.get("accompanied_by_contact"),
+        airway_patent=body.get("airway_patent"),
+        breathing_adequate=body.get("breathing_adequate"),
+        pulse_present=body.get("pulse_present"),
+        capillary_refill_time=body.get("capillary_refill_time"),
+        # Admission vitals
+        bp_admission=body.get("bp_admission"),
+        heart_rate_admission=body.get("heart_rate_admission"),
+        resp_rate_admission=body.get("resp_rate_admission"),
+        spo2_admission=body.get("spo2_admission"),
+        temp_admission=body.get("temp_admission"),
+        weight_admission=body.get("weight_admission"),
+        # GCS
+        gcs_eye=body.get("gcs_eye"),
+        gcs_verbal=body.get("gcs_verbal"),
+        gcs_motor=body.get("gcs_motor"),
+        # Metrics
+        cbg=body.get("cbg"),
+        pain_score=body.get("pain_score"),
+        # Clinical history
+        drug_allergy=body.get("drug_allergy"),
+        menstrual_history=body.get("menstrual_history"),
+        lmp=lmp,
+        identification_marks=body.get("identification_marks"),
+        chief_complaints=body.get("chief_complaints"),
+        history_of_present_illness=body.get("history_of_present_illness"),
+        past_medical_history=body.get("past_medical_history"),
+        medication_history=body.get("medication_history"),
+        surgical_history=body.get("surgical_history"),
+        physical_examination=body.get("physical_examination"),
+        # Assessment & plan
+        pain_score_reassessment=body.get("pain_score_reassessment"),
+        provisional_diagnosis=body.get("provisional_diagnosis"),
+        expected_cost=body.get("expected_cost"),
+        proposed_plan=body.get("proposed_plan"),
     )
     db.add(admission)
+    await db.flush()
+
+    # For student submissions: create a pending approval record
+    if is_student and faculty_approver_id:
+        db.add(Approval(
+            id=str(uuid.uuid4()),
+            approval_type=ApprovalType.ADMISSION,
+            admission_id=admission.id,
+            faculty_id=faculty_approver_id,
+            patient_id=patient_id,
+            student_id=submitted_by_student_id,
+            status=ApprovalStatus.PENDING,
+        ))
+
     await db.commit()
     await db.refresh(admission)
 
@@ -594,7 +716,7 @@ async def create_admission(
         "bed_number": admission.bed_number,
         "attending_doctor": admission.attending_doctor,
         "status": admission.status,
-        "message": "Patient admitted successfully",
+        "message": "Admission submitted for faculty approval" if is_student else "Patient admitted successfully",
     }
 
 

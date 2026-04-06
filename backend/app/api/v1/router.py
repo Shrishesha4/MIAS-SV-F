@@ -9,6 +9,7 @@ from app.api.v1 import (
     prescriptions,
     reports,
     admissions,
+    admission_review,
     wallet,
     notifications,
     approvals,
@@ -28,6 +29,7 @@ api_router.include_router(vitals.router)
 api_router.include_router(prescriptions.router)
 api_router.include_router(reports.router)
 api_router.include_router(admissions.router)
+api_router.include_router(admission_review.router)
 api_router.include_router(wallet.router)
 api_router.include_router(notifications.router)
 api_router.include_router(approvals.router)

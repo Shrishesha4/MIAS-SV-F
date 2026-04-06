@@ -5,8 +5,25 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
+	import { formsApi } from '$lib/api/forms';
 	import { authApi } from '$lib/api/auth';
+	import {
+		defaultAdmissionDischargeFields,
+		defaultAdmissionIntakeFields,
+		defaultAdmissionRequestFields,
+		defaultAdmissionTransferFields,
+	} from '$lib/config/default-form-definitions';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import type { Admission } from '$lib/api/types';
+	import type { FormDefinition } from '$lib/types/forms';
+	import {
+		appendSupplementalText,
+		asOptionalString,
+		buildSupplementalFormDescription,
+		mergeFieldOptions,
+		persistFormFiles,
+		resolveFormFieldsByType,
+	} from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -38,6 +55,10 @@
 	let actionAdmission = $state<any>(null);
 	let submitting = $state(false);
 	let actionError = $state('');
+	let admissionFormDefinitions: FormDefinition[] = $state([]);
+	let admitFormData: Record<string, any> = $state({});
+	let dischargeFormData: Record<string, any> = $state({});
+	let transferFormData: Record<string, any> = $state({});
 
 	// Admit form fields
 	let searchQuery = $state('');
@@ -108,6 +129,30 @@
 	let reqNotes = $state('');
 	let reqError = $state('');
 	let reqSubmitting = $state(false);
+	let requestFormData: Record<string, any> = $state({});
+
+	const departmentOptions = $derived(dbDepartments.map((department) => department.name));
+	const admissionRequestFields = $derived(
+		mergeFieldOptions(
+			resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_REQUEST', defaultAdmissionRequestFields),
+			{ department: departmentOptions }
+		)
+	);
+	const admissionIntakeFields = $derived(
+		mergeFieldOptions(
+			resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_INTAKE', defaultAdmissionIntakeFields),
+			{ department: departmentOptions }
+		)
+	);
+	const admissionDischargeFields = $derived(
+		resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_DISCHARGE', defaultAdmissionDischargeFields)
+	);
+	const admissionTransferFields = $derived(
+		mergeFieldOptions(
+			resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_TRANSFER', defaultAdmissionTransferFields),
+			{ department: departmentOptions }
+		)
+	);
 
 	const filteredAdmissions = $derived(
 		filterStatus
@@ -175,74 +220,41 @@
 		selectedPatient = null;
 		searchQuery = '';
 		searchResults = [];
-		admitDepartment = '';
-		admitWard = '';
-		admitBed = '';
-		admitReason = '';
-		admitDiagnosis = '';
-		admitNotes = '';
+		admitFormData = {};
 		actionError = '';
-		assessmentSection = 0;
-		triageCategory = '';
-		chiefComplaint = '';
-		onsetDuration = '';
-		vitalsSystolic = '';
-		vitalsDiastolic = '';
-		vitalsHR = '';
-		vitalsRR = '';
-		vitalsTemp = '';
-		vitalsSpO2 = '';
-		vitalsWeight = '';
-		gcsBestEye = 4;
-		gcsBestVerbal = 5;
-		gcsBestMotor = 6;
-		cbgValue = '';
-		painScore = 0;
-		clinicalHistory = '';
-		pastMedicalHistory = '';
-		allergiesText = '';
-		currentMedications = '';
-		assessmentPlan = '';
-		treatmentPlan = '';
 		showAdmitModal = true;
 	}
 
 	async function submitAdmit() {
 		if (!selectedPatient) { actionError = 'Please select a patient'; return; }
-		if (!admitDepartment) { actionError = 'Please select a department'; return; }
-		if (!admitWard) { actionError = 'Ward is required'; return; }
-		if (!admitBed) { actionError = 'Bed number is required'; return; }
+		if (!admitFormData.department) { actionError = 'Please select a department'; return; }
+		if (!admitFormData.ward) { actionError = 'Ward is required'; return; }
+		if (!admitFormData.bed_number) { actionError = 'Bed number is required'; return; }
 		submitting = true;
 		actionError = '';
 		try {
+			const submittedValues = await persistFormFiles(
+				admissionIntakeFields,
+				admitFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'admission-intake'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					admissionIntakeFields,
+					submittedValues,
+					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
+				)
+			);
 			await patientApi.createAdmission(selectedPatient.id, {
-				department: admitDepartment,
-				ward: admitWard,
-				bed_number: admitBed,
-				reason: admitReason,
-				diagnosis: admitDiagnosis,
-				notes: admitNotes,
-				triage_category: triageCategory || undefined,
-				chief_complaint: chiefComplaint || undefined,
-				onset_duration: onsetDuration || undefined,
-				vitals: (vitalsSystolic || vitalsHR) ? {
-					systolic_bp: vitalsSystolic ? Number(vitalsSystolic) : undefined,
-					diastolic_bp: vitalsDiastolic ? Number(vitalsDiastolic) : undefined,
-					heart_rate: vitalsHR ? Number(vitalsHR) : undefined,
-					respiratory_rate: vitalsRR ? Number(vitalsRR) : undefined,
-					temperature: vitalsTemp ? Number(vitalsTemp) : undefined,
-					oxygen_saturation: vitalsSpO2 ? Number(vitalsSpO2) : undefined,
-					weight: vitalsWeight ? Number(vitalsWeight) : undefined,
-				} : undefined,
-				gcs: { eye: gcsBestEye, verbal: gcsBestVerbal, motor: gcsBestMotor, total: gcsTotal },
-				cbg: cbgValue || undefined,
-				pain_score: painScore || undefined,
-				clinical_history: clinicalHistory || undefined,
-				past_medical_history: pastMedicalHistory || undefined,
-				allergies: allergiesText || undefined,
-				current_medications: currentMedications || undefined,
-				assessment_plan: assessmentPlan || undefined,
-				treatment_plan: treatmentPlan || undefined,
+				department: asOptionalString(submittedValues.department) || '',
+				ward: asOptionalString(submittedValues.ward) || '',
+				bed_number: asOptionalString(submittedValues.bed_number) || '',
+				reason: asOptionalString(submittedValues.reason),
+				diagnosis: asOptionalString(submittedValues.diagnosis),
+				notes,
+				referring_doctor: asOptionalString(submittedValues.referring_doctor),
 			});
 			showAdmitModal = false;
 			toastStore.addToast('Patient admitted successfully', 'success');
@@ -255,24 +267,40 @@
 
 	function openDischargeModal(admission: any) {
 		actionAdmission = admission;
-		dischargeSummary = '';
-		dischargeInstructions = '';
-		dischargeDiagnosis = admission.diagnosis || '';
-		followUpDate = '';
+		dischargeFormData = {
+			diagnosis: admission.diagnosis || '',
+			discharge_summary: '',
+			discharge_instructions: '',
+			follow_up_date: '',
+		};
 		actionError = '';
 		showDischargeModal = true;
 	}
 
 	async function submitDischarge() {
-		if (!dischargeSummary) { actionError = 'Discharge summary is required'; return; }
+		if (!dischargeFormData.discharge_summary) { actionError = 'Discharge summary is required'; return; }
 		submitting = true;
 		actionError = '';
 		try {
+			const submittedValues = await persistFormFiles(
+				admissionDischargeFields,
+				dischargeFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'admission-discharge'
+			);
+			const dischargeInstructions = appendSupplementalText(
+				asOptionalString(submittedValues.discharge_instructions),
+				buildSupplementalFormDescription(
+					admissionDischargeFields,
+					submittedValues,
+					new Set(['diagnosis', 'discharge_summary', 'discharge_instructions', 'follow_up_date'])
+				)
+			);
 			await patientApi.dischargePatient(actionAdmission.patient_id, actionAdmission.id, {
-				discharge_summary: dischargeSummary,
+				discharge_summary: asOptionalString(submittedValues.discharge_summary),
 				discharge_instructions: dischargeInstructions,
-				diagnosis: dischargeDiagnosis,
-				follow_up_date: followUpDate || null,
+				diagnosis: asOptionalString(submittedValues.diagnosis),
+				follow_up_date: asOptionalString(submittedValues.follow_up_date) || null,
 			});
 			showDischargeModal = false;
 			toastStore.addToast('Patient discharged successfully', 'success');
@@ -285,28 +313,38 @@
 
 	function openTransferModal(admission: any) {
 		actionAdmission = admission;
-		transferDepartment = '';
-		transferWard = '';
-		transferBed = '';
-		transferDoctor = '';
-		transferNotes = '';
+		transferFormData = {};
 		actionError = '';
 		showTransferModal = true;
 	}
 
 	async function submitTransfer() {
-		if (!transferDepartment) { actionError = 'Please select target department'; return; }
-		if (!transferWard) { actionError = 'Ward is required'; return; }
-		if (!transferBed) { actionError = 'Bed number is required'; return; }
+		if (!transferFormData.department) { actionError = 'Please select target department'; return; }
+		if (!transferFormData.ward) { actionError = 'Ward is required'; return; }
+		if (!transferFormData.bed_number) { actionError = 'Bed number is required'; return; }
 		submitting = true;
 		actionError = '';
 		try {
+			const submittedValues = await persistFormFiles(
+				admissionTransferFields,
+				transferFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'admission-transfer'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					admissionTransferFields,
+					submittedValues,
+					new Set(['department', 'ward', 'bed_number', 'attending_doctor', 'notes'])
+				)
+			);
 			await patientApi.transferPatient(actionAdmission.patient_id, actionAdmission.id, {
-				new_department: transferDepartment,
-				new_ward: transferWard,
-				new_bed_number: transferBed,
-				new_attending_doctor: transferDoctor || undefined,
-				notes: transferNotes || undefined,
+				department: asOptionalString(submittedValues.department) || '',
+				ward: asOptionalString(submittedValues.ward) || '',
+				bed_number: asOptionalString(submittedValues.bed_number) || '',
+				attending_doctor: asOptionalString(submittedValues.attending_doctor),
+				notes,
 			});
 			showTransferModal = false;
 			toastStore.addToast('Patient transferred successfully', 'success');
@@ -338,12 +376,7 @@
 	function openRequestModal() {
 		reqPatient = null;
 		reqFaculty = '';
-		reqDepartment = '';
-		reqWard = '';
-		reqBed = '';
-		reqReason = '';
-		reqDiagnosis = '';
-		reqNotes = '';
+		requestFormData = {};
 		reqError = '';
 		showRequestModal = true;
 	}
@@ -351,19 +384,34 @@
 	async function submitAdmissionRequest() {
 		if (!reqPatient) { reqError = 'Please select a patient'; return; }
 		if (!reqFaculty) { reqError = 'Please select approving faculty'; return; }
-		if (!reqReason) { reqError = 'Reason for admission is required'; return; }
+		if (!requestFormData.reason) { reqError = 'Reason for admission is required'; return; }
 		reqSubmitting = true;
 		reqError = '';
 		try {
+			const submittedValues = await persistFormFiles(
+				admissionRequestFields,
+				requestFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'admission-request'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					admissionRequestFields,
+					submittedValues,
+					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
+				)
+			);
 			await studentApi.submitAdmissionRequest(studentId, {
 				patient_id: reqPatient.id,
 				faculty_id: reqFaculty,
-				department: reqDepartment || undefined,
-				ward: reqWard || undefined,
-				bed_number: reqBed || undefined,
-				reason: reqReason,
-				diagnosis: reqDiagnosis || undefined,
-				notes: reqNotes || undefined,
+				department: asOptionalString(submittedValues.department),
+				ward: asOptionalString(submittedValues.ward),
+				bed_number: asOptionalString(submittedValues.bed_number),
+				reason: asOptionalString(submittedValues.reason) || '',
+				diagnosis: asOptionalString(submittedValues.diagnosis),
+				notes,
+				referring_doctor: asOptionalString(submittedValues.referring_doctor),
 			});
 			showRequestModal = false;
 			toastStore.addToast('Admission request submitted successfully', 'success');
@@ -375,6 +423,9 @@
 	}
 
 	onMount(async () => {
+		try {
+			admissionFormDefinitions = await formsApi.getForms();
+		} catch {}
 		if (isFacultyOrAdmin) {
 			try {
 				const depts = await authApi.getDepartments();
@@ -500,7 +551,7 @@
 
 	<!-- Student: Admission Request Modal -->
 	{#if showRequestModal}
-		<AquaModal title="Request Patient Admission" onclose={() => showRequestModal = false}>
+		<AquaModal title="Request Patient Admission" onclose={() => { showRequestModal = false; requestFormData = {}; }}>
 			<div class="space-y-4">
 				{#if reqError}
 					<div class="rounded-lg p-3" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
@@ -546,55 +597,12 @@
 					</select>
 				</div>
 
-				<!-- Department -->
-				<div>
-					<label for="request-department" class="text-xs font-semibold text-gray-600 mb-1 block">Department</label>
-					<select
-						id="request-department"
-						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
-						bind:value={reqDepartment}
-					>
-						<option value="">Select department...</option>
-						{#each dbDepartments as dept}
-							<option value={dept.name}>{dept.name}</option>
-						{/each}
-					</select>
-				</div>
 
-				<!-- Ward & Bed -->
-				<div class="grid grid-cols-2 gap-3">
-					<div>
-						<label for="request-ward" class="text-xs font-semibold text-gray-600 mb-1 block">Ward</label>
-						<input type="text" bind:value={reqWard} placeholder="e.g., General Ward A"
-							class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
-					</div>
-					<div>
-						<label for="request-bed" class="text-xs font-semibold text-gray-600 mb-1 block">Bed Number</label>
-						<input type="text" bind:value={reqBed} placeholder="e.g., A-12"
-							class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
-					</div>
-				</div>
-
-				<!-- Reason -->
-				<div>
-					<label for="request-reason" class="text-xs font-semibold text-gray-600 mb-1 block">Reason for Admission *</label>
-					<textarea bind:value={reqReason} rows={3} placeholder="Describe the reason for admission..."
-						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400 resize-none"></textarea>
-				</div>
-
-				<!-- Diagnosis -->
-				<div>
-					<label for="request-diagnosis" class="text-xs font-semibold text-gray-600 mb-1 block">Diagnosis</label>
-					<input type="text" bind:value={reqDiagnosis} placeholder="e.g., Essential Hypertension"
-						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400" />
-				</div>
-
-				<!-- Notes -->
-				<div>
-					<label for="request-notes" class="text-xs font-semibold text-gray-600 mb-1 block">Additional Notes</label>
-					<textarea bind:value={reqNotes} rows={2} placeholder="Any additional notes..."
-						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400 resize-none"></textarea>
-				</div>
+				<DynamicFormRenderer
+					fields={admissionRequestFields}
+					bind:values={requestFormData}
+					idPrefix="admission-request"
+				/>
 
 				<!-- Submit Button -->
 				<button
@@ -1107,7 +1115,7 @@
 
 <!-- Admit Patient Modal -->
 {#if showAdmitModal}
-	<AquaModal onClose={() => showAdmitModal = false}>
+	<AquaModal onClose={() => { showAdmitModal = false; admitFormData = {}; }}>
 		{#snippet header()}
 			<div class="flex items-center gap-2">
 				<Plus class="w-5 h-5 text-blue-600" />
@@ -1119,21 +1127,6 @@
 			{#if actionError}
 				<div class="p-3 rounded-lg bg-red-50 text-red-600 text-sm">{actionError}</div>
 			{/if}
-
-			<!-- Step indicator -->
-			<div class="flex items-center gap-1">
-				{#each assessmentSteps as step, i}
-					<button
-						class="flex-1 text-center py-1.5 text-[10px] font-bold rounded-md cursor-pointer transition-colors"
-						style="background: {i === assessmentSection ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : i < assessmentSection ? '#dbeafe' : '#f1f5f9'};
-						       color: {i === assessmentSection ? 'white' : i < assessmentSection ? '#2563eb' : '#94a3b8'};
-						       border: 1px solid {i === assessmentSection ? '#2563eb' : 'transparent'};"
-						onclick={() => assessmentSection = i}
-					>
-						{step}
-					</button>
-				{/each}
-			</div>
 
 			<!-- Patient Search (always visible at top) -->
 			<div>
@@ -1174,301 +1167,31 @@
 				{/if}
 			</div>
 
-			<!-- STEP 0: Triage / Primary Survey -->
-			{#if assessmentSection === 0}
-				<div class="space-y-3">
-					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Triage & Primary Survey</p>
 
-					<div>
-						<label for="triage-category" class="text-xs text-gray-500 mb-1 block">Triage Category</label>
-						<select id="triage-category" bind:value={triageCategory}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
-							<option value="">Select triage category</option>
-							<option value="RED">Red – Immediate (Life-threatening)</option>
-							<option value="YELLOW">Yellow – Urgent</option>
-							<option value="GREEN">Green – Delayed (Minor)</option>
-							<option value="BLACK">Black – Expectant</option>
-						</select>
-					</div>
+			<DynamicFormRenderer
+				fields={admissionIntakeFields}
+				bind:values={admitFormData}
+				idPrefix="admission-intake"
+			/>
 
-					{#if triageCategory}
-						<div class="px-3 py-2 rounded-lg text-xs font-medium"
-							style="background: {triageCategory === 'RED' ? '#fee2e2' : triageCategory === 'YELLOW' ? '#fef3c7' : triageCategory === 'GREEN' ? '#dcfce7' : '#f3f4f6'};
-							       color: {triageCategory === 'RED' ? '#991b1b' : triageCategory === 'YELLOW' ? '#92400e' : triageCategory === 'GREEN' ? '#166534' : '#374151'};">
-							{triageCategory === 'RED' ? 'Immediate resuscitation needed' : triageCategory === 'YELLOW' ? 'Urgent care within 30 minutes' : triageCategory === 'GREEN' ? 'Can safely wait for treatment' : 'Comfort measures only'}
-						</div>
-					{/if}
-
-					<div>
-						<label for="chief-complaint" class="text-xs text-gray-500 mb-1 block">Chief Complaint *</label>
-						<textarea id="chief-complaint" placeholder="Primary presenting complaint..." bind:value={chiefComplaint} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="onset-duration" class="text-xs text-gray-500 mb-1 block">Onset / Duration</label>
-						<input id="onset-duration" type="text" placeholder="e.g., 2 days ago, sudden onset" bind:value={onsetDuration}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-					</div>
-
-					<!-- Department & Location -->
-					<div>
-						<label for="admit-department" class="text-xs text-gray-500 mb-1 block">Department *</label>
-						<select id="admit-department" bind:value={admitDepartment}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
-							<option value="">Select department</option>
-							{#each dbDepartments as d}
-								<option value={d.name}>{d.name}</option>
-							{/each}
-						</select>
-					</div>
-
-					<div class="grid grid-cols-2 gap-3">
-						<div>
-							<label for="admit-ward" class="text-xs text-gray-500 mb-1 block">Ward *</label>
-							<input id="admit-ward" type="text" placeholder="e.g., General Ward A" bind:value={admitWard}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-						<div>
-							<label for="admit-bed" class="text-xs text-gray-500 mb-1 block">Bed Number *</label>
-							<input id="admit-bed" type="text" placeholder="e.g., A-12" bind:value={admitBed}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-					</div>
-				</div>
-
-			<!-- STEP 1: Vitals -->
-			{:else if assessmentSection === 1}
-				<div class="space-y-3">
-					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Vital Signs</p>
-
-					<div class="grid grid-cols-2 gap-3">
-						<div>
-							<label for="v-systolic" class="text-xs text-gray-500 mb-1 block">Systolic BP (mmHg)</label>
-							<input id="v-systolic" type="number" placeholder="120" bind:value={vitalsSystolic}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-						<div>
-							<label for="v-diastolic" class="text-xs text-gray-500 mb-1 block">Diastolic BP (mmHg)</label>
-							<input id="v-diastolic" type="number" placeholder="80" bind:value={vitalsDiastolic}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-					</div>
-
-					<div class="grid grid-cols-2 gap-3">
-						<div>
-							<label for="v-hr" class="text-xs text-gray-500 mb-1 block">Heart Rate (bpm)</label>
-							<input id="v-hr" type="number" placeholder="72" bind:value={vitalsHR}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-						<div>
-							<label for="v-rr" class="text-xs text-gray-500 mb-1 block">Respiratory Rate (/min)</label>
-							<input id="v-rr" type="number" placeholder="16" bind:value={vitalsRR}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-					</div>
-
-					<div class="grid grid-cols-3 gap-3">
-						<div>
-							<label for="v-temp" class="text-xs text-gray-500 mb-1 block">Temp (°F)</label>
-							<input id="v-temp" type="number" step="0.1" placeholder="98.6" bind:value={vitalsTemp}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-						<div>
-							<label for="v-spo2" class="text-xs text-gray-500 mb-1 block">SpO2 (%)</label>
-							<input id="v-spo2" type="number" placeholder="98" bind:value={vitalsSpO2}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-						<div>
-							<label for="v-weight" class="text-xs text-gray-500 mb-1 block">Weight (kg)</label>
-							<input id="v-weight" type="number" step="0.1" placeholder="70" bind:value={vitalsWeight}
-								class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-						</div>
-					</div>
-				</div>
-
-			<!-- STEP 2: Neuro / Pain Assessment -->
-			{:else if assessmentSection === 2}
-				<div class="space-y-3">
-					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Glasgow Coma Scale (GCS)</p>
-
-					<div class="p-3 rounded-xl" style="background: #f8fafc; border: 1px solid #e2e8f0;">
-						<div class="flex items-center justify-between mb-3">
-							<span class="text-sm font-semibold text-gray-700">GCS Total</span>
-							<span class="text-xl font-bold" style="color: {gcsTotal <= 8 ? '#dc2626' : gcsTotal <= 12 ? '#f59e0b' : '#16a34a'};">
-								{gcsTotal}/15
-							</span>
-						</div>
-
-						<div class="space-y-2">
-							<div>
-								<div class="flex items-center justify-between mb-1">
-									<label for="gcs-eye" class="text-xs text-gray-500">Eye Opening (E)</label>
-									<span class="text-xs font-bold text-gray-700">{gcsBestEye}</span>
-								</div>
-								<input id="gcs-eye" type="range" min="1" max="4" bind:value={gcsBestEye}
-									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
-								<div class="flex justify-between text-[9px] text-gray-400">
-									<span>None</span><span>Pain</span><span>Voice</span><span>Spont.</span>
-								</div>
-							</div>
-
-							<div>
-								<div class="flex items-center justify-between mb-1">
-									<label for="gcs-verbal" class="text-xs text-gray-500">Verbal Response (V)</label>
-									<span class="text-xs font-bold text-gray-700">{gcsBestVerbal}</span>
-								</div>
-								<input id="gcs-verbal" type="range" min="1" max="5" bind:value={gcsBestVerbal}
-									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
-								<div class="flex justify-between text-[9px] text-gray-400">
-									<span>None</span><span>Sounds</span><span>Words</span><span>Confused</span><span>Oriented</span>
-								</div>
-							</div>
-
-							<div>
-								<div class="flex items-center justify-between mb-1">
-									<label for="gcs-motor" class="text-xs text-gray-500">Motor Response (M)</label>
-									<span class="text-xs font-bold text-gray-700">{gcsBestMotor}</span>
-								</div>
-								<input id="gcs-motor" type="range" min="1" max="6" bind:value={gcsBestMotor}
-									class="w-full h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: #3b82f6;" />
-								<div class="flex justify-between text-[9px] text-gray-400">
-									<span>None</span><span>Ext.</span><span>Flex.</span><span>With.</span><span>Local.</span><span>Obeys</span>
-								</div>
-							</div>
-						</div>
-					</div>
-
-					<div>
-						<label for="cbg-value" class="text-xs text-gray-500 mb-1 block">CBG (mg/dL)</label>
-						<input id="cbg-value" type="number" placeholder="e.g., 110" bind:value={cbgValue}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-					</div>
-
-					<div>
-						<p class="text-xs text-gray-500 mb-2">Pain Score (VAS 0–10)</p>
-						<div class="flex items-center gap-3">
-							<input type="range" min="0" max="10" bind:value={painScore}
-								class="flex-1 h-2 rounded-lg appearance-none cursor-pointer" style="accent-color: {painScore <= 3 ? '#22c55e' : painScore <= 6 ? '#f59e0b' : '#ef4444'};" />
-							<span class="text-lg font-bold min-w-[2ch] text-right"
-								style="color: {painScore <= 3 ? '#16a34a' : painScore <= 6 ? '#d97706' : '#dc2626'};">
-								{painScore}
-							</span>
-						</div>
-						<div class="flex justify-between text-[9px] text-gray-400 mt-0.5">
-							<span>No pain</span><span>Mild</span><span>Moderate</span><span>Severe</span><span>Worst</span>
-						</div>
-					</div>
-				</div>
-
-			<!-- STEP 3: Clinical History -->
-			{:else if assessmentSection === 3}
-				<div class="space-y-3">
-					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Clinical History</p>
-
-					<div>
-						<label for="clinical-history" class="text-xs text-gray-500 mb-1 block">History of Present Illness</label>
-						<textarea id="clinical-history" placeholder="Detailed clinical history..." bind:value={clinicalHistory} rows="3"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="past-medical-history" class="text-xs text-gray-500 mb-1 block">Past Medical History</label>
-						<textarea id="past-medical-history" placeholder="DM, HTN, surgeries, hospitalizations..." bind:value={pastMedicalHistory} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="allergies-text" class="text-xs text-gray-500 mb-1 block">Known Allergies</label>
-						<input id="allergies-text" type="text" placeholder="e.g., Penicillin, Sulfa drugs, NKDA" bind:value={allergiesText}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-					</div>
-
-					<div>
-						<label for="current-meds" class="text-xs text-gray-500 mb-1 block">Current Medications</label>
-						<textarea id="current-meds" placeholder="List current medications..." bind:value={currentMedications} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-				</div>
-
-			<!-- STEP 4: Assessment & Plan -->
-			{:else if assessmentSection === 4}
-				<div class="space-y-3">
-					<p class="text-xs font-bold text-gray-500 uppercase tracking-wider">Assessment & Plan</p>
-
-					<div>
-						<label for="admit-reason" class="text-xs text-gray-500 mb-1 block">Reason for Admission *</label>
-						<textarea id="admit-reason" placeholder="Describe the reason..." bind:value={admitReason} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="admit-diagnosis" class="text-xs text-gray-500 mb-1 block">Initial Diagnosis</label>
-						<input id="admit-diagnosis" type="text" placeholder="Working diagnosis" bind:value={admitDiagnosis}
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-					</div>
-
-					<div>
-						<label for="assessment-plan" class="text-xs text-gray-500 mb-1 block">Assessment & Differential Diagnosis</label>
-						<textarea id="assessment-plan" placeholder="Assessment with differential diagnoses..." bind:value={assessmentPlan} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="treatment-plan" class="text-xs text-gray-500 mb-1 block">Treatment Plan</label>
-						<textarea id="treatment-plan" placeholder="Investigations, management plan..." bind:value={treatmentPlan} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-
-					<div>
-						<label for="admit-notes" class="text-xs text-gray-500 mb-1 block">Additional Notes</label>
-						<textarea id="admit-notes" placeholder="Additional notes..." bind:value={admitNotes} rows="2"
-							class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-					</div>
-				</div>
-			{/if}
-
-			<!-- Navigation buttons -->
-			<div class="flex gap-3">
-				{#if assessmentSection > 0}
-					<button
-						class="flex-1 py-3 rounded-xl font-medium text-sm cursor-pointer"
-						style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); color: #1e40af;
-						       border: 1px solid rgba(0,0,0,0.12);"
-						onclick={() => assessmentSection--}
-					>
-						Previous
-					</button>
+			<button
+				class="w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+				style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+				onclick={submitAdmit}
+				disabled={submitting}
+			>
+				{#if submitting}
+					<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
 				{/if}
-				{#if assessmentSection < assessmentSteps.length - 1}
-					<button
-						class="flex-1 py-3 rounded-xl text-white font-medium text-sm cursor-pointer"
-						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
-						onclick={() => assessmentSection++}
-					>
-						Next
-					</button>
-				{:else}
-					<button
-						class="flex-1 py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-						style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
-						onclick={submitAdmit}
-						disabled={submitting}
-					>
-						{#if submitting}
-							<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-						{/if}
-						Admit Patient
-					</button>
-				{/if}
-			</div>
+				Admit Patient
+			</button>
 		</div>
 	</AquaModal>
 {/if}
 
 <!-- Discharge Modal -->
 {#if showDischargeModal && actionAdmission}
-	<AquaModal onClose={() => showDischargeModal = false}>
+	<AquaModal onClose={() => { showDischargeModal = false; dischargeFormData = {}; }}>
 		{#snippet header()}
 			<div class="flex items-center gap-2">
 				<LogOut class="w-5 h-5 text-green-600" />
@@ -1487,29 +1210,12 @@
 				<p class="text-xs text-gray-500 mt-1">{actionAdmission.department} · {actionAdmission.ward}, {actionAdmission.bed_number}</p>
 			</div>
 
-			<div>
-				<label for="discharge-diagnosis" class="text-xs text-gray-500 mb-1 block">Final Diagnosis</label>
-				<input id="discharge-diagnosis" type="text" bind:value={dischargeDiagnosis}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-			</div>
 
-			<div>
-				<label for="discharge-summary" class="text-xs text-gray-500 mb-1 block">Discharge Summary *</label>
-				<textarea id="discharge-summary" bind:value={dischargeSummary} rows="3" placeholder="Summary of treatment and outcomes..."
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-			</div>
-
-			<div>
-				<label for="discharge-instructions" class="text-xs text-gray-500 mb-1 block">Discharge Instructions</label>
-				<textarea id="discharge-instructions" bind:value={dischargeInstructions} rows="3" placeholder="Post-discharge care instructions..."
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-			</div>
-
-			<div>
-				<label for="follow-up-date" class="text-xs text-gray-500 mb-1 block">Follow-up Date</label>
-				<input id="follow-up-date" type="date" bind:value={followUpDate}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-			</div>
+			<DynamicFormRenderer
+				fields={admissionDischargeFields}
+				bind:values={dischargeFormData}
+				idPrefix="admission-discharge"
+			/>
 
 			<button
 				class="w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50"
@@ -1528,7 +1234,7 @@
 
 <!-- Transfer Modal -->
 {#if showTransferModal && actionAdmission}
-	<AquaModal onClose={() => showTransferModal = false}>
+	<AquaModal onClose={() => { showTransferModal = false; transferFormData = {}; }}>
 		{#snippet header()}
 			<div class="flex items-center gap-2">
 				<ArrowRight class="w-5 h-5 text-blue-600" />
@@ -1547,41 +1253,12 @@
 				<p class="text-xs text-gray-500">{actionAdmission.ward}, {actionAdmission.bed_number} · {actionAdmission.attending_doctor}</p>
 			</div>
 
-			<div>
-				<label for="transfer-department" class="text-xs text-gray-500 mb-1 block">Target Department</label>
-				<select id="transfer-department" bind:value={transferDepartment}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 outline-none">
-					<option value="">Select department</option>
-					{#each dbDepartments as d}
-						<option value={d.name}>{d.name}</option>
-					{/each}
-				</select>
-			</div>
 
-			<div class="grid grid-cols-2 gap-3">
-				<div>
-					<label for="transfer-ward" class="text-xs text-gray-500 mb-1 block">New Ward</label>
-					<input id="transfer-ward" type="text" placeholder="e.g., ICU" bind:value={transferWard}
-						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-				</div>
-				<div>
-					<label for="transfer-bed" class="text-xs text-gray-500 mb-1 block">New Bed</label>
-					<input id="transfer-bed" type="text" placeholder="e.g., ICU-3" bind:value={transferBed}
-						class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-				</div>
-			</div>
-
-			<div>
-				<label for="transfer-doctor" class="text-xs text-gray-500 mb-1 block">Attending Doctor (Optional)</label>
-				<input id="transfer-doctor" type="text" placeholder="New attending doctor" bind:value={transferDoctor}
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none" />
-			</div>
-
-			<div>
-				<label for="transfer-notes" class="text-xs text-gray-500 mb-1 block">Transfer Notes</label>
-				<textarea id="transfer-notes" placeholder="Reason for transfer..." bind:value={transferNotes} rows="2"
-					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm outline-none resize-none"></textarea>
-			</div>
+			<DynamicFormRenderer
+				fields={admissionTransferFields}
+				bind:values={transferFormData}
+				idPrefix="admission-transfer"
+			/>
 
 			<button
 				class="w-full py-3 rounded-xl text-white font-medium flex items-center justify-center gap-2 disabled:opacity-50"

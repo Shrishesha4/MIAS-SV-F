@@ -2,13 +2,18 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { Chart, registerables } from 'chart.js';
+	import { formsApi } from '$lib/api/forms';
 	import { patientApi } from '$lib/api/patients';
 	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
+	import { defaultVitalEntryFields } from '$lib/config/default-form-definitions';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import type { FormDefinition } from '$lib/types/forms';
+	import { asOptionalNumber, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
 	import {
 		Activity, HeartPulse, Thermometer, Droplet, Scale,
 		Plus, ChevronDown, Download, Wind
@@ -31,10 +36,16 @@
 
 	// Add vital modal
 	let showAddModal = $state(false);
-	let addVitalType = $state('');
-	let addVitalValue = $state('');
-	let addVitalValue2 = $state(''); // for diastolic BP
+	let vitalForms: FormDefinition[] = $state([]);
+	let vitalFormData: Record<string, any> = $state({});
 	let addingVital = $state(false);
+
+	const vitalEntryFields = $derived(
+		resolveFormFieldsByType(vitalForms, 'VITAL_ENTRY', defaultVitalEntryFields)
+	);
+	const hasVitalInput = $derived(
+		Object.values(vitalFormData).some((value) => value !== '' && value != null)
+	);
 
 	const latestVital = $derived(vitals.length > 0 ? vitals[0] : null);
 
@@ -194,29 +205,31 @@
 	}
 
 	async function handleAddVital() {
-		if (!addVitalType || !addVitalValue || !patientId) return;
+		if (!patientId || !hasVitalInput) return;
 		addingVital = true;
 		try {
-			const vitalData: any = {};
-			const val = parseFloat(addVitalValue);
-			switch (addVitalType) {
-				case 'bloodPressure':
-					vitalData.systolic_bp = val;
-					vitalData.diastolic_bp = parseFloat(addVitalValue2) || 80;
-					break;
-				case 'heartRate': vitalData.heart_rate = val; break;
-				case 'oxygenSaturation': vitalData.oxygen_saturation = val; break;
-				case 'temperature': vitalData.temperature = val; break;
-				case 'respiratoryRate': vitalData.respiratory_rate = val; break;
-				case 'weight': vitalData.weight = val; break;
-				case 'bloodGlucose': vitalData.blood_glucose = val; break;
-			}
+			const submittedValues = await persistFormFiles(
+				vitalEntryFields,
+				vitalFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'vital-entry'
+			);
+			const vitalData: any = {
+				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
+				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
+				heart_rate: asOptionalNumber(submittedValues.heart_rate),
+				oxygen_saturation: asOptionalNumber(submittedValues.oxygen_saturation),
+				temperature: asOptionalNumber(submittedValues.temperature),
+				respiratory_rate: asOptionalNumber(submittedValues.respiratory_rate),
+				weight: asOptionalNumber(submittedValues.weight),
+				blood_glucose: asOptionalNumber(submittedValues.blood_glucose),
+				cholesterol: asOptionalNumber(submittedValues.cholesterol),
+				bmi: asOptionalNumber(submittedValues.bmi),
+			};
 			await patientApi.createVital(patientId, vitalData);
 			vitals = await patientApi.getVitals(patientId, 365);
 			showAddModal = false;
-			addVitalType = '';
-			addVitalValue = '';
-			addVitalValue2 = '';
+			vitalFormData = {};
 		} catch (err) {
 			toastStore.addToast('Failed to add vital', 'error');
 		} finally {
@@ -227,8 +240,12 @@
 	onMount(async () => {
 		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
-			const patient = await patientApi.getCurrentPatient();
+			const [patient, forms] = await Promise.all([
+				patientApi.getCurrentPatient(),
+				formsApi.getForms({ form_type: 'VITAL_ENTRY' }).catch(() => []),
+			]);
 			patientId = patient.id;
+			vitalForms = forms;
 			vitals = await patientApi.getVitals(patient.id, 365);
 		} catch (err) {
 			toastStore.addToast('Failed to load vitals', 'error');
@@ -468,42 +485,16 @@
 
 	<!-- Add Vital Reading Modal -->
 	{#if showAddModal}
-		<AquaModal title="Add Vital Reading" onclose={() => showAddModal = false}>
+		<AquaModal title="Add Vital Reading" onclose={() => { showAddModal = false; vitalFormData = {}; }}>
 			<div class="space-y-4">
-				<div>
-					<label for="vital-type" class="block text-sm font-medium text-gray-700 mb-1">Vital Sign</label>
-					<div style="box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem;">
-						<select id="vital-type" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700" bind:value={addVitalType}>
-							<option value="">Select vital sign</option>
-							{#each allVitalDefs as v}
-								<option value={v.id}>{v.label}</option>
-							{/each}
-						</select>
-					</div>
-				</div>
-				{#if addVitalType}
-					<div>
-						<label for="vital-val" class="block text-sm font-medium text-gray-700 mb-1">
-							{addVitalType === 'bloodPressure' ? 'Systolic (mmHg)' : (allVitalDefs.find(v => v.id === addVitalType)?.label ?? 'Value')}
-						</label>
-						<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-							<input id="vital-val" type="number" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-								placeholder="Enter value" bind:value={addVitalValue} />
-						</div>
-					</div>
-					{#if addVitalType === 'bloodPressure'}
-						<div>
-							<label for="vital-val2" class="block text-sm font-medium text-gray-700 mb-1">Diastolic (mmHg)</label>
-							<div style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.2); border-radius: 0.375rem; background-color: rgba(255,255,255,0.8);">
-								<input id="vital-val2" type="number" class="w-full px-3 py-2 bg-transparent outline-none text-gray-700"
-									placeholder="Enter diastolic" bind:value={addVitalValue2} />
-							</div>
-						</div>
-					{/if}
-				{/if}
+				<DynamicFormRenderer
+					fields={vitalEntryFields}
+					bind:values={vitalFormData}
+					idPrefix="vital-entry"
+				/>
 				<button
 					onclick={handleAddVital}
-					disabled={addingVital || !addVitalType || !addVitalValue}
+					disabled={addingVital || !hasVitalInput}
 					class="w-full py-2.5 rounded-lg text-white text-sm font-medium cursor-pointer disabled:opacity-50"
 					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
 					{addingVital ? 'Adding...' : 'Save Reading'}

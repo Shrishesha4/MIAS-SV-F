@@ -1,4 +1,18 @@
-export type FormType = 'CASE_RECORD' | 'ADMISSION' | 'PROFILE' | 'PRESCRIPTION' | 'CUSTOM';
+export type FormType =
+	| 'CASE_RECORD'
+	| 'ADMISSION'
+	| 'ADMISSION_REQUEST'
+	| 'ADMISSION_INTAKE'
+	| 'ADMISSION_DISCHARGE'
+	| 'ADMISSION_TRANSFER'
+	| 'PROFILE'
+	| 'PROFILE_EDIT'
+	| 'PRESCRIPTION'
+	| 'PRESCRIPTION_CREATE'
+	| 'PRESCRIPTION_EDIT'
+	| 'PRESCRIPTION_REQUEST'
+	| 'VITAL_ENTRY'
+	| 'CUSTOM';
 
 export type FormFieldType =
 	| 'text'
@@ -23,6 +37,14 @@ export interface FormFieldDefinition {
 	accept?: string;
 	multiple?: boolean;
 	help_text?: string;
+}
+
+export interface UploadedFormFile {
+	name: string;
+	url: string;
+	content_type?: string | null;
+	size?: number | null;
+	uploaded_at?: string | null;
 }
 
 export interface FormDefinition {

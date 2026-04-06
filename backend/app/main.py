@@ -20,6 +20,7 @@ import app.models  # noqa: F401
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
 os.makedirs(os.path.join(UPLOADS_DIR, "photos"), exist_ok=True)
 os.makedirs(os.path.join(UPLOADS_DIR, "signatures"), exist_ok=True)
+os.makedirs(os.path.join(UPLOADS_DIR, "forms"), exist_ok=True)
 
 
 @asynccontextmanager
