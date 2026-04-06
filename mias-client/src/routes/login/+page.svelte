@@ -71,7 +71,7 @@
 				   border: 1px solid rgba(255,255,255,0.8);"
 		>
 			<div class="px-6 py-7">
-				<h2 class="text-lg font-bold text-gray-800 mb-5 text-center">Medical Portal Login</h2>
+				<h2 class="text-lg font-bold text-gray-800 mb-5 text-center">Login</h2>
 
 				{#if error}
 					<div class="mb-4 px-3 py-2 rounded-lg text-sm text-red-600"
@@ -207,8 +207,11 @@
 			</div>
 		</div>
 
-		<p class="text-center text-slate-600 text-[11px] mt-4 pb-2">
-			© 2026 Saveetha Medical College and Hospitals
+		<p class="text-center text-slate-600 text-[11px] mt-4">
+			Need help? Contact hospital support at 
+		</p>
+		<p class="text-center text-slate-600 text-[11px] pb-2">
+			<a href="mailto:support@saveethamedical.com" class="text-blue-600 hover:underline">support@saveethamedical.com</a>
 		</p>
 	</div>
 </div>

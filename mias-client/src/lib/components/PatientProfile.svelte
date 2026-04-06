@@ -5,12 +5,14 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
+	import { formsApi } from '$lib/api/forms';
 	import { facultyApi } from '$lib/api/faculty';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
-	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
+	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
+	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
@@ -42,6 +44,7 @@
 	// Reference data
 	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
 	let procedureMap: Record<string, string[]> = $state({});
+	let caseRecordForms: FormDefinition[] = $state([]);
 	let departments: string[] = $state([]);
 	let studentData: any = $state(null);
 	let facultyData: any = $state(null);
@@ -79,21 +82,25 @@
 	let crProcedure = $state('');
 	let crFacultyId = $state('');
 	let crSubmitting = $state(false);
-	let crFormData: Record<string, string> = $state({});
+	let crFormData: Record<string, any> = $state({});
 	let crDiagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let crDiagnosisLoading = $state(false);
 	let crIcdCode = $state('');
 	let crIcdDescription = $state('');
 	let allowedDepartments: string[] = $state([]);
 
+	const mergedProcedureMap = $derived(
+		mergeProcedureMaps(procedureMap, buildCaseRecordProcedureMap(caseRecordForms))
+	);
+
 	const hasPermission = $derived(
 		role !== 'STUDENT' || !crDepartment || allowedDepartments.includes(crDepartment)
 	);
 	const availableProcedures = $derived(
-		crDepartment && hasPermission ? (procedureMap[crDepartment] || []) : []
+		crDepartment && hasPermission ? (mergedProcedureMap[crDepartment] || []) : []
 	);
-	const crFields: ProcedureField[] | null = $derived(
-		crDepartment && crProcedure ? getProcedureFields(crDepartment, crProcedure) : null
+	const crFields: FormFieldDefinition[] | null = $derived(
+		crDepartment && crProcedure ? resolveCaseRecordFields(caseRecordForms, crDepartment, crProcedure) : null
 	);
 
 	async function handleCrDiagnosisSearch(query: string) {
@@ -252,7 +259,7 @@
 				if (!studentData) {
 					studentData = await studentApi.getMe();
 				}
-				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms] =
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms, forms] =
 					await Promise.all([
 						patientApi.getPatient(patientId),
 						studentApi.getCaseRecords(studentData.id, patientId),
@@ -263,14 +270,17 @@
 						studentApi.getFacultyApprovers().catch(() => []),
 						patientApi.getPrescriptionRequests(patientId).catch(() => []),
 						studentApi.getPermissions(studentData.id).catch(() => []),
+						formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
 					]);
+				const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
 				patient = patientData;
 				caseRecords = caseData;
 				vitals = vitalData;
 				prescriptions = rxData;
 				medications = rxData.flatMap((rx: any) => rx.medications || []);
-				departments = depts;
-				procedureMap = procs;
+				departments = Array.from(new Set([...depts, ...Object.keys(merged)])).sort();
+				procedureMap = merged;
+				caseRecordForms = forms;
 				facultyApprovers = approvers;
 				prescriptionRequests = rxReqs;
 				allowedDepartments = perms.map((p: any) => p.department);
@@ -290,6 +300,7 @@
 					fetchList.push(
 						studentApi.getDepartments().catch(() => []),
 						studentApi.getProcedures().catch(() => ({})),
+						formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
 					);
 				}
 				const results = await Promise.all(fetchList);
@@ -300,8 +311,10 @@
 				medications = results[3].flatMap((rx: any) => rx.medications || []);
 				prescriptionRequests = results[4];
 				if (role === 'FACULTY') {
-					departments = results[5] || [];
-					procedureMap = results[6] || {};
+					const merged = mergeProcedureMaps(results[6] || {}, buildCaseRecordProcedureMap(results[7] || []));
+					departments = Array.from(new Set([...(results[5] || []), ...Object.keys(merged)])).sort();
+					procedureMap = merged;
+					caseRecordForms = results[7] || [];
 				}
 			}
 		} catch (err) {
@@ -372,25 +385,15 @@
 		crSubmitting = true;
 		try {
 			const now = new Date();
-			// Build procedure_description from all non-standard fields
-			const descParts: string[] = [];
-			if (crFields) {
-				for (const field of crFields) {
-					const val = crFormData[field.key];
-					if (val && field.key !== 'findings' && field.key !== 'diagnosis' && field.key !== 'treatment' && field.key !== 'notes') {
-						descParts.push(`${field.label}: ${val}`);
-					}
-				}
-			}
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: crDepartment,
 				procedure: crProcedure,
-				findings: crFormData['findings'] || '',
-				diagnosis: crFormData['diagnosis'] || '',
-				treatment: crFormData['treatment'] || '',
-				notes: crFormData['notes'] || '',
-				description: descParts.join(', '),
+				findings: stringifyFormValue(crFormData['findings']) || '',
+				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
+				treatment: stringifyFormValue(crFormData['treatment']) || '',
+				notes: stringifyFormValue(crFormData['notes']) || '',
+				description: buildCaseRecordDescription(crFields, crFormData),
 				icd_code: crIcdCode || undefined,
 				icd_description: crIcdDescription || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -1231,63 +1234,22 @@
 
 		<!-- Dynamic procedure-specific fields -->
 		{#if crFields}
-			{#each crFields as field (field.key)}
-				<div>
-					{#if field.type === 'diagnosis'}
-						<!-- svelte-ignore a11y_label_has_associated_control -->
-						<label class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<Autocomplete
-							placeholder="Search ICD-10 code or diagnosis..."
-							bind:value={crFormData[field.key]}
-							items={crDiagnosisSuggestions}
-							labelKey="text"
-							sublabelKey="icd_description"
-							badgeKey="icd_code"
-							onInput={handleCrDiagnosisSearch}
-							onSelect={handleCrDiagnosisSelect}
-							onClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
-							loading={crDiagnosisLoading}
-							minChars={2}
-						/>
-						{#if crIcdCode}
-							<div class="mt-1.5 flex items-center gap-1.5">
-								<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{crIcdCode}</span>
-								<span class="text-[10px] text-gray-500 truncate">{crIcdDescription}</span>
-							</div>
-						{/if}
-					{:else if field.type === 'select'}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<select id="cr-{field.key}" bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-							<option value="">Select {field.label}</option>
-							{#each field.options ?? [] as opt}
-								<option value={opt}>{opt}</option>
-							{/each}
-						</select>
-					{:else if field.type === 'textarea'}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<textarea id="cr-{field.key}" bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm resize-y" rows={field.rows ?? 3}
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-							placeholder={field.placeholder ?? ''}></textarea>
-					{:else}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<input id="cr-{field.key}" type={field.type} bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-							placeholder={field.placeholder ?? ''} />
-					{/if}
+			<DynamicFormRenderer
+				fields={crFields}
+				bind:values={crFormData}
+				idPrefix="cr"
+				diagnosisSuggestions={crDiagnosisSuggestions}
+				diagnosisLoading={crDiagnosisLoading}
+				onDiagnosisInput={handleCrDiagnosisSearch}
+				onDiagnosisSelect={handleCrDiagnosisSelect}
+				onDiagnosisClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
+			/>
+			{#if crIcdCode}
+				<div class="mt-1.5 flex items-center gap-1.5">
+					<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{crIcdCode}</span>
+					<span class="text-[10px] text-gray-500 truncate">{crIcdDescription}</span>
 				</div>
-			{/each}
+			{/if}
 
 			{#if role !== 'FACULTY'}
 			<div>

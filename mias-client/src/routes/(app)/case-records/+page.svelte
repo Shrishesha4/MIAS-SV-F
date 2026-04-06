@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { studentApi } from '$lib/api/students';
+	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
-	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
+	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
+	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus } from 'lucide-svelte';
 
 	let expandedId = $state<string | null>(null);
@@ -21,6 +23,7 @@
 	let showCreateModal = $state(false);
 	let departments: string[] = $state([]);
 	let procedures: Record<string, string[]> = $state({});
+	let caseRecordForms: FormDefinition[] = $state([]);
 	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
 	let submitting = $state(false);
 
@@ -28,7 +31,7 @@
 	let selectedDepartment = $state('');
 	let selectedProcedure = $state('');
 	let selectedPatientId = $state('');
-	let formData: Record<string, string> = $state({});
+	let formData: Record<string, any> = $state({});
 	let icdCode = $state('');
 	let icdDescription = $state('');
 	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
@@ -36,8 +39,14 @@
 	let selectedFacultyId = $state('');
 	let allowedDepartments: string[] = $state([]);
 
-	const crFields: ProcedureField[] | null = $derived(
-		selectedDepartment && selectedProcedure ? getProcedureFields(selectedDepartment, selectedProcedure) : null
+	const mergedProcedureMap = $derived(
+		mergeProcedureMaps(procedures, buildCaseRecordProcedureMap(caseRecordForms))
+	);
+
+	const crFields: FormFieldDefinition[] | null = $derived(
+		selectedDepartment && selectedProcedure
+			? resolveCaseRecordFields(caseRecordForms, selectedDepartment, selectedProcedure)
+			: null
 	);
 
 	async function handleDiagnosisSearch(query: string) {
@@ -67,7 +76,7 @@
 	);
 
 	const availableProcedures = $derived(
-		selectedDepartment && hasPermission ? (procedures[selectedDepartment] || []) : []
+		selectedDepartment && hasPermission ? (mergedProcedureMap[selectedDepartment] || []) : []
 	);
 
 	const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'pending'> = {
@@ -79,14 +88,17 @@
 
 	async function openCreateModal() {
 		// Load form data + permissions
-		const [depts, procs, approvers, perms] = await Promise.all([
+		const [depts, procs, approvers, perms, forms] = await Promise.all([
 			studentApi.getDepartments(),
 			studentApi.getProcedures(),
 			studentApi.getFacultyApprovers(),
 			student ? studentApi.getPermissions(student.id) : Promise.resolve([]),
+			formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
 		]);
-		departments = depts;
-		procedures = procs;
+		const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
+		departments = Array.from(new Set([...depts, ...Object.keys(merged)])).sort();
+		procedures = merged;
+		caseRecordForms = forms;
 		facultyApprovers = approvers;
 		allowedDepartments = perms.map((p: any) => p.department);
 		// Reset form
@@ -107,21 +119,15 @@
 		}
 		submitting = true;
 		try {
-			// Build procedure_description from non-standard fields
-			const standardKeys = new Set(['findings', 'diagnosis', 'treatment', 'notes']);
-			const descParts = Object.entries(formData)
-				.filter(([k, v]) => !standardKeys.has(k) && v)
-				.map(([k, v]) => `${k.replace(/_/g,' ')}: ${v}`);
-
 			await studentApi.submitCaseRecord(student.id, {
 				patient_id: selectedPatientId,
 				department: selectedDepartment,
 				procedure: selectedProcedure,
-				procedure_description: descParts.join('; ') || undefined,
-				notes: formData['notes'] || '',
-				findings: formData['findings'] || '',
-				diagnosis: formData['diagnosis'] || '',
-				treatment: formData['treatment'] || '',
+				procedure_description: buildCaseRecordDescription(crFields, formData) || undefined,
+				notes: stringifyFormValue(formData['notes']) || '',
+				findings: stringifyFormValue(formData['findings']) || '',
+				diagnosis: stringifyFormValue(formData['diagnosis']) || '',
+				treatment: stringifyFormValue(formData['treatment']) || '',
 				icd_code: icdCode || undefined,
 				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
@@ -376,63 +382,22 @@
 
 			<!-- Dynamic procedure-specific fields -->
 			{#if crFields}
-				{#each crFields as field (field.key)}
-					<div>
-						{#if field.type === 'diagnosis'}
-							<!-- svelte-ignore a11y_label_has_associated_control -->
-							<label class="block text-sm font-medium text-gray-700 mb-1">
-								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-							</label>
-							<Autocomplete
-								placeholder="Search ICD-10 code or diagnosis..."
-								bind:value={formData[field.key]}
-								items={diagnosisSuggestions}
-								labelKey="text"
-								sublabelKey="icd_description"
-								badgeKey="icd_code"
-								onInput={handleDiagnosisSearch}
-								onSelect={handleDiagnosisSelect}
-								onClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
-								loading={diagnosisLoading}
-								minChars={2}
-							/>
-							{#if icdCode}
-								<div class="mt-1.5 flex items-center gap-1.5">
-									<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{icdCode}</span>
-									<span class="text-[10px] text-gray-500 truncate">{icdDescription}</span>
-								</div>
-							{/if}
-						{:else if field.type === 'select'}
-							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-							</label>
-							<select id="cr-{field.key}" bind:value={formData[field.key]}
-								class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-								<option value="">Select {field.label}</option>
-								{#each field.options ?? [] as opt}
-									<option value={opt}>{opt}</option>
-								{/each}
-							</select>
-						{:else if field.type === 'textarea'}
-							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-							</label>
-							<textarea id="cr-{field.key}" bind:value={formData[field.key]}
-								class="block w-full px-3 py-2 rounded-md text-sm resize-y" rows={field.rows ?? 3}
-								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-								placeholder={field.placeholder ?? ''}></textarea>
-						{:else}
-							<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-								{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-							</label>
-							<input id="cr-{field.key}" type={field.type} bind:value={formData[field.key]}
-								class="block w-full px-3 py-2 rounded-md text-sm"
-								style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-								placeholder={field.placeholder ?? ''} />
-						{/if}
+				<DynamicFormRenderer
+					fields={crFields}
+					bind:values={formData}
+					idPrefix="cr"
+					diagnosisSuggestions={diagnosisSuggestions}
+					diagnosisLoading={diagnosisLoading}
+					onDiagnosisInput={handleDiagnosisSearch}
+					onDiagnosisSelect={handleDiagnosisSelect}
+					onDiagnosisClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
+				/>
+				{#if icdCode}
+					<div class="mt-1.5 flex items-center gap-1.5">
+						<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{icdCode}</span>
+						<span class="text-[10px] text-gray-500 truncate">{icdDescription}</span>
 					</div>
-				{/each}
+				{/if}
 
 				<!-- Faculty Approver -->
 				<div>

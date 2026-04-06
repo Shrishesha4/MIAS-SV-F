@@ -24,3 +24,4 @@ from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalS
 from app.models.department import Department
 from app.models.programme import Programme
 from app.models.student_permission import StudentPermission
+from app.models.form_definition import FormDefinition

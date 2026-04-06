@@ -5,14 +5,16 @@
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
+	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
-	import { getProcedureFields, type ProcedureField } from '$lib/config/procedure-fields';
+	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
+	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
 		Search, ChevronRight, Users, FileText, HeartPulse, Pill, Clock, Plus,
@@ -47,6 +49,7 @@
 	// Reference data
 	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
 	let procedureMap: Record<string, string[]> = $state({});
+	let caseRecordForms: FormDefinition[] = $state([]);
 	let departments: string[] = $state([]);
 	let allowedDepartments: string[] = $state([]);
 
@@ -81,20 +84,24 @@
 	let crProcedure = $state('');
 	let crFacultyId = $state('');
 	let crSubmitting = $state(false);
-	let crFormData: Record<string, string> = $state({});
+	let crFormData: Record<string, any> = $state({});
 	let crDiagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let crDiagnosisLoading = $state(false);
 	let crIcdCode = $state('');
 	let crIcdDescription = $state('');
 
+	const mergedProcedureMap = $derived(
+		mergeProcedureMaps(procedureMap, buildCaseRecordProcedureMap(caseRecordForms))
+	);
+
 	const hasPermission = $derived(
 		!crDepartment || allowedDepartments.includes(crDepartment)
 	);
 	const availableProcedures = $derived(
-		crDepartment && hasPermission ? (procedureMap[crDepartment] || []) : []
+		crDepartment && hasPermission ? (mergedProcedureMap[crDepartment] || []) : []
 	);
-	const crFields: ProcedureField[] | null = $derived(
-		crDepartment && crProcedure ? getProcedureFields(crDepartment, crProcedure) : null
+	const crFields: FormFieldDefinition[] | null = $derived(
+		crDepartment && crProcedure ? resolveCaseRecordFields(caseRecordForms, crDepartment, crProcedure) : null
 	);
 
 	async function handleCrDiagnosisSearch(query: string) {
@@ -269,7 +276,7 @@
 		patient = null; caseRecords = []; vitals = []; prescriptions = [];
 		prescriptionRequests = []; admissions = [];
 		try {
-			const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms, admData] =
+			const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms, admData, forms] =
 				await Promise.all([
 					patientApi.getPatient(patientId),
 					studentApi.getCaseRecords(studentData.id, patientId),
@@ -281,13 +288,16 @@
 					patientApi.getPrescriptionRequests(patientId).catch(() => []),
 					studentApi.getPermissions(studentData.id).catch(() => []),
 					patientApi.getAdmissions(patientId).catch(() => []),
+					formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
 				]);
+			const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
 			patient = patientData;
 			caseRecords = caseData;
 			vitals = vitalData;
 			prescriptions = rxData;
-			departments = depts;
-			procedureMap = procs;
+			departments = Array.from(new Set([...depts, ...Object.keys(merged)])).sort();
+			procedureMap = merged;
+			caseRecordForms = forms;
 			facultyApprovers = approvers;
 			prescriptionRequests = rxReqs;
 			allowedDepartments = perms.map((p: any) => p.department);
@@ -322,24 +332,15 @@
 		crSubmitting = true;
 		try {
 			const now = new Date();
-			const descParts: string[] = [];
-			if (crFields) {
-				for (const field of crFields) {
-					const val = crFormData[field.key];
-					if (val && field.key !== 'findings' && field.key !== 'diagnosis' && field.key !== 'treatment' && field.key !== 'notes') {
-						descParts.push(`${field.label}: ${val}`);
-					}
-				}
-			}
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: crDepartment,
 				procedure: crProcedure,
-				findings: crFormData['findings'] || '',
-				diagnosis: crFormData['diagnosis'] || '',
-				treatment: crFormData['treatment'] || '',
-				notes: crFormData['notes'] || '',
-				description: descParts.join(', '),
+				findings: stringifyFormValue(crFormData['findings']) || '',
+				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
+				treatment: stringifyFormValue(crFormData['treatment']) || '',
+				notes: stringifyFormValue(crFormData['notes']) || '',
+				description: buildCaseRecordDescription(crFields, crFormData),
 				icd_code: crIcdCode || undefined,
 				icd_description: crIcdDescription || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -497,7 +498,9 @@
 		try {
 			alertHistory = await patientApi.getMedicalAlertHistory(patient.id);
 			showAlertHistory = true;
-		} catch { /* ignore */ }
+		} catch {
+			/* ignore */
+		}
 	}
 
 	// ── Primary Diagnosis ─────────────────────────────────────────
@@ -513,9 +516,13 @@
 				time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 			});
 			patient = await patientApi.getPatient(patient.id);
-			newDiagnosis = ''; showDiagnosisInput = false;
-		} catch (err) { toastStore.addToast('Failed to update diagnosis', 'error'); }
-		finally { diagnosisSubmitting = false; }
+			newDiagnosis = '';
+			showDiagnosisInput = false;
+		} catch (err) {
+			toastStore.addToast('Failed to update diagnosis', 'error');
+		} finally {
+			diagnosisSubmitting = false;
+		}
 	}
 </script>
 
@@ -538,30 +545,24 @@
 			{#each ([['clinic','Clinic'],['today','Today'],['previous','Previous']] as const) as [tab, label]}
 				<button
 					class="flex-1 py-2 text-xs font-semibold rounded-t-lg cursor-pointer transition-all"
-					style="background: {listTab === tab ? 'white' : 'transparent'};
-					       color: {listTab === tab ? '#1e40af' : '#64748b'};
-					       border: {listTab === tab ? '1px solid rgba(0,0,0,0.1)' : '1px solid transparent'};
-					       border-bottom-color: {listTab === tab ? 'white' : 'transparent'};
-					       margin-bottom: {listTab === tab ? '-1px' : '0'};
-					       box-shadow: {listTab === tab ? '0 -1px 3px rgba(0,0,0,0.06)' : 'none'};"
 					onclick={() => listTab = tab}
+					style="background: {listTab === tab ? 'linear-gradient(to bottom, #ffffff, #eef4ff)' : 'transparent'};
+					       color: {listTab === tab ? '#1d4ed8' : '#64748b'};"
 				>
 					{label}
 				</button>
 			{/each}
 		</div>
 
-		<!-- Search -->
 		<div class="px-3 py-2.5">
 			<div class="relative">
-				<Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+				<Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
 				<input
 					type="text"
 					placeholder="Search patients..."
 					bind:value={listSearch}
 					class="w-full pl-8 pr-3 py-2 text-xs rounded-lg outline-none"
-					style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15);
-					       box-shadow: inset 0 1px 2px rgba(0,0,0,0.08);"
+					style="background: rgba(255,255,255,0.8); border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 2px rgba(0,0,0,0.08);"
 				/>
 			</div>
 		</div>
@@ -1150,63 +1151,22 @@
 		</div>
 		{/if}
 		{#if crFields}
-			{#each crFields as field (field.key)}
-				<div>
-					{#if field.type === 'diagnosis'}
-						<!-- svelte-ignore a11y_label_has_associated_control -->
-						<label class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<Autocomplete
-							placeholder="Search ICD-10 code or diagnosis..."
-							bind:value={crFormData[field.key]}
-							items={crDiagnosisSuggestions}
-							labelKey="text"
-							sublabelKey="icd_description"
-							badgeKey="icd_code"
-							onInput={handleCrDiagnosisSearch}
-							onSelect={handleCrDiagnosisSelect}
-							onClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
-							loading={crDiagnosisLoading}
-							minChars={2}
-						/>
-						{#if crIcdCode}
-							<div class="mt-1.5 flex items-center gap-1.5">
-								<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{crIcdCode}</span>
-								<span class="text-[10px] text-gray-500 truncate">{crIcdDescription}</span>
-							</div>
-						{/if}
-					{:else if field.type === 'select'}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<select id="cr-{field.key}" bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-							<option value="">Select {field.label}</option>
-							{#each field.options ?? [] as opt}
-								<option value={opt}>{opt}</option>
-							{/each}
-						</select>
-					{:else if field.type === 'textarea'}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<textarea id="cr-{field.key}" bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm resize-y" rows={field.rows ?? 3}
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-							placeholder={field.placeholder ?? ''}></textarea>
-					{:else}
-						<label for="cr-{field.key}" class="block text-sm font-medium text-gray-700 mb-1">
-							{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
-						</label>
-						<input id="cr-{field.key}" type={field.type} bind:value={crFormData[field.key]}
-							class="block w-full px-3 py-2 rounded-md text-sm"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-							placeholder={field.placeholder ?? ''} />
-					{/if}
+			<DynamicFormRenderer
+				fields={crFields}
+				bind:values={crFormData}
+				idPrefix="cr"
+				diagnosisSuggestions={crDiagnosisSuggestions}
+				diagnosisLoading={crDiagnosisLoading}
+				onDiagnosisInput={handleCrDiagnosisSearch}
+				onDiagnosisSelect={handleCrDiagnosisSelect}
+				onDiagnosisClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
+			/>
+			{#if crIcdCode}
+				<div class="mt-1.5 flex items-center gap-1.5">
+					<span class="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{crIcdCode}</span>
+					<span class="text-[10px] text-gray-500 truncate">{crIcdDescription}</span>
 				</div>
-			{/each}
+			{/if}
 			<div>
 				<label for="cr-fac" class="block text-sm font-medium text-gray-700 mb-1">
 					Faculty for Approval <span class="text-red-500">*</span>

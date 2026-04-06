@@ -10,8 +10,11 @@
 		type Department,
 		type Programme
 	} from '$lib/api/admin';
+	import { formsApi } from '$lib/api/forms';
+	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { debounce } from '$lib/utils/debounce';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import {
 		Users,
 		GraduationCap,
@@ -34,7 +37,7 @@
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
-	type AdminTabId = 'overview' | 'users' | 'departments' | 'programmes';
+	type AdminTabId = 'overview' | 'users' | 'departments' | 'programmes' | 'forms';
 
 	let loading = $state(true);
 	let error = $state('');
@@ -45,6 +48,7 @@
 	let usersTotal = $state(0);
 	let departments: Department[] = $state([]);
 	let programmes: Programme[] = $state([]);
+	let formDefinitions: FormDefinition[] = $state([]);
 
 	let activeTab = $state<AdminTabId>('overview');
 	const adminTabs = $derived.by(() => [
@@ -75,6 +79,13 @@
 			description: 'Manage academic programmes and enrollment structure.',
 			Icon: GraduationCap,
 			badge: programmes.length > 0 ? `${programmes.length}` : 'Open'
+		},
+		{
+			id: 'forms' as const,
+			label: 'Forms',
+			description: 'Define reusable form fields, labels, input types, and uploads.',
+			Icon: FileText,
+			badge: `${formDefinitions.length}`
 		}
 	]);
 	const activeTabMeta = $derived(adminTabs.find((tab) => tab.id === activeTab) ?? adminTabs[0]);
@@ -112,6 +123,21 @@
 	let savingUser = $state(false);
 	let addUserError = $state('');
 
+	let loadingForms = $state(false);
+	let showFormEditor = $state(false);
+	let editingFormId = $state<string | null>(null);
+	let formEditorName = $state('');
+	let formEditorDescription = $state('');
+	let formEditorType = $state('CASE_RECORD');
+	let formEditorDepartment = $state('');
+	let formEditorProcedure = $state('');
+	let formEditorSortOrder = $state(0);
+	let formEditorIsActive = $state(true);
+	let formEditorFields: FormFieldDefinition[] = $state([]);
+	let formPreviewValues: Record<string, any> = $state({});
+	let savingForm = $state(false);
+	let formSaveError = $state('');
+
 	async function loadUsers() {
 		loadingUsers = true;
 		try {
@@ -144,6 +170,17 @@
 
 	async function loadProgrammes() {
 		programmes = await adminApi.getProgrammes();
+	}
+
+	async function loadForms() {
+		loadingForms = true;
+		try {
+			formDefinitions = await formsApi.getForms({ include_inactive: true });
+		} catch {
+			formDefinitions = [];
+		} finally {
+			loadingForms = false;
+		}
 	}
 
 	async function handleAddDept() {
@@ -221,11 +258,128 @@
 		await loadProgrammes();
 	}
 
+	function resetFormEditor() {
+		editingFormId = null;
+		showFormEditor = false;
+		formSaveError = '';
+		formEditorName = '';
+		formEditorDescription = '';
+		formEditorType = 'CASE_RECORD';
+		formEditorDepartment = '';
+		formEditorProcedure = '';
+		formEditorSortOrder = 0;
+		formEditorIsActive = true;
+		formEditorFields = [];
+		formPreviewValues = {};
+	}
+
+	function openCreateFormEditor() {
+		resetFormEditor();
+		showFormEditor = true;
+	}
+
+	function openEditFormEditor(form: FormDefinition) {
+		editingFormId = form.id;
+		showFormEditor = true;
+		formSaveError = '';
+		formEditorName = form.name;
+		formEditorDescription = form.description ?? '';
+		formEditorType = form.form_type;
+		formEditorDepartment = form.department ?? '';
+		formEditorProcedure = form.procedure_name ?? '';
+		formEditorSortOrder = form.sort_order;
+		formEditorIsActive = form.is_active;
+		formEditorFields = form.fields.map((field) => ({
+			...field,
+			options: field.options ? [...field.options] : []
+		}));
+		formPreviewValues = {};
+	}
+
+	function addFormField() {
+		formEditorFields = [
+			...formEditorFields,
+			{
+				key: '',
+				label: '',
+				type: 'text',
+				required: false,
+				placeholder: ''
+			}
+		];
+	}
+
+	function removeFormField(index: number) {
+		formEditorFields = formEditorFields.filter((_, fieldIndex) => fieldIndex !== index);
+	}
+
+	function updateFormFieldOptions(index: number, value: string) {
+		formEditorFields[index].options = value
+			.split(',')
+			.map((item) => item.trim())
+			.filter(Boolean);
+	}
+
+	async function saveFormDefinition() {
+		if (!formEditorName.trim()) return;
+		savingForm = true;
+		formSaveError = '';
+		try {
+			const payload = {
+				name: formEditorName.trim(),
+				description: formEditorDescription.trim() || undefined,
+				form_type: formEditorType,
+				department: formEditorType === 'CASE_RECORD' ? formEditorDepartment.trim() || undefined : undefined,
+				procedure_name: formEditorType === 'CASE_RECORD' ? formEditorProcedure.trim() || undefined : undefined,
+				fields: formEditorFields
+					.map((field) => ({
+						...field,
+						key: field.key.trim(),
+						label: field.label.trim(),
+						placeholder: field.placeholder?.trim() || undefined,
+						help_text: field.help_text?.trim() || undefined,
+						options: field.options?.filter(Boolean) ?? [],
+					}))
+					.filter((field) => field.key && field.label),
+				sort_order: formEditorSortOrder,
+				is_active: formEditorIsActive,
+			};
+
+			if (editingFormId) {
+				await formsApi.updateForm(editingFormId, payload);
+			} else {
+				await formsApi.createForm(payload);
+			}
+
+			await loadForms();
+			resetFormEditor();
+		} catch (e: any) {
+			formSaveError = e.response?.data?.detail || 'Failed to save form definition';
+		} finally {
+			savingForm = false;
+		}
+	}
+
+	async function toggleFormActive(form: FormDefinition) {
+		await formsApi.updateForm(form.id, {
+			name: form.name,
+			description: form.description ?? undefined,
+			form_type: form.form_type,
+			department: form.department ?? undefined,
+			procedure_name: form.procedure_name ?? undefined,
+			fields: form.fields,
+			sort_order: form.sort_order,
+			is_active: !form.is_active,
+		});
+		await loadForms();
+	}
+
 	$effect(() => {
 		if (loading) return;
 		if (activeTab === 'users') loadUsers();
 		else if (activeTab === 'departments') loadDepartments();
 		else if (activeTab === 'programmes') loadProgrammes();
+		else if (activeTab === 'forms') loadForms();
 	});
 
 	const debouncedLoadUsers = debounce(() => loadUsers(), 300);
@@ -393,6 +547,15 @@
 								>
 									<Plus class="w-4 h-4" />
 									Add Programme
+								</button>
+							{:else if activeTab === 'forms'}
+								<button
+									class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white cursor-pointer"
+									style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+									onclick={openCreateFormEditor}
+								>
+									<Plus class="w-4 h-4" />
+									Add Form
 								</button>
 							{:else}
 								<div class="px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wide text-blue-700"
@@ -787,6 +950,170 @@
 								</div>
 							{/if}
 						</div>
+
+					{:else if activeTab === 'forms'}
+						<div class="flex items-center justify-between mb-1">
+							<div>
+								<h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wide" style="text-shadow: 0 1px 0 rgba(255,255,255,0.8);">
+									System Forms
+								</h3>
+								<p class="text-xs text-gray-400 mt-1">Case-record definitions go live anywhere the shared renderer is used.</p>
+							</div>
+							<span class="text-[10px] text-gray-400">{formDefinitions.length} configured</span>
+						</div>
+
+						{#if showFormEditor}
+							<div class="grid gap-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.9fr)]">
+								<div class="p-4"
+									style="background-color: white; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); border: 1px solid rgba(0,0,0,0.1);">
+									<div class="flex items-center justify-between gap-3 mb-3">
+										<h4 class="text-sm font-bold text-gray-900">{editingFormId ? 'Edit Form' : 'New Form'}</h4>
+										<button class="px-3 py-1.5 text-xs font-bold text-gray-500 cursor-pointer" onclick={resetFormEditor}>Close</button>
+									</div>
+									{#if formSaveError}
+										<p class="text-xs text-red-500 mb-3">{formSaveError}</p>
+									{/if}
+									<div class="space-y-3">
+										<div class="grid gap-2 sm:grid-cols-2">
+											<input type="text" placeholder="Form Name" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorName} />
+											<select class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorType}>
+												<option value="CASE_RECORD">CASE_RECORD</option>
+												<option value="ADMISSION">ADMISSION</option>
+												<option value="PROFILE">PROFILE</option>
+												<option value="PRESCRIPTION">PRESCRIPTION</option>
+												<option value="CUSTOM">CUSTOM</option>
+											</select>
+										</div>
+										<textarea placeholder="Description" rows="2" class="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none resize-y" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorDescription}></textarea>
+										{#if formEditorType === 'CASE_RECORD'}
+											<div class="grid gap-2 sm:grid-cols-2">
+												<input type="text" placeholder="Department" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorDepartment} />
+												<input type="text" placeholder="Procedure Name" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorProcedure} />
+											</div>
+										{/if}
+										<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+											<input type="number" min="0" placeholder="Sort Order" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={formEditorSortOrder} />
+											<label class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700" style="background: rgba(59,130,246,0.05); border: 1px solid rgba(59,130,246,0.12);">
+												<input type="checkbox" bind:checked={formEditorIsActive} />
+												Active
+											</label>
+										</div>
+
+										<div class="flex items-center justify-between pt-1">
+											<h5 class="text-xs font-bold uppercase tracking-wide text-gray-500">Fields</h5>
+											<button class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.2);" onclick={addFormField}>
+												<Plus class="w-3.5 h-3.5" />
+												Add Field
+											</button>
+										</div>
+
+										<div class="space-y-3 max-h-[28rem] overflow-y-auto pr-1">
+											{#each formEditorFields as field, index (index)}
+												<div class="p-3 rounded-xl" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(0,0,0,0.08);">
+													<div class="grid gap-2 sm:grid-cols-2">
+														<input type="text" placeholder="Field Key" class="px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.key} />
+														<input type="text" placeholder="Label" class="px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.label} />
+													</div>
+													<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] mt-2">
+														<select class="px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.type}>
+															{#each ['text', 'textarea', 'number', 'select', 'diagnosis', 'date', 'file', 'email', 'password', 'tel'] as fieldType}
+																<option value={fieldType}>{fieldType}</option>
+															{/each}
+														</select>
+														<input type="text" placeholder="Placeholder" class="px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.placeholder} />
+														<label class="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700" style="background: white; border: 1px solid rgba(0,0,0,0.08);">
+															<input type="checkbox" bind:checked={field.required} />
+															Req.
+														</label>
+													</div>
+													{#if field.type === 'select'}
+														<input type="text" value={field.options?.join(', ') ?? ''} placeholder="Options (comma separated)" class="mt-2 w-full px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" oninput={(event) => updateFormFieldOptions(index, event.currentTarget.value)} />
+													{:else if field.type === 'textarea'}
+														<input type="number" min="2" max="12" placeholder="Rows" class="mt-2 w-full px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.rows} />
+													{:else if field.type === 'file'}
+														<div class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] mt-2">
+															<input type="text" placeholder="Accept (e.g. image/*,.pdf)" class="px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.accept} />
+															<label class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700" style="background: white; border: 1px solid rgba(0,0,0,0.08);">
+																<input type="checkbox" bind:checked={field.multiple} />
+																Multiple
+															</label>
+														</div>
+													{/if}
+													<input type="text" placeholder="Help text" class="mt-2 w-full px-3 py-2 bg-white border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.06);" bind:value={field.help_text} />
+													<div class="flex justify-end mt-2">
+														<button class="px-3 py-1.5 text-xs font-bold text-red-500 cursor-pointer" onclick={() => removeFormField(index)}>Remove</button>
+													</div>
+												</div>
+											{/each}
+											{#if formEditorFields.length === 0}
+												<div class="text-center py-6 rounded-xl" style="background: rgba(248,250,252,0.9); border: 1px dashed rgba(0,0,0,0.12);">
+													<p class="text-sm text-gray-400">No fields added yet</p>
+												</div>
+											{/if}
+										</div>
+
+										<div class="flex gap-2 pt-2">
+											<button class="flex-1 py-2 rounded-lg text-xs font-medium text-white cursor-pointer" style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3);" onclick={saveFormDefinition} disabled={savingForm}>
+												{savingForm ? 'Saving...' : editingFormId ? 'Update Form' : 'Create Form'}
+											</button>
+											<button class="px-4 py-2 text-xs font-bold text-gray-500 cursor-pointer" onclick={resetFormEditor}>Cancel</button>
+										</div>
+									</div>
+								</div>
+
+								<div class="p-4"
+									style="background-color: white; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.12); border: 1px solid rgba(0,0,0,0.1);">
+									<h4 class="text-sm font-bold text-gray-900 mb-3">Live Preview</h4>
+									{#if formEditorFields.length > 0}
+										<div class="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
+											<DynamicFormRenderer fields={formEditorFields} bind:values={formPreviewValues} idPrefix="admin-form-preview" />
+										</div>
+									{:else}
+										<div class="text-center py-10 rounded-xl" style="background: rgba(248,250,252,0.9); border: 1px dashed rgba(0,0,0,0.12);">
+											<p class="text-sm text-gray-400">Add fields to preview this form</p>
+										</div>
+									{/if}
+								</div>
+							</div>
+						{/if}
+
+						{#if loadingForms}
+							<div class="flex items-center justify-center py-8">
+								<Loader2 class="w-5 h-5 text-blue-500 animate-spin" />
+							</div>
+						{:else}
+							<div class="space-y-2">
+								{#each formDefinitions as form}
+									<div class="p-3 rounded-xl flex flex-wrap items-center justify-between gap-3" style="background-color: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 2px rgba(0,0,0,0.06); opacity: {form.is_active ? 1 : 0.65};">
+										<div class="min-w-0">
+											<p class="text-sm font-semibold text-gray-900 truncate">{form.name}</p>
+											<p class="text-[11px] text-gray-500 truncate">
+												<span class="font-bold uppercase text-blue-600">{form.form_type}</span>
+												{#if form.department}<span> · {form.department}</span>{/if}
+												{#if form.procedure_name}<span> · {form.procedure_name}</span>{/if}
+												<span> · {form.fields.length} fields</span>
+												{#if !form.is_active}<span class="text-red-500 font-bold"> · INACTIVE</span>{/if}
+											</p>
+											{#if form.description}
+												<p class="text-xs text-gray-500 mt-1 line-clamp-2">{form.description}</p>
+											{/if}
+										</div>
+										<div class="flex items-center gap-2 shrink-0">
+											<button class="px-3 py-2 rounded-lg text-xs font-medium cursor-pointer text-blue-700" style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.12);" onclick={() => openEditFormEditor(form)}>Edit</button>
+											<button class="px-3 py-2 rounded-lg text-xs font-medium cursor-pointer text-gray-700" style="background: rgba(148,163,184,0.08); border: 1px solid rgba(148,163,184,0.16);" onclick={() => toggleFormActive(form)}>
+												{form.is_active ? 'Deactivate' : 'Activate'}
+											</button>
+										</div>
+									</div>
+								{/each}
+								{#if formDefinitions.length === 0}
+									<div class="text-center py-8">
+										<FileText class="w-7 h-7 mx-auto text-gray-300 mb-2" />
+										<p class="text-sm text-gray-400">No form definitions yet</p>
+									</div>
+								{/if}
+							</div>
+						{/if}
 					{/if}
 				</div>
 			</div>
