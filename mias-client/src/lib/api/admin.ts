@@ -128,6 +128,26 @@ export const adminApi = {
     return r.data;
   },
 
+  async createUser(data: {
+    username: string;
+    email: string;
+    password: string;
+    role: string;
+    name?: string;
+    date_of_birth?: string;
+    gender?: string;
+    blood_group?: string;
+    phone?: string;
+    year?: number;
+    semester?: number;
+    program?: string;
+    department?: string;
+    specialty?: string;
+  }) {
+    const r = await client.post('/admin/users', data);
+    return r.data;
+  },
+
   // Departments
   async getDepartments(): Promise<Department[]> {
     const r = await client.get('/admin/departments');

@@ -5,6 +5,7 @@ from sqlalchemy import select, func, case, text, and_, distinct, extract
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, date
 from typing import Optional
+from pydantic import BaseModel, EmailStr
 import uuid
 
 from app.database import get_db
@@ -209,6 +210,114 @@ async def delete_user(
     await db.delete(target)
     await db.commit()
     return {"message": f"User {target.username} has been deleted"}
+
+
+# ── Create User (Admin) ──────────────────────────────────────────────
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str
+    email: str
+    password: str
+    role: str
+    # PATIENT fields
+    name: Optional[str] = None
+    date_of_birth: Optional[str] = None  # YYYY-MM-DD
+    gender: Optional[str] = None
+    blood_group: Optional[str] = None
+    phone: Optional[str] = None
+    # STUDENT fields
+    year: Optional[int] = None
+    semester: Optional[int] = None
+    program: Optional[str] = None
+    # FACULTY fields
+    department: Optional[str] = None
+    specialty: Optional[str] = None
+
+
+def _generate_patient_id():
+    return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+def _generate_student_id():
+    return f"ST{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+def _generate_faculty_id():
+    return f"FA{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+
+@router.post("/users", status_code=201)
+async def admin_create_user(
+    data: AdminCreateUserRequest,
+    admin: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin creates a new user directly (no email verification required)."""
+    # Check uniqueness
+    if (await db.execute(select(User).where(User.username == data.username))).scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Username already exists")
+    if (await db.execute(select(User).where(User.email == data.email))).scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already exists")
+
+    try:
+        role = UserRole(data.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {data.role}")
+
+    user_id = str(uuid.uuid4())
+    user = User(
+        id=user_id,
+        username=data.username,
+        email=data.email,
+        password_hash=get_password_hash(data.password),
+        role=role,
+        is_active=True,
+    )
+    db.add(user)
+
+    name = data.name or data.username
+
+    if role == UserRole.PATIENT:
+        dob = datetime.strptime(data.date_of_birth, "%Y-%m-%d").date() if data.date_of_birth else date.today()
+        from app.models.patient import Gender
+        db.add(Patient(
+            id=str(uuid.uuid4()),
+            patient_id=_generate_patient_id(),
+            user_id=user_id,
+            name=name,
+            date_of_birth=dob,
+            gender=Gender(data.gender) if data.gender else Gender.OTHER,
+            blood_group=data.blood_group or "Unknown",
+            phone=data.phone or "",
+            email=data.email,
+            address="",
+        ))
+    elif role == UserRole.STUDENT:
+        db.add(Student(
+            id=str(uuid.uuid4()),
+            student_id=_generate_student_id(),
+            user_id=user_id,
+            name=name,
+            year=data.year or 1,
+            semester=data.semester or 1,
+            program=data.program or "",
+            gpa=0.0,
+            academic_advisor="",
+        ))
+    elif role == UserRole.FACULTY:
+        db.add(Faculty(
+            id=str(uuid.uuid4()),
+            faculty_id=_generate_faculty_id(),
+            user_id=user_id,
+            name=name,
+            department=data.department or "",
+            specialty=data.specialty or "",
+            phone=data.phone or "",
+            email=data.email,
+        ))
+    # ADMIN role: no extra profile record needed
+
+    await db.commit()
+    return {"message": f"User {data.username} created successfully", "user_id": user_id}
 
 
 # ── Department Management ────────────────────────────────────────────
