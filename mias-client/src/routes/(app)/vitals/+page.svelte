@@ -1,22 +1,14 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { get } from 'svelte/store';
 	import { Chart, registerables } from 'chart.js';
-	import { formsApi } from '$lib/api/forms';
 	import { patientApi } from '$lib/api/patients';
-	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
-	import { defaultVitalEntryFields } from '$lib/config/default-form-definitions';
-	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
-	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
-	import type { FormDefinition } from '$lib/types/forms';
-	import { asOptionalNumber, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
 	import {
 		Activity, HeartPulse, Thermometer, Droplet, Scale,
-		Plus, ChevronDown, Download, Wind
+		ChevronDown, Download, Wind
 	} from 'lucide-svelte';
 
 	Chart.register(...registerables);
@@ -29,23 +21,10 @@
 	let patientId = $state('');
 
 	// Selected vital for detail view
-	let activeVitalId = $state<string | null>(null);
+	let activeVitalId = $state<string | null>('bloodPressure');
 	let timeRange = $state('30');
 	let showRawData = $state(false);
 	let showSecondary = $state(false);
-
-	// Add vital modal
-	let showAddModal = $state(false);
-	let vitalForms: FormDefinition[] = $state([]);
-	let vitalFormData: Record<string, any> = $state({});
-	let addingVital = $state(false);
-
-	const vitalEntryFields = $derived(
-		resolveFormFieldsByType(vitalForms, 'VITAL_ENTRY', defaultVitalEntryFields)
-	);
-	const hasVitalInput = $derived(
-		Object.values(vitalFormData).some((value) => value !== '' && value != null)
-	);
 
 	const latestVital = $derived(vitals.length > 0 ? vitals[0] : null);
 
@@ -204,48 +183,11 @@
 		URL.revokeObjectURL(url);
 	}
 
-	async function handleAddVital() {
-		if (!patientId || !hasVitalInput) return;
-		addingVital = true;
-		try {
-			const submittedValues = await persistFormFiles(
-				vitalEntryFields,
-				vitalFormData,
-				(file, options) => formsApi.uploadFile(file, options),
-				'vital-entry'
-			);
-			const vitalData: any = {
-				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
-				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
-				heart_rate: asOptionalNumber(submittedValues.heart_rate),
-				oxygen_saturation: asOptionalNumber(submittedValues.oxygen_saturation),
-				temperature: asOptionalNumber(submittedValues.temperature),
-				respiratory_rate: asOptionalNumber(submittedValues.respiratory_rate),
-				weight: asOptionalNumber(submittedValues.weight),
-				blood_glucose: asOptionalNumber(submittedValues.blood_glucose),
-				cholesterol: asOptionalNumber(submittedValues.cholesterol),
-				bmi: asOptionalNumber(submittedValues.bmi),
-			};
-			await patientApi.createVital(patientId, vitalData);
-			vitals = await patientApi.getVitals(patientId, 365);
-			showAddModal = false;
-			vitalFormData = {};
-		} catch (err) {
-			toastStore.addToast('Failed to add vital', 'error');
-		} finally {
-			addingVital = false;
-		}
-	}
-
 	onMount(async () => {
 		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
-			const [patient, forms] = await Promise.all([
-				patientApi.getCurrentPatient(),
-				formsApi.getForms({ form_type: 'VITAL_ENTRY' }).catch(() => []),
-			]);
+			const patient = await patientApi.getCurrentPatient();
 			patientId = patient.id;
-			vitalForms = forms;
 			vitals = await patientApi.getVitals(patient.id, 365);
 		} catch (err) {
 			toastStore.addToast('Failed to load vitals', 'error');
@@ -269,7 +211,7 @@
 	});
 </script>
 
-<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
+<div class="mx-auto max-w-6xl px-4 py-4 md:px-6 md:py-6 space-y-4 lg:space-y-5">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -277,19 +219,20 @@
 	{:else if !latestVital}
 		<div class="text-center py-12 text-gray-400">
 			<HeartPulse class="w-12 h-12 mx-auto mb-3 opacity-50" />
-			<p class="text-sm">No vitals data available</p>
+			<p class="text-sm">No vitals data available yet</p>
+			<p class="mt-2 text-xs text-gray-400">Your care team will record readings here when they are taken.</p>
 		</div>
 	{:else}
 	<!-- Header -->
 	<div class="flex items-center justify-between">
-		<h1 class="text-xl font-semibold text-blue-900">Vitals Tracker</h1>
-		<button
-			onclick={() => showAddModal = true}
-			class="flex items-center px-3 py-1.5 text-sm font-medium text-white rounded-lg cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
-			<Plus class="w-4 h-4 mr-1" />
-			Add Reading
-		</button>
+		<div>
+			<h1 class="text-xl font-semibold text-blue-900">Vitals Tracker</h1>
+			<p class="mt-1 text-sm text-slate-500">Read-only view of the readings recorded during your care.</p>
+		</div>
+		<div class="rounded-full px-3 py-1 text-xs font-semibold text-blue-700"
+			style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(59,130,246,0.18);">
+			Care-team recorded
+		</div>
 	</div>
 
 	<!-- Primary Vitals Grid -->
@@ -483,24 +426,5 @@
 		</div>
 	</AquaCard>
 
-	<!-- Add Vital Reading Modal -->
-	{#if showAddModal}
-		<AquaModal title="Add Vital Reading" onclose={() => { showAddModal = false; vitalFormData = {}; }}>
-			<div class="space-y-4">
-				<DynamicFormRenderer
-					fields={vitalEntryFields}
-					bind:values={vitalFormData}
-					idPrefix="vital-entry"
-				/>
-				<button
-					onclick={handleAddVital}
-					disabled={addingVital || !hasVitalInput}
-					class="w-full py-2.5 rounded-lg text-white text-sm font-medium cursor-pointer disabled:opacity-50"
-					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4); border: 1px solid rgba(0,0,0,0.2);">
-					{addingVital ? 'Adding...' : 'Save Reading'}
-				</button>
-			</div>
-		</AquaModal>
-	{/if}
 	{/if}
 </div>

@@ -258,14 +258,14 @@ async def get_patient_vitals(
 async def create_vital(
     patient_id: str,
     vital_data: dict,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_role(UserRole.STUDENT, UserRole.FACULTY, UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
     vital = Vital(
         id=str(uuid.uuid4()),
         patient_id=patient_id,
         recorded_at=datetime.utcnow(),
-        recorded_by=vital_data.get("recorded_by"),
+        recorded_by=vital_data.get("recorded_by") or getattr(user, "username", None),
         systolic_bp=vital_data.get("systolic_bp"),
         diastolic_bp=vital_data.get("diastolic_bp"),
         heart_rate=vital_data.get("heart_rate"),

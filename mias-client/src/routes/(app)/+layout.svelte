@@ -257,7 +257,7 @@
 <style>
 	/* Content container - mobile: full width, desktop: full width */
 	.content-container {
-		max-width: 448px;
+		width: min(100%, 448px);
 		margin-left: auto;
 		margin-right: auto;
 	}
@@ -274,7 +274,7 @@
 
 	@media (min-width: 768px) {
 		.content-container {
-			max-width: none;
+			width: min(calc(100% - 32px), 1440px);
 		}
 
 		.sidebar-backdrop {
@@ -317,6 +317,10 @@
 	}
 
 	@media (min-width: 1024px) {
+		.content-container {
+			width: min(calc(100% - 48px), 1520px);
+		}
+
 		.floating-sidebar {
 			width: 280px;
 		}

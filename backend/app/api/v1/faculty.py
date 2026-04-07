@@ -22,6 +22,22 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
 
+CASE_RECORD_SCORE_TO_GRADE = {
+    5: "A",
+    4: "B",
+    3: "C",
+    2: "D",
+    1: "F",
+}
+
+
+def resolve_case_record_grade(grade: Optional[str], score: Optional[int]) -> Optional[str]:
+    if grade:
+        return grade.strip().upper()
+    if score is None:
+        return None
+    return CASE_RECORD_SCORE_TO_GRADE.get(score)
+
 
 @router.get("/me")
 async def get_current_faculty(
@@ -220,7 +236,7 @@ async def get_pending_approvals(
             selectinload(Approval.patient).selectinload(Patient.allergies),
             selectinload(Approval.patient).selectinload(Patient.medical_alerts),
             selectinload(Approval.admission),
-            selectinload(Approval.prescription),
+            selectinload(Approval.prescription).selectinload(Prescription.medications),
             selectinload(Approval.student),
         )
         .where(Approval.faculty_id == faculty_id)
@@ -301,6 +317,7 @@ async def get_pending_approvals(
                 "doctor_name": a.case_record.doctor_name or a.case_record.provider,
                 "student_id": a.case_record.student_id,
                 "patient_id": a.case_record.patient_id,
+                "grade": a.case_record.grade,
                 "date": a.case_record.date.isoformat() if a.case_record.date else None,
                 "time": a.case_record.time,
             } if a.case_record else None,
@@ -315,6 +332,7 @@ async def get_pending_approvals(
                 "referring_doctor": a.admission.referring_doctor,
                 "status": a.admission.status,
                 "notes": a.admission.notes,
+                "discharge_summary": a.admission.discharge_summary,
                 "admission_date": a.admission.admission_date.isoformat() if a.admission.admission_date else None,
             } if a.admission else None,
             "prescription": {
@@ -323,6 +341,21 @@ async def get_pending_approvals(
                 "doctor": a.prescription.doctor,
                 "department": a.prescription.department,
                 "date": a.prescription.date.isoformat() if a.prescription.date else None,
+                "status": a.prescription.status.value if a.prescription.status else None,
+                "notes": a.prescription.notes,
+                "medications": [
+                    {
+                        "id": med.id,
+                        "name": med.name,
+                        "dosage": med.dosage,
+                        "frequency": med.frequency,
+                        "duration": med.duration,
+                        "instructions": med.instructions,
+                        "start_date": med.start_date,
+                        "end_date": med.end_date,
+                    }
+                    for med in (a.prescription.medications or [])
+                ],
             } if a.prescription else None,
         }
         for a in approvals
@@ -342,7 +375,7 @@ async def get_approval_history(
             selectinload(Approval.case_record),
             selectinload(Approval.patient),
             selectinload(Approval.admission),
-            selectinload(Approval.prescription),
+            selectinload(Approval.prescription).selectinload(Prescription.medications),
         )
         .where(Approval.faculty_id == faculty_id)
         .where(Approval.status != ApprovalStatus.PENDING)
@@ -369,6 +402,8 @@ async def get_approval_history(
                 "id": a.case_record.id,
                 "type": a.case_record.type,
                 "procedure_name": a.case_record.procedure_name,
+                "description": a.case_record.description,
+                "grade": a.case_record.grade,
             } if a.case_record else None,
             "admission": {
                 "id": a.admission.id,
@@ -376,7 +411,30 @@ async def get_approval_history(
                 "reason": a.admission.reason,
                 "diagnosis": a.admission.diagnosis,
                 "status": a.admission.status,
+                "discharge_summary": a.admission.discharge_summary,
             } if a.admission else None,
+            "prescription": {
+                "id": a.prescription.id,
+                "prescription_id": a.prescription.prescription_id,
+                "doctor": a.prescription.doctor,
+                "department": a.prescription.department,
+                "date": a.prescription.date.isoformat() if a.prescription.date else None,
+                "status": a.prescription.status.value if a.prescription.status else None,
+                "notes": a.prescription.notes,
+                "medications": [
+                    {
+                        "id": med.id,
+                        "name": med.name,
+                        "dosage": med.dosage,
+                        "frequency": med.frequency,
+                        "duration": med.duration,
+                        "instructions": med.instructions,
+                        "start_date": med.start_date,
+                        "end_date": med.end_date,
+                    }
+                    for med in (a.prescription.medications or [])
+                ],
+            } if a.prescription else None,
         }
         for a in approvals
     ]
@@ -405,10 +463,12 @@ async def process_approval(
         raise HTTPException(status_code=404, detail="Approval not found")
 
     new_status = body.get("status", "APPROVED")
+    score = body.get("score")
+    grade = body.get("grade")
     approval.status = ApprovalStatus.APPROVED if new_status == "APPROVED" else ApprovalStatus.REJECTED
-    approval.score = body.get("score")
     approval.comments = body.get("comments")
     approval.processed_at = datetime.utcnow()
+    approval.score = score if approval.approval_type == ApprovalType.CASE_RECORD else None
 
     # Get faculty name for records
     faculty_name = (
@@ -420,6 +480,11 @@ async def process_approval(
         approval.case_record.status = "Approved" if new_status == "APPROVED" else "Rejected"
         approval.case_record.approved_by = faculty_name
         approval.case_record.approved_at = datetime.utcnow().isoformat()
+        approval.case_record.grade = (
+            resolve_case_record_grade(grade, score)
+            if new_status == "APPROVED"
+            else None
+        )
 
     # Update the admission status
     if approval.admission:

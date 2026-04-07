@@ -38,7 +38,7 @@
 	// Step 5 – Patient details
 	let patName = $state('');
 	let patDob = $state('');
-	let patGender = $state('Male');
+	let patGender = $state('MALE');
 	let patAddress = $state('');
 	let patEmail = $state('');
 	let patPassword = $state('');
@@ -506,9 +506,9 @@
 							class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
 							style="background: #f7f9fd; border: 1px solid rgba(0,0,0,0.14);"
 						>
-							<option>Male</option>
-							<option>Female</option>
-							<option>Other</option>
+							<option>MALE</option>
+							<option>FEMALE</option>
+							<option>OTHER</option>
 						</select>
 					</div>
 				</div>

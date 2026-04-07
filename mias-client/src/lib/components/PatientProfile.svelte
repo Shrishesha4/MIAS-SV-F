@@ -7,8 +7,10 @@
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { facultyApi } from '$lib/api/faculty';
+	import type { Report } from '$lib/api/types';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import {
+		defaultAdmissionRequestFields,
 		defaultPrescriptionCreateFields,
 		defaultPrescriptionEditFields,
 		defaultPrescriptionRequestFields,
@@ -22,6 +24,7 @@
 		buildCaseRecordDescription,
 		buildCaseRecordProcedureMap,
 		buildSupplementalFormDescription,
+		mergeFieldOptions,
 		mergeProcedureMaps,
 		persistFormFiles,
 		resolveCaseRecordFields,
@@ -31,14 +34,14 @@
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
-	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
-		CheckCircle2, ChevronDown, Link2, User, Users,
+		CheckCircle2, ChevronDown, ChevronRight, User, Users,
 		Thermometer, Droplet, Activity, Scale, Wind, CircleDot,
 		Phone, Mail, MapPin, Shield, Edit, X,
-		Trash2, CheckCircle, Send, History
+		Trash2, CheckCircle, Send, History, ClipboardList, TestTube,
+		Image as ImageIcon
 	} from 'lucide-svelte';
 
 	Chart.register(...registerables);
@@ -56,6 +59,8 @@
 	let medications: any[] = $state([]);
 	let prescriptions: any[] = $state([]);
 	let prescriptionRequests: any[] = $state([]);
+	let reports: Report[] = $state([]);
+	let admissions: any[] = $state([]);
 	let alertHistory: any[] = $state([]);
 	let loading = $state(true);
 
@@ -69,10 +74,14 @@
 
 	// ── UI State ──────────────────────────────────────────────────
 	let activeTab = $state('case-records');
+	let trendsView = $state<'charts' | 'table'>('charts');
 	const tabs = [
 		{ id: 'case-records', label: 'Case Records', icon: FileText },
-		{ id: 'vitals', label: 'Vitals', icon: HeartPulse },
+		{ id: 'trends', label: 'Trends', icon: HeartPulse },
 		{ id: 'medications', label: 'Medications', icon: Pill },
+		{ id: 'investigations', label: 'Investigations', icon: TestTube },
+		{ id: 'radiology', label: 'Radiology', icon: Activity },
+		{ id: 'gallery', label: 'Gallery', icon: ImageIcon },
 	];
 
 	// Modals
@@ -80,6 +89,7 @@
 	let showAddVitalModal = $state(false);
 	let showAddPrescriptionModal = $state(false);
 	let showRequestPrescriptionModal = $state(false);
+	let showAdmissionRequestModal = $state(false);
 	let showEditEmergencyModal = $state(false);
 	let showAddInsuranceModal = $state(false);
 
@@ -132,6 +142,12 @@
 	const prescriptionRequestFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_REQUEST', defaultPrescriptionRequestFields)
 	);
+	const admissionRequestFields = $derived(
+		mergeFieldOptions(
+			resolveFormFieldsByType(caseRecordForms, 'ADMISSION_REQUEST', defaultAdmissionRequestFields),
+			{ department: departments }
+		)
+	);
 
 	async function handleCrDiagnosisSearch(query: string) {
 		if (query.length < 2) { crDiagnosisSuggestions = []; return; }
@@ -161,6 +177,10 @@
 	// ── Patient Prescription Request form ─────────────────────────
 	let prescriptionRequestFormData: Record<string, any> = $state({});
 	let prSubmitting = $state(false);
+	let admissionRequestFormData: Record<string, any> = $state({});
+	let admissionFacultyId = $state('');
+	let admissionSubmitting = $state(false);
+	let admissionError = $state('');
 
 	// ── Edit Prescription ─────────────────────────────────────────
 	let showEditPrescriptionModal = $state(false);
@@ -173,14 +193,49 @@
 	// ── Vitals Chart ──────────────────────────────────────────────
 	let selectedParameter = $state('bp');
 	let selectedTimeRange = $state('30');
-	let groupViewMode = $state(false);
+	let groupViewMode = $state(true);
 	let chartCanvas: HTMLCanvasElement = $state(undefined as any);
 	let chartInstance: Chart | null = null;
+
+	type GalleryItem = {
+		id: string;
+		title: string;
+		description?: string;
+		url: string;
+		reportTitle: string;
+		reportType: string;
+		reportDate: string;
+	};
 
 	const latestVital = $derived(vitals.length > 0 ? vitals[0] : null);
 
 	const activeAlerts = $derived(
 		patient?.medical_alerts?.filter((a: any) => a.is_active !== false) ?? []
+	);
+	const currentAdmission = $derived(
+		admissions.find((a: any) => a.status === 'Active') ?? null
+	);
+	const pendingAdmission = $derived(
+		admissions.find((a: any) => a.status === 'Pending Approval') ?? null
+	);
+	const investigationReports = $derived.by(() =>
+		reports.filter((report) => report.type !== 'Radiology')
+	);
+	const radiologyReports = $derived.by(() =>
+		reports.filter((report) => report.type === 'Radiology')
+	);
+	const galleryItems = $derived.by<GalleryItem[]>(() =>
+		reports.flatMap((report) =>
+			(report.images || []).map((image) => ({
+				id: image.id,
+				title: image.title,
+				description: image.description,
+				url: image.url,
+				reportTitle: report.title,
+				reportType: report.type,
+				reportDate: report.date,
+			}))
+		)
 	);
 
 	const vitalCards = $derived(latestVital ? [
@@ -242,7 +297,7 @@
 	}
 
 	$effect(() => {
-		if (activeTab === 'vitals') {
+		if (activeTab === 'trends' && trendsView === 'charts') {
 			selectedParameter; selectedTimeRange; groupViewMode; vitals;
 			setTimeout(buildChart, 50);
 		}
@@ -263,6 +318,22 @@
 		return Math.floor(diff / (365.25 * 24 * 60 * 60 * 1000));
 	}
 
+	function formatReportDate(date: string, time?: string): string {
+		const formattedDate = new Date(date).toLocaleDateString('en-US', {
+			day: 'numeric',
+			month: 'short',
+			year: 'numeric',
+		});
+		return time ? `${formattedDate} · ${time}` : formattedDate;
+	}
+
+	function getReportStatusTone(status: Report['status']) {
+		if (status === 'CRITICAL') return { bg: 'rgba(239,68,68,0.12)', text: '#dc2626', border: 'rgba(248,113,113,0.25)' };
+		if (status === 'ABNORMAL') return { bg: 'rgba(249,115,22,0.12)', text: '#ea580c', border: 'rgba(251,146,60,0.25)' };
+		if (status === 'PENDING') return { bg: 'rgba(148,163,184,0.12)', text: '#475569', border: 'rgba(148,163,184,0.25)' };
+		return { bg: 'rgba(34,197,94,0.12)', text: '#15803d', border: 'rgba(74,222,128,0.25)' };
+	}
+
 	// ── Data loading ──────────────────────────────────────────────
 	async function loadAllData() {
 		const patientId = pid;
@@ -272,7 +343,7 @@
 				if (!studentData) {
 					studentData = await studentApi.getMe();
 				}
-				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, perms, forms] =
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, reportData, admissionData, perms, forms] =
 					await Promise.all([
 						patientApi.getPatient(patientId),
 						studentApi.getCaseRecords(studentData.id, patientId),
@@ -282,6 +353,8 @@
 						studentApi.getProcedures().catch(() => ({})),
 						studentApi.getFacultyApprovers().catch(() => []),
 						patientApi.getPrescriptionRequests(patientId).catch(() => []),
+						patientApi.getReports(patientId).catch(() => []),
+						patientApi.getAdmissions(patientId).catch(() => []),
 						studentApi.getPermissions(studentData.id).catch(() => []),
 						formsApi.getForms().catch(() => []),
 					]);
@@ -296,6 +369,8 @@
 				caseRecordForms = forms;
 				facultyApprovers = approvers;
 				prescriptionRequests = rxReqs;
+				reports = reportData;
+				admissions = admissionData;
 				allowedDepartments = perms.map((p: any) => p.department);
 			} else {
 				// FACULTY / ADMIN / PATIENT viewing a patient detail
@@ -308,6 +383,8 @@
 					patientApi.getVitals(patientId, 30).catch(() => []),
 					patientApi.getPrescriptions(patientId).catch(() => []),
 					patientApi.getPrescriptionRequests(patientId).catch(() => []),
+					patientApi.getReports(patientId).catch(() => []),
+					patientApi.getAdmissions(patientId).catch(() => []),
 				];
 				if (role === 'FACULTY') {
 					fetchList.push(
@@ -323,11 +400,13 @@
 				prescriptions = results[3];
 				medications = results[3].flatMap((rx: any) => rx.medications || []);
 				prescriptionRequests = results[4];
+				reports = results[5];
+				admissions = results[6];
 				if (role === 'FACULTY') {
-					const merged = mergeProcedureMaps(results[6] || {}, buildCaseRecordProcedureMap(results[7] || []));
-					departments = Array.from(new Set([...(results[5] || []), ...Object.keys(merged)])).sort();
+					const merged = mergeProcedureMaps(results[8] || {}, buildCaseRecordProcedureMap(results[9] || []));
+					departments = Array.from(new Set([...(results[7] || []), ...Object.keys(merged)])).sort();
 					procedureMap = merged;
-					caseRecordForms = results[7] || [];
+					caseRecordForms = results[9] || [];
 				}
 			}
 		} catch (err) {
@@ -356,6 +435,8 @@
 			medications = [];
 			prescriptions = [];
 			prescriptionRequests = [];
+			reports = [];
+			admissions = [];
 			loadAllData().finally(() => { loading = false; });
 		}
 	});
@@ -367,17 +448,21 @@
 			try {
 				const patientId = pid;
 				if (!patientId) return;
-				const [patientData, vitalData, rxData, rxReqs] = await Promise.all([
+				const [patientData, vitalData, rxData, rxReqs, reportData, admissionData] = await Promise.all([
 					patientApi.getPatient(patientId),
 					patientApi.getVitals(patientId, 30).catch(() => []),
 					patientApi.getPrescriptions(patientId).catch(() => []),
 					patientApi.getPrescriptionRequests(patientId).catch(() => []),
+					patientApi.getReports(patientId).catch(() => []),
+					patientApi.getAdmissions(patientId).catch(() => []),
 				]);
 				patient = patientData;
 				vitals = vitalData;
 				prescriptions = rxData;
 				medications = rxData.flatMap((rx: any) => rx.medications || []);
 				prescriptionRequests = rxReqs;
+				reports = reportData;
+				admissions = admissionData;
 			} catch (err) {
 				// Silently fail on auto-refresh
 			}
@@ -507,6 +592,70 @@
 	// ── Prescription Request Submit ───────────────────────────────
 	function resetRequestForm() {
 		prescriptionRequestFormData = {};
+	}
+
+	function resetAdmissionRequestForm() {
+		admissionRequestFormData = {};
+		admissionFacultyId = facultyApprovers[0]?.id || '';
+		admissionError = '';
+	}
+
+	function openAdmissionRequestModal() {
+		resetAdmissionRequestForm();
+		showAdmissionRequestModal = true;
+	}
+
+	async function submitAdmissionRequest() {
+		if (role !== 'STUDENT' || !patient || !studentData || admissionSubmitting) return;
+		if (!admissionFacultyId) {
+			admissionError = 'Please select a faculty approver';
+			return;
+		}
+		if (!admissionRequestFormData.reason) {
+			admissionError = 'Reason for admission is required';
+			return;
+		}
+
+		admissionSubmitting = true;
+		admissionError = '';
+		try {
+			const submittedValues = await persistFormFiles(
+				admissionRequestFields,
+				admissionRequestFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-admission-request'
+			);
+			const notes = appendSupplementalText(
+				asOptionalString(submittedValues.notes),
+				buildSupplementalFormDescription(
+					admissionRequestFields,
+					submittedValues,
+					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
+				)
+			);
+
+			await studentApi.submitAdmissionRequest(studentData.id, {
+				patient_id: patient.id,
+				faculty_id: admissionFacultyId,
+				department: asOptionalString(submittedValues.department),
+				ward: asOptionalString(submittedValues.ward),
+				bed_number: asOptionalString(submittedValues.bed_number),
+				reason: asOptionalString(submittedValues.reason) || '',
+				diagnosis: asOptionalString(submittedValues.diagnosis),
+				notes,
+				referring_doctor: asOptionalString(submittedValues.referring_doctor),
+			});
+
+			admissions = await patientApi.getAdmissions(patient.id);
+			showAdmissionRequestModal = false;
+			resetAdmissionRequestForm();
+			toastStore.addToast('Admission request submitted successfully', 'success');
+		} catch (err: any) {
+			admissionError = err?.response?.data?.detail || 'Failed to submit admission request';
+			toastStore.addToast(admissionError, 'error');
+		} finally {
+			admissionSubmitting = false;
+		}
 	}
 
 	// ── Edit Prescription ─────────────────────────────────────────
@@ -685,232 +834,251 @@
 		</div>
 	{:else}
 
-	<!-- ═══════════════════════════════════════════════════════════════
-	     COMPACT PATIENT HEADER (matching screenshot)
-	     ═══════════════════════════════════════════════════════════════ -->
-	<AquaCard>
-		<div class="flex items-start gap-4">
-			<!-- Photo -->
-			<div class="shrink-0">
-				{#if patient.photo}
-					<img src={patient.photo} alt={patient.name}
-						class="w-16 h-16 rounded-xl object-cover shadow border-2 border-white" />
-				{:else}
-					<div class="w-16 h-16 rounded-xl flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 shadow border-2 border-white">
-						<span class="text-xl font-bold text-white">{patient.name?.charAt(0) || 'P'}</span>
+	<div class="overflow-hidden rounded-[26px]"
+		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 8px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85);">
+		<div class="grid grid-cols-1 border-b border-slate-200/80 md:grid-cols-[1.05fr_1fr_1fr]">
+			<div class="p-5 md:p-6" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
+				<div class="flex items-center gap-4">
+					{#if patient.photo}
+						<img src={patient.photo} alt={patient.name} class="h-18 w-18 rounded-full object-cover border-4 border-white shadow-md shrink-0" />
+					{:else}
+						<div class="h-18 w-18 rounded-full flex items-center justify-center shrink-0 text-2xl font-bold text-white"
+							style="background: linear-gradient(135deg, #60a5fa, #2563eb); border: 4px solid white; box-shadow: 0 8px 18px rgba(37,99,235,0.24);">
+							{patient.name?.charAt(0) || 'P'}
+						</div>
+					{/if}
+					<div class="min-w-0 flex-1">
+						<h2 class="text-3xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
+						<p class="mt-2 text-[13px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
+						<p class="mt-3 text-[15px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
+						<p class="mt-2 text-[15px] text-slate-600">{patient.phone || '—'}</p>
 					</div>
-				{/if}
-			</div>
-			<!-- Info -->
-			<div class="flex-1 min-w-0">
-				<h2 class="text-lg font-bold text-gray-800 leading-tight">{patient.name}</h2>
-				<p class="text-xs text-gray-500 mt-0.5">ID: {patient.patient_id}</p>
-				<p class="text-sm text-gray-600 mt-1">
-					{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}
-				</p>
-				<p class="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-					<Phone class="w-3 h-3" /> {patient.phone || '—'}
-				</p>
-			</div>
-		</div>
-	</AquaCard>
-
-	<!-- ═══════════════════════════════════════════════════════════════
-	     MEDICAL ALERTS (always visible, expandable)
-	     ═══════════════════════════════════════════════════════════════ -->
-	<div class="rounded-xl overflow-hidden"
-		style="background: linear-gradient(to right, rgba(255,200,200,0.6), rgba(255,180,180,0.4));
-		       border: 1px solid rgba(220,50,50,0.15);">
-		<div class="px-4 py-2.5 flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<AlertTriangle class="w-4 h-4 text-red-500" />
-				<span class="text-sm font-bold text-red-600">Medical Alerts</span>
-			</div>
-			<div class="flex gap-1.5">
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.08);"
-					onclick={loadAlertHistory}>
-					<History class="w-3.5 h-3.5 text-gray-600" />
-				</button>
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.08);"
-					onclick={() => showAlertInput = !showAlertInput}>
-					<Plus class="w-3.5 h-3.5 text-gray-600" />
-				</button>
-			</div>
-		</div>
-
-		<!-- Alert Tags -->
-		{#if activeAlerts.length > 0}
-			<div class="px-4 pb-2 flex flex-wrap gap-2">
-				{#each activeAlerts as alert}
-					<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-red-700"
-						style="background: rgba(255,255,255,0.5);">
-						{alert.title}
-						<button class="text-red-400 cursor-pointer hover:text-red-600" onclick={() => removeAlert(alert.id)}>×</button>
-					</span>
-				{/each}
-			</div>
-		{:else}
-			<p class="px-4 pb-2 text-xs text-red-400">No active alerts</p>
-		{/if}
-
-		<!-- Add Alert Input (inline) -->
-		{#if showAlertInput}
-			<div class="px-4 pb-3">
-				<div class="flex gap-2 items-center p-2 rounded-lg bg-white/60">
-					<input type="text" bind:value={newAlertTitle}
-						class="flex-1 px-3 py-1.5 rounded-lg text-sm bg-white"
-						style="border: 1px solid rgba(0,0,0,0.15);"
-						placeholder="Enter new medical alert"
-						onkeydown={(e) => e.key === 'Enter' && addAlert()} />
-					<button class="px-3 py-1.5 rounded-lg text-xs font-medium text-white cursor-pointer"
-						style="background: linear-gradient(to bottom, #ef4444, #dc2626);"
-						onclick={addAlert} disabled={alertSubmitting}>
-						Add
-					</button>
-				</div>
-				<div class="flex justify-end mt-1.5">
-					<button class="px-2 py-1 text-xs text-gray-500 cursor-pointer rounded hover:bg-white/40"
-						onclick={() => { showAlertInput = false; newAlertTitle = ''; }}>
-						Cancel
-					</button>
 				</div>
 			</div>
-		{/if}
 
-		<!-- Alert History (inline) -->
-		{#if showAlertHistory}
-			<div class="mx-4 mb-3 p-3 rounded-lg bg-white/60" style="border: 1px solid rgba(220,50,50,0.1);">
-				<h4 class="text-sm font-semibold text-gray-700 mb-2">Alert History</h4>
-				{#if alertHistory.length === 0}
-					<p class="text-xs text-gray-400">No history</p>
-				{:else}
-					<div class="space-y-2">
-						{#each alertHistory as h}
-							<div class="flex items-start gap-2 pl-2" style="border-left: 3px solid {h.is_active ? '#ef4444' : '#d1d5db'};">
-								<div class="flex-1">
-									<p class="text-sm font-medium" style="color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.title}</p>
-									<p class="text-xs text-gray-400">
-										Added by {h.added_by || 'Unknown'} · {h.added_at ? new Date(h.added_at).toLocaleDateString() + ' ' + new Date(h.added_at).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : ''}
-									</p>
-								</div>
-								<span class="text-xs font-medium px-2 py-0.5 rounded"
-									style="background: {h.is_active ? 'rgba(239,68,68,0.1)' : 'rgba(0,0,0,0.05)'}; color: {h.is_active ? '#dc2626' : '#6b7280'};">
-									{h.is_active ? 'Active' : 'Inactive'}
-								</span>
-							</div>
+			<div class="border-t border-slate-200/80 p-5 md:border-l md:border-t-0 md:p-6"
+				style="background: linear-gradient(135deg, rgba(254,242,242,0.95), rgba(254,226,226,0.82));">
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-2.5">
+						<AlertTriangle class="h-5 w-5 text-red-500" />
+						<span class="text-[15px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
+					</div>
+					<div class="flex gap-2">
+						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
+							onclick={loadAlertHistory}>
+							<History class="h-4 w-4 text-blue-500" />
+						</button>
+						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
+							onclick={() => showAlertInput = !showAlertInput}>
+							<Plus class="h-4 w-4 text-blue-500" />
+						</button>
+					</div>
+				</div>
+				<div class="mt-5 flex flex-wrap gap-3">
+					{#if activeAlerts.length > 0}
+						{#each activeAlerts as alert}
+							<span class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-semibold text-red-700"
+								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(248,113,113,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
+								{alert.title}
+								<button class="cursor-pointer text-red-400 hover:text-red-600 leading-none" onclick={() => removeAlert(alert.id)}>×</button>
+							</span>
 						{/each}
+					{:else}
+						<p class="text-sm font-medium text-red-300">No active alerts</p>
+					{/if}
+				</div>
+				{#if showAlertInput}
+					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+						<div class="flex gap-2 items-center">
+							<input type="text" bind:value={newAlertTitle} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter alert..." onkeydown={(e) => e.key === 'Enter' && addAlert()} />
+							<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" onclick={addAlert} disabled={alertSubmitting}>Add</button>
+							<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showAlertInput = false; newAlertTitle = ''; }}>Close</button>
+						</div>
 					</div>
 				{/if}
-				<div class="flex justify-end mt-2">
-					<button class="px-3 py-1 text-xs text-gray-500 cursor-pointer rounded"
-						style="background: rgba(0,0,0,0.06);"
-						onclick={() => showAlertHistory = false}>Close</button>
-				</div>
+				{#if showAlertHistory}
+					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+						<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Alert History</h4>
+						<div class="space-y-2 max-h-32 overflow-y-auto pr-1">
+							{#each alertHistory as h}
+								<div class="flex items-center gap-2 pl-2" style="border-left: 2px solid {h.is_active ? '#ef4444' : '#d1d5db'};">
+									<p class="text-xs flex-1" style="color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.title}</p>
+									<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: {h.is_active ? 'rgba(239,68,68,0.1)' : 'rgba(0,0,0,0.05)'}; color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.is_active ? 'Active' : 'Inactive'}</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
 			</div>
-		{/if}
-	</div>
 
-	<!-- ═══════════════════════════════════════════════════════════════
-	     PRIMARY DIAGNOSIS (inline, like Medical Alerts)
-	     ═══════════════════════════════════════════════════════════════ -->
-	<div class="rounded-xl overflow-hidden"
-		style="background: linear-gradient(to right, rgba(200,220,255,0.6), rgba(180,210,255,0.4));
-		       border: 1px solid rgba(50,100,220,0.15);">
-		<div class="px-4 py-2.5 flex items-center justify-between">
-			<div class="flex items-center gap-2">
-				<FileText class="w-4 h-4 text-blue-500" />
-				<span class="text-sm font-bold text-blue-600">Primary Diagnosis</span>
-			</div>
-			<div class="flex gap-1.5">
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.08);"
-					onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
-					<History class="w-3.5 h-3.5 text-gray-600" />
-				</button>
-				<button class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-					style="background: rgba(0,0,0,0.08);"
-					onclick={() => showDiagnosisInput = !showDiagnosisInput}>
-					<Edit class="w-3.5 h-3.5 text-gray-600" />
-				</button>
+			<div class="border-t border-slate-200/80 p-5 md:border-l md:border-t-0 md:p-6"
+				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));">
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-2.5">
+						<FileText class="h-5 w-5 text-blue-600" />
+						<span class="text-[15px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
+					</div>
+					<div class="flex gap-2">
+						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
+							onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
+							<History class="h-4 w-4 text-blue-500" />
+						</button>
+						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
+							onclick={() => showDiagnosisInput = !showDiagnosisInput}>
+							<Edit class="h-4 w-4 text-blue-500" />
+						</button>
+					</div>
+				</div>
+				<div class="mt-5">
+					{#if patient.primary_diagnosis}
+						<p class="text-[19px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
+						<p class="mt-3 text-[13px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
+					{:else}
+						<p class="text-sm font-medium text-blue-300">No diagnosis recorded</p>
+					{/if}
+				</div>
+				{#if showDiagnosisInput}
+					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+						<div class="flex gap-2 items-center">
+							<input type="text" bind:value={newDiagnosis} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter diagnosis..." onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
+							<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting}>Save</button>
+							<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>Close</button>
+						</div>
+					</div>
+				{/if}
+				{#if showDiagnosisHistory}
+					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+						<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis History</h4>
+						{#if patient.primary_diagnosis}
+							<div class="flex items-center gap-2 pl-2" style="border-left: 2px solid #3b82f6;">
+								<p class="text-xs text-blue-700 flex-1">{patient.primary_diagnosis}</p>
+								<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(59,130,246,0.1); color: #2563eb;">Current</span>
+							</div>
+						{:else}
+							<p class="text-xs text-gray-400">No history</p>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		</div>
 
-		<!-- Current Diagnosis Tag -->
-		<div class="px-4 pb-2">
-			{#if patient.primary_diagnosis}
-				<span class="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-sm font-medium text-blue-800"
-					style="background: rgba(255,255,255,0.6);">
-					{patient.primary_diagnosis}
-				</span>
-				{#if patient.diagnosis_doctor}
-					<p class="text-xs text-blue-400 mt-1 ml-1">
-						Updated by {patient.diagnosis_doctor} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
-					</p>
-				{/if}
-			{:else}
-				<p class="text-xs text-blue-400">No diagnosis recorded</p>
+		<div class="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
+			style="background: linear-gradient(to right, rgba(239,246,255,0.98), rgba(226,238,252,0.96));">
+			<div class="flex min-w-0 items-center gap-3">
+				<ClipboardList class="h-6 w-6 shrink-0 text-blue-600" />
+				<div class="flex min-w-0 items-center gap-3 flex-wrap">
+					<span class="text-[18px] font-bold text-slate-800">Admission Status</span>
+					<Clock class="h-5 w-5 text-blue-500" />
+					{#if currentAdmission}
+						<span class="rounded-xl bg-blue-600 px-4 py-1.5 text-sm font-black tracking-wide text-white">ADMITTED</span>
+					{:else if pendingAdmission}
+						<span class="text-sm font-semibold text-slate-500">Request pending faculty approval</span>
+					{:else}
+						<span class="text-sm font-medium text-slate-500">No active admission</span>
+					{/if}
+				</div>
+			</div>
+
+			{#if currentAdmission && role !== 'PATIENT'}
+				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-2 text-[15px] font-black tracking-wide text-blue-600">
+					REVIEW & VITALS <ChevronRight class="h-5 w-5" />
+				</a>
+			{:else if pendingAdmission && role === 'STUDENT'}
+				<button class="shrink-0 rounded-2xl px-5 py-3 text-sm font-bold cursor-not-allowed flex items-center gap-2"
+					style="background: rgba(240,253,244,0.9); border: 1px solid rgba(134,239,172,0.95); color: #15803d; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);" disabled>
+					<CheckCircle class="h-4 w-4" /> Sent for Approval
+				</button>
+			{:else if role === 'STUDENT'}
+				<button class="shrink-0 rounded-2xl px-6 py-3 text-[15px] font-bold text-white cursor-pointer"
+					style="background: linear-gradient(to bottom, #4ade80, #16a34a); border: 1px solid rgba(21,128,61,0.45); box-shadow: 0 6px 14px rgba(34,197,94,0.25), inset 0 1px 0 rgba(255,255,255,0.45);"
+					onclick={openAdmissionRequestModal}>
+					Admit Patient
+				</button>
 			{/if}
 		</div>
-
-		<!-- Edit Diagnosis Input (inline) -->
-		{#if showDiagnosisInput}
-			<div class="px-4 pb-3">
-				<div class="flex gap-2 items-center p-2 rounded-lg bg-white/60">
-					<input type="text" bind:value={newDiagnosis}
-						class="flex-1 px-3 py-1.5 rounded-lg text-sm bg-white"
-						style="border: 1px solid rgba(0,0,0,0.15);"
-						placeholder="Enter primary diagnosis"
-						onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
-					<button class="px-3 py-1.5 rounded-lg text-xs font-medium text-white cursor-pointer"
-						style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
-						onclick={updateDiagnosis} disabled={diagnosisSubmitting}>
-						Save
-					</button>
-				</div>
-				<div class="flex justify-end mt-1.5">
-					<button class="px-2 py-1 text-xs text-gray-500 cursor-pointer rounded hover:bg-white/40"
-						onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>
-						Cancel
-					</button>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Diagnosis History -->
-		{#if showDiagnosisHistory}
-			<div class="mx-4 mb-3 p-3 rounded-lg bg-white/60" style="border: 1px solid rgba(50,100,220,0.1);">
-				<h4 class="text-sm font-semibold text-gray-700 mb-2">Diagnosis History</h4>
-				{#if patient.primary_diagnosis}
-					<div class="flex items-start gap-2 pl-2" style="border-left: 3px solid #3b82f6;">
-						<div class="flex-1">
-							<p class="text-sm font-medium text-blue-700">{patient.primary_diagnosis}</p>
-							<p class="text-xs text-gray-400">
-								Updated by {patient.diagnosis_doctor || 'Unknown'} · {patient.diagnosis_date || ''} {patient.diagnosis_time || ''}
-							</p>
-						</div>
-						<span class="text-xs font-medium px-2 py-0.5 rounded"
-							style="background: rgba(59,130,246,0.1); color: #2563eb;">
-							Current
-						</span>
-					</div>
-				{:else}
-					<p class="text-xs text-gray-400">No diagnosis history</p>
-				{/if}
-				<div class="flex justify-end mt-2">
-					<button class="px-3 py-1 text-xs text-gray-500 cursor-pointer rounded"
-						style="background: rgba(0,0,0,0.06);"
-						onclick={() => showDiagnosisHistory = false}>Close</button>
-				</div>
-			</div>
-		{/if}
 	</div>
+
+	{#if showAdmissionRequestModal}
+		<AquaModal onclose={() => { showAdmissionRequestModal = false; resetAdmissionRequestForm(); }}>
+			{#snippet header()}
+				<div class="flex items-center gap-2">
+					<ClipboardList class="w-5 h-5 text-blue-600" />
+					<span class="font-semibold text-gray-800">Admission Request - {patient?.name}</span>
+				</div>
+			{/snippet}
+
+			<div class="space-y-4">
+				{#if admissionError}
+					<div class="rounded-xl px-3 py-2 text-sm font-medium text-red-600" style="background: rgba(254,226,226,0.8); border: 1px solid rgba(248,113,113,0.25);">
+						{admissionError}
+					</div>
+				{/if}
+
+				<div class="rounded-2xl p-4" style="background: rgba(239,246,255,0.7); border: 1px solid rgba(147,197,253,0.35);">
+					<p class="text-xs font-bold uppercase tracking-wide text-slate-500">Requesting Student</p>
+					<p class="mt-1 text-base font-semibold text-slate-800">{studentData?.name || 'Student'}</p>
+					<p class="mt-1 text-sm text-slate-500">This request is submitted by the student for faculty approval.</p>
+				</div>
+
+				<div>
+					<label for="profile-admission-faculty" class="block text-sm font-medium text-gray-700 mb-1">Faculty Approver <span class="text-red-500">*</span></label>
+					<select id="profile-admission-faculty" bind:value={admissionFacultyId}
+						class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
+						<option value="">Select faculty approver</option>
+						{#each facultyApprovers as fac}
+							<option value={fac.id}>{fac.name} - {fac.department}</option>
+						{/each}
+					</select>
+				</div>
+
+				<DynamicFormRenderer
+					fields={admissionRequestFields}
+					bind:values={admissionRequestFormData}
+					idPrefix="profile-admission-request"
+				/>
+			</div>
+
+			<div class="flex justify-end gap-2 mt-6">
+				<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+					onclick={() => { showAdmissionRequestModal = false; resetAdmissionRequestForm(); }}
+					disabled={admissionSubmitting}>Cancel</button>
+				<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer flex items-center gap-1.5"
+					style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
+					onclick={submitAdmissionRequest}
+					disabled={admissionSubmitting || !admissionFacultyId || !admissionRequestFormData.reason}>
+					{#if admissionSubmitting}
+						<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+					{/if}
+					Send for Approval
+				</button>
+			</div>
+		</AquaModal>
+	{/if}
 
 	<!-- ═══════════════════════════════════════════════════════════════
 	     TABS
 	     ═══════════════════════════════════════════════════════════════ -->
-	<TabBar {tabs} {activeTab} onchange={(id) => activeTab = id} />
+	<div class="overflow-x-auto pb-1">
+		<div class="flex min-w-max gap-2 rounded-[24px] p-1.5"
+			style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(241,245,249,0.98)); border: 1px solid rgba(148,163,184,0.2); box-shadow: 0 8px 18px rgba(15,23,42,0.05);">
+			{#each tabs as tab}
+				<button
+					class="flex cursor-pointer items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-bold whitespace-nowrap transition-all"
+					style="background: {activeTab === tab.id ? 'linear-gradient(to bottom, #ffffff, #f8fbff)' : 'transparent'}; color: {activeTab === tab.id ? '#2563eb' : '#64748b'}; border: 1px solid {activeTab === tab.id ? 'rgba(59,130,246,0.24)' : 'transparent'}; box-shadow: {activeTab === tab.id ? '0 6px 14px rgba(37,99,235,0.12), inset 0 1px 0 rgba(255,255,255,0.9)' : 'none'};"
+					onclick={() => activeTab = tab.id}
+				>
+					<tab.icon class="h-4 w-4" />
+					<span>{tab.label}</span>
+				</button>
+			{/each}
+		</div>
+	</div>
 
 	<!-- ═══════════════════════════════════════════════════════════════
 	     CASE RECORDS TAB
@@ -983,125 +1151,116 @@
 	<!-- ═══════════════════════════════════════════════════════════════
 	     VITALS TAB
 	     ═══════════════════════════════════════════════════════════════ -->
-	{:else if activeTab === 'vitals'}
-		<AquaCard>
-			<div class="flex items-center justify-between mb-4">
-				<div class="flex items-center gap-2">
-					<HeartPulse class="w-5 h-5 text-blue-600" />
-					<h3 class="font-bold text-gray-800">Vitals Tracker</h3>
-				</div>
-				<div class="flex gap-2">
-					<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-						style="background: linear-gradient(to bottom, {groupViewMode ? '#3b82f6' : '#6b7280'}, {groupViewMode ? '#2563eb' : '#4b5563'}); color: white;
-						       border: 1px solid rgba(0,0,0,0.15);"
-						onclick={() => groupViewMode = !groupViewMode}>
-						{groupViewMode ? 'Single View' : 'Group View'}
-					</button>
-					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-						style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
-						       border: 1px solid rgba(0,0,0,0.15);"
-						onclick={() => showAddVitalModal = true}>
-						<Plus class="w-3 h-3" /> Add Reading
-					</button>
-				</div>
-			</div>
-
-			<!-- Selectors -->
-			{#if !groupViewMode}
-				<div class="grid grid-cols-2 gap-3 mb-4">
-					<div>
-						<label for="vital-param" class="block text-xs font-medium text-gray-600 mb-1">Vital Parameter</label>
-						<select id="vital-param" bind:value={selectedParameter}
-							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-							<option value="bp">BP (mmHg)</option>
-							<option value="hr">Heart Rate (bpm)</option>
-							<option value="spo2">SpO₂ (%)</option>
-						</select>
-					</div>
-					<div>
-						<label for="vital-range" class="block text-xs font-medium text-gray-600 mb-1">Time Range</label>
-						<select id="vital-range" bind:value={selectedTimeRange}
-							class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-							<option value="7">Last 7 days</option>
-							<option value="14">Last 14 days</option>
-							<option value="30">Last 30 days</option>
-						</select>
-					</div>
-				</div>
-			{:else}
-				<div class="mb-4">
-					<label for="vital-range-g" class="block text-xs font-medium text-gray-600 mb-1">Time Range</label>
-					<select id="vital-range-g" bind:value={selectedTimeRange}
-						class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-						<option value="7">Last 7 days</option>
-						<option value="14">Last 14 days</option>
-						<option value="30">Last 30 days</option>
-					</select>
-				</div>
-			{/if}
-
-			<!-- Chart -->
-			<div class="rounded-xl p-3 mb-4" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
-				<div class="flex items-center justify-between mb-2">
-					<div class="flex items-center gap-2">
-						<HeartPulse class="w-4 h-4 text-blue-600" />
+	{:else if activeTab === 'trends'}
+		<AquaCard padding={false}>
+			<div class="border-b border-slate-200/80 p-4 md:p-5">
+				<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+					<div class="flex items-center gap-2.5">
+						<HeartPulse class="h-5 w-5 text-red-500" />
 						<div>
-							<p class="text-sm font-semibold text-gray-800">
-								{#if groupViewMode}
-									All Vitals Overview
-								{:else if selectedParameter === 'bp'}
-									BP (mmHg)
-								{:else if selectedParameter === 'hr'}
-									Heart Rate
-								{:else}
-									SpO₂
-								{/if}
-							</p>
-							<p class="text-xs text-gray-400">
-								{#if groupViewMode}
-									BP, HR, SpO₂ combined
-								{:else if selectedParameter === 'bp'}
-									Normal range: 120/80 mmHg
-								{:else if selectedParameter === 'hr'}
-									Normal range: 60-100 bpm
-								{:else}
-									Normal range: 95-100%
-								{/if}
-							</p>
+							<h3 class="font-bold text-slate-800">Vitals Monitoring Dashboard</h3>
+							<p class="text-xs text-slate-500">Trend view for the readings recorded during care.</p>
 						</div>
 					</div>
-					<ChevronDown class="w-5 h-5 text-blue-500" />
-				</div>
-				<div class="h-40">
-					<canvas bind:this={chartCanvas}></canvas>
+					<div class="flex flex-wrap items-center gap-2">
+						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+							style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #2563eb; border: 1px solid rgba(59,130,246,0.22);"
+							onclick={() => showAddVitalModal = true}>
+							MANUAL ENTRY
+						</button>
+						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+							style="background: {trendsView === 'charts' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'white'}; color: {trendsView === 'charts' ? 'white' : '#2563eb'}; border: 1px solid rgba(59,130,246,0.24);"
+							onclick={() => trendsView = 'charts'}>
+							CHARTS
+						</button>
+						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+							style="background: {trendsView === 'table' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'white'}; color: {trendsView === 'table' ? 'white' : '#2563eb'}; border: 1px solid rgba(59,130,246,0.24);"
+							onclick={() => trendsView = 'table'}>
+							TABLE
+						</button>
+					</div>
 				</div>
 			</div>
-		</AquaCard>
 
-		<!-- Latest Readings Grid -->
-		{#if vitalCards.length > 0}
-			<div>
-				<h4 class="text-sm font-semibold text-gray-700 mb-3">Latest Readings</h4>
-				<div class="grid grid-cols-3 gap-2">
-					{#each vitalCards as card}
-						<div class="p-3 rounded-xl text-center"
-							style="background-color: white; border-radius: 10px;
-							       box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
-							<div class="w-8 h-8 rounded-full mx-auto mb-1.5 flex items-center justify-center"
-								style="background: {card.color}15;">
-								<card.icon class="w-4 h-4" style="color: {card.color}" />
+			<div class="space-y-4 p-4 md:p-5">
+				{#if vitalCards.length > 0}
+					<div class="grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+						{#each vitalCards as card}
+							<div class="rounded-2xl px-4 py-3" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(226,232,240,0.95); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);">
+								<div class="flex items-start gap-3">
+									<div class="mt-0.5 h-2.5 w-2.5 rounded-full" style="background: {card.color};"></div>
+									<div>
+										<p class="text-[10px] font-black uppercase leading-tight tracking-wide text-slate-400 whitespace-pre-line">{card.label}</p>
+										<p class="mt-1 text-lg font-black text-slate-800">{card.value} <span class="text-xs font-semibold text-slate-400">{card.unit}</span></p>
+									</div>
+								</div>
 							</div>
-							<p class="text-[10px] text-gray-500 leading-tight whitespace-pre-line">{card.label}</p>
-							<p class="text-base font-bold text-gray-800 mt-0.5">{card.value}</p>
-							<p class="text-[10px] text-gray-400">{card.unit}</p>
-						</div>
+						{/each}
+					</div>
+				{/if}
+
+				<div class="flex flex-wrap gap-2">
+					{#each ['7', '14', '30'] as range}
+						<button class="rounded-full px-3 py-1.5 text-xs font-bold cursor-pointer"
+							style="background: {selectedTimeRange === range ? 'rgba(59,130,246,0.12)' : 'white'}; color: {selectedTimeRange === range ? '#2563eb' : '#64748b'}; border: 1px solid {selectedTimeRange === range ? 'rgba(59,130,246,0.26)' : 'rgba(148,163,184,0.22)'};"
+							onclick={() => selectedTimeRange = range}>
+							Last {range} Days
+						</button>
 					{/each}
 				</div>
+
+				{#if vitals.length === 0}
+					<div class="py-12 text-center text-slate-400">
+						<HeartPulse class="mx-auto mb-3 h-10 w-10 opacity-50" />
+						<p class="text-sm">No vitals recorded yet</p>
+					</div>
+				{:else if trendsView === 'charts'}
+					<div class="rounded-[24px] p-3 md:p-4" style="background: linear-gradient(to bottom, #ffffff, #f8fbff); border: 1px solid rgba(226,232,240,0.95); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);">
+						<div class="mb-3 flex items-center justify-between gap-3">
+							<div>
+								<p class="text-sm font-bold text-slate-800">Combined Trends</p>
+								<p class="text-xs text-slate-400">Blood pressure, heart rate, SpO₂, and respiratory rate</p>
+							</div>
+							<ChevronDown class="h-5 w-5 text-blue-500" />
+						</div>
+						<div class="h-[320px] md:h-[420px]">
+							<canvas bind:this={chartCanvas}></canvas>
+						</div>
+					</div>
+				{:else}
+					<div class="overflow-hidden rounded-[24px] border border-slate-200/90 bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]">
+						<div class="overflow-x-auto">
+							<table class="min-w-full text-sm">
+								<thead style="background: linear-gradient(to bottom, #f8fafc, #eef2f7);">
+									<tr>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Recorded</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">BP</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">HR</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Temp</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">SpO₂</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Resp</th>
+										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Weight</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each vitals.slice(0, parseInt(selectedTimeRange)) as vital, index}
+										<tr style="background: {index % 2 === 0 ? 'white' : 'rgba(248,250,252,0.84)'}; border-top: 1px solid rgba(226,232,240,0.9);">
+											<td class="px-4 py-3 font-medium text-slate-600">{formatReportDate(vital.recorded_at)}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.systolic_bp ?? '—'}/{vital.diastolic_bp ?? '—'}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.heart_rate ?? '—'}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.temperature ?? '—'}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.oxygen_saturation ?? '—'}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.respiratory_rate ?? '—'}</td>
+											<td class="px-4 py-3 text-slate-800">{vital.weight ?? '—'}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					</div>
+				{/if}
 			</div>
-		{/if}
+		</AquaCard>
 
 	<!-- ═══════════════════════════════════════════════════════════════
 	     MEDICATIONS TAB
@@ -1239,6 +1398,156 @@
 								</div>
 							</div>
 						</div>
+					{/each}
+				</div>
+			{/if}
+		</AquaCard>
+
+	<!-- ═══════════════════════════════════════════════════════════════
+	     INVESTIGATIONS TAB
+	     ═══════════════════════════════════════════════════════════════ -->
+	{:else if activeTab === 'investigations'}
+		<AquaCard>
+			<div class="mb-4 flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2">
+					<TestTube class="h-5 w-5 text-blue-600" />
+					<h3 class="font-bold text-gray-800">Investigations</h3>
+				</div>
+				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{investigationReports.length} reports</span>
+			</div>
+
+			{#if investigationReports.length === 0}
+				<p class="py-8 text-center text-sm text-gray-400">No investigation reports available</p>
+			{:else}
+				<div class="space-y-3">
+					{#each investigationReports as report}
+						{@const tone = getReportStatusTone(report.status)}
+						<div class="rounded-[22px] p-4" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(226,232,240,0.95);">
+							<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+								<div>
+									<div class="flex items-center gap-2">
+										<span class="inline-flex h-9 w-9 items-center justify-center rounded-full" style="background: rgba(59,130,246,0.12); color: #2563eb;">
+											<TestTube class="h-4 w-4" />
+										</span>
+										<div>
+											<p class="font-bold text-slate-800">{report.title}</p>
+											<p class="text-xs text-slate-400">{report.department} · {formatReportDate(report.date, report.time)}</p>
+										</div>
+									</div>
+								</div>
+								<span class="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide" style="background: {tone.bg}; color: {tone.text}; border: 1px solid {tone.border};">{report.status}</span>
+							</div>
+							{#if report.result_summary}
+								<p class="mt-3 text-sm font-semibold text-slate-700">{report.result_summary}</p>
+							{/if}
+							{#if report.findings && report.findings.length > 0}
+								<div class="mt-3 grid gap-2 md:grid-cols-2">
+									{#each report.findings.slice(0, 4) as finding}
+										<div class="rounded-xl px-3 py-2" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(226,232,240,0.9);">
+											<p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">{finding.parameter}</p>
+											<p class="mt-1 text-sm font-semibold text-slate-800">{finding.value}</p>
+											{#if finding.reference}
+												<p class="text-[11px] text-slate-400">Ref: {finding.reference}</p>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</AquaCard>
+
+	<!-- ═══════════════════════════════════════════════════════════════
+	     RADIOLOGY TAB
+	     ═══════════════════════════════════════════════════════════════ -->
+	{:else if activeTab === 'radiology'}
+		<AquaCard>
+			<div class="mb-4 flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2">
+					<Activity class="h-5 w-5 text-blue-600" />
+					<h3 class="font-bold text-gray-800">Radiology</h3>
+				</div>
+				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{radiologyReports.length} studies</span>
+			</div>
+
+			{#if radiologyReports.length === 0}
+				<p class="py-8 text-center text-sm text-gray-400">No radiology studies available</p>
+			{:else}
+				<div class="space-y-3">
+					{#each radiologyReports as report}
+						{@const tone = getReportStatusTone(report.status)}
+						<div class="rounded-[22px] p-4" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(226,232,240,0.95);">
+							<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-2">
+										<span class="inline-flex h-9 w-9 items-center justify-center rounded-full" style="background: rgba(249,115,22,0.12); color: #ea580c;">
+											<Activity class="h-4 w-4" />
+										</span>
+										<div>
+											<p class="font-bold text-slate-800">{report.title}</p>
+											<p class="text-xs text-slate-400">{report.department} · {formatReportDate(report.date, report.time)}</p>
+										</div>
+									</div>
+									{#if report.result_summary}
+										<p class="mt-3 text-sm font-semibold text-slate-700">{report.result_summary}</p>
+									{/if}
+									{#if report.notes}
+										<p class="mt-2 text-sm text-slate-500">{report.notes}</p>
+									{/if}
+								</div>
+								<div class="shrink-0 space-y-3 lg:w-60">
+									<span class="inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide" style="background: {tone.bg}; color: {tone.text}; border: 1px solid {tone.border};">{report.status}</span>
+									<div class="rounded-2xl px-3 py-3 text-sm" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(226,232,240,0.9);">
+										<p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Images</p>
+										<p class="mt-1 font-semibold text-slate-800">{report.images?.length || 0} attached</p>
+									</div>
+									{#if report.images && report.images.length > 0}
+										<div class="grid grid-cols-3 gap-2">
+											{#each report.images.slice(0, 3) as image}
+												<a href={image.url} target="_blank" rel="noreferrer" class="block overflow-hidden rounded-xl border border-slate-200/90 bg-slate-100">
+													<img src={image.url} alt={image.title} class="h-16 w-full object-cover" />
+												</a>
+											{/each}
+										</div>
+									{/if}
+								</div>
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</AquaCard>
+
+	<!-- ═══════════════════════════════════════════════════════════════
+	     GALLERY TAB
+	     ═══════════════════════════════════════════════════════════════ -->
+	{:else if activeTab === 'gallery'}
+		<AquaCard>
+			<div class="mb-4 flex items-center justify-between gap-3">
+				<div class="flex items-center gap-2">
+					<ImageIcon class="h-5 w-5 text-blue-600" />
+					<h3 class="font-bold text-gray-800">Gallery</h3>
+				</div>
+				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{galleryItems.length} items</span>
+			</div>
+
+			{#if galleryItems.length === 0}
+				<p class="py-8 text-center text-sm text-gray-400">No patient images available</p>
+			{:else}
+				<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+					{#each galleryItems as item}
+						<a href={item.url} target="_blank" rel="noreferrer" class="overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_8px_18px_rgba(15,23,42,0.05)]">
+							<div class="aspect-[4/3] overflow-hidden bg-slate-100">
+								<img src={item.url} alt={item.title} class="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.03]" />
+							</div>
+							<div class="space-y-1 p-4">
+								<p class="font-semibold text-slate-800">{item.title}</p>
+								<p class="text-xs text-slate-500">{item.reportTitle} · {item.reportType}</p>
+								<p class="text-xs text-slate-400">{formatReportDate(item.reportDate)}</p>
+							</div>
+						</a>
 					{/each}
 				</div>
 			{/if}

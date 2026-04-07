@@ -5,6 +5,7 @@ export interface ApprovalItem {
   type: 'CASE_RECORD' | 'DISCHARGE_SUMMARY' | 'ADMISSION' | 'PRESCRIPTION';
   status: string;
   score?: number;
+  grade?: string;
   comments?: string;
   created_at: string;
   processed_at?: string;
@@ -34,6 +35,7 @@ export interface ApprovalItem {
     procedure_name: string;
     procedure_description: string;
     doctor_name: string;
+    grade?: string;
     date: string;
     time: string;
   };
@@ -48,7 +50,27 @@ export interface ApprovalItem {
     referring_doctor?: string;
     status: string;
     notes?: string;
+    discharge_summary?: string;
     admission_date: string;
+  };
+  prescription?: {
+    id: string;
+    prescription_id?: string;
+    doctor?: string;
+    department?: string;
+    date?: string;
+    status?: string;
+    notes?: string;
+    medications?: Array<{
+      id: string;
+      name: string;
+      dosage: string;
+      frequency: string;
+      duration: string;
+      instructions?: string;
+      start_date?: string;
+      end_date?: string;
+    }>;
   };
   submitted_by?: {
     id: string;
@@ -115,7 +137,7 @@ export const approvalsApi = {
   async processApproval(
     facultyId: string,
     approvalId: string,
-    data: { status: 'APPROVED' | 'REJECTED'; score?: number; comments?: string }
+    data: { status: 'APPROVED' | 'REJECTED'; score?: number; grade?: string; comments?: string }
   ): Promise<void> {
     await client.put(`/faculty/${facultyId}/approvals/${approvalId}`, data);
   },
