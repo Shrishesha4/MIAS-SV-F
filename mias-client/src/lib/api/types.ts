@@ -77,7 +77,93 @@ export interface Vital {
   blood_glucose?: number;
   cholesterol?: number;
   bmi?: number;
+  creatinine?: number;
+  urea?: number;
+  sodium?: number;
+  potassium?: number;
+  sgot?: number;
+  sgpt?: number;
+  hemoglobin?: number;
+  wbc?: number;
+  platelet?: number;
+  rbc?: number;
+  hct?: number;
   notes?: string;
+}
+
+export interface AdmissionIOEvent {
+  id: string;
+  admission_id: string;
+  patient_id: string;
+  event_time: string;
+  event_type: string;
+  description?: string;
+  amount_ml?: number;
+  recorded_by?: string;
+  created_at?: string;
+}
+
+export interface AdmissionIOEventSummary {
+  iv_input_ml: number;
+  oral_intake_ml: number;
+  urine_output_ml: number;
+  stool_count: number;
+}
+
+export interface AdmissionIOEventsResponse {
+  events: AdmissionIOEvent[];
+  summary: AdmissionIOEventSummary;
+}
+
+export interface AdmissionPlanEntry {
+  id: string;
+  name: string;
+  status: string;
+  dose?: string;
+  route?: string;
+  frequency?: string;
+}
+
+export interface AdmissionSoapPlanItems {
+  drug_notes?: string;
+  investigation_notes?: string;
+  diet_notes?: string;
+  drugs?: AdmissionPlanEntry[];
+  investigations?: AdmissionPlanEntry[];
+  diet?: AdmissionPlanEntry[];
+}
+
+export interface AdmissionSoapMeta {
+  author?: string;
+  supervisor?: string;
+  timestamp?: string;
+  next_review?: string;
+}
+
+export interface AdmissionSoapNote {
+  id: string;
+  admission_id: string;
+  patient_id: string;
+  subjective?: string;
+  objective?: string;
+  assessment?: string;
+  plan?: string;
+  plan_items?: AdmissionSoapPlanItems;
+  note_meta?: AdmissionSoapMeta;
+  created_at?: string;
+  created_by?: string;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface AdmissionEquipment {
+  id: string;
+  admission_id: string;
+  equipment_type: string;
+  equipment_id?: string;
+  connected_since?: string;
+  status: string;
+  live_data?: Record<string, number | string>;
 }
 
 export interface MedicalRecord {
@@ -195,6 +281,9 @@ export interface Admission {
   discharge_summary?: string;
   discharge_instructions?: string;
   follow_up_date?: string;
+  ioEvents?: AdmissionIOEvent[];
+  soapNotes?: AdmissionSoapNote[];
+  equipment?: AdmissionEquipment[];
 }
 
 export interface ReportFinding {

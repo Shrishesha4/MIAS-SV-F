@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type TrendData, type TrendPoint } from '$lib/api/admin';
-	import { toastStore } from '$lib/stores/toast';
+	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import {
-		ChevronLeft, BarChart3, TrendingUp, Activity, Pill, Bed, Users
+		BarChart3, TrendingUp, Activity, Pill, Bed, Users
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -19,7 +19,7 @@
 	let activeChart = $state('registrations');
 
 	onMount(async () => {
-		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
+		if (auth.role !== 'ADMIN') { window.location.href = '/dashboard'; return; }
 		await loadData();
 	});
 
@@ -69,23 +69,23 @@
 	);
 </script>
 
-<div class="px-4 py-4 md:px-6 md:py-6 space-y-4 max-w-4xl mx-auto">
-	<!-- Header -->
-	<div class="flex items-center gap-3">
-		<button class="text-blue-600 cursor-pointer" onclick={() => goto('/admin')}>
-			<ChevronLeft class="w-5 h-5" />
-		</button>
+<AdminMobileScaffold
+	title="System Administration"
+	titleIcon={BarChart3}
+	navItems={adminPageNavItems}
+	activeNav="analytics"
+	backHref="/admin"
+>
+	<div class="space-y-4">
 		<div>
-			<h1 class="text-lg font-bold text-blue-900">Analytics & Trends</h1>
-			<p class="text-xs text-gray-500">Hospital performance overview</p>
+			<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">Analytics</h2>
+			<p class="mt-1 text-xs text-slate-500">Hospital performance overview</p>
 		</div>
-	</div>
 
-	<!-- Period Selector -->
-	<div class="flex gap-2">
+		<div class="flex gap-2 overflow-x-auto">
 		{#each [{ d: 7, l: '7 days' }, { d: 30, l: '30 days' }, { d: 90, l: '90 days' }, { d: 365, l: '1 year' }] as p}
 			<button
-				class="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
+				class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
 				style={periodDays === p.d
 					? 'background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);'
 					: 'background: white; color: #4b5563; border: 1px solid #e5e7eb;'}
@@ -186,4 +186,5 @@
 			</AquaCard>
 		{/if}
 	{/if}
-</div>
+	</div>
+</AdminMobileScaffold>

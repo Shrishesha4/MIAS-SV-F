@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type Programme } from '$lib/api/admin';
-	import { toastStore } from '$lib/stores/toast';
+	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
-		BookOpen, Plus, Edit3, Trash2, ChevronLeft, Users, CheckCircle
+		BookOpen, Plus, Edit3, Trash2, Users, CheckCircle
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -36,7 +36,7 @@
 	const degreeTypes = ['Undergraduate', 'Postgraduate', 'Diploma', 'Certificate', 'Doctoral'];
 
 	onMount(async () => {
-		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
+		if (auth.role !== 'ADMIN') { window.location.href = '/dashboard'; return; }
 		await loadData();
 	});
 
@@ -122,25 +122,26 @@
 	}
 </script>
 
-<div class="px-4 py-4 md:px-6 md:py-6 space-y-4 max-w-4xl mx-auto">
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<button class="text-blue-600 cursor-pointer" onclick={() => goto('/admin')}>
-				<ChevronLeft class="w-5 h-5" />
-			</button>
+<AdminMobileScaffold
+	title="System Administration"
+	titleIcon={BookOpen}
+	navItems={adminPageNavItems}
+	activeNav="programmes"
+	backHref="/admin"
+>
+	<div class="space-y-4">
+		<div class="flex items-center justify-between">
 			<div>
-				<h1 class="text-lg font-bold text-blue-900">Programmes</h1>
-				<p class="text-xs text-gray-500">{programmes.length} programmes</p>
+				<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">Programmes</h2>
+				<p class="mt-1 text-xs text-slate-500">{programmes.length} academic programmes configured</p>
 			</div>
+			<AquaButton size="sm" onclick={openCreate}>
+				<div class="flex items-center gap-1">
+					<Plus class="w-4 h-4" />
+					<span>Add</span>
+				</div>
+			</AquaButton>
 		</div>
-		<AquaButton size="sm" onclick={openCreate}>
-			<div class="flex items-center gap-1">
-				<Plus class="w-4 h-4" />
-				<span>Add</span>
-			</div>
-		</AquaButton>
-	</div>
 
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
@@ -211,7 +212,8 @@
 			{/if}
 		</div>
 	{/if}
-</div>
+	</div>
+</AdminMobileScaffold>
 
 <!-- Create/Edit Programme Modal -->
 {#if showForm}

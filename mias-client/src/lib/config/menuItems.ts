@@ -1,7 +1,7 @@
 import {
 	Home, User, FileText, Clipboard, Pill, Activity,
 	TestTube, Wallet, Bell, GraduationCap,
-	Users, CheckCircle, Bed, Calendar, Building, BarChart3
+	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope
 } from 'lucide-svelte';
 
 export interface MenuItem {
@@ -58,6 +58,13 @@ export const receptionMenuItems: MenuItem[] = [
 	{ icon: Calendar, label: 'Appointments', path: '/clinic-sessions' },
 ];
 
+export const nurseMenuItems: MenuItem[] = [
+	{ icon: Stethoscope, label: 'Nurse Station', path: '/nurse-station' },
+	{ icon: Users, label: 'Ward Patients', path: '/nurse-station' },
+	{ icon: User, label: 'Profile', path: '/nurse-profile' },
+	{ icon: Bell, label: 'Notifications', path: '/notifications' },
+];
+
 export function getMenuItems(role: string): MenuItem[] {
 	switch (role) {
 		case 'PATIENT': return patientMenuItems;
@@ -65,6 +72,7 @@ export function getMenuItems(role: string): MenuItem[] {
 		case 'FACULTY': return facultyMenuItems;
 		case 'ADMIN': return adminMenuItems;
 		case 'RECEPTION': return receptionMenuItems;
+		case 'NURSE': return nurseMenuItems;
 		default: return patientMenuItems;
 	}
 }

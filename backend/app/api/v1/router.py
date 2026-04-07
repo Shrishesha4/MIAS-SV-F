@@ -5,6 +5,7 @@ from app.api.v1 import (
     patients,
     students,
     faculty,
+    nurses,
     vitals,
     prescriptions,
     reports,
@@ -25,6 +26,7 @@ api_router.include_router(auth.router)
 api_router.include_router(patients.router)
 api_router.include_router(students.router)
 api_router.include_router(faculty.router)
+api_router.include_router(nurses.router)
 api_router.include_router(vitals.router)
 api_router.include_router(prescriptions.router)
 api_router.include_router(reports.router)

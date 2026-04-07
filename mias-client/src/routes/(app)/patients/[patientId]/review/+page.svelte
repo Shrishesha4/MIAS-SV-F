@@ -1,17 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
+	import type { AdmissionIOEvent, AdmissionIOEventSummary, AdmissionSoapNote, AdmissionEquipment, Vital } from '$lib/api/types';
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
+	import { nurseApi, type SBARNote } from '$lib/api/nurse';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import {
 		ArrowLeft, Activity, Droplet, Wind, Thermometer, Scale, HeartPulse,
-		Plus, Trash2, Edit, ChevronDown, ChevronUp, Monitor, Cpu, X,
-		AlertTriangle, Send, ClipboardList, Stethoscope
+		Plus, Trash2, Edit, ChevronDown, ChevronUp, Monitor, Cpu, X, Wifi,
+		AlertTriangle, Send, ClipboardList, Stethoscope, BarChart3, Table,
+		Pill, Utensils, Beaker, Circle, FileText, Clock, User, Zap,
+		TestTube, FlaskConical, LayoutList
 	} from 'lucide-svelte';
 
 	const patientId = $derived($page.params.patientId);
@@ -19,16 +23,30 @@
 	// ── Data ──────────────────────────────────────────────────────
 	let patient: any = $state(null);
 	let admission: any = $state(null);
-	let vitals: any[] = $state([]);
-	let ioEvents: any[] = $state([]);
-	let soapNotes: any[] = $state([]);
-	let equipment: any[] = $state([]);
+	let vitals = $state.raw<Vital[]>([]);
+	let ioEvents = $state.raw<AdmissionIOEvent[]>([]);
+	let ioSummary = $state<AdmissionIOEventSummary | null>(null);
+	let soapNotes = $state.raw<AdmissionSoapNote[]>([]);
+	let sbarNotes = $state.raw<SBARNote[]>([]);
+	let equipment = $state.raw<AdmissionEquipment[]>([]);
 	let loading = $state(true);
 	let role = $state('');
 
+	// ── Vitals view state ─────────────────────────────────────────
+	let vitalsView = $state<'chart' | 'table'>('chart');
+	let selectedVitalParams = $state<string[]>(['heart_rate', 'systolic_bp']);
+	let vitalsDropdownOpen = $state(false);
+	let biochemDropdownOpen = $state(false);
+	let haemaDropdownOpen = $state(false);
+	// Tooltip state
+	let hoveredVitalIndex: number | null = $state(null);
+	let hoveredVitalParam: string | null = $state(null);
+	let tooltipX = $state(0);
+	let tooltipY = $state(0);
+
 	// ── IO Event form ─────────────────────────────────────────────
 	let showAddEventModal = $state(false);
-	let eventType = $state('IV Input');
+	let eventType = $state('IV');
 	let eventTime = $state('');
 	let eventDesc = $state('');
 	let eventAmount = $state('');
@@ -59,7 +77,6 @@
 	let soapPlan = $state('');
 	let soapSubmitting = $state(false);
 	let editSoapId: string | null = $state(null);
-	let expandedSoap: string | null = $state(null);
 
 	// ── Discharge ─────────────────────────────────────────────────
 	let showDischargeModal = $state(false);
@@ -68,30 +85,74 @@
 	let dischargeFollowUp = $state('');
 	let dischargeSubmitting = $state(false);
 
-	// ── Vitals view mode ──────────────────────────────────────────
-	let vitalsView = $state<'chart' | 'table'>('table');
+	// ── Live equipment data simulation ────────────────────────────
+	let liveDataInterval: ReturnType<typeof setInterval> | null = null;
+	let liveEquipmentData = $state<Record<string, Record<string, number>>>({});
 
-	// ── Derived totals (last 24h) ─────────────────────────────────
-	const ioTotals = $derived.by(() => {
-		const intake = ioEvents
-			.filter((e: any) => ['IV Input', 'Food'].includes(e.event_type) && e.amount_ml)
-			.reduce((s: number, e: any) => s + (e.amount_ml || 0), 0);
-		const output = ioEvents
-			.filter((e: any) => ['Urine', 'Stool', 'Drain'].includes(e.event_type) && e.amount_ml)
-			.reduce((s: number, e: any) => s + (e.amount_ml || 0), 0);
-		return { intake, output, balance: intake - output };
-	});
-
-	const eventTypeColor: Record<string, string> = {
-		'IV Input': '#3b82f6',
-		'Drugs':    '#8b5cf6',
-		'Food':     '#22c55e',
-		'Urine':    '#f59e0b',
-		'Stool':    '#92400e',
-		'Drain':    '#ef4444',
+	// ── Parameter config ──────────────────────────────────────────
+	const vitalParamsConfig: Record<string, { label: string; unit: string; color: string; key?: string }> = {
+		heart_rate: { label: 'Heart Rate', unit: 'bpm', color: '#ef4444' },
+		systolic_bp: { label: 'Blood Pressure', unit: 'mmHg', color: '#3b82f6' },
+		respiratory_rate: { label: 'Resp. Rate', unit: '/min', color: '#a855f7' },
+		temperature: { label: 'Temperature', unit: '°F', color: '#f97316' },
+		oxygen_saturation: { label: 'SpO₂', unit: '%', color: '#14b8a6' },
+		weight: { label: 'Weight', unit: 'kg', color: '#22c55e' },
+		blood_glucose: { label: 'Blood Glucose', unit: 'mg/dL', color: '#f59e0b' },
 	};
 
-	const latestVitals = $derived(vitals[0] ?? null);
+	const biochemParams: Record<string, { label: string; unit: string; color: string }> = {
+		creatinine: { label: 'Creatinine', unit: 'mg/dL', color: '#8b5cf6' },
+		urea: { label: 'Urea', unit: 'mg/dL', color: '#6366f1' },
+		sodium: { label: 'Sodium', unit: 'mEq/L', color: '#ec4899' },
+		potassium: { label: 'Potassium', unit: 'mEq/L', color: '#f43f5e' },
+		sgot: { label: 'SGOT', unit: 'U/L', color: '#84cc16' },
+		sgpt: { label: 'SGPT', unit: 'U/L', color: '#22c55e' },
+	};
+
+	const haemaParams: Record<string, { label: string; unit: string; color: string }> = {
+		hemoglobin: { label: 'Hemoglobin', unit: 'g/dL', color: '#dc2626' },
+		wbc: { label: 'WBC', unit: '×10³/µL', color: '#2563eb' },
+		platelet: { label: 'Platelet', unit: '×10³/µL', color: '#7c3aed' },
+		rbc: { label: 'RBC', unit: '×10⁶/µL', color: '#db2777' },
+		hct: { label: 'HCT', unit: '%', color: '#ea580c' },
+	};
+
+	// ── IO Event type config ─────────────────────────────────────
+	const ioEventTypes: Record<string, { label: string; icon: any; bgColor: string; textColor: string; borderColor: string }> = {
+		'IV': { label: 'IV Input', icon: Droplet, bgColor: 'bg-green-50', textColor: 'text-green-700', borderColor: 'border-green-200' },
+		'ORAL': { label: 'Oral Intake', icon: Utensils, bgColor: 'bg-amber-50', textColor: 'text-amber-700', borderColor: 'border-amber-200' },
+		'URINE': { label: 'Urine', icon: Beaker, bgColor: 'bg-cyan-50', textColor: 'text-cyan-700', borderColor: 'border-cyan-200' },
+		'STOOL': { label: 'Stool', icon: Circle, bgColor: 'bg-stone-50', textColor: 'text-stone-600', borderColor: 'border-stone-200' },
+		'DRUG': { label: 'Drugs', icon: Pill, bgColor: 'bg-purple-50', textColor: 'text-purple-700', borderColor: 'border-purple-200' },
+	};
+
+	// ── Derived ───────────────────────────────────────────────────
+	const latestSoap = $derived(soapNotes[0] ?? null);
+
+	// Group IO events by hour for timeline
+	const ioEventsByTime = $derived.by(() => {
+		const grouped: Record<string, AdmissionIOEvent[]> = {};
+		ioEvents.forEach(e => {
+			const t = e.event_time?.slice(0, 5) || '00:00';
+			if (!grouped[t]) grouped[t] = [];
+			grouped[t].push(e);
+		});
+		return grouped;
+	});
+
+	const timeSlots = $derived(
+		Object.keys(ioEventsByTime).sort().slice(0, 8)
+	);
+
+	// Get vitals sorted by time for charts
+	const sortedVitals = $derived(
+		[...vitals].sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime()).slice(-8)
+	);
+
+	// Selected params by category
+	const selectedVitalsCount = $derived(
+		selectedVitalParams.filter(p => p in vitalParamsConfig).length
+	);
 
 	onMount(async () => {
 		const auth = get(authStore);
@@ -111,14 +172,27 @@
 			admission = admList.find((a: any) => a.status === 'Active') ?? admList[0] ?? null;
 
 			if (admission) {
-				const [evts, notes, equip] = await Promise.all([
+				const [evtsResp, notes, equip, sbar] = await Promise.all([
 					patientApi.getIOEvents(admission.id),
 					patientApi.getSOAPNotes(admission.id),
 					patientApi.getEquipment(admission.id),
+					nurseApi.getPatientSBARNotes(patient.id),
 				]);
-				ioEvents = evts;
+				ioEvents = evtsResp.events;
+				ioSummary = evtsResp.summary;
 				soapNotes = notes;
+				sbarNotes = sbar;
 				equipment = equip;
+
+				// Initialize live data from equipment
+				equip.forEach((eq: AdmissionEquipment) => {
+					if (eq.live_data) {
+						liveEquipmentData[eq.id] = eq.live_data as Record<string, number>;
+					}
+				});
+
+				// Start live data simulation
+				startLiveDataSimulation();
 			}
 		} catch (e) {
 			toastStore.addToast('Failed to load admission data', 'error');
@@ -127,6 +201,36 @@
 		}
 	});
 
+	onDestroy(() => {
+		if (liveDataInterval) clearInterval(liveDataInterval);
+	});
+
+	function startLiveDataSimulation() {
+		liveDataInterval = setInterval(() => {
+			equipment.forEach(eq => {
+				if (eq.live_data && eq.status === 'Active') {
+					const newData: Record<string, number> = {};
+					Object.entries(eq.live_data).forEach(([k, v]) => {
+						if (typeof v === 'number') {
+							// Small random fluctuation
+							newData[k] = Math.round((v + (Math.random() - 0.5) * 2) * 10) / 10;
+						}
+					});
+					liveEquipmentData[eq.id] = { ...liveEquipmentData[eq.id], ...newData };
+				}
+			});
+			liveEquipmentData = { ...liveEquipmentData };
+		}, 2000);
+	}
+
+	function toggleVitalParam(param: string) {
+		if (selectedVitalParams.includes(param)) {
+			selectedVitalParams = selectedVitalParams.filter(p => p !== param);
+		} else {
+			selectedVitalParams = [...selectedVitalParams, param];
+		}
+	}
+
 	async function addIOEvent() {
 		if (!admission || !eventType || !eventTime) return;
 		eventSubmitting = true;
@@ -134,13 +238,14 @@
 			await patientApi.addIOEvent(admission.id, {
 				event_type: eventType,
 				event_time: eventTime,
-			description: eventDesc || undefined,
-			amount_ml: eventAmount ? Number(eventAmount) : undefined,
-
+				description: eventDesc || undefined,
+				amount_ml: eventAmount ? Number(eventAmount) : undefined,
 			});
-			ioEvents = await patientApi.getIOEvents(admission.id);
+			const resp = await patientApi.getIOEvents(admission.id);
+			ioEvents = resp.events;
+			ioSummary = resp.summary;
 			showAddEventModal = false;
-			eventType = 'IV Input'; eventTime = ''; eventDesc = ''; eventAmount = '';
+			eventType = 'IV'; eventTime = ''; eventDesc = ''; eventAmount = '';
 			toastStore.addToast('Event recorded', 'success');
 		} catch { toastStore.addToast('Failed to add event', 'error'); }
 		finally { eventSubmitting = false; }
@@ -248,12 +353,74 @@
 		if (!d) return '';
 		return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 	}
+
+	function fmtTimeShort(d: string | null | undefined) {
+		if (!d) return '';
+		const date = new Date(d);
+		return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+	}
+
+	// Get chart Y values for a parameter
+	function getChartData(param: string): number[] {
+		return sortedVitals.map(v => {
+			const val = (v as any)[param];
+			return typeof val === 'number' ? val : 0;
+		});
+	}
+
+	function getChartMin(values: number[]): number {
+		const validValues = values.filter(v => v > 0);
+		return validValues.length ? Math.min(...validValues) * 0.9 : 0;
+	}
+
+	function getChartMax(values: number[]): number {
+		const validValues = values.filter(v => v > 0);
+		return validValues.length ? Math.max(...validValues) * 1.1 : 100;
+	}
+
+	// Get IO events at a specific time (within 30 minute window)
+	function getEventsAtVitalTime(vitalTime: string): AdmissionIOEvent[] {
+		const vitalDate = new Date(vitalTime);
+		const vitalHourMin = `${String(vitalDate.getHours()).padStart(2, '0')}:${String(vitalDate.getMinutes()).padStart(2, '0')}`;
+		
+		return ioEvents.filter(evt => {
+			if (!evt.event_time) return false;
+			// Compare just the time portion HH:mm
+			const evtTime = evt.event_time.slice(0, 5);
+			const [evtH, evtM] = evtTime.split(':').map(Number);
+			const [vitalH, vitalM] = vitalHourMin.split(':').map(Number);
+			
+			const evtMinutes = evtH * 60 + evtM;
+			const vitalMinutes = vitalH * 60 + vitalM;
+			const diffMinutes = Math.abs(evtMinutes - vitalMinutes);
+			
+			return diffMinutes <= 30; // Events within 30 minutes
+		});
+	}
+
+	function handleChartPointHover(event: MouseEvent, vitalIndex: number, param: string) {
+		const target = event.currentTarget as SVGCircleElement;
+		const rect = target.getBoundingClientRect();
+		const svgParent = target.closest('svg')?.parentElement;
+		if (svgParent) {
+			const parentRect = svgParent.getBoundingClientRect();
+			tooltipX = rect.left - parentRect.left + rect.width / 2;
+			tooltipY = rect.top - parentRect.top - 10;
+		}
+		hoveredVitalIndex = vitalIndex;
+		hoveredVitalParam = param;
+	}
+
+	function handleChartPointLeave() {
+		hoveredVitalIndex = null;
+		hoveredVitalParam = null;
+	}
 </script>
 
 <!-- ══════════════════════════════════════════════════════════════
-     REVIEW & VITALS PAGE
+     ADMISSION REVIEW & VITALS TREND PAGE
      ══════════════════════════════════════════════════════════════ -->
-<div class="min-h-screen" style="background: #e8edf3;">
+<div class="min-h-screen" style="background: #f1f5f9;">
 
 {#if loading}
 	<div class="flex items-center justify-center h-64">
@@ -284,335 +451,933 @@
 
 <div class="px-4 py-4 space-y-4">
 
-<!-- ── Admission Snapshot ────────────────────────────────────── -->
-<div class="rounded-xl p-3" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
-	<p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Admission Overview</p>
-	<div class="grid grid-cols-3 gap-2 text-center">
-		<div class="rounded-lg p-2" style="background: rgba(59,130,246,0.06);">
-			<p class="text-[9px] text-gray-500">Ward</p>
-			<p class="text-xs font-bold text-blue-700">{admission.ward || '—'}</p>
-		</div>
-		<div class="rounded-lg p-2" style="background: rgba(59,130,246,0.06);">
-			<p class="text-[9px] text-gray-500">Bed</p>
-			<p class="text-xs font-bold text-blue-700">{admission.bed_number || '—'}</p>
-		</div>
-		<div class="rounded-lg p-2" style="background: rgba(59,130,246,0.06);">
-			<p class="text-[9px] text-gray-500">Day</p>
-			<p class="text-xs font-bold text-blue-700">
-				{Math.max(1, Math.floor((Date.now() - new Date(admission.admission_date).getTime()) / 86400000) + 1)}
-			</p>
-		</div>
-	</div>
-	{#if admission.provisional_diagnosis || admission.diagnosis}
-		<div class="mt-2 px-2 py-1.5 rounded-lg" style="background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.12);">
-			<p class="text-[9px] text-gray-500 mb-0.5">Provisional Diagnosis</p>
-			<p class="text-xs font-semibold text-red-700">{admission.provisional_diagnosis || admission.diagnosis}</p>
-		</div>
-	{/if}
-	{#if admission.attending_doctor}
-		<p class="text-[10px] text-gray-500 mt-2">
-			Attending: <span class="font-semibold text-gray-700">{admission.attending_doctor}</span>
-		</p>
-	{/if}
-</div>
-
-<!-- ── Vital Trends ─────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 1: ADMISSION REVIEW & VITALS TREND
+     ══════════════════════════════════════════════════════════════ -->
 <div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
-	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+	<!-- Header -->
+	<div class="px-4 py-3 flex items-center justify-between" style="background: linear-gradient(to bottom, #fef7ed, #fefce8);">
 		<div class="flex items-center gap-2">
-			<HeartPulse class="w-4 h-4 text-red-500" />
-			<span class="text-sm font-bold text-gray-800">Vitals</span>
-			{#if vitals.length > 0}
-				<span class="text-[10px] text-gray-400">{vitals.length} reading{vitals.length !== 1 ? 's' : ''}</span>
-			{/if}
+			<Activity class="w-5 h-5 text-blue-600" />
+			<span class="text-sm font-bold text-gray-800">Admission Review & Vitals Trend</span>
 		</div>
-		<div class="flex items-center gap-2">
-			<!-- Chart / Table toggle -->
-			<div class="flex rounded-lg overflow-hidden" style="border: 1px solid rgba(0,0,0,0.12);">
-				<button class="px-2 py-1 text-[10px] font-medium cursor-pointer"
-					style="background: {vitalsView === 'table' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f8faff'}; color: {vitalsView === 'table' ? 'white' : '#64748b'};"
-					onclick={() => vitalsView = 'table'}>Table</button>
-				<button class="px-2 py-1 text-[10px] font-medium cursor-pointer"
-					style="background: {vitalsView === 'chart' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f8faff'}; color: {vitalsView === 'chart' ? 'white' : '#64748b'};"
-					onclick={() => vitalsView = 'chart'}>Trend</button>
-			</div>
-			{#if role === 'STUDENT' || role === 'FACULTY'}
-				<button onclick={() => showVitalModal = true}
-					class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
-					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 4px rgba(37,99,235,0.3);">
-					<Plus class="w-3.5 h-3.5" /> Record
-				</button>
-			{/if}
-		</div>
+		{#if role === 'STUDENT' || role === 'FACULTY'}
+			<button onclick={() => showVitalModal = true}
+				class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-white cursor-pointer"
+				style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 4px rgba(22,163,74,0.3);">
+				<Zap class="w-3.5 h-3.5" /> Record Vital
+			</button>
+		{/if}
 	</div>
 
-	{#if vitals.length === 0}
-		<div class="p-6 text-center text-xs text-gray-400">No vitals recorded yet.</div>
-	{:else if vitalsView === 'table'}
-		<!-- Latest vitals card -->
-		{#if latestVitals}
-			<div class="p-3">
-				<p class="text-[9px] text-gray-400 mb-2">Latest — {fmtDate(latestVitals.recorded_at)} {fmtTime(latestVitals.recorded_at)}</p>
-				<div class="grid grid-cols-4 gap-2">
-					{#each [
-						[latestVitals.systolic_bp ? `${latestVitals.systolic_bp}/${latestVitals.diastolic_bp}` : null, 'BP', 'mmHg', '#ef4444'],
-						[latestVitals.heart_rate, 'HR', 'bpm', '#f97316'],
-						[latestVitals.oxygen_saturation, 'SpO₂', '%', '#3b82f6'],
-						[latestVitals.temperature, 'Temp', '°F', '#8b5cf6'],
-						[latestVitals.respiratory_rate, 'RR', '/min', '#06b6d4'],
-						[latestVitals.weight, 'Wt', 'kg', '#22c55e'],
-						[latestVitals.blood_glucose, 'CBG', 'mg/dL', '#f59e0b'],
-					] as [val, lbl, unit, color]}
-						{#if val !== null && val !== undefined}
-							<div class="rounded-lg p-2 text-center col-span-1"
-								style="background: {color}10; border: 1px solid {color}25;">
-								<p class="text-[9px] font-medium" style="color: {color};">{lbl}</p>
-								<p class="text-sm font-bold" style="color: {color};">{val}</p>
-								<p class="text-[8px] text-gray-400">{unit}</p>
+	<!-- Filter Pills -->
+	<div class="px-4 py-3 flex flex-wrap items-center gap-2" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+		<!-- Vitals Dropdown -->
+		<div class="relative">
+			<button onclick={() => { vitalsDropdownOpen = !vitalsDropdownOpen; biochemDropdownOpen = false; haemaDropdownOpen = false; }}
+				class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+				style="background: #fef2f2; border: 1px solid #fecaca; color: #dc2626;">
+				<HeartPulse class="w-3.5 h-3.5" />
+				Vitals
+				{#if selectedVitalsCount > 0}
+					<span class="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+						{selectedVitalsCount}
+					</span>
+				{/if}
+				<ChevronDown class="w-3 h-3" />
+			</button>
+			{#if vitalsDropdownOpen}
+				<div class="absolute top-full left-0 mt-1 w-48 rounded-lg shadow-lg z-20 py-1"
+					style="background: white; border: 1px solid rgba(0,0,0,0.1);">
+					{#each Object.entries(vitalParamsConfig) as [key, cfg]}
+						<button onclick={() => toggleVitalParam(key)}
+							class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 cursor-pointer hover:bg-gray-50">
+							<div class="w-4 h-4 rounded border flex items-center justify-center"
+								style="border-color: {selectedVitalParams.includes(key) ? cfg.color : '#d1d5db'}; background: {selectedVitalParams.includes(key) ? cfg.color : 'transparent'};">
+								{#if selectedVitalParams.includes(key)}
+									<span class="text-white text-[10px]">✓</span>
+								{/if}
 							</div>
-						{/if}
+							<span class="w-2 h-2 rounded-full" style="background: {cfg.color};"></span>
+							{cfg.label}
+						</button>
 					{/each}
 				</div>
-			</div>
-		{/if}
-		<!-- History table -->
-		{#if vitals.length > 1}
-			<div class="overflow-x-auto" style="border-top: 1px solid rgba(0,0,0,0.06);">
-				<table class="w-full text-[10px]">
+			{/if}
+		</div>
+
+		<!-- Biochemistry Dropdown -->
+		<div class="relative">
+			<button onclick={() => { biochemDropdownOpen = !biochemDropdownOpen; vitalsDropdownOpen = false; haemaDropdownOpen = false; }}
+				class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+				style="background: #f5f3ff; border: 1px solid #e9d5ff; color: #7c3aed;">
+				<FlaskConical class="w-3.5 h-3.5" />
+				Biochemistry
+				<ChevronDown class="w-3 h-3" />
+			</button>
+			{#if biochemDropdownOpen}
+				<div class="absolute top-full left-0 mt-1 w-48 rounded-lg shadow-lg z-20 py-1"
+					style="background: white; border: 1px solid rgba(0,0,0,0.1);">
+					{#each Object.entries(biochemParams) as [key, cfg]}
+						<button onclick={() => toggleVitalParam(key)}
+							class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 cursor-pointer hover:bg-gray-50">
+							<div class="w-4 h-4 rounded border flex items-center justify-center"
+								style="border-color: {selectedVitalParams.includes(key) ? cfg.color : '#d1d5db'}; background: {selectedVitalParams.includes(key) ? cfg.color : 'transparent'};">
+								{#if selectedVitalParams.includes(key)}
+									<span class="text-white text-[10px]">✓</span>
+								{/if}
+							</div>
+							<span class="w-2 h-2 rounded-full" style="background: {cfg.color};"></span>
+							{cfg.label}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		<!-- Haematology Dropdown -->
+		<div class="relative">
+			<button onclick={() => { haemaDropdownOpen = !haemaDropdownOpen; vitalsDropdownOpen = false; biochemDropdownOpen = false; }}
+				class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+				style="background: #fdf2f8; border: 1px solid #fbcfe8; color: #db2777;">
+				<TestTube class="w-3.5 h-3.5" />
+				Haematology
+				<ChevronDown class="w-3 h-3" />
+			</button>
+			{#if haemaDropdownOpen}
+				<div class="absolute top-full left-0 mt-1 w-48 rounded-lg shadow-lg z-20 py-1"
+					style="background: white; border: 1px solid rgba(0,0,0,0.1);">
+					{#each Object.entries(haemaParams) as [key, cfg]}
+						<button onclick={() => toggleVitalParam(key)}
+							class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 cursor-pointer hover:bg-gray-50">
+							<div class="w-4 h-4 rounded border flex items-center justify-center"
+								style="border-color: {selectedVitalParams.includes(key) ? cfg.color : '#d1d5db'}; background: {selectedVitalParams.includes(key) ? cfg.color : 'transparent'};">
+								{#if selectedVitalParams.includes(key)}
+									<span class="text-white text-[10px]">✓</span>
+								{/if}
+							</div>
+							<span class="w-2 h-2 rounded-full" style="background: {cfg.color};"></span>
+							{cfg.label}
+						</button>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+
+	<!-- Selected Parameter Pills -->
+	{#if selectedVitalParams.length > 0}
+		<div class="px-4 py-2 flex flex-wrap gap-2" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+			{#each selectedVitalParams as param}
+				{@const cfg = vitalParamsConfig[param] || biochemParams[param] || haemaParams[param]}
+				{#if cfg}
+					<span class="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium"
+						style="background: {cfg.color}15; border: 1px solid {cfg.color}40; color: {cfg.color};">
+						<span class="w-1.5 h-1.5 rounded-full" style="background: {cfg.color};"></span>
+						{cfg.label}
+						<button onclick={() => toggleVitalParam(param)} class="ml-0.5 cursor-pointer hover:opacity-70">
+							<X class="w-3 h-3" />
+						</button>
+					</span>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+
+	<!-- Chart / Table Toggle -->
+	<div class="px-4 py-2 flex justify-end">
+		<div class="flex rounded-lg overflow-hidden" style="border: 1px solid rgba(0,0,0,0.12);">
+			<button class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium cursor-pointer"
+				style="background: {vitalsView === 'chart' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f8faff'}; color: {vitalsView === 'chart' ? 'white' : '#64748b'};"
+				onclick={() => vitalsView = 'chart'}>
+				<BarChart3 class="w-3.5 h-3.5" /> Chart
+			</button>
+			<button class="flex items-center gap-1 px-3 py-1.5 text-xs font-medium cursor-pointer"
+				style="background: {vitalsView === 'table' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f8faff'}; color: {vitalsView === 'table' ? 'white' : '#64748b'};"
+				onclick={() => vitalsView = 'table'}>
+				<LayoutList class="w-3.5 h-3.5" /> Table
+			</button>
+		</div>
+	</div>
+
+	<!-- Chart View -->
+	{#if vitalsView === 'chart' && sortedVitals.length > 0}
+		<div class="p-4 space-y-6">
+			{#each selectedVitalParams as param}
+				{@const cfg = vitalParamsConfig[param] || biochemParams[param] || haemaParams[param]}
+				{@const data = getChartData(param)}
+				{@const min = getChartMin(data)}
+				{@const max = getChartMax(data)}
+				{@const range = max - min || 1}
+				{#if cfg && data.some(v => v > 0)}
+					<div class="rounded-xl p-4" style="background: #fef7ed; border: 1px solid rgba(0,0,0,0.05);">
+						<!-- Chart Header -->
+						<div class="flex items-center gap-2 mb-3">
+							<button class="flex items-center gap-1 text-gray-400 text-xs cursor-pointer">
+								<ChevronUp class="w-3 h-3" />
+								<ChevronDown class="w-3 h-3" />
+							</button>
+							<span class="w-2.5 h-2.5 rounded-full" style="background: {cfg.color};"></span>
+							<span class="text-sm font-semibold text-gray-800">{cfg.label}</span>
+							<span class="text-xs text-gray-500">({cfg.unit})</span>
+						</div>
+
+						<!-- Chart Area -->
+						<div class="relative h-32">
+							<!-- Tooltip -->
+							{#if hoveredVitalIndex !== null && hoveredVitalParam === param && sortedVitals[hoveredVitalIndex]}
+								{@const hoveredVital = sortedVitals[hoveredVitalIndex]}
+								{@const eventsAtTime = getEventsAtVitalTime(hoveredVital.recorded_at)}
+								<div 
+									class="absolute z-50 rounded-xl shadow-2xl px-4 py-3 min-w-[200px] pointer-events-none"
+									style="
+										background: white;
+										border: 2px solid {cfg.color};
+										left: {tooltipX}px;
+										top: {tooltipY}px;
+										transform: translate(-50%, -100%);
+										opacity: 0;
+										animation: fadeIn 0.2s ease forwards;
+										box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+									">
+									<!-- Time -->
+									<div class="text-xs font-bold text-gray-900 mb-2 pb-2 border-b border-gray-200">
+										{fmtTimeShort(hoveredVital.recorded_at)}
+									</div>
+									<!-- Vital values -->
+									<div class="space-y-1.5">
+										{#if param === 'systolic_bp' && hoveredVital.systolic_bp}
+											<div class="flex items-center gap-2">
+												<span class="w-2 h-2 rounded-full" style="background: {cfg.color};"></span>
+												<span class="text-[11px] font-medium text-gray-700">Systolic:</span>
+												<span class="text-sm font-bold" style="color: {cfg.color};">{hoveredVital.systolic_bp}</span>
+											</div>
+											{#if hoveredVital.diastolic_bp}
+												<div class="flex items-center gap-2">
+													<span class="w-2 h-2 rounded-full opacity-50" style="background: {cfg.color};"></span>
+													<span class="text-[11px] font-medium text-gray-700">Diastolic:</span>
+													<span class="text-sm font-bold" style="color: {cfg.color};">{hoveredVital.diastolic_bp}</span>
+												</div>
+											{/if}
+										{:else}
+											{@const value = (hoveredVital as any)[param]}
+											{#if value}
+												<div class="flex items-center gap-2">
+													<span class="w-2 h-2 rounded-full" style="background: {cfg.color};"></span>
+													<span class="text-[11px] font-medium text-gray-700">{cfg.label}:</span>
+													<span class="text-sm font-bold" style="color: {cfg.color};">{value}</span>
+													<span class="text-[10px] text-gray-400">{cfg.unit}</span>
+												</div>
+											{/if}
+										{/if}
+									</div>
+									<!-- Events at this time -->
+									{#if eventsAtTime.length > 0}
+										<div class="mt-3 pt-2 border-t border-gray-200">
+											<div class="text-[10px] font-semibold text-gray-500 mb-1.5">Events</div>
+											<div class="space-y-1">
+												{#each eventsAtTime.slice(0, 3) as evt}
+													{@const typeKey = evt.event_type?.toUpperCase() || 'IV'}
+													{@const eventCfg = ioEventTypes[typeKey] || ioEventTypes['IV']}
+													{@const Icon = eventCfg.icon}
+													<div class="flex items-center gap-1.5">
+														<Icon class="w-3 h-3 shrink-0" style="color: {eventCfg.textColor.replace('text-', '')} === 'green-700' ? '#15803d' : eventCfg.textColor.replace('text-', '') === 'amber-700' ? '#b45309' : eventCfg.textColor.replace('text-', '') === 'cyan-700' ? '#0e7490' : eventCfg.textColor.replace('text-', '') === 'purple-700' ? '#6b21a8' : '#57534e';" />
+														<span class="text-[11px] text-gray-700 truncate">{evt.description || eventCfg.label}</span>
+													</div>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									<!-- Pointing arrow -->
+									<div class="absolute left-1/2 bottom-0 w-3 h-3 -translate-x-1/2 translate-y-1/2 rotate-45" 
+										style="background: white; border-right: 2px solid {cfg.color}; border-bottom: 2px solid {cfg.color};"></div>
+								</div>
+							{/if}
+							<!-- Y-axis labels -->
+							<div class="absolute left-0 top-0 bottom-0 w-8 flex flex-col justify-between text-[10px] text-gray-400 pr-2">
+								<span>{Math.round(max)}</span>
+								<span>{Math.round((max + min) / 2)}</span>
+								<span>{Math.round(min)}</span>
+							</div>
+
+							<!-- Chart grid and line -->
+							<div class="absolute left-10 right-0 top-0 bottom-6">
+								<!-- Grid lines -->
+								<div class="absolute inset-0 flex flex-col justify-between">
+									<div class="border-b border-gray-200"></div>
+									<div class="border-b border-gray-100"></div>
+									<div class="border-b border-gray-200"></div>
+								</div>
+
+								<!-- Line chart using SVG -->
+								<svg class="w-full h-full" preserveAspectRatio="none">
+									<!-- Line path -->
+									<polyline
+										fill="none"
+										stroke={cfg.color}
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										points={data.map((v, i) => {
+											const x = (i / (data.length - 1 || 1)) * 100;
+											const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
+											return `${x}%,${y}%`;
+										}).join(' ')}
+									/>
+									<!-- Data points -->
+									{#each data as v, i}
+										{#if v > 0}
+											{@const x = (i / (data.length - 1 || 1)) * 100}
+											{@const y = 100 - ((v - min) / range) * 100}
+											{@const isHovered = hoveredVitalIndex === i && hoveredVitalParam === param}
+											<circle 
+												cx="{x}%" 
+												cy="{y}%" 
+												r={isHovered ? "6" : "4"} 
+												fill={cfg.color}
+												role="button"
+												tabindex="0"
+												aria-label="Data point at {fmtTimeShort(sortedVitals[i]?.recorded_at)}"
+												style="cursor: pointer; transition: r 0.15s ease;"
+												onmouseenter={(e) => handleChartPointHover(e, i, param)}
+												onmouseleave={handleChartPointLeave}
+											/>
+										{/if}
+									{/each}
+								</svg>
+
+								<!-- Diastolic line for BP -->
+								{#if param === 'systolic_bp'}
+									{@const diaData = sortedVitals.map(v => v.diastolic_bp ?? 0)}
+									{@const diaMin = getChartMin(diaData)}
+									{@const diaMax = getChartMax(diaData)}
+									{@const diaRange = diaMax - diaMin || 1}
+									<svg class="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+										<polyline
+											fill="none"
+											stroke={cfg.color}
+											stroke-width="2"
+											stroke-dasharray="4 4"
+											stroke-linecap="round"
+											opacity="0.5"
+											points={diaData.map((v, i) => {
+												const x = (i / (diaData.length - 1 || 1)) * 100;
+												const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
+												return `${x}%,${y}%`;
+											}).join(' ')}
+										/>
+									</svg>
+								{/if}
+							</div>
+
+							<!-- X-axis labels (times) -->
+							<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
+								{#each sortedVitals as v, i}
+									{#if i === 0 || i === sortedVitals.length - 1 || i % 2 === 0}
+										<span>{fmtTimeShort(v.recorded_at)}</span>
+									{/if}
+								{/each}
+							</div>
+						</div>
+					</div>
+				{/if}
+			{/each}
+		</div>
+	{:else if vitalsView === 'table'}
+		<!-- Table View -->
+		<div class="p-4">
+			<div class="overflow-x-auto rounded-lg" style="border: 1px solid rgba(0,0,0,0.08);">
+				<table class="w-full text-xs">
 					<thead>
 						<tr style="background: #f8faff;">
-							<th class="text-left px-3 py-2 font-medium text-gray-500">Date</th>
-							<th class="text-right px-2 py-2 font-medium text-gray-500">BP</th>
-							<th class="text-right px-2 py-2 font-medium text-gray-500">HR</th>
-							<th class="text-right px-2 py-2 font-medium text-gray-500">SpO₂</th>
-							<th class="text-right px-2 py-2 font-medium text-gray-500">Temp</th>
+							<th class="text-left px-3 py-2 font-semibold text-gray-600">Time</th>
+							{#each selectedVitalParams as param}
+								{@const cfg = vitalParamsConfig[param] || biochemParams[param] || haemaParams[param]}
+								{#if cfg}
+									<th class="text-right px-3 py-2 font-semibold" style="color: {cfg.color};">{cfg.label}</th>
+								{/if}
+							{/each}
 						</tr>
 					</thead>
 					<tbody>
 						{#each vitals.slice(0, 10) as v}
 							<tr style="border-top: 1px solid rgba(0,0,0,0.04);">
-								<td class="px-3 py-2 text-gray-500">{fmtDate(v.recorded_at)}</td>
-								<td class="px-2 py-2 text-right font-medium text-gray-700">
-									{v.systolic_bp ? `${v.systolic_bp}/${v.diastolic_bp}` : '—'}
-								</td>
-								<td class="px-2 py-2 text-right font-medium text-gray-700">{v.heart_rate ?? '—'}</td>
-								<td class="px-2 py-2 text-right font-medium text-gray-700">{v.oxygen_saturation ?? '—'}</td>
-								<td class="px-2 py-2 text-right font-medium text-gray-700">{v.temperature ?? '—'}</td>
+								<td class="px-3 py-2 text-gray-500">{fmtTimeShort(v.recorded_at)}</td>
+								{#each selectedVitalParams as param}
+									{@const cfg = vitalParamsConfig[param] || biochemParams[param] || haemaParams[param]}
+									{@const val = (v as any)[param]}
+									{#if cfg}
+										<td class="px-3 py-2 text-right font-medium" style="color: {cfg.color};">
+											{val ?? '—'}
+											{#if param === 'systolic_bp' && v.diastolic_bp}
+												/{v.diastolic_bp}
+											{/if}
+										</td>
+									{/if}
+								{/each}
 							</tr>
 						{/each}
 					</tbody>
 				</table>
 			</div>
-		{/if}
+		</div>
 	{:else}
-		<!-- Sparkline trend: HR over time -->
-		<div class="p-3">
-			<p class="text-[10px] text-gray-500 mb-2">Heart Rate trend (last {Math.min(vitals.length, 10)} readings)</p>
-			<div class="flex items-end gap-1 h-16">
-				{#each vitals.slice(0, 10).reverse() as v, i}
-					{@const hr = v.heart_rate ?? 72}
-					{@const pct = Math.min(100, Math.max(20, ((hr - 40) / 120) * 100))}
-					<div class="flex-1 flex flex-col items-center gap-0.5">
-						<div class="w-full rounded-sm"
-							style="height: {pct}%; background: linear-gradient(to top, #3b82f6, #93c5fd); min-height: 4px; max-height: 48px;">
+		<div class="p-8 text-center text-xs text-gray-400">
+			No vitals recorded yet. Click "Record Vital" to add readings.
+		</div>
+	{/if}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 2: I/O & EVENTS TIMELINE
+     ══════════════════════════════════════════════════════════════ -->
+<div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+	<!-- Header -->
+	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+		<div class="flex items-center gap-4">
+			<span class="text-sm font-bold text-gray-800">I/O & Events Timeline</span>
+			<!-- Legend -->
+			<div class="flex items-center gap-3 text-[10px]">
+				{#each Object.entries(ioEventTypes) as [key, cfg]}
+					{@const Icon = cfg.icon}
+					<span class="flex items-center gap-1 {cfg.textColor}">
+						<Icon class="w-3 h-3" />
+						{cfg.label}
+					</span>
+				{/each}
+			</div>
+		</div>
+		{#if role === 'STUDENT' || role === 'FACULTY'}
+			<button onclick={() => showAddEventModal = true}
+				class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 4px rgba(37,99,235,0.3);">
+				<Plus class="w-3.5 h-3.5" /> Add Event
+			</button>
+		{/if}
+	</div>
+
+	<!-- Timeline Grid -->
+	{#if timeSlots.length > 0}
+		<div class="p-4 overflow-x-auto">
+			<div class="flex gap-4 min-w-max">
+				{#each timeSlots as time}
+					<div class="flex-shrink-0 w-28">
+						<!-- Time header -->
+						<div class="text-center text-xs font-bold text-gray-700 mb-2">{time}</div>
+						<!-- Events for this time -->
+						<div class="space-y-1.5">
+							{#each ioEventsByTime[time] || [] as event}
+								{@const typeKey = event.event_type?.toUpperCase() || 'IV'}
+								{@const cfg = ioEventTypes[typeKey] || ioEventTypes['IV']}
+								{@const Icon = cfg.icon}
+								<div class="px-2 py-1.5 rounded-lg text-[10px] font-medium truncate {cfg.bgColor} {cfg.textColor}"
+									style="border: 1px solid"
+									class:border-green-200={typeKey === 'IV'}
+									class:border-amber-200={typeKey === 'ORAL'}
+									class:border-cyan-200={typeKey === 'URINE'}
+									class:border-stone-200={typeKey === 'STOOL'}
+									class:border-purple-200={typeKey === 'DRUG'}>
+									<span class="flex items-center gap-1">
+										<Icon class="w-3 h-3 shrink-0" />
+										<span class="truncate">{event.description || cfg.label}</span>
+									</span>
+								</div>
+							{/each}
 						</div>
-						<span class="text-[8px] text-gray-400">{hr}</span>
 					</div>
 				{/each}
 			</div>
 		</div>
-	{/if}
-</div>
-
-<!-- ── I/O Events ────────────────────────────────────────────── -->
-<div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
-	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
-		<div class="flex items-center gap-2">
-			<Droplet class="w-4 h-4 text-blue-500" />
-			<span class="text-sm font-bold text-gray-800">I/O Events</span>
-		</div>
-		{#if role === 'STUDENT' || role === 'FACULTY'}
-			<button onclick={() => showAddEventModal = true}
-				class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 4px rgba(37,99,235,0.3);">
-				<Plus class="w-3.5 h-3.5" /> Add
-			</button>
-		{/if}
-	</div>
-
-	<!-- 24-hr totals bar -->
-	<div class="grid grid-cols-3 gap-0" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
-		<div class="py-3 text-center" style="border-right: 1px solid rgba(0,0,0,0.06);">
-			<p class="text-[9px] text-gray-500">Total Intake</p>
-			<p class="text-sm font-bold text-blue-600">{ioTotals.intake} mL</p>
-		</div>
-		<div class="py-3 text-center" style="border-right: 1px solid rgba(0,0,0,0.06);">
-			<p class="text-[9px] text-gray-500">Total Output</p>
-			<p class="text-sm font-bold text-amber-600">{ioTotals.output} mL</p>
-		</div>
-		<div class="py-3 text-center">
-			<p class="text-[9px] text-gray-500">Balance</p>
-			<p class="text-sm font-bold" style="color: {ioTotals.balance >= 0 ? '#22c55e' : '#ef4444'};">
-				{ioTotals.balance > 0 ? '+' : ''}{ioTotals.balance} mL
-			</p>
-		</div>
-	</div>
-
-	{#if ioEvents.length === 0}
-		<div class="p-6 text-center text-xs text-gray-400">No events recorded yet.</div>
 	{:else}
-		<div class="divide-y divide-gray-50 max-h-64 overflow-y-auto">
-			{#each ioEvents as ev}
-				<div class="flex items-center gap-3 px-4 py-2.5">
-					<!-- type indicator -->
-					<div class="w-2.5 h-2.5 rounded-full shrink-0"
-						style="background: {eventTypeColor[ev.event_type] ?? '#94a3b8'};"></div>
-					<div class="flex-1 min-w-0">
-						<div class="flex items-center gap-1.5">
-							<span class="text-[10px] font-bold" style="color: {eventTypeColor[ev.event_type] ?? '#64748b'};">
-								{ev.event_type}
-							</span>
-							{#if ev.amount_ml}
-								<span class="text-[9px] text-gray-400">{ev.amount_ml} mL</span>
-							{/if}
-						</div>
-						<p class="text-xs text-gray-700 truncate">{ev.description || '—'}</p>
-						<p class="text-[9px] text-gray-400">{ev.event_time} · {ev.recorded_by || 'Staff'}</p>
-					</div>
-					{#if role === 'STUDENT' || role === 'FACULTY'}
-						<button onclick={() => removeIOEvent(ev.id)} class="p-1 rounded cursor-pointer hover:text-red-500 text-gray-300">
-							<Trash2 class="w-3 h-3" />
-						</button>
-					{/if}
-				</div>
-			{/each}
-		</div>
+		<div class="p-8 text-center text-xs text-gray-400">No events recorded yet.</div>
 	{/if}
 </div>
 
-<!-- ── Connected Equipment ───────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 3: 24-HOUR I/O SUMMARY
+     ══════════════════════════════════════════════════════════════ -->
 <div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+	<div class="px-4 py-3 font-bold text-gray-800 text-sm" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+		24-Hour I/O Summary
+	</div>
+
+	<!-- Summary Cards -->
+	<div class="grid grid-cols-4 gap-3 p-4">
+		<div class="rounded-xl p-3" style="background: #f0fdf4; border: 2px solid #bbf7d0;">
+			<div class="flex items-center gap-1 text-green-700 text-xs font-medium mb-1">
+				<Droplet class="w-3.5 h-3.5" /> IV Input
+			</div>
+			<div class="text-xl font-bold text-green-800">{ioSummary?.iv_input_ml ?? 0} ml</div>
+			<div class="text-[10px] text-green-600">{ioEvents.filter(e => e.event_type === 'IV').length} entries</div>
+		</div>
+		<div class="rounded-xl p-3" style="background: #fffbeb; border: 2px solid #fde68a;">
+			<div class="flex items-center gap-1 text-amber-700 text-xs font-medium mb-1">
+				<Utensils class="w-3.5 h-3.5" /> Oral Intake
+			</div>
+			<div class="text-xl font-bold text-amber-800">{ioSummary?.oral_intake_ml ?? 0} ml</div>
+			<div class="text-[10px] text-amber-600">{ioEvents.filter(e => e.event_type === 'ORAL').length} entries</div>
+		</div>
+		<div class="rounded-xl p-3" style="background: #ecfeff; border: 2px solid #a5f3fc;">
+			<div class="flex items-center gap-1 text-cyan-700 text-xs font-medium mb-1">
+				<Beaker class="w-3.5 h-3.5" /> Urine Output
+			</div>
+			<div class="text-xl font-bold text-cyan-800">{ioSummary?.urine_output_ml ?? 0} ml</div>
+			<div class="text-[10px] text-cyan-600">{ioEvents.filter(e => e.event_type === 'URINE').length} entries</div>
+		</div>
+		<div class="rounded-xl p-3" style="background: #f5f5f4; border: 2px solid #d6d3d1;">
+			<div class="flex items-center gap-1 text-stone-600 text-xs font-medium mb-1">
+				<Circle class="w-3.5 h-3.5" /> Stool
+			</div>
+			<div class="text-xl font-bold text-stone-700">{ioSummary?.stool_count ?? 0}× Normal</div>
+			<div class="text-[10px] text-stone-500">{ioSummary?.stool_count ?? 0} entries</div>
+		</div>
+	</div>
+
+	<!-- I/O Events Log -->
+	<div class="px-4 pb-4">
+		<div class="flex items-center justify-between mb-2">
+			<span class="text-xs font-semibold text-gray-700">I/O Events Log</span>
+			<span class="text-[10px] text-gray-400">{ioEvents.length} events</span>
+		</div>
+		<div class="rounded-lg overflow-hidden" style="border: 1px solid rgba(0,0,0,0.08);">
+			{#if ioEvents.length === 0}
+				<div class="p-6 text-center text-xs text-gray-400">No events recorded.</div>
+			{:else}
+				<div class="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+					{#each ioEvents.slice(0, 10) as event}
+						{@const typeKey = event.event_type?.toUpperCase() || 'IV'}
+						{@const cfg = ioEventTypes[typeKey] || ioEventTypes['IV']}
+						<div class="flex items-center gap-3 px-3 py-2.5">
+							<span class="text-[11px] text-gray-400 w-12 shrink-0">{event.event_time?.slice(0, 5) || '—'}</span>
+							<span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase {cfg.bgColor} {cfg.textColor}"
+								style="border: 1px solid">
+								{event.event_type || 'IV'}
+							</span>
+							<span class="flex-1 text-xs text-gray-700 truncate">{event.description || '—'}</span>
+							{#if event.amount_ml}
+								<span class="text-sm font-bold text-green-700">{event.amount_ml} ml</span>
+							{/if}
+							<span class="text-[10px] text-gray-400">{event.recorded_by || 'Staff'}</span>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 4: CONNECTED EQUIPMENT
+     ══════════════════════════════════════════════════════════════ -->
+<div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+	<!-- Header -->
 	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
 		<div class="flex items-center gap-2">
-			<Monitor class="w-4 h-4 text-indigo-500" />
-			<span class="text-sm font-bold text-gray-800">Equipment</span>
-			<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-				style="background: rgba(34,197,94,0.1); color: #16a34a;">{equipment.length} connected</span>
+			<Wifi class="w-4 h-4 text-green-600" />
+			<span class="text-sm font-bold text-gray-800">Connected Equipment</span>
+			<span class="w-5 h-5 rounded-full bg-green-500 text-white text-[10px] font-bold flex items-center justify-center">
+				{equipment.length}
+			</span>
 		</div>
 		{#if role === 'STUDENT' || role === 'FACULTY'}
 			<button onclick={() => showEquipModal = true}
-				class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
-				style="background: linear-gradient(to bottom, #6366f1, #4f46e5); box-shadow: 0 2px 4px rgba(79,70,229,0.3);">
-				<Plus class="w-3.5 h-3.5" /> Connect
+				class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+				style="background: white; border: 1px solid #d1d5db; color: #374151;">
+				<Plus class="w-3.5 h-3.5" /> Connect Equipment
 			</button>
 		{/if}
 	</div>
 
-	{#if equipment.length === 0}
-		<div class="p-6 text-center text-xs text-gray-400">No equipment connected.</div>
-	{:else}
-		<div class="p-3 space-y-2">
+	<!-- Equipment Cards -->
+	{#if equipment.length > 0}
+		<div class="p-4 grid grid-cols-2 gap-3">
 			{#each equipment as eq}
-				<div class="flex items-center gap-3 p-3 rounded-xl"
-					style="background: rgba(99,102,241,0.04); border: 1px solid rgba(99,102,241,0.12);">
-					<div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
-						style="background: linear-gradient(to bottom, #6366f1, #4f46e5);">
-						<Cpu class="w-4 h-4 text-white" />
+				<div class="rounded-xl p-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
+					<div class="flex items-center gap-2 mb-1">
+						<span class="w-2 h-2 rounded-full {eq.status === 'Active' ? 'bg-green-500' : 'bg-gray-400'}"></span>
+						<span class="text-xs font-bold text-gray-800">{eq.equipment_type}</span>
 					</div>
-					<div class="flex-1 min-w-0">
-						<div class="flex items-center gap-1.5">
-							<p class="text-xs font-bold text-gray-800">{eq.equipment_type}</p>
-							<span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-							<span class="text-[9px] text-green-600 font-medium">Active</span>
-						</div>
-						{#if eq.equipment_id}
-							<p class="text-[10px] text-gray-500">ID: {eq.equipment_id}</p>
-						{/if}
-						{#if eq.connected_since}
-							<p class="text-[9px] text-gray-400">Since {eq.connected_since}</p>
-						{/if}
-					</div>
-					{#if role === 'STUDENT' || role === 'FACULTY'}
-						<button onclick={() => disconnectEquip(eq.id)}
-							class="text-[10px] font-medium px-2 py-1 rounded-lg cursor-pointer"
-							style="background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.2);">
-							Disconnect
-						</button>
+					<div class="text-[10px] text-gray-500">{eq.equipment_id || 'No ID'}</div>
+					{#if eq.connected_since}
+						<div class="text-[10px] text-gray-400 mt-1">Since {eq.connected_since}</div>
 					{/if}
 				</div>
 			{/each}
 		</div>
 	{/if}
+
+	<!-- Live Equipment Data -->
+	{#if equipment.some(eq => eq.live_data && eq.status === 'Active')}
+		<div class="px-4 pb-4">
+			<div class="flex items-center gap-2 mb-3">
+				<span class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+				<span class="text-sm font-semibold text-gray-800">Live Equipment Data</span>
+				<span class="text-[10px] text-gray-400">Auto-updating every 2s</span>
+			</div>
+
+			<div class="space-y-3">
+				{#each equipment.filter(eq => eq.live_data && eq.status === 'Active') as eq}
+					{@const liveData = liveEquipmentData[eq.id] || eq.live_data || {}}
+					<div class="rounded-xl overflow-hidden" style="background: #1e293b;">
+						<div class="px-3 py-2 flex items-center gap-2" style="background: #334155;">
+							<Cpu class="w-4 h-4 text-gray-400" />
+							<span class="text-xs font-semibold text-white">{eq.equipment_type}</span>
+							<span class="text-[10px] text-gray-400">{eq.equipment_id || ''}</span>
+						</div>
+						<div class="p-3 grid grid-cols-3 gap-3">
+							{#if eq.equipment_type === 'Bedside Monitor'}
+								{#each [
+									['HR', liveData.hr ?? liveData.heart_rate, 'bpm', '#ef4444'],
+									['NIBP', `${liveData.bp_sys ?? 120}/${liveData.bp_dia ?? 80}`, 'MAP ' + (liveData.map ?? 93), '#3b82f6'],
+									['SpO₂', liveData.spo2 ?? 98, '%', '#14b8a6'],
+									['RR', liveData.rr ?? 16, 'br/min', '#a855f7'],
+									['TEMP', liveData.temp ?? 98.6, '°F', '#f59e0b'],
+									['EtCO₂', liveData.etco2 ?? 35, 'mmHg', '#06b6d4'],
+								] as [label, value, unit, color]}
+									<div class="text-center">
+										<div class="text-[10px] font-medium" style="color: {color};">{label}</div>
+										<div class="text-lg font-bold" style="color: {color};">{value}</div>
+										<div class="text-[9px] text-gray-400">{unit}</div>
+									</div>
+								{/each}
+							{:else if eq.equipment_type === 'Ventilator'}
+								{#each [
+									['PIP', liveData.pip ?? 16, 'cmH₂O', '#3b82f6'],
+									['PEEP', liveData.peep ?? 5, 'cmH₂O', '#22c55e'],
+									['FiO₂', liveData.fio2 ?? 40, '%', '#f59e0b'],
+									['Vt', liveData.tidal_vol ?? 500, 'mL', '#8b5cf6'],
+								] as [label, value, unit, color]}
+									<div class="text-center">
+										<div class="text-[10px] font-medium" style="color: {color};">{label}</div>
+										<div class="text-lg font-bold" style="color: {color};">{value}</div>
+										<div class="text-[9px] text-gray-400">{unit}</div>
+									</div>
+								{/each}
+							{:else if eq.equipment_type === 'ABG Analyzer'}
+								{#each [
+									['pH', liveData.ph ?? 7.38, 'units', '#3b82f6'],
+									['pCO₂', liveData.pco2 ?? 42, 'mmHg', '#22c55e'],
+									['pO₂', liveData.po2 ?? 85, 'mmHg', '#f59e0b'],
+									['HCO₃', liveData.hco3 ?? 24, 'mEq/L', '#8b5cf6'],
+									['LAC', liveData.lactate ?? 1.2, 'mmol/L', '#ef4444'],
+								] as [label, value, unit, color]}
+									<div class="text-center">
+										<div class="text-[10px] font-medium" style="color: {color};">{label}</div>
+										<div class="text-lg font-bold" style="color: {color};">{value}</div>
+										<div class="text-[9px] text-gray-400">{unit}</div>
+									</div>
+								{/each}
+							{:else}
+								<!-- Generic equipment data display -->
+								{#each Object.entries(liveData).slice(0, 6) as [key, value]}
+									<div class="text-center">
+										<div class="text-[10px] font-medium text-gray-400">{key}</div>
+										<div class="text-lg font-bold text-white">{value}</div>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+				{/each}
+			</div>
+		</div>
+	{:else if equipment.length === 0}
+		<div class="p-6 text-center text-xs text-gray-400">No equipment connected.</div>
+	{/if}
 </div>
 
-<!-- ── SOAP Notes ────────────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 5: CLINICAL PROGRESS NOTES (SOAP)
+     ══════════════════════════════════════════════════════════════ -->
 <div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+	<!-- Header -->
+	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
+		<div class="flex items-center gap-2">
+			<FileText class="w-4 h-4 text-blue-600" />
+			<span class="text-sm font-bold text-gray-800 uppercase tracking-wide">Clinical Progress Notes (SOAP)</span>
+		</div>
+		<button class="text-xs font-semibold text-blue-600 cursor-pointer">VIEW FULL HISTORY</button>
+	</div>
+
+	{#if latestSoap}
+		<div class="p-4 space-y-3">
+			<!-- Subjective -->
+			<div class="rounded-xl p-4" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
+				<div class="flex items-center justify-between mb-2">
+					<div class="flex items-center gap-2">
+						<User class="w-4 h-4 text-orange-500" />
+						<span class="text-sm font-bold text-gray-800">Subjective</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button class="text-[10px] text-gray-400 cursor-pointer"><Clock class="w-3 h-3 inline" /></button>
+						{#if role === 'STUDENT' || role === 'FACULTY'}
+							<button onclick={() => openEditSoap(latestSoap)} class="text-xs text-blue-600 cursor-pointer flex items-center gap-1">
+								<Edit class="w-3 h-3" /> Edit
+							</button>
+						{/if}
+					</div>
+				</div>
+				<p class="text-xs text-gray-700 leading-relaxed">{latestSoap.subjective || 'No subjective notes recorded.'}</p>
+			</div>
+
+			<!-- Objective -->
+			<div class="rounded-xl p-4" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
+				<div class="flex items-center justify-between mb-2">
+					<div class="flex items-center gap-2">
+						<Activity class="w-4 h-4 text-blue-500" />
+						<span class="text-sm font-bold text-gray-800">Objective</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button class="text-[10px] text-gray-400 cursor-pointer"><Clock class="w-3 h-3 inline" /></button>
+						{#if role === 'STUDENT' || role === 'FACULTY'}
+							<button onclick={() => openEditSoap(latestSoap)} class="text-xs text-blue-600 cursor-pointer flex items-center gap-1">
+								<Edit class="w-3 h-3" /> Edit
+							</button>
+						{/if}
+					</div>
+				</div>
+				<p class="text-xs text-gray-700 leading-relaxed">{latestSoap.objective || 'No objective notes recorded.'}</p>
+			</div>
+
+			<!-- Assessment -->
+			<div class="rounded-xl p-4" style="background: #fefce8; border: 1px solid rgba(234,179,8,0.2);">
+				<div class="flex items-center justify-between mb-2">
+					<div class="flex items-center gap-2">
+						<Stethoscope class="w-4 h-4 text-amber-600" />
+						<span class="text-sm font-bold text-gray-800">Assessment</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button class="text-[10px] text-gray-400 cursor-pointer"><Clock class="w-3 h-3 inline" /></button>
+						{#if role === 'STUDENT' || role === 'FACULTY'}
+							<button onclick={() => openEditSoap(latestSoap)} class="text-xs text-blue-600 cursor-pointer flex items-center gap-1">
+								<Edit class="w-3 h-3" /> Edit
+							</button>
+						{/if}
+					</div>
+				</div>
+				<p class="text-xs text-gray-700 leading-relaxed">{latestSoap.assessment || 'No assessment recorded.'}</p>
+			</div>
+
+			<!-- Plan & Orders -->
+			<div class="rounded-xl p-4" style="background: #f0fdf4; border: 1px solid rgba(34,197,94,0.2);">
+				<div class="flex items-center justify-between mb-3">
+					<div class="flex items-center gap-2">
+						<ClipboardList class="w-4 h-4 text-green-600" />
+						<span class="text-sm font-bold text-gray-800">Plan & Orders</span>
+					</div>
+					<div class="flex items-center gap-2">
+						<button class="text-[10px] text-gray-400 cursor-pointer"><Clock class="w-3 h-3 inline" /></button>
+						{#if role === 'STUDENT' || role === 'FACULTY'}
+							<button onclick={() => openEditSoap(latestSoap)} class="text-xs text-blue-600 cursor-pointer flex items-center gap-1">
+								<Edit class="w-3 h-3" /> Edit
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				<!-- Plan Text -->
+				{#if latestSoap.plan}
+					<p class="text-xs text-gray-700 leading-relaxed mb-3">{latestSoap.plan}</p>
+				{/if}
+
+				<!-- Plan Items (Medication Orders) -->
+				{#if latestSoap.plan_items?.drugs?.length}
+					<div class="mb-3">
+						<div class="flex items-center gap-1 text-xs font-semibold text-purple-700 mb-2">
+							<Pill class="w-3.5 h-3.5" /> Medication Orders
+						</div>
+						<div class="space-y-1.5">
+							{#each latestSoap.plan_items.drugs as drug}
+								<div class="flex items-center gap-2">
+									<span class="w-1.5 h-1.5 rounded-full {drug.status === 'completed' ? 'bg-green-500' : 'bg-amber-500'}"></span>
+									<div class="flex-1">
+										<span class="text-xs font-semibold text-gray-800">{drug.name}</span>
+										<span class="text-[10px] text-gray-500 ml-1">{drug.dose} · {drug.route} · {drug.frequency}</span>
+									</div>
+									<button class="text-gray-300 hover:text-gray-500 cursor-pointer"><X class="w-3 h-3" /></button>
+								</div>
+							{/each}
+						</div>
+						{#if latestSoap.plan_items.drug_notes}
+							<div class="mt-2 px-3 py-2 rounded-lg text-[10px] text-gray-500 italic" style="background: rgba(0,0,0,0.03);">
+								{latestSoap.plan_items.drug_notes}
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- Investigations -->
+				{#if latestSoap.plan_items?.investigations?.length}
+					<div class="mb-3">
+						<div class="flex items-center gap-1 text-xs font-semibold text-blue-700 mb-2">
+							<FlaskConical class="w-3.5 h-3.5" /> Investigations Ordered
+						</div>
+						<div class="space-y-1.5">
+							{#each latestSoap.plan_items.investigations as inv}
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-2">
+										<span class="w-1.5 h-1.5 rounded-full {inv.status === 'completed' ? 'bg-green-500' : 'bg-amber-500'}"></span>
+										<span class="text-xs text-gray-700">{inv.name}</span>
+									</div>
+									<span class="text-[9px] px-1.5 py-0.5 rounded font-medium {inv.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
+										{inv.status}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Diet Orders -->
+				{#if latestSoap.plan_items?.diet?.length}
+					<div>
+						<div class="flex items-center gap-1 text-xs font-semibold text-amber-700 mb-2">
+							<Utensils class="w-3.5 h-3.5" /> Diet Orders
+						</div>
+						<div class="space-y-1.5">
+							{#each latestSoap.plan_items.diet as diet}
+								<div class="flex items-center justify-between">
+									<div class="flex items-center gap-2">
+										<span class="w-1.5 h-1.5 rounded-full {diet.status === 'completed' ? 'bg-green-500' : 'bg-amber-500'}"></span>
+										<span class="text-xs text-gray-700">{diet.name}</span>
+									</div>
+									<span class="text-[9px] px-1.5 py-0.5 rounded font-medium {diet.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
+										{diet.status}
+									</span>
+								</div>
+							{/each}
+						</div>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Meta info -->
+			{#if latestSoap.note_meta}
+				<div class="text-[10px] text-gray-400 px-1">
+					{#if latestSoap.note_meta.author}
+						<span>By: {latestSoap.note_meta.author}</span>
+					{/if}
+					{#if latestSoap.note_meta.supervisor}
+						<span class="ml-2">· Supervisor: {latestSoap.note_meta.supervisor}</span>
+					{/if}
+					{#if latestSoap.note_meta.next_review}
+						<span class="ml-2">· Next Review: {latestSoap.note_meta.next_review}</span>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	{:else}
+		<div class="p-6 text-center">
+			<p class="text-xs text-gray-400 mb-3">No SOAP notes recorded yet.</p>
+			{#if role === 'STUDENT' || role === 'FACULTY'}
+				<button onclick={() => { editSoapId = null; soapSubjective=''; soapObjective=''; soapAssessment=''; soapPlan=''; showSoapModal = true; }}
+					class="px-4 py-2 rounded-lg text-xs font-semibold text-white cursor-pointer"
+					style="background: linear-gradient(to bottom, #0d9488, #0f766e);">
+					<Plus class="w-3.5 h-3.5 inline mr-1" /> Create First Note
+				</button>
+			{/if}
+		</div>
+	{/if}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SECTION 6: NURSING SBAR NOTES
+     ══════════════════════════════════════════════════════════════ -->
+<div class="rounded-xl overflow-hidden" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.06);">
+	<!-- Header -->
 	<div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 1px solid rgba(0,0,0,0.06);">
 		<div class="flex items-center gap-2">
 			<ClipboardList class="w-4 h-4 text-teal-600" />
-			<span class="text-sm font-bold text-gray-800">SOAP Notes</span>
+			<span class="text-sm font-bold text-gray-800 uppercase tracking-wide">Nursing SBAR Notes</span>
+			<span class="w-5 h-5 rounded-full bg-teal-500 text-white text-[10px] font-bold flex items-center justify-center">
+				{sbarNotes.length}
+			</span>
 		</div>
-		{#if role === 'STUDENT' || role === 'FACULTY'}
-			<button onclick={() => { editSoapId = null; soapSubjective=''; soapObjective=''; soapAssessment=''; soapPlan=''; showSoapModal = true; }}
-				class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
-				style="background: linear-gradient(to bottom, #0d9488, #0f766e); box-shadow: 0 2px 4px rgba(13,148,136,0.3);">
-				<Plus class="w-3.5 h-3.5" /> New Note
-			</button>
-		{/if}
 	</div>
 
-	{#if soapNotes.length === 0}
-		<div class="p-6 text-center text-xs text-gray-400">No SOAP notes yet.</div>
-	{:else}
-		<div class="divide-y divide-gray-50">
-			{#each soapNotes as note}
-				<div>
-					<!-- Accordion header -->
-					<button class="w-full flex items-center gap-3 px-4 py-3 cursor-pointer text-left"
-						onclick={() => expandedSoap = expandedSoap === note.id ? null : note.id}>
-						<Stethoscope class="w-4 h-4 text-teal-500 shrink-0" />
-						<div class="flex-1 min-w-0">
-							<p class="text-xs font-semibold text-gray-800 truncate">
-								{note.assessment || 'SOAP Note'}
-							</p>
-							<p class="text-[10px] text-gray-400">{fmtDate(note.created_at)} {fmtTime(note.created_at)}</p>
+	{#if sbarNotes.length > 0}
+		<div class="p-4 space-y-3">
+			{#each sbarNotes.slice(0, 3) as note}
+				<div class="rounded-xl overflow-hidden" style="border: 1px solid rgba(0,0,0,0.08);">
+					<!-- Note Header -->
+					<div class="px-4 py-2 flex items-center justify-between" style="background: #f0fdfa; border-bottom: 1px solid rgba(0,0,0,0.06);">
+						<div class="flex items-center gap-2">
+							<div class="w-8 h-8 rounded-full bg-teal-500 flex items-center justify-center text-white text-xs font-bold">
+								{note.nurse_name?.split(' ').map(n => n[0]).join('') || 'N'}
+							</div>
+							<div>
+								<div class="text-xs font-semibold text-gray-800">{note.nurse_name || 'Nurse'}</div>
+								<div class="text-[10px] text-gray-500">
+									{new Date(note.created_at).toLocaleDateString()} · {new Date(note.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+								</div>
+							</div>
 						</div>
-						{#if expandedSoap === note.id}
-							<ChevronUp class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-						{:else}
-							<ChevronDown class="w-3.5 h-3.5 text-gray-400 shrink-0" />
-						{/if}
-					</button>
-					{#if expandedSoap === note.id}
-						<div class="px-4 pb-4 space-y-2">
-							{#each [['S — Subjective', note.subjective], ['O — Objective', note.objective], ['A — Assessment', note.assessment], ['P — Plan', note.plan]] as [lbl, val]}
-								{#if val}
-									<div>
-										<p class="text-[9px] font-bold text-teal-700 uppercase tracking-wide mb-0.5">{lbl}</p>
-										<p class="text-xs text-gray-700 leading-relaxed">{val}</p>
-									</div>
-								{/if}
-							{/each}
-							{#if role === 'STUDENT' || role === 'FACULTY'}
-								<button onclick={() => openEditSoap(note)}
-									class="flex items-center gap-1 text-[10px] font-medium text-blue-600 cursor-pointer mt-1">
-									<Edit class="w-3 h-3" /> Edit Note
-								</button>
-							{/if}
+						<span class="text-[10px] font-mono text-gray-400">{note.sbar_id}</span>
+					</div>
+
+					<!-- SBAR Content -->
+					<div class="p-4 space-y-3">
+						<!-- Situation -->
+						<div class="rounded-lg p-3" style="background: #fef2f2; border: 1px solid rgba(239,68,68,0.2);">
+							<div class="flex items-center gap-2 mb-2">
+								<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-500 text-white">S</span>
+								<span class="text-xs font-bold text-gray-700">Situation</span>
+							</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.situation || 'Not documented'}</p>
 						</div>
-					{/if}
+
+						<!-- Background -->
+						<div class="rounded-lg p-3" style="background: #fff7ed; border: 1px solid rgba(249,115,22,0.2);">
+							<div class="flex items-center gap-2 mb-2">
+								<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white">B</span>
+								<span class="text-xs font-bold text-gray-700">Background</span>
+							</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.background || 'Not documented'}</p>
+						</div>
+
+						<!-- Assessment -->
+						<div class="rounded-lg p-3" style="background: #eff6ff; border: 1px solid rgba(59,130,246,0.2);">
+							<div class="flex items-center gap-2 mb-2">
+								<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-500 text-white">A</span>
+								<span class="text-xs font-bold text-gray-700">Assessment</span>
+							</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.assessment || 'Not documented'}</p>
+						</div>
+
+						<!-- Recommendation -->
+						<div class="rounded-lg p-3" style="background: #f0fdf4; border: 1px solid rgba(34,197,94,0.2);">
+							<div class="flex items-center gap-2 mb-2">
+								<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-green-500 text-white">R</span>
+								<span class="text-xs font-bold text-gray-700">Recommendation</span>
+							</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.recommendation || 'Not documented'}</p>
+						</div>
+					</div>
 				</div>
 			{/each}
+
+			{#if sbarNotes.length > 3}
+				<button class="w-full py-2 rounded-lg text-xs font-semibold text-teal-600 cursor-pointer"
+					style="background: #f0fdfa; border: 1px solid rgba(20,184,166,0.2);">
+					View All {sbarNotes.length} SBAR Notes
+				</button>
+			{/if}
+		</div>
+	{:else}
+		<div class="p-6 text-center text-xs text-gray-400">
+			No SBAR notes recorded yet.
 		</div>
 	{/if}
 </div>
 
-<!-- ── Discharge Patient ─────────────────────────────────────── -->
+<!-- ══════════════════════════════════════════════════════════════
+     DISCHARGE BUTTON
+     ══════════════════════════════════════════════════════════════ -->
 {#if (role === 'FACULTY' || role === 'STUDENT') && admission.status === 'Active'}
 	<button onclick={() => showDischargeModal = true}
-		class="w-full py-3 rounded-xl text-sm font-bold text-white cursor-pointer"
+		class="w-full py-4 rounded-xl text-sm font-bold text-white cursor-pointer flex items-center justify-center gap-2"
 		style="background: linear-gradient(to bottom, #ef4444, #dc2626); box-shadow: 0 3px 8px rgba(239,68,68,0.4);">
-		Discharge Patient
+		<FileText class="w-5 h-5" /> Discharge Patient
 	</button>
 {/if}
 
@@ -647,48 +1412,48 @@
 		</div>
 	{/snippet}
 	<div class="grid grid-cols-2 gap-3">
-		{#each [
-			['BP (mmHg)', vitalBP, 'e.g. 120/80'],
-			['Heart Rate (bpm)', vitalHR, 'e.g. 76'],
-			['Resp. Rate (/min)', vitalRR, 'e.g. 18'],
-			['SpO₂ (%)', vitalSpO2, 'e.g. 98'],
-			['Temperature (°F)', vitalTemp, 'e.g. 98.6'],
-			['Weight (kg)', vitalWeight, 'e.g. 72'],
-			['Blood Glucose (mg/dL)', vitalGlucose, 'e.g. 110'],
-		] as [label, val, ph]}
-			<div>
-				<label class="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-				{#if label.startsWith('BP')}
-					<input bind:value={vitalBP} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else if label.startsWith('Heart')}
-					<input bind:value={vitalHR} type="number" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else if label.startsWith('Resp')}
-					<input bind:value={vitalRR} type="number" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else if label.startsWith('SpO')}
-					<input bind:value={vitalSpO2} type="number" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else if label.startsWith('Temp')}
-					<input bind:value={vitalTemp} type="number" step="0.1" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else if label.startsWith('Weight')}
-					<input bind:value={vitalWeight} type="number" step="0.1" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{:else}
-					<input bind:value={vitalGlucose} type="number" placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-				{/if}
-			</div>
-		{/each}
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">BP (mmHg)</div>
+			<input bind:value={vitalBP} placeholder="e.g. 120/80" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">Heart Rate (bpm)</div>
+			<input bind:value={vitalHR} type="number" placeholder="e.g. 76" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">Resp. Rate (/min)</div>
+			<input bind:value={vitalRR} type="number" placeholder="e.g. 18" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">SpO₂ (%)</div>
+			<input bind:value={vitalSpO2} type="number" placeholder="e.g. 98" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">Temperature (°F)</div>
+			<input bind:value={vitalTemp} type="number" step="0.1" placeholder="e.g. 98.6" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div>
+			<div class="text-xs font-medium text-gray-600 mb-1">Weight (kg)</div>
+			<input bind:value={vitalWeight} type="number" step="0.1" placeholder="e.g. 72" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
+		<div class="col-span-2">
+			<div class="text-xs font-medium text-gray-600 mb-1">Blood Glucose (mg/dL)</div>
+			<input bind:value={vitalGlucose} type="number" placeholder="e.g. 110" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+		</div>
 	</div>
 	<div class="flex justify-end gap-2 mt-5">
 		<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
 			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);"
 			onclick={() => showVitalModal = false}>Cancel</button>
 		<button class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #ef4444, #dc2626); box-shadow: 0 2px 4px rgba(239,68,68,0.3);"
+			style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 4px rgba(22,163,74,0.3);"
 			onclick={submitVital} disabled={vitalSubmitting}>
 			{vitalSubmitting ? 'Saving...' : 'Save Vitals'}
 		</button>
@@ -707,29 +1472,33 @@
 	{/snippet}
 	<div class="space-y-3">
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Event Type *</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Event Type *</div>
 			<div class="grid grid-cols-3 gap-1.5">
-				{#each ['IV Input', 'Drugs', 'Food', 'Urine', 'Stool', 'Drain'] as t}
-					<button class="py-2 rounded-lg text-xs font-medium cursor-pointer"
-						style="background: {eventType === t ? eventTypeColor[t] : '#f1f5f9'}; color: {eventType === t ? 'white' : '#64748b'};"
-						onclick={() => eventType = t}>{t}</button>
+				{#each Object.entries(ioEventTypes) as [key, cfg]}
+					{@const Icon = cfg.icon}
+					<button class="py-2 rounded-lg text-xs font-medium cursor-pointer flex items-center justify-center gap-1"
+						style="background: {eventType === key ? cfg.textColor.replace('text-', '') === 'green-700' ? '#22c55e' : cfg.textColor.replace('text-', '') === 'amber-700' ? '#f59e0b' : cfg.textColor.replace('text-', '') === 'cyan-700' ? '#06b6d4' : cfg.textColor.replace('text-', '') === 'stone-600' ? '#78716c' : '#8b5cf6' : '#f1f5f9'}; color: {eventType === key ? 'white' : '#64748b'};"
+						onclick={() => eventType = key}>
+						<Icon class="w-3.5 h-3.5" />
+						{cfg.label}
+					</button>
 				{/each}
 			</div>
 		</div>
 		<div class="grid grid-cols-2 gap-3">
 			<div>
-				<label class="block text-xs font-medium text-gray-600 mb-1">Time *</label>
+				<div class="text-xs font-medium text-gray-600 mb-1">Time *</div>
 				<input type="time" bind:value={eventTime} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
 					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
 			</div>
 			<div>
-				<label class="block text-xs font-medium text-gray-600 mb-1">Amount (mL)</label>
+				<div class="text-xs font-medium text-gray-600 mb-1">Amount (mL)</div>
 				<input type="number" bind:value={eventAmount} placeholder="e.g. 500" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
 					style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
 			</div>
 		</div>
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Description</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Description</div>
 			<input bind:value={eventDesc} placeholder="e.g. NS 0.9% 500 mL" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
 				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
 		</div>
@@ -758,7 +1527,7 @@
 	{/snippet}
 	<div class="space-y-3">
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Equipment Type *</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Equipment Type *</div>
 			<div class="grid grid-cols-2 gap-1.5">
 				{#each ['Bedside Monitor', 'Pulse Oximeter', 'Ventilator', 'ECG Monitor', 'IV Pump', 'ABG Analyzer', 'Glucometer', 'Defibrillator'] as t}
 					<button class="py-2 px-3 rounded-lg text-xs font-medium cursor-pointer text-left"
@@ -768,7 +1537,7 @@
 			</div>
 		</div>
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Equipment ID / Serial (optional)</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Equipment ID / Serial (optional)</div>
 			<input bind:value={equipId} placeholder="e.g. BM-007" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
 				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
 		</div>
@@ -796,27 +1565,34 @@
 		</div>
 	{/snippet}
 	<div class="space-y-3">
-		{#each [
-			['S — Subjective', 'soapSubjective', 'Patient-reported symptoms, complaints, history…', 2] as [string, string, string, number],
-			['O — Objective', 'soapObjective', 'Examination findings, vitals, investigation results…', 2] as [string, string, string, number],
-			['A — Assessment', 'soapAssessment', 'Diagnosis, impression, clinical reasoning…', 2] as [string, string, string, number],
-			['P — Plan', 'soapPlan', 'Treatment plan, medications ordered, follow-up…', 3] as [string, string, string, number],
-		] as [lbl, field, ph, rows]}
-			<div>
-				<label class="block text-xs font-bold text-teal-700 mb-1">{lbl}</label>
-				<textarea {rows} placeholder={ph} class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
-					style="background: #f0fdf9; border: 1px solid rgba(13,148,136,0.2);"
-					value={field === 'soapSubjective' ? soapSubjective : field === 'soapObjective' ? soapObjective : field === 'soapAssessment' ? soapAssessment : soapPlan}
-					oninput={(e) => {
-						const v = (e.target as HTMLTextAreaElement).value;
-						if (field === 'soapSubjective') soapSubjective = v;
-						else if (field === 'soapObjective') soapObjective = v;
-						else if (field === 'soapAssessment') soapAssessment = v;
-						else soapPlan = v;
-					}}
-				></textarea>
-			</div>
-		{/each}
+		<div>
+			<div class="text-xs font-bold text-teal-700 mb-1">S — Subjective</div>
+			<textarea rows={2} placeholder="Patient-reported symptoms, complaints, history…"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+				style="background: #f0fdf9; border: 1px solid rgba(13,148,136,0.2);"
+				bind:value={soapSubjective}></textarea>
+		</div>
+		<div>
+			<div class="text-xs font-bold text-teal-700 mb-1">O — Objective</div>
+			<textarea rows={2} placeholder="Examination findings, vitals, investigation results…"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+				style="background: #f0fdf9; border: 1px solid rgba(13,148,136,0.2);"
+				bind:value={soapObjective}></textarea>
+		</div>
+		<div>
+			<div class="text-xs font-bold text-teal-700 mb-1">A — Assessment</div>
+			<textarea rows={2} placeholder="Diagnosis, impression, clinical reasoning…"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+				style="background: #f0fdf9; border: 1px solid rgba(13,148,136,0.2);"
+				bind:value={soapAssessment}></textarea>
+		</div>
+		<div>
+			<div class="text-xs font-bold text-teal-700 mb-1">P — Plan</div>
+			<textarea rows={3} placeholder="Treatment plan, medications ordered, follow-up…"
+				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
+				style="background: #f0fdf9; border: 1px solid rgba(13,148,136,0.2);"
+				bind:value={soapPlan}></textarea>
+		</div>
 	</div>
 	<div class="flex justify-end gap-2 mt-5">
 		<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
@@ -847,21 +1623,21 @@
 			<p class="text-xs text-red-700">This will close the active admission for <strong>{patient?.name}</strong>. This action cannot be undone.</p>
 		</div>
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Discharge Summary *</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Discharge Summary *</div>
 			<textarea rows={4} bind:value={dischargeSummary} placeholder="Summary of hospital course, procedures done, final diagnosis…"
 				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
 				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);">
 			</textarea>
 		</div>
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Discharge Instructions</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Discharge Instructions</div>
 			<textarea rows={2} bind:value={dischargeInstructions} placeholder="Medications to continue, activity restrictions, diet…"
 				class="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none"
 				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);">
 			</textarea>
 		</div>
 		<div>
-			<label class="block text-xs font-medium text-gray-600 mb-1">Follow-up Date</label>
+			<div class="text-xs font-medium text-gray-600 mb-1">Follow-up Date</div>
 			<input type="date" bind:value={dischargeFollowUp} class="w-full px-3 py-2 rounded-lg text-sm outline-none"
 				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
 		</div>
@@ -878,3 +1654,16 @@
 	</div>
 </AquaModal>
 {/if}
+
+<style>
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translate(-50%, calc(-100% - 5px));
+	}
+	to {
+		opacity: 1;
+		transform: translate(-50%, -100%);
+	}
+}
+</style>

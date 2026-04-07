@@ -13,6 +13,7 @@
 	import { formsApi } from '$lib/api/forms';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { debounce } from '$lib/utils/debounce';
+	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import {
@@ -89,6 +90,14 @@
 		}
 	]);
 	const activeTabMeta = $derived(adminTabs.find((tab) => tab.id === activeTab) ?? adminTabs[0]);
+	const mobileAdminNav = $derived.by(() =>
+		adminTabs.map((tab) => ({
+			id: tab.id,
+			label: tab.label,
+			icon: tab.Icon,
+			onclick: () => activeTab = tab.id,
+		}))
+	);
 
 	let userSearch = $state('');
 	let userRoleFilter = $state('all');
@@ -109,7 +118,7 @@
 	let newUserUsername = $state('');
 	let newUserEmail = $state('');
 	let newUserPassword = $state('');
-	let newUserRole = $state('PATIENT');
+	let newUserRole = $state('NURSE');
 	let newUserName = $state('');
 	let newUserDob = $state('');
 	let newUserGender = $state('MALE');
@@ -233,14 +242,14 @@
 				year: newUserRole === 'STUDENT' ? newUserYear : undefined,
 				semester: newUserRole === 'STUDENT' ? newUserSemester : undefined,
 				program: newUserRole === 'STUDENT' ? newUserProgram.trim() || undefined : undefined,
-				department: newUserRole === 'FACULTY' ? newUserDepartment.trim() || undefined : undefined,
+				department: newUserRole === 'FACULTY' || newUserRole === 'NURSE' ? newUserDepartment.trim() || undefined : undefined,
 				specialty: newUserRole === 'FACULTY' ? newUserSpecialty.trim() || undefined : undefined,
 			});
 			await loadUsers();
 			showAddUser = false;
 			newUserUsername = ''; newUserEmail = ''; newUserPassword = ''; newUserName = '';
 			newUserDob = ''; newUserBloodGroup = ''; newUserPhone = '';
-			newUserProgram = ''; newUserDepartment = ''; newUserSpecialty = '';
+			newUserProgram = ''; newUserDepartment = ''; newUserSpecialty = ''; newUserRole = 'NURSE';
 		} catch (e: any) {
 			addUserError = e.response?.data?.detail || 'Failed to create user';
 		} finally {
@@ -416,7 +425,17 @@
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6">
-	<div class="admin-shell">
+	<div class="md:hidden">
+		<AdminMobileScaffold
+			title="System Administration"
+			titleIcon={Shield}
+			navItems={mobileAdminNav}
+			activeNav={activeTab}
+			backHref="/dashboard"
+		/>
+	</div>
+
+	<div class="admin-shell mx-auto max-w-md px-4 pb-8 md:max-w-none md:px-0 md:pb-0">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="animate-spin w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full"></div>
@@ -427,7 +446,7 @@
 		</div>
 	{:else if dashboard}
 		<div class="admin-split flex flex-col gap-4 md:flex-row" style="min-height: calc(100vh - 7rem);">
-			<div class="admin-pane w-full md:w-80 lg:w-96 shrink-0 rounded-xl overflow-hidden flex flex-col"
+			<div class="admin-pane hidden w-full shrink-0 rounded-xl overflow-hidden md:flex md:w-80 lg:w-96 md:flex-col"
 				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
 				<div class="p-4 border-b border-gray-100">
 					<div class="flex items-center gap-3">
@@ -634,7 +653,7 @@
 								{#each Object.entries(roleDistribution) as [role, count]}
 									{@const total = Object.values(roleDistribution).reduce((a, b) => a + b, 0)}
 									{@const pct = total > 0 ? Math.round((count / total) * 100) : 0}
-									{@const colors: Record<string, string> = { PATIENT: '#10b981', STUDENT: '#f59e0b', FACULTY: '#8b5cf6', ADMIN: '#ef4444', RECEPTION: '#3b82f6' }}
+									{@const colors: Record<string, string> = { PATIENT: '#10b981', STUDENT: '#f59e0b', FACULTY: '#8b5cf6', ADMIN: '#ef4444', RECEPTION: '#3b82f6', NURSE: '#14b8a6' }}
 									<div>
 										<div class="flex items-center justify-between text-xs mb-1">
 											<span class="font-medium text-gray-700">{role}</span>
@@ -688,7 +707,7 @@
 									</div>
 									<input type="password" placeholder="Password *" class="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserPassword} />
 									<select class="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserRole}>
-										{#each ['PATIENT', 'STUDENT', 'FACULTY', 'ADMIN'] as r}
+										{#each ['NURSE', 'RECEPTION', 'PATIENT', 'STUDENT', 'FACULTY', 'ADMIN'] as r}
 											<option value={r}>{r}</option>
 										{/each}
 									</select>
@@ -718,6 +737,11 @@
 											<input type="text" placeholder="Specialty" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserSpecialty} />
 										</div>
 										<input type="text" placeholder="Phone" class="w-full px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserPhone} />
+									{:else if newUserRole === 'NURSE'}
+										<div class="grid grid-cols-2 gap-2">
+											<input type="text" placeholder="Department" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserDepartment} />
+											<input type="text" placeholder="Phone" class="px-3 py-2 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none" style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);" bind:value={newUserPhone} />
+										</div>
 									{/if}
 									<div class="flex gap-2 pt-1">
 										<button
@@ -735,7 +759,7 @@
 						{/if}
 
 						<div class="flex gap-1.5 overflow-x-auto pb-1">
-							{#each ['all', 'PATIENT', 'STUDENT', 'FACULTY', 'ADMIN', 'RECEPTION'] as role}
+							{#each ['all', 'NURSE', 'RECEPTION', 'PATIENT', 'STUDENT', 'FACULTY', 'ADMIN'] as role}
 								<button
 									class="shrink-0 px-3 py-1.5 rounded-full text-[10px] font-semibold cursor-pointer transition-all"
 									style="background: {userRoleFilter === role ? 'linear-gradient(to bottom, #4d90fe, #0066cc)' : 'linear-gradient(to bottom, #ffffff, #e6e9f0)'};

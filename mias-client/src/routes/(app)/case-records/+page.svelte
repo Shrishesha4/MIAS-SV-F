@@ -28,6 +28,7 @@
 	let submitting = $state(false);
 
 	// Form state
+	let selectedFormId = $state('');
 	let selectedDepartment = $state('');
 	let selectedProcedure = $state('');
 	let selectedPatientId = $state('');
@@ -43,10 +44,12 @@
 		mergeProcedureMaps(procedures, buildCaseRecordProcedureMap(caseRecordForms))
 	);
 
+	const selectedForm = $derived(
+		caseRecordForms.find(f => f.id === selectedFormId) || null
+	);
+
 	const crFields: FormFieldDefinition[] | null = $derived(
-		selectedDepartment && selectedProcedure
-			? resolveCaseRecordFields(caseRecordForms, selectedDepartment, selectedProcedure)
-			: null
+		selectedForm ? selectedForm.fields : null
 	);
 
 	async function handleDiagnosisSearch(query: string) {
@@ -75,6 +78,19 @@
 		!selectedDepartment || allowedDepartments.includes(selectedDepartment)
 	);
 
+	function handleFormSelection(formId: string) {
+		const form = caseRecordForms.find(f => f.id === formId);
+		if (form) {
+			selectedFormId = formId;
+			selectedDepartment = form.department || '';
+			selectedProcedure = form.procedure_name || '';
+			formData = {};
+			icdCode = '';
+			icdDescription = '';
+			diagnosisSuggestions = [];
+		}
+	}
+
 	const availableProcedures = $derived(
 		selectedDepartment && hasPermission ? (mergedProcedureMap[selectedDepartment] || []) : []
 	);
@@ -102,6 +118,7 @@
 		facultyApprovers = approvers;
 		allowedDepartments = perms.map((p: any) => p.department);
 		// Reset form
+		selectedFormId = '';
 		selectedDepartment = '';
 		selectedProcedure = '';
 		selectedPatientId = '';
@@ -337,43 +354,52 @@
 				</select>
 			</div>
 
-			<!-- Department Selection -->
+			<!-- Form Selection -->
 			<div>
-				<label for="cr-dept" class="block text-sm font-medium text-gray-700 mb-1">
-					Department <span class="text-red-500">*</span>
+				<label for="cr-form" class="block text-sm font-medium text-gray-700 mb-1">
+					Case Record Form <span class="text-red-500">*</span>
 				</label>
-				<select id="cr-dept"
+				<select id="cr-form"
 					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
 					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					bind:value={selectedDepartment}
-					onchange={() => { selectedProcedure = ''; formData = {}; icdCode = ''; icdDescription = ''; }}
+					bind:value={selectedFormId}
+					onchange={() => handleFormSelection(selectedFormId)}
 				>
-					<option value="">Select department</option>
-					{#each departments as dept}
-						<option value={dept}>{dept}</option>
+					<option value="">Search and select a form...</option>
+					{#each caseRecordForms as form}
+						<option value={form.id}>
+							{form.name}
+							{#if form.department || form.procedure_name}
+								· {form.department || ''} {form.procedure_name ? `— ${form.procedure_name}` : ''}
+							{/if}
+						</option>
 					{/each}
 				</select>
+				{#if selectedForm && selectedForm.description}
+					<p class="text-xs text-gray-500 mt-1.5">{selectedForm.description}</p>
+				{/if}
 			</div>
 
-			<!-- Procedure Selection -->
-			{#if selectedDepartment && hasPermission}
-			<div>
-				<label for="cr-proc" class="block text-sm font-medium text-gray-700 mb-1">
-					Procedure <span class="text-red-500">*</span>
-				</label>
-				<select id="cr-proc"
-					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					bind:value={selectedProcedure}
-					onchange={() => { formData = {}; icdCode = ''; icdDescription = ''; }}
-				>
-					<option value="">Select procedure</option>
-					{#each availableProcedures as proc}
-						<option value={proc}>{proc}</option>
-					{/each}
-				</select>
+			<!-- Display selected department and procedure (read-only) -->
+			{#if selectedForm}
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<div class="block text-xs font-medium text-gray-600 mb-1">Department</div>
+					<div class="px-3 py-2 rounded-md text-sm bg-gray-50 border border-gray-200 text-gray-700">
+						{selectedForm.department || 'N/A'}
+					</div>
+				</div>
+				<div>
+					<div class="block text-xs font-medium text-gray-600 mb-1">Procedure</div>
+					<div class="px-3 py-2 rounded-md text-sm bg-gray-50 border border-gray-200 text-gray-700">
+						{selectedForm.procedure_name || 'N/A'}
+					</div>
+				</div>
 			</div>
-			{:else if selectedDepartment && !hasPermission}
+			{/if}
+
+			<!-- Permission check -->
+			{#if selectedDepartment && !hasPermission}
 			<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
 				<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {selectedDepartment}.</p>
 				<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>

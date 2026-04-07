@@ -7,6 +7,7 @@ class UserRoleEnum(str, Enum):
     PATIENT = "PATIENT"
     STUDENT = "STUDENT"
     FACULTY = "FACULTY"
+    NURSE = "NURSE"
 
 
 class LoginRequest(BaseModel):

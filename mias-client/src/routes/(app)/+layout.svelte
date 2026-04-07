@@ -6,6 +6,7 @@
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { nurseApi } from '$lib/api/nurse';
 	import { getMenuItems } from '$lib/config/menuItems';
 	import NavBar from '$lib/components/layout/NavBar.svelte';
 	import SideMenu from '$lib/components/layout/SideMenu.svelte';
@@ -111,6 +112,16 @@
 				userIdDisplay = faculty.faculty_id;
 				const notifs = await facultyApi.getNotifications(faculty.id);
 				unreadNotifications = notifs.filter((n: any) => !n.is_read).length;
+			} else if (a.role === 'NURSE') {
+				const nurse = await nurseApi.getMe();
+				userName = nurse.name;
+				userIdDisplay = nurse.nurse_id;
+				// Redirect to station selection if not yet selected (but not if already on setup or station pages)
+				const currentPath = window.location.pathname;
+				if (!nurse.has_selected_station && currentPath !== '/nurse-setup' && currentPath !== '/nurse-station') {
+					goto('/nurse-setup');
+					return;
+				}
 			} else if (a.role === 'ADMIN') {
 				userName = 'Administrator';
 				userIdDisplay = 'ADMIN';

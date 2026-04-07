@@ -2,18 +2,16 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import { page } from '$app/state';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type AdminUser } from '$lib/api/admin';
+	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
-	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import Avatar from '$lib/components/ui/Avatar.svelte';
-	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import {
-		Search, Users, Shield, ShieldOff, Trash2, Filter,
-		ChevronLeft, ChevronRight, UserCheck, UserX
+		Search, Users, Shield, ShieldOff, Trash2,
+		ChevronRight, Plus, User
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -29,6 +27,19 @@
 	let confirmAction: (() => Promise<void>) | null = $state(null);
 	let confirmMessage = $state('');
 	let actionLoading = $state(false);
+
+	// Create user modal
+	let createUserModal = $state(false);
+	let newUserRole = $state('NURSE');
+	let newUserData = $state({
+		username: '',
+		email: '',
+		password: '',
+		name: '',
+		phone: '',
+		department: ''
+	});
+	let creatingUser = $state(false);
 
 	// Read initial filter from URL
 	onMount(() => {
@@ -113,6 +124,35 @@
 		confirmModal = true;
 	}
 
+	async function createUser() {
+		if (!newUserData.username || !newUserData.email || !newUserData.password || !newUserData.name) {
+			toastStore.addToast('Please fill in all required fields', 'error');
+			return;
+		}
+		
+		creatingUser = true;
+		try {
+			await adminApi.createUser({
+				username: newUserData.username,
+				email: newUserData.email,
+				password: newUserData.password,
+				role: newUserRole,
+				name: newUserData.name,
+				phone: newUserData.phone || undefined,
+				department: newUserData.department || undefined,
+			});
+			toastStore.addToast('User created successfully', 'success');
+			createUserModal = false;
+			newUserData = { username: '', email: '', password: '', name: '', phone: '', department: '' };
+			newUserRole = 'NURSE';
+			await loadUsers();
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to create user', 'error');
+		} finally {
+			creatingUser = false;
+		}
+	}
+
 	const totalPages = $derived(Math.ceil(total / 20));
 
 	const roleTabs = [
@@ -120,8 +160,9 @@
 		{ id: 'PATIENT', label: 'Patients' },
 		{ id: 'STUDENT', label: 'Students' },
 		{ id: 'FACULTY', label: 'Faculty' },
-		{ id: 'ADMIN', label: 'Admins' },
+		{ id: 'NURSE', label: 'Nurses' },
 		{ id: 'RECEPTION', label: 'Reception' },
+		{ id: 'ADMIN', label: 'Admins' },
 	];
 
 	function roleColor(role: string) {
@@ -131,104 +172,101 @@
 			FACULTY: '#8b5cf6',
 			ADMIN: '#ef4444',
 			RECEPTION: '#3b82f6',
+			NURSE: '#14b8a6',
 		};
 		return map[role] || '#6b7280';
 	}
 </script>
 
-<div class="px-4 py-4 md:px-6 md:py-6 space-y-4 max-w-4xl mx-auto">
-	<!-- Header -->
-	<div class="flex items-center gap-3">
-		<button class="text-blue-600 cursor-pointer" onclick={() => goto('/admin')}>
-			<ChevronLeft class="w-5 h-5" />
-		</button>
-		<div>
-			<h1 class="text-lg font-bold text-blue-900">User Management</h1>
-			<p class="text-xs text-gray-500">{total} total users</p>
-		</div>
-	</div>
-
-	<!-- Search -->
-	<div class="relative">
-		<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-		<input
-			type="text"
-			placeholder="Search by username or email..."
-			bind:value={searchQuery}
-			onkeydown={(e) => e.key === 'Enter' && handleSearch()}
-			class="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
-			style="background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
-		/>
-	</div>
-
-	<!-- Role Tabs -->
-	<div class="flex gap-2 overflow-x-auto pb-1">
-		{#each roleTabs as tab}
+<AdminMobileScaffold
+	title="System Administration"
+	titleIcon={Users}
+	navItems={adminPageNavItems}
+	activeNav="users"
+	backHref="/admin"
+>
+	<div class="space-y-4">
+		<div class="flex items-center justify-between gap-3">
+			<div>
+				<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">User Management</h2>
+				<p class="mt-1 text-xs text-slate-500">{total} total users</p>
+			</div>
 			<button
-				class="px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap cursor-pointer transition-all"
-				style={roleFilter === tab.id
-					? `background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);`
-					: `background: white; color: #4b5563; border: 1px solid #e5e7eb;`}
-				onclick={() => setRoleFilter(tab.id)}
+				onclick={() => createUserModal = true}
+				class="px-4 py-2 rounded-xl text-sm font-semibold text-white cursor-pointer shadow-md"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
 			>
-				{tab.label}
+				Add New
 			</button>
-		{/each}
-	</div>
-
-	<!-- Status filter -->
-	<div class="flex gap-2">
-		{#each [{ id: '', label: 'All Status' }, { id: 'active', label: 'Active' }, { id: 'blocked', label: 'Blocked' }] as sf}
-			<button
-				class="px-2.5 py-1 rounded text-xs cursor-pointer"
-				style={statusFilter === sf.id
-					? 'background: #1e3a5f; color: white;'
-					: 'background: #f3f4f6; color: #6b7280;'}
-				onclick={() => setStatusFilter(sf.id)}
-			>
-				{sf.label}
-			</button>
-		{/each}
-	</div>
-
-	{#if loading}
-		<div class="flex items-center justify-center py-16">
-			<div class="animate-spin w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full"></div>
 		</div>
-	{:else if error}
-		<AquaCard>
-			<p class="text-red-500 text-center py-4">{error}</p>
-		</AquaCard>
-	{:else}
-		<!-- User list -->
-		<div class="space-y-2">
-			{#each users as u}
-				<AquaCard>
-					<div class="flex items-center gap-3">
-						<Avatar name={u.name} size="sm" />
+
+		<div class="relative">
+			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+			<input
+				type="text"
+				placeholder="Search by username or email..."
+				bind:value={searchQuery}
+				onkeydown={(e) => e.key === 'Enter' && handleSearch()}
+				class="w-full pl-10 pr-4 py-3 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+				style="background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+			/>
+		</div>
+
+		<div class="flex gap-2 overflow-x-auto pb-1">
+			{#each roleTabs as tab}
+				<button
+					class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap cursor-pointer transition-all"
+					style={roleFilter === tab.id
+						? `background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);`
+						: `background: white; color: #4b5563; border: 1px solid #e5e7eb;`}
+					onclick={() => setRoleFilter(tab.id)}
+				>
+					{tab.label}
+				</button>
+			{/each}
+		</div>
+
+		<div class="flex gap-2 overflow-x-auto pb-1">
+			{#each [{ id: '', label: 'All Status' }, { id: 'active', label: 'Active' }, { id: 'blocked', label: 'Blocked' }] as sf}
+				<button
+					class="shrink-0 px-3 py-1.5 rounded-full text-xs cursor-pointer"
+					style={statusFilter === sf.id
+						? 'background: #1e3a5f; color: white;'
+						: 'background: #f3f4f6; color: #6b7280;'}
+					onclick={() => setStatusFilter(sf.id)}
+				>
+					{sf.label}
+				</button>
+			{/each}
+		</div>
+
+		{#if loading}
+			<div class="flex items-center justify-center py-16">
+				<div class="animate-spin w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full"></div>
+			</div>
+		{:else if error}
+			<div class="p-4 rounded-xl bg-white shadow-md">
+				<p class="text-red-500 text-center py-4">{error}</p>
+			</div>
+		{:else}
+			<div class="space-y-3">
+				{#each users as u}
+					<div class="p-4 rounded-2xl bg-white shadow-lg flex items-center gap-3">
+						<div class="w-14 h-14 flex items-center justify-center rounded-full shrink-0" style="background: linear-gradient(to bottom, {roleColor(u.role)}, {roleColor(u.role)}dd);">
+							<User class="w-7 h-7 text-white" />
+						</div>
+
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
-								<p class="text-sm font-semibold text-blue-900 truncate">{u.name}</p>
+								<p class="text-base font-bold text-gray-900 truncate">{u.name}</p>
 								{#if !u.is_active}
 									<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">Blocked</span>
 								{/if}
 							</div>
-							<p class="text-xs text-gray-500 truncate">@{u.username} · {u.email}</p>
-							<div class="flex items-center gap-2 mt-1">
-								<span
-									class="text-[10px] px-1.5 py-0.5 rounded font-medium text-white"
-									style="background-color: {roleColor(u.role)};"
-								>
-									{u.role}
-								</span>
-								{#if u.last_login}
-									<span class="text-[10px] text-gray-400">
-										Last: {new Date(u.last_login).toLocaleDateString()}
-									</span>
-								{/if}
-							</div>
+							<p class="text-sm text-red-600 font-semibold truncate uppercase">{u.role} • {u.username}</p>
 						</div>
-						<div class="flex gap-1">
+
+						<div class="flex flex-col gap-1 shrink-0">
 							<button
 								class="p-2 rounded-lg cursor-pointer hover:bg-gray-100"
 								title={u.is_active ? 'Block' : 'Unblock'}
@@ -249,38 +287,143 @@
 							</button>
 						</div>
 					</div>
-				</AquaCard>
-			{/each}
+				{/each}
 
-			{#if users.length === 0}
-				<div class="text-center py-12 text-gray-400 text-sm">No users found</div>
-			{/if}
-		</div>
-
-		<!-- Pagination -->
-		{#if totalPages > 1}
-			<div class="flex items-center justify-center gap-4 py-2">
-				<button
-					class="p-2 rounded-lg cursor-pointer disabled:opacity-30"
-					disabled={currentPage <= 1}
-					onclick={() => { currentPage--; loadUsers(); }}
-				>
-					<ChevronLeft class="w-5 h-5 text-blue-600" />
-				</button>
-				<span class="text-sm text-gray-600">
-					Page {currentPage} of {totalPages}
-				</span>
-				<button
-					class="p-2 rounded-lg cursor-pointer disabled:opacity-30"
-					disabled={currentPage >= totalPages}
-					onclick={() => { currentPage++; loadUsers(); }}
-				>
-					<ChevronRight class="w-5 h-5 text-blue-600" />
-				</button>
+				{#if users.length === 0}
+					<div class="text-center py-12 text-gray-400 text-sm">No users found</div>
+				{/if}
 			</div>
+
+			{#if totalPages > 1}
+				<div class="flex items-center justify-center gap-4 py-2">
+					<button
+						class="p-2 rounded-lg cursor-pointer disabled:opacity-30"
+						disabled={currentPage <= 1}
+						onclick={() => { currentPage--; loadUsers(); }}
+					>
+						<ChevronRight class="w-5 h-5 text-blue-600 rotate-180" />
+					</button>
+					<span class="text-sm text-gray-600">Page {currentPage} of {totalPages}</span>
+					<button
+						class="p-2 rounded-lg cursor-pointer disabled:opacity-30"
+						disabled={currentPage >= totalPages}
+						onclick={() => { currentPage++; loadUsers(); }}
+					>
+						<ChevronRight class="w-5 h-5 text-blue-600" />
+					</button>
+				</div>
+			{/if}
 		{/if}
-	{/if}
-</div>
+	</div>
+</AdminMobileScaffold>
+
+<!-- Create User Modal -->
+{#if createUserModal}
+	<AquaModal title="Create New User" onclose={() => createUserModal = false}>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<div class="p-4 space-y-4">
+			<!-- Role Selection -->
+			<div>
+				<label for="userRole" class="block text-xs font-semibold text-gray-700 mb-1">Role *</label>
+				<select
+					id="userRole"
+					bind:value={newUserRole}
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				>
+					<option value="NURSE">Nurse</option>
+					<option value="RECEPTION">Reception</option>
+					<option value="STUDENT">Student</option>
+					<option value="FACULTY">Faculty</option>
+					<option value="PATIENT">Patient</option>
+					<option value="ADMIN">Admin</option>
+				</select>
+			</div>
+
+			<!-- Name -->
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1">Full Name *</label>
+				<input
+					type="text"
+					bind:value={newUserData.name}
+					placeholder="Enter full name"
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+
+			<!-- Username -->
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1">Username *</label>
+				<input
+					type="text"
+					bind:value={newUserData.username}
+					placeholder="Enter username"
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+
+			<!-- Email -->
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1">Email *</label>
+				<input
+					type="email"
+					bind:value={newUserData.email}
+					placeholder="Enter email"
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+
+			<!-- Password -->
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1">Password *</label>
+				<input
+					type="password"
+					bind:value={newUserData.password}
+					placeholder="Enter password"
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+
+			<!-- Phone -->
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
+				<input
+					type="tel"
+					bind:value={newUserData.phone}
+					placeholder="Enter phone number"
+					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+				/>
+			</div>
+
+			<!-- Department (for Nurse/Faculty) -->
+			{#if newUserRole === 'NURSE' || newUserRole === 'FACULTY'}
+				<div>
+					<label class="block text-xs font-semibold text-gray-700 mb-1">Department</label>
+					<input
+						type="text"
+						bind:value={newUserData.department}
+						placeholder="Enter department"
+						class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+					/>
+				</div>
+			{/if}
+
+			<!-- Action Buttons -->
+			<div class="flex gap-2 pt-2">
+				<AquaButton variant="secondary" fullWidth onclick={() => createUserModal = false}>
+					Cancel
+				</AquaButton>
+				<AquaButton
+					variant="primary"
+					fullWidth
+					disabled={creatingUser}
+					onclick={createUser}
+				>
+					{creatingUser ? 'Creating...' : 'Create User'}
+				</AquaButton>
+			</div>
+		</div>
+	</AquaModal>
+{/if}
 
 <!-- Confirm Modal -->
 {#if confirmModal}

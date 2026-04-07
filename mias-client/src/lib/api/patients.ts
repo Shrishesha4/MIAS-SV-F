@@ -1,5 +1,19 @@
 import client from './client';
-import type { Patient, Vital, MedicalRecord, Prescription, WalletTransaction, Admission, Report, Notification } from './types';
+import type {
+  Patient,
+  Vital,
+  MedicalRecord,
+  Prescription,
+  WalletTransaction,
+  Admission,
+  Report,
+  Notification,
+  AdmissionIOEventsResponse,
+  AdmissionSoapNote,
+  AdmissionSoapPlanItems,
+  AdmissionSoapMeta,
+  AdmissionEquipment,
+} from './types';
 
 export interface Appointment {
   id: string;
@@ -273,7 +287,7 @@ export const patientApi = {
   },
 
   // IO Events (for admitted patients)
-  async getIOEvents(admissionId: string) {
+  async getIOEvents(admissionId: string): Promise<AdmissionIOEventsResponse> {
     const response = await client.get(`/admissions/${admissionId}/io-events`);
     return response.data;
   },
@@ -289,28 +303,28 @@ export const patientApi = {
   },
 
   // SOAP Notes
-  async getSOAPNotes(admissionId: string) {
+  async getSOAPNotes(admissionId: string): Promise<AdmissionSoapNote[]> {
     const response = await client.get(`/admissions/${admissionId}/soap-notes`);
     return response.data;
   },
 
-  async createSOAPNote(admissionId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string }) {
+  async createSOAPNote(admissionId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string; plan_items?: AdmissionSoapPlanItems; note_meta?: AdmissionSoapMeta }) {
     const response = await client.post(`/admissions/${admissionId}/soap-notes`, data);
     return response.data;
   },
 
-  async updateSOAPNote(admissionId: string, noteId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string }) {
+  async updateSOAPNote(admissionId: string, noteId: string, data: { subjective?: string; objective?: string; assessment?: string; plan?: string; plan_items?: AdmissionSoapPlanItems; note_meta?: AdmissionSoapMeta }) {
     const response = await client.put(`/admissions/${admissionId}/soap-notes/${noteId}`, data);
     return response.data;
   },
 
   // Connected Equipment
-  async getEquipment(admissionId: string) {
+  async getEquipment(admissionId: string): Promise<AdmissionEquipment[]> {
     const response = await client.get(`/admissions/${admissionId}/equipment`);
     return response.data;
   },
 
-  async connectEquipment(admissionId: string, data: { equipment_type: string; equipment_id?: string }) {
+  async connectEquipment(admissionId: string, data: { equipment_type: string; equipment_id?: string; connected_since?: string; status?: string; live_data?: Record<string, number | string> }) {
     const response = await client.post(`/admissions/${admissionId}/equipment`, data);
     return response.data;
   },

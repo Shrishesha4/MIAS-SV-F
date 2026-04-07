@@ -9,6 +9,9 @@ from app.models.student import (
     Clinic, ClinicAppointment
 )
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
+from app.models.nurse import Nurse, NurseNotification
+from app.models.nurse_order import NurseOrder
+from app.models.sbar_note import SBARNote
 from app.models.medical_record import MedicalRecord, RecordType, MedicalFinding, MedicalImage
 from app.models.vital import Vital
 from app.models.prescription import (

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
@@ -194,6 +195,9 @@
 	let selectedParameter = $state('bp');
 	let selectedTimeRange = $state('30');
 	let groupViewMode = $state(true);
+	let expandedInvestigationId = $state('');
+	let galleryFilter = $state<'clinical' | 'investigations' | 'documents'>('documents');
+	let showAllGallery = $state(true);
 	let chartCanvas: HTMLCanvasElement = $state(undefined as any);
 	let chartInstance: Chart | null = null;
 
@@ -205,7 +209,24 @@
 		reportTitle: string;
 		reportType: string;
 		reportDate: string;
+		mediaType?: string;
+		category: 'clinical' | 'investigations' | 'documents';
+		badge: string;
 	};
+
+	type TrendTooltipItem = {
+		label: string;
+		value: string;
+		color: string;
+		y: number;
+	};
+
+	let trendTooltip = $state({
+		visible: false,
+		x: 0,
+		label: '',
+		items: [] as TrendTooltipItem[],
+	});
 
 	const latestVital = $derived(vitals.length > 0 ? vitals[0] : null);
 
@@ -234,8 +255,17 @@
 				reportTitle: report.title,
 				reportType: report.type,
 				reportDate: report.date,
+				mediaType: image.type,
+				category: classifyGalleryItem(report.type, image.type, image.title, image.description),
+				badge: resolveGalleryBadge(image.type, image.title, image.description),
 			}))
 		)
+	);
+	const filteredGalleryItems = $derived.by(() =>
+		galleryItems.filter((item) => item.category === galleryFilter)
+	);
+	const visibleGalleryItems = $derived.by(() =>
+		showAllGallery ? filteredGalleryItems : filteredGalleryItems.slice(0, 2)
 	);
 
 	const vitalCards = $derived(latestVital ? [
@@ -251,6 +281,7 @@
 	function buildChart() {
 		if (!chartCanvas || vitals.length === 0) return;
 		chartInstance?.destroy();
+		trendTooltip = { visible: false, x: 0, label: '', items: [] };
 
 		const vitalsSlice = vitals.slice(0, parseInt(selectedTimeRange)).reverse();
 		const labels = vitalsSlice.map((v: any) => {
@@ -262,10 +293,12 @@
 
 		if (groupViewMode) {
 			datasets = [
-				{ label: 'Systolic', data: vitalsSlice.map((v: any) => v.systolic_bp ?? null), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-				{ label: 'Diastolic', data: vitalsSlice.map((v: any) => v.diastolic_bp ?? null), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-				{ label: 'Heart Rate', data: vitalsSlice.map((v: any) => v.heart_rate ?? null), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-				{ label: 'SpO₂', data: vitalsSlice.map((v: any) => v.oxygen_saturation ?? null), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
+				{ label: 'Sys', data: vitalsSlice.map((v: any) => v.systolic_bp ?? null), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#ef4444', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#ef4444' },
+				{ label: 'Dia', data: vitalsSlice.map((v: any) => v.diastolic_bp ?? null), borderColor: '#fb7185', backgroundColor: 'rgba(251,113,133,0.1)', borderDash: [5, 5], tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#fb7185', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#fb7185' },
+				{ label: 'Heart Rate', data: vitalsSlice.map((v: any) => v.heart_rate ?? null), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#f97316', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#f97316' },
+				{ label: 'Temperature', data: vitalsSlice.map((v: any) => v.temperature ?? null), borderColor: '#ff4d5a', backgroundColor: 'rgba(255,77,90,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#ff4d5a', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#ff4d5a' },
+				{ label: 'Oxygen Saturation', data: vitalsSlice.map((v: any) => v.oxygen_saturation ?? null), borderColor: '#157efb', backgroundColor: 'rgba(21,126,251,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#157efb', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#157efb' },
+				{ label: 'Respiratory Rate', data: vitalsSlice.map((v: any) => v.respiratory_rate ?? null), borderColor: '#7dc9e8', backgroundColor: 'rgba(125,201,232,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#7dc9e8', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#7dc9e8' },
 			];
 		} else if (selectedParameter === 'bp') {
 			datasets = [
@@ -282,12 +315,61 @@
 			];
 		}
 
+		const hoverGuidePlugin = {
+			id: 'hoverGuide',
+			afterDatasetsDraw(chart: any) {
+				const activeElements = chart.tooltip?.getActiveElements?.() || [];
+				if (!activeElements.length) return;
+				const x = activeElements[0].element.x;
+				const { ctx, chartArea } = chart;
+				ctx.save();
+				ctx.beginPath();
+				ctx.moveTo(x, chartArea.top);
+				ctx.lineTo(x, chartArea.bottom);
+				ctx.lineWidth = 1.5;
+				ctx.strokeStyle = 'rgba(148,163,184,0.7)';
+				ctx.stroke();
+				ctx.restore();
+			},
+		};
+
 		chartInstance = new Chart(chartCanvas, {
 			type: 'line',
 			data: { labels, datasets },
+			plugins: [hoverGuidePlugin],
 			options: {
 				responsive: true, maintainAspectRatio: false,
-				plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } } },
+				interaction: { mode: 'index', intersect: false },
+				animation: { duration: 260, easing: 'easeOutQuart' },
+				plugins: {
+					legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } },
+					tooltip: {
+						enabled: false,
+						external: (context: any) => {
+							const tooltipModel = context.tooltip;
+							if (!tooltipModel || tooltipModel.opacity === 0 || !tooltipModel.dataPoints?.length) {
+								trendTooltip = { visible: false, x: 0, label: '', items: [] };
+								return;
+							}
+
+							const chart = context.chart;
+							const x = Math.min(tooltipModel.caretX + 20, chart.width - 220);
+							trendTooltip = {
+								visible: true,
+								x,
+								label: tooltipModel.title?.[0] || '',
+								items: tooltipModel.dataPoints
+									.filter((point: any) => point.raw !== null && point.raw !== undefined)
+									.map((point: any) => ({
+										label: point.dataset.label,
+										value: formatTrendTooltipValue(point.dataset.label, point.raw),
+										color: point.dataset.borderColor,
+										y: point.element.y - 18,
+									})),
+							};
+						},
+					},
+				},
 				scales: {
 					y: { beginAtZero: false, grid: { color: 'rgba(0,0,0,0.05)' }, ticks: { font: { size: 9 } } },
 					x: { grid: { display: false }, ticks: { font: { size: 9 }, maxTicksLimit: 10 } },
@@ -302,6 +384,11 @@
 			setTimeout(buildChart, 50);
 		}
 	});
+
+	function formatTrendTooltipValue(label: string, value: number) {
+		if (label === 'Temperature') return `${Math.round(value)}`;
+		return `${Math.round(value)}`;
+	}
 
 	function getGradeColor(grade: string | undefined) {
 		if (!grade) return '#6b7280';
@@ -332,6 +419,76 @@
 		if (status === 'ABNORMAL') return { bg: 'rgba(249,115,22,0.12)', text: '#ea580c', border: 'rgba(251,146,60,0.25)' };
 		if (status === 'PENDING') return { bg: 'rgba(148,163,184,0.12)', text: '#475569', border: 'rgba(148,163,184,0.25)' };
 		return { bg: 'rgba(34,197,94,0.12)', text: '#15803d', border: 'rgba(74,222,128,0.25)' };
+	}
+
+	function classifyGalleryItem(reportType: string, imageType?: string, title?: string, description?: string) {
+		const combined = `${reportType} ${imageType || ''} ${title || ''} ${description || ''}`.toLowerCase();
+		if (reportType === 'Radiology') return 'investigations';
+		if (
+			combined.includes('document') ||
+			combined.includes('consent') ||
+			combined.includes('insurance') ||
+			combined.includes('summary') ||
+			combined.includes('pdf') ||
+			combined.includes('form')
+		) {
+			return 'documents';
+		}
+		return 'clinical';
+	}
+
+	function resolveGalleryBadge(imageType?: string, title?: string, description?: string) {
+		const combined = `${imageType || ''} ${title || ''} ${description || ''}`.toLowerCase();
+		if (combined.includes('pdf') || combined.includes('document') || combined.includes('form') || combined.includes('insurance') || combined.includes('consent')) {
+			return 'DOCUMENT';
+		}
+		return 'IMAGE';
+	}
+
+	function toggleInvestigationReport(reportId: string) {
+		expandedInvestigationId = expandedInvestigationId === reportId ? '' : reportId;
+	}
+
+	function getInvestigationIconTone(status: Report['status']) {
+		if (status === 'PENDING') {
+			return {
+				bg: 'linear-gradient(to bottom, #fb923c, #f97316)',
+				icon: Clock,
+			};
+		}
+		return {
+			bg: 'linear-gradient(to bottom, #22c55e, #16a34a)',
+			icon: CheckCircle2,
+		};
+	}
+
+	function viewInvestigationReport(report: Report) {
+		if (report.file_url) {
+			window.open(report.file_url, '_blank', 'noopener,noreferrer');
+			return;
+		}
+		toggleInvestigationReport(report.id);
+	}
+
+	function requestLabOrder() {
+		toastStore.addToast('Lab ordering workflow is not available in this view yet', 'info');
+	}
+
+	function openRadiologyViewer(reportId?: string) {
+		const targetId = reportId ?? radiologyReports[0]?.id;
+		if (!targetId) {
+			activeTab = 'radiology';
+			return;
+		}
+		void goto(`/patients/${pid}/radiology/${targetId}`);
+	}
+
+	function openTab(tabId: string) {
+		if (tabId === 'radiology' && radiologyReports.length > 0) {
+			openRadiologyViewer();
+			return;
+		}
+		activeTab = tabId;
 	}
 
 	// ── Data loading ──────────────────────────────────────────────
@@ -823,7 +980,7 @@
 	}
 </script>
 
-<div class="px-4 py-4 space-y-4">
+<div class="space-y-3 px-3 py-3">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -834,52 +991,52 @@
 		</div>
 	{:else}
 
-	<div class="overflow-hidden rounded-[26px]"
+	<div class="overflow-hidden rounded-[22px]"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 8px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85);">
 		<div class="grid grid-cols-1 border-b border-slate-200/80 md:grid-cols-[1.05fr_1fr_1fr]">
-			<div class="p-5 md:p-6" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
-				<div class="flex items-center gap-4">
+			<div class="p-4 md:p-5" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
+				<div class="flex items-center gap-3">
 					{#if patient.photo}
-						<img src={patient.photo} alt={patient.name} class="h-18 w-18 rounded-full object-cover border-4 border-white shadow-md shrink-0" />
+						<img src={patient.photo} alt={patient.name} class="h-14 w-14 rounded-full object-cover border-4 border-white shadow-md shrink-0" />
 					{:else}
-						<div class="h-18 w-18 rounded-full flex items-center justify-center shrink-0 text-2xl font-bold text-white"
+						<div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-bold text-white"
 							style="background: linear-gradient(135deg, #60a5fa, #2563eb); border: 4px solid white; box-shadow: 0 8px 18px rgba(37,99,235,0.24);">
 							{patient.name?.charAt(0) || 'P'}
 						</div>
 					{/if}
 					<div class="min-w-0 flex-1">
-						<h2 class="text-3xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
-						<p class="mt-2 text-[13px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
-						<p class="mt-3 text-[15px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
-						<p class="mt-2 text-[15px] text-slate-600">{patient.phone || '—'}</p>
+						<h2 class="text-2xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
+						<p class="mt-1.5 text-[11px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
+						<p class="mt-2 text-[13px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
+						<p class="mt-1.5 text-[13px] text-slate-600">{patient.phone || '—'}</p>
 					</div>
 				</div>
 			</div>
 
-			<div class="border-t border-slate-200/80 p-5 md:border-l md:border-t-0 md:p-6"
+			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
 				style="background: linear-gradient(135deg, rgba(254,242,242,0.95), rgba(254,226,226,0.82));">
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex items-center gap-2.5">
-						<AlertTriangle class="h-5 w-5 text-red-500" />
-						<span class="text-[15px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
+					<div class="flex items-center gap-2">
+						<AlertTriangle class="h-4 w-4 text-red-500" />
+						<span class="text-[13px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
 					</div>
 					<div class="flex gap-2">
-						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={loadAlertHistory}>
-							<History class="h-4 w-4 text-blue-500" />
+							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
-						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={() => showAlertInput = !showAlertInput}>
-							<Plus class="h-4 w-4 text-blue-500" />
+							<Plus class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 					</div>
 				</div>
-				<div class="mt-5 flex flex-wrap gap-3">
+				<div class="mt-4 flex flex-wrap gap-2">
 					{#if activeAlerts.length > 0}
 						{#each activeAlerts as alert}
-							<span class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-[14px] font-semibold text-red-700"
+							<span class="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-[12px] font-semibold text-red-700"
 								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(248,113,113,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
 								{alert.title}
 								<button class="cursor-pointer text-red-400 hover:text-red-600 leading-none" onclick={() => removeAlert(alert.id)}>×</button>
@@ -913,30 +1070,30 @@
 				{/if}
 			</div>
 
-			<div class="border-t border-slate-200/80 p-5 md:border-l md:border-t-0 md:p-6"
+			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
 				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));">
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex items-center gap-2.5">
-						<FileText class="h-5 w-5 text-blue-600" />
-						<span class="text-[15px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
+					<div class="flex items-center gap-2">
+						<FileText class="h-4 w-4 text-blue-600" />
+						<span class="text-[13px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
 					</div>
 					<div class="flex gap-2">
-						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
-							<History class="h-4 w-4 text-blue-500" />
+							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
-						<button class="h-10 w-10 rounded-full flex items-center justify-center cursor-pointer"
+						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={() => showDiagnosisInput = !showDiagnosisInput}>
-							<Edit class="h-4 w-4 text-blue-500" />
+							<Edit class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 					</div>
 				</div>
-				<div class="mt-5">
+				<div class="mt-4">
 					{#if patient.primary_diagnosis}
-						<p class="text-[19px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
-						<p class="mt-3 text-[13px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
+						<p class="text-[16px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
+						<p class="mt-2 text-[12px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
 					{:else}
 						<p class="text-sm font-medium text-blue-300">No diagnosis recorded</p>
 					{/if}
@@ -966,34 +1123,34 @@
 			</div>
 		</div>
 
-		<div class="flex flex-col gap-4 px-5 py-4 md:flex-row md:items-center md:justify-between md:px-6"
+		<div class="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5"
 			style="background: linear-gradient(to right, rgba(239,246,255,0.98), rgba(226,238,252,0.96));">
-			<div class="flex min-w-0 items-center gap-3">
-				<ClipboardList class="h-6 w-6 shrink-0 text-blue-600" />
-				<div class="flex min-w-0 items-center gap-3 flex-wrap">
-					<span class="text-[18px] font-bold text-slate-800">Admission Status</span>
-					<Clock class="h-5 w-5 text-blue-500" />
+			<div class="flex min-w-0 items-center gap-2.5">
+				<ClipboardList class="h-5 w-5 shrink-0 text-blue-600" />
+				<div class="flex min-w-0 flex-wrap items-center gap-2.5">
+					<span class="text-[15px] font-bold text-slate-800">Admission Status</span>
+					<Clock class="h-4 w-4 text-blue-500" />
 					{#if currentAdmission}
-						<span class="rounded-xl bg-blue-600 px-4 py-1.5 text-sm font-black tracking-wide text-white">ADMITTED</span>
+						<span class="rounded-xl bg-blue-600 px-3 py-1 text-xs font-black tracking-wide text-white">ADMITTED</span>
 					{:else if pendingAdmission}
-						<span class="text-sm font-semibold text-slate-500">Request pending faculty approval</span>
+						<span class="text-xs font-semibold text-slate-500">Request pending faculty approval</span>
 					{:else}
-						<span class="text-sm font-medium text-slate-500">No active admission</span>
+						<span class="text-xs font-medium text-slate-500">No active admission</span>
 					{/if}
 				</div>
 			</div>
 
 			{#if currentAdmission && role !== 'PATIENT'}
-				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-2 text-[15px] font-black tracking-wide text-blue-600">
-					REVIEW & VITALS <ChevronRight class="h-5 w-5" />
+				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-1.5 text-[13px] font-black tracking-wide text-blue-600">
+					REVIEW & VITALS <ChevronRight class="h-4 w-4" />
 				</a>
 			{:else if pendingAdmission && role === 'STUDENT'}
-				<button class="shrink-0 rounded-2xl px-5 py-3 text-sm font-bold cursor-not-allowed flex items-center gap-2"
+				<button class="shrink-0 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-bold cursor-not-allowed"
 					style="background: rgba(240,253,244,0.9); border: 1px solid rgba(134,239,172,0.95); color: #15803d; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);" disabled>
 					<CheckCircle class="h-4 w-4" /> Sent for Approval
 				</button>
 			{:else if role === 'STUDENT'}
-				<button class="shrink-0 rounded-2xl px-6 py-3 text-[15px] font-bold text-white cursor-pointer"
+				<button class="shrink-0 rounded-2xl px-5 py-2.5 text-[13px] font-bold text-white cursor-pointer"
 					style="background: linear-gradient(to bottom, #4ade80, #16a34a); border: 1px solid rgba(21,128,61,0.45); box-shadow: 0 6px 14px rgba(34,197,94,0.25), inset 0 1px 0 rgba(255,255,255,0.45);"
 					onclick={openAdmissionRequestModal}>
 					Admit Patient
@@ -1065,15 +1222,15 @@
 	     TABS
 	     ═══════════════════════════════════════════════════════════════ -->
 	<div class="overflow-x-auto pb-1">
-		<div class="flex min-w-max gap-2 rounded-[24px] p-1.5"
+		<div class="flex min-w-max gap-1.5 rounded-[22px] p-1"
 			style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(241,245,249,0.98)); border: 1px solid rgba(148,163,184,0.2); box-shadow: 0 8px 18px rgba(15,23,42,0.05);">
 			{#each tabs as tab}
 				<button
-					class="flex cursor-pointer items-center gap-2 rounded-[18px] px-4 py-3 text-sm font-bold whitespace-nowrap transition-all"
+					class="flex cursor-pointer items-center gap-1.5 rounded-[16px] px-3 py-2 text-xs font-bold whitespace-nowrap transition-all"
 					style="background: {activeTab === tab.id ? 'linear-gradient(to bottom, #ffffff, #f8fbff)' : 'transparent'}; color: {activeTab === tab.id ? '#2563eb' : '#64748b'}; border: 1px solid {activeTab === tab.id ? 'rgba(59,130,246,0.24)' : 'transparent'}; box-shadow: {activeTab === tab.id ? '0 6px 14px rgba(37,99,235,0.12), inset 0 1px 0 rgba(255,255,255,0.9)' : 'none'};"
-					onclick={() => activeTab = tab.id}
+					onclick={() => openTab(tab.id)}
 				>
-					<tab.icon class="h-4 w-4" />
+					<tab.icon class="h-3.5 w-3.5" />
 					<span>{tab.label}</span>
 				</button>
 			{/each}
@@ -1223,8 +1380,20 @@
 							</div>
 							<ChevronDown class="h-5 w-5 text-blue-500" />
 						</div>
-						<div class="h-[320px] md:h-[420px]">
+						<div class="relative h-[320px] md:h-[420px]">
 							<canvas bind:this={chartCanvas}></canvas>
+							{#if trendTooltip.visible}
+								{#each trendTooltip.items as item (item.label)}
+									<div
+										class="pointer-events-none absolute z-10 rounded-[18px] px-4 py-3 text-sm font-semibold shadow-[0_12px_28px_rgba(15,23,42,0.12)]"
+										style="left: {trendTooltip.x}px; top: {item.y}px; background: rgba(255,255,255,0.96); color: {item.color}; min-width: 180px;">
+										{item.label} : {item.value}
+									</div>
+								{/each}
+								<div class="pointer-events-none absolute bottom-3 left-0 text-xs font-semibold text-slate-400" style="left: {Math.max(trendTooltip.x - 18, 0)}px;">
+									{trendTooltip.label}
+								</div>
+							{/if}
 						</div>
 					</div>
 				{:else}
@@ -1407,56 +1576,79 @@
 	     INVESTIGATIONS TAB
 	     ═══════════════════════════════════════════════════════════════ -->
 	{:else if activeTab === 'investigations'}
-		<AquaCard>
-			<div class="mb-4 flex items-center justify-between gap-3">
-				<div class="flex items-center gap-2">
-					<TestTube class="h-5 w-5 text-blue-600" />
-					<h3 class="font-bold text-gray-800">Investigations</h3>
+		<AquaCard padding={false}>
+			<div class="border-b border-slate-200/85 px-5 py-5" style="background: linear-gradient(to bottom, #f4f8ff, #e9f0fb);">
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-3">
+						<TestTube class="h-6 w-6 text-emerald-600" />
+						<div>
+							<h3 class="text-[18px] font-black text-slate-900">Lab Investigations</h3>
+							<p class="text-xs text-slate-500">{investigationReports.length} reports recorded for this patient</p>
+						</div>
+					</div>
+					{#if role !== 'PATIENT'}
+						<button class="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #60a5fa, #2563eb); border: 1px solid rgba(37,99,235,0.34); box-shadow: 0 8px 18px rgba(37,99,235,0.2);"
+							onclick={requestLabOrder}>
+							<Plus class="h-4 w-4" /> ORDER LAB
+						</button>
+					{/if}
 				</div>
-				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{investigationReports.length} reports</span>
 			</div>
 
-			{#if investigationReports.length === 0}
-				<p class="py-8 text-center text-sm text-gray-400">No investigation reports available</p>
-			{:else}
-				<div class="space-y-3">
-					{#each investigationReports as report}
-						{@const tone = getReportStatusTone(report.status)}
-						<div class="rounded-[22px] p-4" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(226,232,240,0.95);">
-							<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-								<div>
-									<div class="flex items-center gap-2">
-										<span class="inline-flex h-9 w-9 items-center justify-center rounded-full" style="background: rgba(59,130,246,0.12); color: #2563eb;">
-											<TestTube class="h-4 w-4" />
-										</span>
-										<div>
-											<p class="font-bold text-slate-800">{report.title}</p>
-											<p class="text-xs text-slate-400">{report.department} · {formatReportDate(report.date, report.time)}</p>
-										</div>
-									</div>
+			<div class="space-y-4 p-4 md:p-6">
+				{#if investigationReports.length === 0}
+					<p class="py-8 text-center text-sm text-gray-400">No investigation reports available</p>
+				{:else}
+					{#each investigationReports as report, index (report.id)}
+						{@const iconTone = getInvestigationIconTone(report.status)}
+						<div class="overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.07)]">
+							<div class="flex items-center gap-4 px-5 py-4">
+								<div class="flex h-13 w-13 shrink-0 items-center justify-center rounded-full text-white" style="background: {iconTone.bg};">
+									<iconTone.icon class="h-6 w-6" />
 								</div>
-								<span class="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide" style="background: {tone.bg}; color: {tone.text}; border: 1px solid {tone.border};">{report.status}</span>
+								<div class="min-w-0 flex-1">
+									<p class="truncate text-[18px] font-black text-slate-900">{report.title}</p>
+									<p class="mt-1 text-sm text-slate-500">ID: LAB-{String(index + 1).padStart(3, '0')} · Date: {formatReportDate(report.date, report.time)} · Provider: {report.performed_by || report.ordered_by || '—'}</p>
+								</div>
+								<div class="flex items-center gap-3">
+									<button class="rounded-2xl px-4 py-2 text-sm font-bold text-white cursor-pointer"
+										style="background: linear-gradient(to bottom, #60a5fa, #2563eb); border: 1px solid rgba(37,99,235,0.34);"
+										onclick={() => viewInvestigationReport(report)}>
+										VIEW REPORT
+									</button>
+									<button class="flex h-10 w-10 items-center justify-center rounded-full cursor-pointer text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+										onclick={() => toggleInvestigationReport(report.id)}
+										aria-label="Toggle report details">
+										<ChevronDown class="h-5 w-5 transition-transform" style="transform: rotate({expandedInvestigationId === report.id ? 180 : 0}deg);" />
+									</button>
+								</div>
 							</div>
-							{#if report.result_summary}
-								<p class="mt-3 text-sm font-semibold text-slate-700">{report.result_summary}</p>
-							{/if}
-							{#if report.findings && report.findings.length > 0}
-								<div class="mt-3 grid gap-2 md:grid-cols-2">
-									{#each report.findings.slice(0, 4) as finding}
-										<div class="rounded-xl px-3 py-2" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(226,232,240,0.9);">
-											<p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">{finding.parameter}</p>
-											<p class="mt-1 text-sm font-semibold text-slate-800">{finding.value}</p>
-											{#if finding.reference}
-												<p class="text-[11px] text-slate-400">Ref: {finding.reference}</p>
-											{/if}
+
+							{#if expandedInvestigationId === report.id}
+								<div class="border-t border-slate-200/80 bg-slate-50/60 px-5 py-4">
+									{#if report.result_summary}
+										<p class="text-sm font-semibold text-slate-700">{report.result_summary}</p>
+									{/if}
+									{#if report.findings && report.findings.length > 0}
+										<div class="mt-3 grid gap-3 md:grid-cols-2">
+											{#each report.findings.slice(0, 4) as finding}
+												<div class="rounded-xl border border-slate-200/85 bg-white px-4 py-3">
+													<p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">{finding.parameter}</p>
+													<p class="mt-1 text-sm font-semibold text-slate-800">{finding.value}</p>
+													{#if finding.reference}
+														<p class="mt-1 text-[11px] text-slate-400">Reference: {finding.reference}</p>
+													{/if}
+												</div>
+											{/each}
 										</div>
-									{/each}
+									{/if}
 								</div>
 							{/if}
 						</div>
 					{/each}
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</AquaCard>
 
 	<!-- ═══════════════════════════════════════════════════════════════
@@ -1469,7 +1661,16 @@
 					<Activity class="h-5 w-5 text-blue-600" />
 					<h3 class="font-bold text-gray-800">Radiology</h3>
 				</div>
-				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{radiologyReports.length} studies</span>
+				<div class="flex items-center gap-2">
+					<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{radiologyReports.length} studies</span>
+					{#if radiologyReports.length > 0}
+						<button class="rounded-xl px-3 py-1.5 text-xs font-bold text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #1d4ed8, #1e40af); border: 1px solid rgba(30,64,175,0.45);"
+							onclick={() => openRadiologyViewer()}>
+							Open Viewer
+						</button>
+					{/if}
+				</div>
 			</div>
 
 			{#if radiologyReports.length === 0}
@@ -1499,6 +1700,11 @@
 								</div>
 								<div class="shrink-0 space-y-3 lg:w-60">
 									<span class="inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide" style="background: {tone.bg}; color: {tone.text}; border: 1px solid {tone.border};">{report.status}</span>
+									<button class="w-full rounded-2xl px-3 py-2 text-xs font-bold text-white cursor-pointer"
+										style="background: linear-gradient(to bottom, #1d4ed8, #1e40af); border: 1px solid rgba(30,64,175,0.45);"
+										onclick={() => openRadiologyViewer(report.id)}>
+										View Fullscreen
+									</button>
 									<div class="rounded-2xl px-3 py-3 text-sm" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(226,232,240,0.9);">
 										<p class="text-[11px] font-bold uppercase tracking-wide text-slate-400">Images</p>
 										<p class="mt-1 font-semibold text-slate-800">{report.images?.length || 0} attached</p>
@@ -1524,33 +1730,64 @@
 	     GALLERY TAB
 	     ═══════════════════════════════════════════════════════════════ -->
 	{:else if activeTab === 'gallery'}
-		<AquaCard>
-			<div class="mb-4 flex items-center justify-between gap-3">
-				<div class="flex items-center gap-2">
-					<ImageIcon class="h-5 w-5 text-blue-600" />
-					<h3 class="font-bold text-gray-800">Gallery</h3>
+		<AquaCard padding={false}>
+			<div class="border-b border-slate-200/85 px-5 py-5" style="background: linear-gradient(to bottom, #f4f8ff, #e9f0fb);">
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex items-center gap-3">
+						<ImageIcon class="h-6 w-6 text-blue-600" />
+						<div>
+							<h3 class="text-[18px] font-black text-slate-900">Patient Gallery</h3>
+							<p class="text-xs text-slate-500">Clinical media, investigation images, and patient documents</p>
+						</div>
+					</div>
+					<!-- <button class="rounded-2xl px-4 py-2 text-sm font-bold text-white cursor-pointer"
+						style="background: linear-gradient(to bottom, #60a5fa, #2563eb); border: 1px solid rgba(37,99,235,0.34);"
+						onclick={() => showAllGallery = !showAllGallery}>
+						{showAllGallery ? 'SHOW LESS' : 'VIEW FULL GALLERY'}
+					</button> -->
 				</div>
-				<span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{galleryItems.length} items</span>
 			</div>
 
-			{#if galleryItems.length === 0}
-				<p class="py-8 text-center text-sm text-gray-400">No patient images available</p>
-			{:else}
-				<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-					{#each galleryItems as item}
-						<a href={item.url} target="_blank" rel="noreferrer" class="overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_8px_18px_rgba(15,23,42,0.05)]">
-							<div class="aspect-[4/3] overflow-hidden bg-slate-100">
-								<img src={item.url} alt={item.title} class="h-full w-full object-cover transition-transform duration-200 hover:scale-[1.03]" />
-							</div>
-							<div class="space-y-1 p-4">
-								<p class="font-semibold text-slate-800">{item.title}</p>
-								<p class="text-xs text-slate-500">{item.reportTitle} · {item.reportType}</p>
-								<p class="text-xs text-slate-400">{formatReportDate(item.reportDate)}</p>
-							</div>
-						</a>
-					{/each}
+			<div class="space-y-5 p-4 md:p-6">
+				<div class="inline-flex rounded-2xl border border-slate-200/90 bg-slate-100/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+					<button class="rounded-xl px-7 py-2 text-sm font-bold transition-all"
+						style="background: {galleryFilter === 'clinical' ? 'white' : 'transparent'}; color: {galleryFilter === 'clinical' ? '#1f2937' : '#64748b'}; box-shadow: {galleryFilter === 'clinical' ? '0 2px 10px rgba(15,23,42,0.08)' : 'none'};"
+						onclick={() => { galleryFilter = 'clinical'; showAllGallery = false; }}>
+						Clinical
+					</button>
+					<button class="rounded-xl px-7 py-2 text-sm font-bold transition-all"
+						style="background: {galleryFilter === 'investigations' ? 'white' : 'transparent'}; color: {galleryFilter === 'investigations' ? '#1f2937' : '#64748b'}; box-shadow: {galleryFilter === 'investigations' ? '0 2px 10px rgba(15,23,42,0.08)' : 'none'};"
+						onclick={() => { galleryFilter = 'investigations'; showAllGallery = false; }}>
+						Investigations
+					</button>
+					<button class="rounded-xl px-7 py-2 text-sm font-bold transition-all"
+						style="background: {galleryFilter === 'documents' ? 'white' : 'transparent'}; color: {galleryFilter === 'documents' ? '#2563eb' : '#64748b'}; box-shadow: {galleryFilter === 'documents' ? '0 2px 10px rgba(15,23,42,0.08)' : 'none'};"
+						onclick={() => { galleryFilter = 'documents'; showAllGallery = false; }}>
+						Documents
+					</button>
 				</div>
-			{/if}
+
+				{#if filteredGalleryItems.length === 0}
+					<p class="py-8 text-center text-sm text-gray-400">No items in this gallery section</p>
+				{:else}
+					<div class="grid gap-5 md:grid-cols-2">
+						{#each visibleGalleryItems as item (item.id)}
+							<a href={item.url} target="_blank" rel="noreferrer" class="group overflow-hidden rounded-[22px] border border-slate-200/90 bg-white shadow-[0_10px_24px_rgba(15,23,42,0.07)] transition-transform hover:scale-[1.01]">
+								<div class="aspect-[5/4] overflow-hidden bg-slate-100">
+									<img src={item.url} alt={item.title} class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+								</div>
+								<div class="space-y-2 p-4">
+									<div class="flex items-start justify-between gap-3">
+										<p class="text-[15px] font-black leading-tight text-slate-900">{item.title}</p>
+										<span class="rounded-lg bg-slate-100 px-2.5 py-1 text-[11px] font-black tracking-wide text-slate-700">{item.badge}</span>
+									</div>
+									<p class="text-sm text-slate-500">{formatReportDate(item.reportDate)}</p>
+								</div>
+							</a>
+						{/each}
+					</div>
+				{/if}
+			</div>
 		</AquaCard>
 	{/if}
 	{/if}

@@ -12,6 +12,7 @@ class UserRole(str, enum.Enum):
     FACULTY = "FACULTY"
     ADMIN = "ADMIN"
     RECEPTION = "RECEPTION"
+    NURSE = "NURSE"
 
 
 class User(Base):
@@ -35,6 +36,7 @@ class User(Base):
     patient = relationship("Patient", back_populates="user", uselist=False)
     student = relationship("Student", back_populates="user", uselist=False)
     faculty = relationship("Faculty", back_populates="user", uselist=False)
+    nurse = relationship("Nurse", back_populates="user", uselist=False)
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
 
 

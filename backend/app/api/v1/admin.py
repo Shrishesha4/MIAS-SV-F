@@ -22,6 +22,7 @@ from app.models.vital import Vital
 from app.models.medical_record import MedicalRecord
 from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
+from app.models.nurse import Nurse
 from app.core.security import get_password_hash
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -244,6 +245,9 @@ def _generate_student_id():
 def _generate_faculty_id():
     return f"FA{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
+def _generate_nurse_id():
+    return f"NR{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
 
 @router.post("/users", status_code=201)
 async def admin_create_user(
@@ -314,7 +318,21 @@ async def admin_create_user(
             phone=data.phone or "",
             email=data.email,
         ))
-    # ADMIN role: no extra profile record needed
+    elif role == UserRole.NURSE:
+        db.add(Nurse(
+            id=str(uuid.uuid4()),
+            nurse_id=_generate_nurse_id(),
+            user_id=user_id,
+            name=name,
+            phone=data.phone or "",
+            email=data.email,
+            hospital=None,
+            ward=None,
+            shift=None,
+            department=data.department or None,
+            has_selected_station=0,
+        ))
+    # ADMIN and RECEPTION roles: no extra profile record needed
 
     await db.commit()
     return {"message": f"User {data.username} created successfully", "user_id": user_id}

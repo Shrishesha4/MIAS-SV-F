@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Float
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Float, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -40,6 +40,8 @@ class SOAPNote(Base):
     objective = Column(Text, nullable=True)
     assessment = Column(Text, nullable=True)
     plan = Column(Text, nullable=True)
+    plan_items = Column(JSON, nullable=True)
+    note_meta = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     created_by = Column(String, nullable=True)
     updated_at = Column(DateTime, nullable=True)
@@ -63,6 +65,7 @@ class AdmissionEquipment(Base):
     equipment_id = Column(String, nullable=True)     # e.g. MON-ICU-042
     connected_since = Column(String, nullable=True)  # display string e.g. "06:00 AM"
     status = Column(String, default="active")        # active | inactive
+    live_data = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     patient = relationship("Patient")

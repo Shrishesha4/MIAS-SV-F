@@ -174,6 +174,10 @@
 				approvals = await facultyApi.getApprovals(faculty.id);
 				approvalStats = await approvalsApi.getApprovalStats(faculty.id);
 				todaySchedule = await approvalsApi.getTodaySchedule(faculty.id);
+			} else if (role === 'NURSE') {
+				// Redirect nurses to their station dashboard
+				goto('/nurse-station');
+				return;
 			}
 		} catch (err: any) {
 			error = 'Failed to load dashboard data';

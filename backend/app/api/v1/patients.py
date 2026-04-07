@@ -249,6 +249,17 @@ async def get_patient_vitals(
             "blood_glucose": v.blood_glucose,
             "cholesterol": v.cholesterol,
             "bmi": v.bmi,
+            "creatinine": v.creatinine,
+            "urea": v.urea,
+            "sodium": v.sodium,
+            "potassium": v.potassium,
+            "sgot": v.sgot,
+            "sgpt": v.sgpt,
+            "hemoglobin": v.hemoglobin,
+            "wbc": v.wbc,
+            "platelet": v.platelet,
+            "rbc": v.rbc,
+            "hct": v.hct,
         }
         for v in vitals
     ]
@@ -276,6 +287,17 @@ async def create_vital(
         blood_glucose=vital_data.get("blood_glucose"),
         cholesterol=vital_data.get("cholesterol"),
         bmi=vital_data.get("bmi"),
+        creatinine=vital_data.get("creatinine"),
+        urea=vital_data.get("urea"),
+        sodium=vital_data.get("sodium"),
+        potassium=vital_data.get("potassium"),
+        sgot=vital_data.get("sgot"),
+        sgpt=vital_data.get("sgpt"),
+        hemoglobin=vital_data.get("hemoglobin"),
+        wbc=vital_data.get("wbc"),
+        platelet=vital_data.get("platelet"),
+        rbc=vital_data.get("rbc"),
+        hct=vital_data.get("hct"),
     )
 
     db.add(vital)

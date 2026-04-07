@@ -30,5 +30,20 @@ class Vital(Base):
     cholesterol = Column(Integer, nullable=True)
     bmi = Column(Float, nullable=True)
 
+    # Biochemistry
+    creatinine = Column(Float, nullable=True)
+    urea = Column(Float, nullable=True)
+    sodium = Column(Float, nullable=True)
+    potassium = Column(Float, nullable=True)
+    sgot = Column(Float, nullable=True)
+    sgpt = Column(Float, nullable=True)
+
+    # Haematology
+    hemoglobin = Column(Float, nullable=True)
+    wbc = Column(Float, nullable=True)
+    platelet = Column(Float, nullable=True)
+    rbc = Column(Float, nullable=True)
+    hct = Column(Float, nullable=True)
+
     # Relationships
     patient = relationship("Patient", back_populates="vitals")
