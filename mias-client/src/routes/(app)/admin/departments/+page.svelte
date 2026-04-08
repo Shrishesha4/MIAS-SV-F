@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type Department, type FacultyItem } from '$lib/api/admin';
-	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
@@ -122,7 +122,7 @@
 	}
 </script>
 
-<AdminMobileScaffold
+<AdminScaffold
 	title="System Administration"
 	titleIcon={Building}
 	navItems={adminPageNavItems}
@@ -210,7 +210,7 @@
 		</div>
 	{/if}
 	</div>
-</AdminMobileScaffold>
+</AdminScaffold>
 
 <!-- Create/Edit Department Modal -->
 {#if showForm}

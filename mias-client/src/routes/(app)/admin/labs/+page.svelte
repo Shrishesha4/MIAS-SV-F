@@ -3,24 +3,25 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
-	import { labsApi, type LabInfo } from '$lib/api/labs';
-	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import { labsApi, type LabInfo, type LabTest, type LabTestGroup } from '$lib/api/labs';
+	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import {
-		Search, FlaskConical, Trash2, Edit3, CheckCircle2, XCircle
-	} from 'lucide-svelte';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
+	import { FlaskConical, Trash2, X, Plus } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	let loading = $state(true);
 	let error = $state('');
 	let labs: LabInfo[] = $state([]);
-	let searchQuery = $state('');
-	let confirmModal = $state(false);
-	let confirmAction: (() => Promise<void>) | null = $state(null);
-	let confirmMessage = $state('');
-	let actionLoading = $state(false);
+
+	// Configuration panel state
+	let configLab: LabInfo | null = $state(null);
+	let configTab = $state('tests');
+	let labTests: LabTest[] = $state([]);
+	let labGroups: LabTestGroup[] = $state([]);
+	let loadingConfig = $state(false);
 
 	// Create/Edit lab modal
 	let labModal = $state(false);
@@ -28,7 +29,7 @@
 	let labData = $state({
 		name: '',
 		block: '',
-		lab_type: 'General',
+		lab_type: 'Pathology',
 		department: '',
 		location: '',
 		contact_phone: '',
@@ -36,6 +37,35 @@
 		is_active: true
 	});
 	let savingLab = $state(false);
+
+	// Test modal
+	let testModal = $state(false);
+	let testData = $state({
+		name: '',
+		code: '',
+		category: 'Hematology'
+	});
+	let savingTest = $state(false);
+
+	// Group modal
+	let groupModal = $state(false);
+	let groupData = $state({
+		name: '',
+		test_ids: [] as string[]
+	});
+	let savingGroup = $state(false);
+	let allAvailableTests: LabTest[] = $state([]);
+
+	// Delete confirmation
+	let confirmModal = $state(false);
+	let confirmAction: (() => Promise<void>) | null = $state(null);
+	let confirmMessage = $state('');
+	let actionLoading = $state(false);
+
+	const configTabs = [
+		{ id: 'tests', label: 'TESTS' },
+		{ id: 'groups', label: 'GROUPS' }
+	];
 
 	onMount(() => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
@@ -54,43 +84,17 @@
 		}
 	}
 
-	const filteredLabs = $derived(() => {
-		if (!searchQuery) return labs;
-		const q = searchQuery.toLowerCase();
-		return labs.filter(l =>
-			l.name.toLowerCase().includes(q) ||
-			l.block?.toLowerCase().includes(q) ||
-			l.department.toLowerCase().includes(q) ||
-			l.lab_type.toLowerCase().includes(q)
-		);
-	});
-
 	function openCreateModal() {
 		editingLab = null;
 		labData = {
 			name: '',
 			block: '',
-			lab_type: 'General',
+			lab_type: 'Pathology',
 			department: '',
 			location: '',
 			contact_phone: '',
 			operating_hours: '',
 			is_active: true
-		};
-		labModal = true;
-	}
-
-	function openEditModal(lab: LabInfo) {
-		editingLab = lab;
-		labData = {
-			name: lab.name,
-			block: lab.block || '',
-			lab_type: lab.lab_type,
-			department: lab.department,
-			location: lab.location || '',
-			contact_phone: lab.contact_phone || '',
-			operating_hours: lab.operating_hours || '',
-			is_active: lab.is_active
 		};
 		labModal = true;
 	}
@@ -118,16 +122,121 @@
 		}
 	}
 
-	function deleteLab(lab: LabInfo) {
-		confirmMessage = `Are you sure you want to delete "${lab.name}"?`;
+	async function openConfigPanel(lab: LabInfo) {
+		configLab = lab;
+		configTab = 'tests';
+		await loadLabConfig(lab.id);
+	}
+
+	function closeConfigPanel() {
+		configLab = null;
+		labTests = [];
+		labGroups = [];
+	}
+
+	async function loadLabConfig(labId: string) {
+		loadingConfig = true;
+		try {
+			[labTests, labGroups] = await Promise.all([
+				labsApi.getTests(labId),
+				labsApi.getGroups(labId)
+			]);
+		} catch (e: any) {
+			toastStore.addToast('Failed to load lab configuration', 'error');
+		} finally {
+			loadingConfig = false;
+		}
+	}
+
+	function openTestModal() {
+		testData = { name: '', code: '', category: 'Hematology' };
+		testModal = true;
+	}
+
+	async function saveTest() {
+		if (!configLab || !testData.name.trim() || !testData.code.trim()) {
+			toastStore.addToast('Name and code are required', 'error');
+			return;
+		}
+		savingTest = true;
+		try {
+			await labsApi.createTest(configLab.id, testData);
+			toastStore.addToast('Test created successfully', 'success');
+			testModal = false;
+			await loadLabConfig(configLab.id);
+			await loadLabs();
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to create test', 'error');
+		} finally {
+			savingTest = false;
+		}
+	}
+
+	function confirmDeleteTest(test: LabTest) {
+		confirmMessage = 'Delete test "' + test.name + '"?';
 		confirmAction = async () => {
 			actionLoading = true;
 			try {
-				await labsApi.delete(lab.id);
-				toastStore.addToast('Lab deleted successfully', 'success');
+				await labsApi.deleteTest(configLab!.id, test.id);
+				toastStore.addToast('Test deleted', 'success');
+				await loadLabConfig(configLab!.id);
 				await loadLabs();
 			} catch (e: any) {
-				toastStore.addToast(e.response?.data?.detail || 'Failed to delete lab', 'error');
+				toastStore.addToast('Failed to delete test', 'error');
+			} finally {
+				actionLoading = false;
+				confirmModal = false;
+			}
+		};
+		confirmModal = true;
+	}
+
+	async function openGroupModal() {
+		groupData = { name: '', test_ids: [] };
+		if (configLab) {
+			allAvailableTests = await labsApi.getTests(configLab.id);
+		}
+		groupModal = true;
+	}
+
+	function toggleTestInGroup(testId: string) {
+		if (groupData.test_ids.includes(testId)) {
+			groupData.test_ids = groupData.test_ids.filter(id => id !== testId);
+		} else {
+			groupData.test_ids = [...groupData.test_ids, testId];
+		}
+	}
+
+	async function saveGroup() {
+		if (!configLab || !groupData.name.trim()) {
+			toastStore.addToast('Group name is required', 'error');
+			return;
+		}
+		savingGroup = true;
+		try {
+			await labsApi.createGroup(configLab.id, groupData);
+			toastStore.addToast('Group created successfully', 'success');
+			groupModal = false;
+			await loadLabConfig(configLab.id);
+			await loadLabs();
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to create group', 'error');
+		} finally {
+			savingGroup = false;
+		}
+	}
+
+	function confirmDeleteGroup(group: LabTestGroup) {
+		confirmMessage = 'Delete group "' + group.name + '"?';
+		confirmAction = async () => {
+			actionLoading = true;
+			try {
+				await labsApi.deleteGroup(configLab!.id, group.id);
+				toastStore.addToast('Group deleted', 'success');
+				await loadLabConfig(configLab!.id);
+				await loadLabs();
+			} catch (e: any) {
+				toastStore.addToast('Failed to delete group', 'error');
 			} finally {
 				actionLoading = false;
 				confirmModal = false;
@@ -137,7 +246,7 @@
 	}
 </script>
 
-<AdminMobileScaffold navItems={adminPageNavItems} title="Labs" activeNav="/admin/labs">
+<AdminScaffold navItems={adminPageNavItems} title="Labs" activeNav="labs" titleIcon={FlaskConical}>
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -145,206 +254,227 @@
 	{:else if error}
 		<div class="text-red-500 text-center py-4 text-sm">{error}</div>
 	{:else}
-		<!-- Search + Create -->
-		<div class="flex items-center gap-2 mb-3">
-			<div class="flex-1 relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input
-					type="text"
-					placeholder="Search labs..."
-					class="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300"
-					bind:value={searchQuery}
-				/>
-			</div>
+		<div class="flex items-center justify-between mb-4">
+			<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Laboratory Services</p>
 			<button
 				onclick={openCreateModal}
-				class="px-4 py-2 text-sm font-medium text-white rounded-lg"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+				class="px-4 py-2 text-sm font-semibold text-white rounded-full"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.3);"
 			>
-				+ Add
+				Add New
 			</button>
 		</div>
 
-		<!-- Labs List -->
-		<div class="space-y-2">
-			{#each filteredLabs() as lab (lab.id)}
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+			{#each labs as lab (lab.id)}
 				<div
-					class="flex items-center gap-3 p-3 rounded-lg border border-gray-200"
-					style="background: linear-gradient(to bottom, #ffffff, #f9fafb);"
+					class="rounded-2xl p-4"
+					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
 				>
-					<div
-						class="flex items-center justify-center rounded-full"
-						style="width: 36px; height: 36px; background: linear-gradient(to bottom, #8b5cf6, #7c3aed); box-shadow: 0 1px 2px rgba(0,0,0,0.2);"
-					>
-						<FlaskConical class="w-5 h-5 text-white" />
-					</div>
-					<div class="flex-1 min-w-0">
-						<div class="flex items-center gap-2 mb-0.5">
-							<div class="text-sm font-semibold text-gray-900">{lab.name}</div>
-							{#if lab.is_active}
-								<CheckCircle2 class="w-3.5 h-3.5 text-green-600" />
-							{:else}
-								<XCircle class="w-3.5 h-3.5 text-gray-400" />
-							{/if}
+					<div class="flex items-start justify-between mb-4">
+						<div class="flex items-center gap-3">
+							<div
+								class="flex items-center justify-center rounded-xl"
+								style="width: 44px; height: 44px; background: linear-gradient(to bottom, #06b6d4, #0891b2); box-shadow: 0 2px 8px rgba(6,182,212,0.3);"
+							>
+								<FlaskConical class="w-5 h-5 text-white" />
+							</div>
+							<div>
+								<h3 class="font-bold text-slate-900">{lab.name}</h3>
+								<p class="text-xs text-slate-500">
+									{lab.block || 'No Block'} • {lab.is_active ? 'Active' : 'Inactive'}
+								</p>
+							</div>
 						</div>
-						<div class="text-xs text-gray-600 flex items-center gap-2">
-							<span>{lab.lab_type}</span>
-							{#if lab.block}
-								<span class="text-gray-400">•</span>
-								<span>{lab.block}</span>
-							{/if}
-							<span class="text-gray-400">•</span>
-							<span>{lab.department}</span>
-						</div>
-						{#if lab.operating_hours}
-							<div class="text-xs text-gray-500 mt-0.5">{lab.operating_hours}</div>
-						{/if}
+						<button
+							onclick={() => openConfigPanel(lab)}
+							class="px-4 py-1.5 text-xs font-semibold text-slate-600 rounded-full"
+							style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);"
+						>
+							Configure
+						</button>
 					</div>
-					<div class="flex items-center gap-1.5">
-						<button
-							onclick={() => openEditModal(lab)}
-							class="p-1.5 rounded-lg"
-							style="background: linear-gradient(to bottom, #fbbf24, #f59e0b);"
-						>
-							<Edit3 class="w-3.5 h-3.5 text-white" />
-						</button>
-						<button
-							onclick={() => deleteLab(lab)}
-							class="p-1.5 rounded-lg"
-							style="background: linear-gradient(to bottom, #ef4444, #dc2626);"
-						>
-							<Trash2 class="w-3.5 h-3.5 text-white" />
-						</button>
+
+					<div class="grid grid-cols-2 gap-3">
+						<div class="rounded-xl px-4 py-3 text-center" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe);">
+							<p class="text-xs font-semibold text-blue-600 tracking-wide uppercase">Tests</p>
+							<p class="text-2xl font-bold text-blue-900">{lab.test_count || 0}</p>
+						</div>
+						<div class="rounded-xl px-4 py-3 text-center" style="background: linear-gradient(to bottom, #faf5ff, #ede9fe);">
+							<p class="text-xs font-semibold text-purple-600 tracking-wide uppercase">Groups</p>
+							<p class="text-2xl font-bold text-purple-900">{lab.group_count || 0}</p>
+						</div>
 					</div>
 				</div>
 			{/each}
 		</div>
-	{/if}
-</AdminMobileScaffold>
 
-<!-- Create/Edit Lab Modal -->
+		{#if configLab}
+			<div
+				class="mt-6 rounded-2xl p-4"
+				style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
+			>
+				<div class="flex items-center justify-between mb-4">
+					<div class="flex items-center gap-3">
+						<h3 class="font-bold text-slate-900">{configLab.name} Configuration</h3>
+						<TabBar tabs={configTabs} activeTab={configTab} onchange={(id) => configTab = id} />
+					</div>
+					<button onclick={closeConfigPanel} class="p-1.5 text-slate-400 hover:text-slate-600">
+						<X class="w-5 h-5" />
+					</button>
+				</div>
+
+				{#if loadingConfig}
+					<div class="flex items-center justify-center py-8">
+						<div class="w-6 h-6 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+					</div>
+				{:else if configTab === 'tests'}
+					<div class="flex items-center justify-between mb-3">
+						<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Available Tests</p>
+						<button onclick={openTestModal} class="flex items-center gap-1 text-sm font-semibold text-blue-600">
+							<Plus class="w-4 h-4" /> Add New Test
+						</button>
+					</div>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+						{#each labTests as test (test.id)}
+							<div class="flex items-center justify-between p-3 rounded-xl" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04);">
+								<div>
+									<p class="font-semibold text-slate-900">{test.name}</p>
+									<p class="text-xs text-slate-500">{test.category} • {test.code}</p>
+								</div>
+								<button onclick={() => confirmDeleteTest(test)} class="p-1.5 text-slate-400 hover:text-red-500">
+									<Trash2 class="w-4 h-4" />
+								</button>
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<div class="flex items-center justify-between mb-3">
+						<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Test Groups / Packages</p>
+						<button onclick={openGroupModal} class="flex items-center gap-1 text-sm font-semibold text-blue-600">
+							<Plus class="w-4 h-4" /> Create Group
+						</button>
+					</div>
+					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+						{#each labGroups as group (group.id)}
+							<div class="p-3 rounded-xl" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04);">
+								<div class="flex items-center justify-between mb-2">
+									<p class="font-semibold text-slate-900">{group.name}</p>
+									<button onclick={() => confirmDeleteGroup(group)} class="p-1.5 text-slate-400 hover:text-red-500">
+										<Trash2 class="w-4 h-4" />
+									</button>
+								</div>
+								<div class="flex flex-wrap gap-1.5">
+									{#each group.tests as test (test.id)}
+										<span class="px-2 py-1 text-xs font-medium text-blue-700 rounded-md" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe);">{test.name}</span>
+									{/each}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
+	{/if}
+</AdminScaffold>
+
 {#if labModal}
-	<AquaModal
-		title={editingLab ? 'Edit Lab' : 'Create Lab'}
-		onclose={() => { labModal = false; }}
-	>
+	<AquaModal title={editingLab ? 'Edit Lab' : 'Add New Lab'} onclose={() => { labModal = false; }}>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-3">
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Name *</label>
-				<input
-					type="text"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.name}
-				/>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Name *</label>
+				<input type="text" placeholder="e.g., Central Pathology Lab" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.name} />
 			</div>
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Lab Type *</label>
-				<select
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.lab_type}
-				>
-					<option value="General">General</option>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Lab Type</label>
+				<select class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.lab_type}>
 					<option value="Pathology">Pathology</option>
 					<option value="Radiology">Radiology</option>
 					<option value="Microbiology">Microbiology</option>
 					<option value="Biochemistry">Biochemistry</option>
 					<option value="Hematology">Hematology</option>
+					<option value="General">General</option>
 				</select>
 			</div>
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Department *</label>
-				<input
-					type="text"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.department}
-				/>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Department *</label>
+				<input type="text" placeholder="e.g., Diagnostics" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.department} />
 			</div>
 			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Block</label>
-				<input
-					type="text"
-					placeholder="e.g., Block C"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.block}
-				/>
-			</div>
-			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Location</label>
-				<input
-					type="text"
-					placeholder="e.g., Ground Floor, Wing A"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.location}
-				/>
-			</div>
-			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Contact Phone</label>
-				<input
-					type="tel"
-					placeholder="+91-44-2680-1234"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.contact_phone}
-				/>
-			</div>
-			<div>
-				<label class="block text-xs font-medium text-gray-700 mb-1">Operating Hours</label>
-				<input
-					type="text"
-					placeholder="e.g., 24/7 or 8 AM - 6 PM"
-					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg"
-					bind:value={labData.operating_hours}
-				/>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Block</label>
+				<input type="text" placeholder="e.g., Block C" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.block} />
 			</div>
 			<div class="flex items-center gap-2">
-				<input
-					type="checkbox"
-					id="lab-active"
-					class="rounded"
-					bind:checked={labData.is_active}
-				/>
-				<label for="lab-active" class="text-sm text-gray-700">Active</label>
+				<input type="checkbox" id="lab-active" class="rounded" bind:checked={labData.is_active} />
+				<label for="lab-active" class="text-sm text-slate-700">Active</label>
 			</div>
 		</div>
 		<div class="flex gap-2 mt-4">
-			<button
-				onclick={() => { labModal = false; }}
-				class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg"
-				disabled={savingLab}
-			>
-				Cancel
-			</button>
-			<button
-				onclick={saveLab}
-				class="flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
-				disabled={savingLab}
-			>
-				{savingLab ? 'Saving...' : 'Save'}
-			</button>
+			<button onclick={() => { labModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingLab}>Cancel</button>
+			<button onclick={saveLab} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingLab}>{savingLab ? 'Saving...' : editingLab ? 'Update Lab' : 'Create Lab'}</button>
 		</div>
 	</AquaModal>
 {/if}
 
-<!-- Confirm Delete Modal -->
+{#if testModal}
+	<AquaModal title="Add New Lab Test" onclose={() => { testModal = false; }}>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<div class="space-y-3">
+			<div>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Test Name</label>
+				<input type="text" placeholder="e.g. Complete Blood Count" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={testData.name} />
+			</div>
+			<div>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Category</label>
+				<input type="text" placeholder="e.g. Hematology" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={testData.category} />
+			</div>
+			<div>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Test Code</label>
+				<input type="text" placeholder="e.g. HEM001" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={testData.code} />
+			</div>
+		</div>
+		<div class="flex gap-2 mt-4">
+			<button onclick={() => { testModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingTest}>Cancel</button>
+			<button onclick={saveTest} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingTest}>{savingTest ? 'Creating...' : 'Create Test'}</button>
+		</div>
+	</AquaModal>
+{/if}
+
+{#if groupModal}
+	<AquaModal title="Create Test Group" onclose={() => { groupModal = false; }}>
+		<div class="space-y-3">
+			<!-- svelte-ignore a11y_label_has_associated_control -->
+			<div>
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Group Name</label>
+				<input type="text" placeholder="e.g. Executive Health Checkup" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={groupData.name} />
+			</div>
+			<div>
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Select Tests</label>
+				<div class="max-h-48 overflow-y-auto rounded-xl p-2" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.05);">
+					{#each allAvailableTests as test (test.id)}
+						<button type="button" onclick={() => toggleTestInGroup(test.id)} class="w-full text-left px-3 py-2 rounded-lg mb-1 transition-colors" class:bg-blue-50={groupData.test_ids.includes(test.id)} class:hover:bg-slate-100={!groupData.test_ids.includes(test.id)}>
+							<p class="font-semibold text-sm text-slate-900">{test.name}</p>
+							<p class="text-xs text-slate-500">{test.category} • {test.code}</p>
+						</button>
+					{/each}
+				</div>
+			</div>
+		</div>
+		<div class="flex gap-2 mt-4">
+			<button onclick={() => { groupModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingGroup}>Cancel</button>
+			<button onclick={saveGroup} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingGroup}>{savingGroup ? 'Creating...' : 'Create Group'}</button>
+		</div>
+	</AquaModal>
+{/if}
+
 {#if confirmModal}
 	<AquaModal title="Confirm Delete" onclose={() => { confirmModal = false; }}>
-		<p class="text-sm text-gray-700 mb-4">{confirmMessage}</p>
+		<p class="text-sm text-slate-700 mb-4">{confirmMessage}</p>
 		<div class="flex gap-2">
-			<button
-				onclick={() => { confirmModal = false; }}
-				class="flex-1 px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg"
-				disabled={actionLoading}
-			>
-				Cancel
-			</button>
-			<button
-				onclick={() => confirmAction?.()}
-				class="flex-1 px-4 py-2 text-sm font-medium text-white rounded-lg"
-				style="background: linear-gradient(to bottom, #ef4444, #dc2626);"
-				disabled={actionLoading}
-			>
-				{actionLoading ? 'Deleting...' : 'Delete'}
-			</button>
+			<button onclick={() => { confirmModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={actionLoading}>Cancel</button>
+			<button onclick={() => confirmAction?.()} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" disabled={actionLoading}>{actionLoading ? 'Deleting...' : 'Delete'}</button>
 		</div>
 	</AquaModal>
 {/if}

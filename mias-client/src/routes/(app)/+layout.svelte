@@ -126,7 +126,7 @@
 				userName = 'Administrator';
 				userIdDisplay = 'ADMIN';
 				if (window.location.pathname === '/dashboard') {
-					goto('/admin');
+					goto('/admin/clinics');
 				}
 			} else if (a.role === 'RECEPTION') {
 				userName = 'Reception';

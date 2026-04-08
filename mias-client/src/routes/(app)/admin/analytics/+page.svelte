@@ -3,7 +3,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type TrendData, type TrendPoint } from '$lib/api/admin';
-	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import {
@@ -69,7 +69,7 @@
 	);
 </script>
 
-<AdminMobileScaffold
+<AdminScaffold
 	title="System Administration"
 	titleIcon={BarChart3}
 	navItems={adminPageNavItems}
@@ -187,4 +187,4 @@
 		{/if}
 	{/if}
 	</div>
-</AdminMobileScaffold>
+</AdminScaffold>

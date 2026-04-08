@@ -4,7 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
-	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -141,7 +141,7 @@
 	}
 </script>
 
-<AdminMobileScaffold
+<AdminScaffold
 	title="Hospital Clinics"
 	titleIcon={Building2}
 	navItems={adminPageNavItems}
@@ -236,7 +236,7 @@
 			</div>
 		{/if}
 	</div>
-</AdminMobileScaffold>
+</AdminScaffold>
 
 {#if clinicModal}
 	<AquaModal title={editingClinic ? 'Edit Clinic' : 'Create New Clinic'} onclose={() => clinicModal = false}>

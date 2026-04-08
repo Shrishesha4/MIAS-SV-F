@@ -4,7 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type AdminUser } from '$lib/api/admin';
-	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
+	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
@@ -178,7 +178,7 @@
 	}
 </script>
 
-<AdminMobileScaffold
+<AdminScaffold
 	title="System Administration"
 	titleIcon={Users}
 	navItems={adminPageNavItems}
@@ -315,7 +315,7 @@
 			{/if}
 		{/if}
 	</div>
-</AdminMobileScaffold>
+</AdminScaffold>
 
 <!-- Create User Modal -->
 {#if createUserModal}

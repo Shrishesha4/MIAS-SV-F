@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, Bell, Plus, Shield, UserRound } from 'lucide-svelte';
+	import { Shield } from 'lucide-svelte';
 	import type { Snippet } from 'svelte';
 
 	type NavItem = {
