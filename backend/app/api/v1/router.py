@@ -17,6 +17,7 @@ from app.api.v1 import (
     autocomplete,
     admin,
     clinics,
+    labs,
     forms,
 )
 
@@ -38,4 +39,5 @@ api_router.include_router(approvals.router)
 api_router.include_router(autocomplete.router)
 api_router.include_router(admin.router)
 api_router.include_router(clinics.router)
+api_router.include_router(labs.router)
 api_router.include_router(forms.router)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Index
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Index, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -129,10 +129,18 @@ class Clinic(Base):
 
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
+    block = Column(String, nullable=True)  # e.g., "Block A", "Block B"
+    clinic_type = Column(String, nullable=False, default="General")  # e.g., "General", "Specialty"
     department = Column(String, nullable=False)
     location = Column(String, nullable=True)  # e.g., "Outpatient Wing, 2nd Floor"
     faculty_id = Column(String, ForeignKey("faculty.id"), nullable=True)  # Supervising doctor
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
+    )
 
     faculty = relationship("Faculty")
     sessions = relationship("ClinicSession", back_populates="clinic")

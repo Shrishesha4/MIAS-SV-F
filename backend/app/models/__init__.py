@@ -8,6 +8,7 @@ from app.models.student import (
     StudentPatientAssignment, StudentNotification, ClinicSession,
     Clinic, ClinicAppointment
 )
+from app.models.lab import Lab
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.nurse import Nurse, NurseNotification
 from app.models.nurse_order import NurseOrder

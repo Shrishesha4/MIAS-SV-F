@@ -119,9 +119,15 @@ DEPARTMENTS = [
 ]
 
 CLINICS = [
-    {"name": "General Medicine OPD",     "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
-    {"name": "Cardiology Clinic",        "department": "Cardiology",        "location": "Block B, 1st Floor",           "faculty_idx": 1},
-    {"name": "Pediatrics & Child Health", "department": "Pediatrics",        "location": "Block C, 2nd Floor",           "faculty_idx": 2},
+    {"name": "Saveetha General Clinic", "block": "Block A", "clinic_type": "General", "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
+    {"name": "Saveetha Dental Clinic",  "block": "Block B", "clinic_type": "General", "department": "Dentistry",        "location": "Block B, 1st Floor",           "faculty_idx": 2},
+    {"name": "Cardiology Clinic",       "block": "Block C", "clinic_type": "Specialty", "department": "Cardiology",     "location": "Block C, 2nd Floor",           "faculty_idx": 1},
+]
+
+LABS = [
+    {"name": "Central Pathology Lab", "block": "Block C", "lab_type": "Pathology", "department": "Pathology", "location": "Block C, Ground Floor", "contact_phone": "+91-44-2680-1234", "operating_hours": "24/7"},
+    {"name": "Radiology & Imaging", "block": "Block D", "lab_type": "Radiology", "department": "Radiology", "location": "Block D, 1st Floor", "contact_phone": "+91-44-2680-1235", "operating_hours": "8 AM - 8 PM"},
+    {"name": "Microbiology Lab", "block": "Block C", "lab_type": "Microbiology", "department": "Microbiology", "location": "Block C, 2nd Floor", "contact_phone": "+91-44-2680-1236", "operating_hours": "9 AM - 6 PM"},
 ]
 
 CLINIC_APPOINTMENTS = [
@@ -666,18 +672,18 @@ async def seed():
         # Flush to get IDs
         await db.flush()
 
-        # # ── Fetch all student and patient records ────────
-        # from sqlalchemy import select
-        # stu_result = await db.execute(select(Student))
-        # all_students = stu_result.scalars().all()
-        # pat_result = await db.execute(select(Patient))
-        # all_patients = pat_result.scalars().all()
-        # fac_result = await db.execute(select(Faculty))
-        # all_faculty = fac_result.scalars().all()
+        # ── Fetch all student and patient records ────────
+        from sqlalchemy import select
+        stu_result = await db.execute(select(Student))
+        all_students = stu_result.scalars().all()
+        pat_result = await db.execute(select(Patient))
+        all_patients = pat_result.scalars().all()
+        fac_result = await db.execute(select(Faculty))
+        all_faculty = fac_result.scalars().all()
 
-        # student_map = {s.student_id: s for s in all_students}
-        # patient_map = {p.patient_id: p for p in all_patients}
-        # faculty_map = {f.faculty_id: f for f in all_faculty}
+        student_map = {s.student_id: s for s in all_students}
+        patient_map = {p.patient_id: p for p in all_patients}
+        faculty_map = {f.faculty_id: f for f in all_faculty}
 
         # # ── Student-Patient Assignments ──────────────────
         # # Assign 3-4 patients to each student (round-robin with overlap)
@@ -805,25 +811,49 @@ async def seed():
         #     p.diagnosis_date = date.today().isoformat()
         #     p.diagnosis_time = "09:30 AM"
 
-        # # ── Clinics ──────────────────────────────────────
+        # ── Clinics ──────────────────────────────────────
+        # Uncomment faculty creation above to enable this
         # fac_result = await db.execute(select(Faculty))
         # all_faculty = fac_result.scalars().all()
         # faculty_list = list(all_faculty)
 
-        # clinic_objs = []
-        # for c in CLINICS:
-        #     clinic = Clinic(
-        #         id=uid(),
-        #         name=c["name"],
-        #         department=c["department"],
-        #         location=c["location"],
-        #         faculty_id=faculty_list[c["faculty_idx"]].id if c["faculty_idx"] < len(faculty_list) else None,
-        #     )
-        #     db.add(clinic)
-        #     clinic_objs.append(clinic)
-        # await db.flush()
+        clinic_objs = []
+        for c in CLINICS:
+            clinic = Clinic(
+                id=uid(),
+                name=c["name"],
+                block=c.get("block"),
+                clinic_type=c.get("clinic_type", "General"),
+                department=c["department"],
+                location=c.get("location", ""),
+                faculty_id=None,  # Set to None for now, or uncomment faculty creation
+                is_active=True,
+            )
+            db.add(clinic)
+            clinic_objs.append(clinic)
+        await db.flush()
+
+        # ── Labs ─────────────────────────────────────────
+        from app.models.lab import Lab
+        lab_objs = []
+        for lab_data in LABS:
+            lab = Lab(
+                id=uid(),
+                name=lab_data["name"],
+                block=lab_data.get("block"),
+                lab_type=lab_data.get("lab_type", "General"),
+                department=lab_data["department"],
+                location=lab_data.get("location", ""),
+                contact_phone=lab_data.get("contact_phone"),
+                operating_hours=lab_data.get("operating_hours"),
+                is_active=True,
+            )
+            db.add(lab)
+            lab_objs.append(lab)
+        await db.flush()
 
         # # ── Clinic Appointments ──────────────────────────
+        # # Uncomment patient creation above to enable this
         # from datetime import datetime as dt
         # today = datetime.combine(date.today(), datetime.min.time())
         # for ca in CLINIC_APPOINTMENTS:

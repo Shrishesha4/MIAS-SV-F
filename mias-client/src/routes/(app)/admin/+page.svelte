@@ -16,10 +16,14 @@
 	import AdminMobileScaffold from '$lib/components/layout/AdminMobileScaffold.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+	import ClinicsList from '$lib/components/admin/ClinicsList.svelte';
+	import LabsList from '$lib/components/admin/LabsList.svelte';
 	import {
 		Users,
 		GraduationCap,
 		Building,
+		Building2,
+		FlaskConical,
 		UserCheck,
 		CheckCircle,
 		TrendingUp,
@@ -38,7 +42,7 @@
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
-	type AdminTabId = 'overview' | 'users' | 'departments' | 'programmes' | 'forms';
+	type AdminTabId = 'clinics' | 'labs' | 'users' | 'departments' | 'programmes' | 'forms';
 
 	let loading = $state(true);
 	let error = $state('');
@@ -51,14 +55,21 @@
 	let programmes: Programme[] = $state([]);
 	let formDefinitions: FormDefinition[] = $state([]);
 
-	let activeTab = $state<AdminTabId>('overview');
+	let activeTab = $state<AdminTabId>('clinics');
 	const adminTabs = $derived.by(() => [
 		{
-			id: 'overview' as const,
-			label: 'Overview',
-			description: 'Live system metrics and portal-wide operational summary.',
-			Icon: BarChart3,
-			badge: `${dashboard?.total_users ?? 0}`
+			id: 'clinics' as const,
+			label: 'Clinics',
+			description: 'Manage hospital clinics and outpatient facilities.',
+			Icon: Building2,
+			badge: 'Active'
+		},
+		{
+			id: 'labs' as const,
+			label: 'Labs',
+			description: 'Oversee diagnostic laboratories and testing facilities.',
+			Icon: FlaskConical,
+			badge: 'Active'
 		},
 		{
 			id: 'users' as const,
@@ -69,14 +80,14 @@
 		},
 		{
 			id: 'departments' as const,
-			label: 'Departments',
+			label: 'Depts',
 			description: 'Maintain clinical departments and their availability.',
 			Icon: Stethoscope,
 			badge: `${departments.length || dashboard?.total_departments || 0}`
 		},
 		{
 			id: 'programmes' as const,
-			label: 'Programmes',
+			label: 'Programs',
 			description: 'Manage academic programmes and enrollment structure.',
 			Icon: GraduationCap,
 			badge: programmes.length > 0 ? `${programmes.length}` : 'Open'
@@ -587,104 +598,15 @@
 				{/if}
 
 				<div class="flex-1 overflow-y-auto p-4 md:p-5 space-y-4">
-					{#if activeTab === 'overview'}
-						<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-							{#each [
-								{ val: dashboard.total_users, label: 'Total Users', grad: '#3b82f6, #1d4ed8', Icon: Users },
-								{ val: dashboard.total_patients, label: 'Patients', grad: '#10b981, #059669', Icon: UserCheck },
-								{ val: dashboard.total_students, label: 'Students', grad: '#f59e0b, #d97706', Icon: GraduationCap },
-								{ val: dashboard.total_faculty, label: 'Faculty', grad: '#8b5cf6, #6d28d9', Icon: Activity }
-							] as stat (stat.label)}
-								<div class="overflow-hidden"
-									style="background-color: white; border-radius: 10px;
-										box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
-										border: 1px solid rgba(0,0,0,0.1);
-										background-image: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(245,245,245,0.8));">
-									<div class="flex items-center gap-3 p-3">
-										<div class="w-10 h-10 rounded-lg flex items-center justify-center"
-											style="background: linear-gradient(135deg, {stat.grad});">
-											<stat.Icon class="w-5 h-5 text-white" />
-										</div>
-										<div>
-											<p class="text-2xl font-bold text-blue-900">{stat.val}</p>
-											<p class="text-xs text-gray-500">{stat.label}</p>
-										</div>
-									</div>
-								</div>
-							{/each}
+					{#if activeTab === 'clinics'}
+						<div class="max-w-3xl">
+							<ClinicsList />
 						</div>
 
-						<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-							{#each [
-								{ val: dashboard.active_admissions, label: 'Active Admissions', color: 'text-green-700' },
-								{ val: dashboard.pending_approvals, label: 'Pending Approvals', color: 'text-orange-600' },
-								{ val: dashboard.blocked_users, label: 'Blocked Users', color: 'text-red-600' }
-							] as stat (stat.label)}
-								<div class="text-center p-3"
-									style="background-color: white; border-radius: 10px;
-										box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
-										border: 1px solid rgba(0,0,0,0.1);
-										background-image: linear-gradient(to bottom, rgba(255,255,255,0.9), rgba(245,245,245,0.8));">
-									<p class="text-xl font-bold {stat.color}">{stat.val}</p>
-									<p class="text-[10px] text-gray-500 mt-1">{stat.label}</p>
-								</div>
-							{/each}
+					{:else if activeTab === 'labs'}
+						<div class="max-w-3xl">
+							<LabsList />
 						</div>
-
-						<AquaCard>
-							<div class="flex items-center justify-between">
-								<div class="flex items-center gap-3">
-									<TrendingUp class="w-5 h-5 text-green-600" />
-									<div>
-										<p class="text-sm font-semibold text-blue-900">New Registrations (7 days)</p>
-										<p class="text-xs text-gray-500">{dashboard.recent_registrations} new users this week</p>
-									</div>
-								</div>
-								<span class="text-2xl font-bold text-green-600">+{dashboard.recent_registrations}</span>
-							</div>
-						</AquaCard>
-
-						<AquaCard>
-							{#snippet header()}
-								<FileText class="w-4 h-4 text-blue-700 mr-2" />
-								<span class="text-sm font-semibold text-blue-900">Role Distribution</span>
-							{/snippet}
-							<div class="space-y-2">
-								{#each Object.entries(roleDistribution) as [role, count]}
-									{@const total = Object.values(roleDistribution).reduce((a, b) => a + b, 0)}
-									{@const pct = total > 0 ? Math.round((count / total) * 100) : 0}
-									{@const colors: Record<string, string> = { PATIENT: '#10b981', STUDENT: '#f59e0b', FACULTY: '#8b5cf6', ADMIN: '#ef4444', RECEPTION: '#3b82f6', NURSE: '#14b8a6' }}
-									<div>
-										<div class="flex items-center justify-between text-xs mb-1">
-											<span class="font-medium text-gray-700">{role}</span>
-											<span class="text-gray-500">{count} ({pct}%)</span>
-										</div>
-										<div class="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-											<div class="h-full rounded-full transition-all" style="width: {pct}%; background-color: {colors[role] || '#6b7280'};"></div>
-										</div>
-									</div>
-								{/each}
-							</div>
-						</AquaCard>
-
-						{#if Object.keys(dashboard.patient_categories).length > 0}
-							<AquaCard>
-								{#snippet header()}
-									<Users class="w-4 h-4 text-blue-700 mr-2" />
-									<span class="text-sm font-semibold text-blue-900">Patient Categories</span>
-								{/snippet}
-								<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-									{#each Object.entries(dashboard.patient_categories) as [cat, count]}
-										{@const catColors: Record<string, string> = { GENERAL: '#6b7280', ELITE: '#f59e0b', VIP: '#8b5cf6', STAFF: '#3b82f6' }}
-										<div class="flex items-center gap-2 py-1">
-											<div class="w-3 h-3 rounded-full" style="background-color: {catColors[cat] || '#6b7280'};"></div>
-											<span class="text-xs text-gray-600">{cat}</span>
-											<span class="text-xs font-bold text-blue-900 ml-auto">{count}</span>
-										</div>
-									{/each}
-								</div>
-							</AquaCard>
-						{/if}
 
 					{:else if activeTab === 'users'}
 						<div class="flex items-center justify-between mb-1">

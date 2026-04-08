@@ -18,7 +18,7 @@
 	let { children } = $props();
 	let sideMenuOpen = $state(false);
 
-	let authState = $state(get(authStore));
+	let 	authState = $state(get(authStore));
 	authStore.subscribe(v => authState = v);
 
 	let userName = $state('User');

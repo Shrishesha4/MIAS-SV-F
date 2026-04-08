@@ -3,10 +3,13 @@ import client from './client';
 export interface ClinicInfo {
   id: string;
   name: string;
+  block?: string;
+  clinic_type: string;
   department: string;
-  location: string;
+  location?: string;
   faculty_id?: string;
   faculty_name?: string;
+  is_active: boolean;
 }
 
 export interface ClinicPatientInfo {
@@ -75,5 +78,36 @@ export const clinicsApi = {
   async createAppointment(clinicId: string, data: { patient_id: string; date?: string; time?: string; provider_name?: string; status?: string }) {
     const response = await client.post(`/clinics/${clinicId}/appointments`, data);
     return response.data;
+  },
+
+  // Admin CRUD operations
+  async createClinic(data: {
+    name: string;
+    block?: string;
+    clinic_type?: string;
+    department: string;
+    location?: string;
+    faculty_id?: string;
+    is_active?: boolean;
+  }): Promise<ClinicInfo> {
+    const response = await client.post('/clinics', data);
+    return response.data;
+  },
+
+  async updateClinic(clinicId: string, data: {
+    name?: string;
+    block?: string;
+    clinic_type?: string;
+    department?: string;
+    location?: string;
+    faculty_id?: string;
+    is_active?: boolean;
+  }): Promise<ClinicInfo> {
+    const response = await client.put(`/clinics/${clinicId}`, data);
+    return response.data;
+  },
+
+  async deleteClinic(clinicId: string): Promise<void> {
+    await client.delete(`/clinics/${clinicId}`);
   },
 };

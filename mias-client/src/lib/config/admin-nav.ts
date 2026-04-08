@@ -1,7 +1,9 @@
-import { BarChart3, GraduationCap, Shield, Stethoscope, Users } from 'lucide-svelte';
+import { BarChart3, Building2, FlaskConical, GraduationCap, Shield, Stethoscope, Users } from 'lucide-svelte';
 
 export const adminPageNavItems = [
 	{ id: 'overview', label: 'Dashboard', href: '/admin', icon: Shield },
+	{ id: 'clinics', label: 'Clinics', href: '/admin/clinics', icon: Building2 },
+	{ id: 'labs', label: 'Labs', href: '/admin/labs', icon: FlaskConical },
 	{ id: 'users', label: 'Users', href: '/admin/users', icon: Users },
 	{ id: 'departments', label: 'Depts', href: '/admin/departments', icon: Stethoscope },
 	{ id: 'programmes', label: 'Programs', href: '/admin/programmes', icon: GraduationCap },

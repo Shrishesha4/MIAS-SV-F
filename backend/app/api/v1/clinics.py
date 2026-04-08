@@ -28,17 +28,20 @@ async def list_clinics(
 ):
     """List all clinics with their faculty info."""
     result = await db.execute(
-        select(Clinic).options(selectinload(Clinic.faculty))
+        select(Clinic).options(selectinload(Clinic.faculty)).order_by(Clinic.created_at.desc())
     )
     clinics = result.scalars().all()
     return [
         {
             "id": c.id,
             "name": c.name,
+            "block": c.block,
+            "clinic_type": c.clinic_type,
             "department": c.department,
             "location": c.location,
             "faculty_id": c.faculty_id,
             "faculty_name": c.faculty.name if c.faculty else None,
+            "is_active": c.is_active,
         }
         for c in clinics
     ]
@@ -46,9 +49,12 @@ async def list_clinics(
 
 class CreateClinicRequest(BaseModel):
     name: str
+    block: Optional[str] = None
+    clinic_type: str = "General"
     department: str
     location: Optional[str] = None
     faculty_id: Optional[str] = None
+    is_active: bool = True
 
 
 @router.post("")
@@ -61,18 +67,24 @@ async def create_clinic(
     clinic = Clinic(
         id=str(uuid.uuid4()),
         name=request.name,
+        block=request.block,
+        clinic_type=request.clinic_type,
         department=request.department,
         location=request.location,
         faculty_id=request.faculty_id,
+        is_active=request.is_active,
     )
     db.add(clinic)
     await db.commit()
     return {
         "id": clinic.id,
         "name": clinic.name,
+        "block": clinic.block,
+        "clinic_type": clinic.clinic_type,
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
+        "is_active": clinic.is_active,
     }
 
 
@@ -94,11 +106,84 @@ async def get_clinic(
     return {
         "id": clinic.id,
         "name": clinic.name,
+        "block": clinic.block,
+        "clinic_type": clinic.clinic_type,
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
         "faculty_name": clinic.faculty.name if clinic.faculty else None,
+        "is_active": clinic.is_active,
     }
+
+
+class UpdateClinicRequest(BaseModel):
+    name: Optional[str] = None
+    block: Optional[str] = None
+    clinic_type: Optional[str] = None
+    department: Optional[str] = None
+    location: Optional[str] = None
+    faculty_id: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.put("/{clinic_id}")
+async def update_clinic(
+    clinic_id: str,
+    request: UpdateClinicRequest,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update clinic details (admin only)."""
+    result = await db.execute(select(Clinic).where(Clinic.id == clinic_id))
+    clinic = result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    
+    if request.name is not None:
+        clinic.name = request.name
+    if request.block is not None:
+        clinic.block = request.block
+    if request.clinic_type is not None:
+        clinic.clinic_type = request.clinic_type
+    if request.department is not None:
+        clinic.department = request.department
+    if request.location is not None:
+        clinic.location = request.location
+    if request.faculty_id is not None:
+        clinic.faculty_id = request.faculty_id
+    if request.is_active is not None:
+        clinic.is_active = request.is_active
+    
+    await db.commit()
+    await db.refresh(clinic)
+    
+    return {
+        "id": clinic.id,
+        "name": clinic.name,
+        "block": clinic.block,
+        "clinic_type": clinic.clinic_type,
+        "department": clinic.department,
+        "location": clinic.location,
+        "faculty_id": clinic.faculty_id,
+        "is_active": clinic.is_active,
+    }
+
+
+@router.delete("/{clinic_id}")
+async def delete_clinic(
+    clinic_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a clinic (admin only)."""
+    result = await db.execute(select(Clinic).where(Clinic.id == clinic_id))
+    clinic = result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    
+    await db.delete(clinic)
+    await db.commit()
+    return {"message": "Clinic deleted successfully"}
 
 
 @router.get("/{clinic_id}/patients")

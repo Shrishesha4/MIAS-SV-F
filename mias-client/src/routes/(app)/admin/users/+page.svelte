@@ -185,15 +185,15 @@
 	activeNav="users"
 	backHref="/admin"
 >
-	<div class="space-y-4">
-		<div class="flex items-center justify-between gap-3">
+	<div class="space-y-3">
+		<div class="flex items-center justify-between gap-2">
 			<div>
-				<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">User Management</h2>
-				<p class="mt-1 text-xs text-slate-500">{total} total users</p>
+				<h2 class="text-xs font-bold uppercase tracking-[0.16em] text-slate-600">User Management</h2>
+				<p class="mt-0.5 text-[11px] text-slate-500">{total} total users</p>
 			</div>
 			<button
 				onclick={() => createUserModal = true}
-				class="px-4 py-2 rounded-xl text-sm font-semibold text-white cursor-pointer shadow-md"
+				class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white cursor-pointer shadow-md"
 				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
 			>
 				Add New
@@ -201,21 +201,21 @@
 		</div>
 
 		<div class="relative">
-			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
 			<input
 				type="text"
 				placeholder="Search by username or email..."
 				bind:value={searchQuery}
 				onkeydown={(e) => e.key === 'Enter' && handleSearch()}
-				class="w-full pl-10 pr-4 py-3 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+				class="w-full pl-9 pr-3 py-2 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
 				style="background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
 			/>
 		</div>
 
-		<div class="flex gap-2 overflow-x-auto pb-1">
+		<div class="flex gap-1.5 overflow-x-auto pb-1">
 			{#each roleTabs as tab}
 				<button
-					class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap cursor-pointer transition-all"
+					class="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap cursor-pointer transition-all"
 					style={roleFilter === tab.id
 						? `background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);`
 						: `background: white; color: #4b5563; border: 1px solid #e5e7eb;`}
@@ -226,10 +226,10 @@
 			{/each}
 		</div>
 
-		<div class="flex gap-2 overflow-x-auto pb-1">
+		<div class="flex gap-1.5 overflow-x-auto pb-1">
 			{#each [{ id: '', label: 'All Status' }, { id: 'active', label: 'Active' }, { id: 'blocked', label: 'Blocked' }] as sf}
 				<button
-					class="shrink-0 px-3 py-1.5 rounded-full text-xs cursor-pointer"
+					class="shrink-0 px-2.5 py-1 rounded-full text-[11px] cursor-pointer"
 					style={statusFilter === sf.id
 						? 'background: #1e3a5f; color: white;'
 						: 'background: #f3f4f6; color: #6b7280;'}
@@ -249,41 +249,41 @@
 				<p class="text-red-500 text-center py-4">{error}</p>
 			</div>
 		{:else}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{#each users as u}
-					<div class="p-4 rounded-2xl bg-white shadow-lg flex items-center gap-3">
-						<div class="w-14 h-14 flex items-center justify-center rounded-full shrink-0" style="background: linear-gradient(to bottom, {roleColor(u.role)}, {roleColor(u.role)}dd);">
-							<User class="w-7 h-7 text-white" />
+					<div class="p-3 rounded-xl bg-white shadow-md flex items-center gap-2.5">
+						<div class="w-11 h-11 flex items-center justify-center rounded-full shrink-0" style="background: linear-gradient(to bottom, {roleColor(u.role)}, {roleColor(u.role)}dd);">
+							<User class="w-5 h-5 text-white" />
 						</div>
 
 						<div class="flex-1 min-w-0">
-							<div class="flex items-center gap-2">
-								<p class="text-base font-bold text-gray-900 truncate">{u.name}</p>
+							<div class="flex items-center gap-1.5">
+								<p class="text-sm font-bold text-gray-900 truncate">{u.name}</p>
 								{#if !u.is_active}
-									<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">Blocked</span>
+									<span class="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">Blocked</span>
 								{/if}
 							</div>
-							<p class="text-sm text-red-600 font-semibold truncate uppercase">{u.role} • {u.username}</p>
+							<p class="text-xs text-red-600 font-semibold truncate uppercase">{u.role} • {u.username}</p>
 						</div>
 
-						<div class="flex flex-col gap-1 shrink-0">
+						<div class="flex flex-col gap-0.5 shrink-0">
 							<button
-								class="p-2 rounded-lg cursor-pointer hover:bg-gray-100"
+								class="p-1.5 rounded-lg cursor-pointer hover:bg-gray-100"
 								title={u.is_active ? 'Block' : 'Unblock'}
 								onclick={() => toggleBlock(u)}
 							>
 								{#if u.is_active}
-									<ShieldOff class="w-4 h-4 text-orange-500" />
+									<ShieldOff class="w-3.5 h-3.5 text-orange-500" />
 								{:else}
-									<Shield class="w-4 h-4 text-green-500" />
+									<Shield class="w-3.5 h-3.5 text-green-500" />
 								{/if}
 							</button>
 							<button
-								class="p-2 rounded-lg cursor-pointer hover:bg-red-50"
+								class="p-1.5 rounded-lg cursor-pointer hover:bg-red-50"
 								title="Delete"
 								onclick={() => deleteUser(u)}
 							>
-								<Trash2 class="w-4 h-4 text-red-400" />
+								<Trash2 class="w-3.5 h-3.5 text-red-400" />
 							</button>
 						</div>
 					</div>

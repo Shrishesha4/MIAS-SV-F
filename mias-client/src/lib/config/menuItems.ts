@@ -13,15 +13,6 @@ export interface MenuItem {
 export const patientMenuItems: MenuItem[] = [
 	{ icon: Home, label: 'Dashboard', path: '/dashboard' },
 	{ icon: User, label: 'Profile', path: '/profile' },
-	{ icon: FileText, label: 'Medical Records', path: '/records' },
-	{ icon: Bed, label: 'Admissions', path: '/admissions' },
-	{ icon: Pill, label: 'Prescriptions', path: '/prescriptions' },
-	{ icon: Activity, label: 'Vitals', path: '/vitals' },
-	{ icon: TestTube, label: 'Reports', path: '/reports' },
-	{ icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
-	{ icon: Wallet, label: 'Hospital Wallet', path: '/wallet/hospital' },
-	{ icon: Wallet, label: 'Pharmacy Wallet', path: '/wallet/pharmacy' },
-	{ icon: Bell, label: 'Notifications', path: '/notifications' },
 ];
 
 export const studentMenuItems: MenuItem[] = [
@@ -46,10 +37,7 @@ export const facultyMenuItems: MenuItem[] = [
 
 export const adminMenuItems: MenuItem[] = [
 	{ icon: Home, label: 'Dashboard', path: '/admin' },
-	{ icon: Users, label: 'User Management', path: '/admin/users' },
-	{ icon: Building, label: 'Departments', path: '/admin/departments' },
-	{ icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
-	{ icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
+	// { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
 ];
 
 export const receptionMenuItems: MenuItem[] = [
@@ -60,9 +48,7 @@ export const receptionMenuItems: MenuItem[] = [
 
 export const nurseMenuItems: MenuItem[] = [
 	{ icon: Stethoscope, label: 'Nurse Station', path: '/nurse-station' },
-	{ icon: Users, label: 'Ward Patients', path: '/nurse-station' },
 	{ icon: User, label: 'Profile', path: '/nurse-profile' },
-	{ icon: Bell, label: 'Notifications', path: '/notifications' },
 ];
 
 export function getMenuItems(role: string): MenuItem[] {
