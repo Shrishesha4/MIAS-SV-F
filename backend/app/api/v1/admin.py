@@ -202,15 +202,50 @@ async def delete_user(
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Delete a user entirely."""
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    """Delete a user and all associated profile data (patient/student/faculty/nurse)."""
+    from sqlalchemy.orm import selectinload
+    from sqlalchemy.exc import IntegrityError
+    
+    result = await db.execute(
+        select(User)
+        .options(
+            selectinload(User.patient),
+            selectinload(User.student),
+            selectinload(User.faculty),
+            selectinload(User.nurse)
+        )
+        .where(User.id == user_id)
+    )
+    target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    await db.delete(target)
-    await db.commit()
-    return {"message": f"User {target.username} has been deleted"}
+    
+    try:
+        # Delete associated profile records first (foreign key constraints)
+        if target.patient:
+            await db.delete(target.patient)
+        if target.student:
+            await db.delete(target.student)
+        if target.faculty:
+            await db.delete(target.faculty)
+        if target.nurse:
+            await db.delete(target.nurse)
+        
+        await db.delete(target)
+        await db.commit()
+        return {"message": f"User {target.username} has been deleted"}
+    except IntegrityError as e:
+        await db.rollback()
+        # Check if it's a foreign key constraint error
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "foreign key" in error_msg.lower() or "violates" in error_msg.lower():
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete user: they have associated records (admissions, appointments, etc.). Please delete those records first or deactivate the user instead."
+            )
+        raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
 
 
 # ── Create User (Admin) ──────────────────────────────────────────────

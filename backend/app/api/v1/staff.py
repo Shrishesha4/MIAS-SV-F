@@ -88,9 +88,10 @@ async def get_pending_patients(
         
         # Calculate age
         age = None
-        if patient.dob:
+        if patient.date_of_birth:
             today = date.today()
-            age = today.year - patient.dob.year - ((today.month, today.day) < (patient.dob.month, patient.dob.day))
+            dob = patient.date_of_birth
+            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         
         pending_list.append({
             "id": patient.id,
@@ -98,8 +99,8 @@ async def get_pending_patients(
             "name": patient.name,
             "phone": patient.phone,
             "email": patient.email,
-            "gender": patient.gender,
-            "dob": patient.dob.isoformat() if patient.dob else None,
+            "gender": patient.gender.value if patient.gender else None,
+            "dob": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
             "age": age,
             "blood_group": patient.blood_group,
             "registered_at": patient.created_at.isoformat(),
