@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo, type ClinicPatientInfo } from '$lib/api/clinics';
+	import { staffApi, type PendingPatient } from '$lib/api/staff';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -11,7 +12,7 @@
 	import {
 		Users, UserCheck, Clock, Calendar, Building, Search, X,
 		AlertCircle, CheckCircle, Loader2, Zap, GraduationCap,
-		Crown, ChevronDown, Square, CheckSquare
+		Crown, ChevronDown, Square, CheckSquare, UserPlus
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -21,6 +22,18 @@
 	let clinics: ClinicInfo[] = $state([]);
 	let selectedClinic: ClinicInfo | null = $state(null);
 	let clinicPatients: ClinicPatientInfo[] = $state([]);
+
+	// Pending patients
+	let pendingPatients: PendingPatient[] = $state([]);
+	let showPendingSection = $state(true);
+
+	// Assignment modal
+	let showAssignModal = $state(false);
+	let selectedPatientForAssign: PendingPatient | null = $state(null);
+	let assignClinicId = $state('');
+	let assignDate = $state('');
+	let assignNotes = $state('');
+	let isAssigning = $state(false);
 
 	// Check-in state
 	let patientIdInput = $state('');
@@ -60,6 +73,44 @@
 			clinicPatients = await clinicsApi.getClinicPatients(selectedClinic.id);
 		} catch (err) {
 			console.error('Failed to load clinic patients', err);
+		}
+	}
+
+	async function loadPendingPatients() {
+		try {
+			pendingPatients = await staffApi.getPendingPatients();
+		} catch (err) {
+			console.error('Failed to load pending patients', err);
+		}
+	}
+
+	function openAssignModal(patient: PendingPatient) {
+		selectedPatientForAssign = patient;
+		assignClinicId = selectedClinic?.id || '';
+		assignDate = new Date().toISOString().split('T')[0];
+		assignNotes = '';
+		showAssignModal = true;
+	}
+
+	async function handleAssignToClinic() {
+		if (!selectedPatientForAssign || !assignClinicId || !assignDate) return;
+		isAssigning = true;
+		try {
+			await staffApi.assignToClinic({
+				patient_id: selectedPatientForAssign.id,
+				clinic_id: assignClinicId,
+				scheduled_date: assignDate,
+				notes: assignNotes || undefined
+			});
+			toastStore.addToast(`${selectedPatientForAssign.name} assigned to clinic`, 'success');
+			showAssignModal = false;
+			await loadPendingPatients();
+			await loadClinicPatients();
+		} catch (err: any) {
+			console.error('Failed to assign patient', err);
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to assign patient', 'error');
+		} finally {
+			isAssigning = false;
 		}
 	}
 
@@ -111,6 +162,7 @@
 				selectedClinic = clinics[0];
 				await loadClinicPatients();
 			}
+			await loadPendingPatients();
 		} catch (err) {
 			console.error('Failed to load clinics', err);
 		} finally {
@@ -121,7 +173,10 @@
 	// Auto-refresh every 15s
 	$effect(() => {
 		if (loading || !selectedClinic) return;
-		const interval = setInterval(loadClinicPatients, 15000);
+		const interval = setInterval(() => {
+			loadClinicPatients();
+			loadPendingPatients();
+		}, 15000);
 		return () => clearInterval(interval);
 	});
 </script>
@@ -196,6 +251,94 @@
 						{clinic.name}
 					</button>
 				{/each}
+			</div>
+		{/if}
+
+		<!-- Pending Patients Section -->
+		{#if pendingPatients.length > 0}
+			<div class="overflow-hidden"
+				style="background-color: white; border-radius: 10px;
+					   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
+					   border: 1px solid rgba(0,0,0,0.1);">
+				<button
+					class="w-full px-4 py-2.5 flex items-center justify-between cursor-pointer"
+					style="background-image: linear-gradient(to bottom, #fef3c7, #fde68a);
+						   box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);
+						   border-bottom: 1px solid rgba(0,0,0,0.08);"
+					onclick={() => showPendingSection = !showPendingSection}
+				>
+					<div class="flex items-center">
+						<UserPlus class="w-3.5 h-3.5 text-amber-700 mr-2" />
+						<h3 class="text-sm font-semibold text-gray-800" style="text-shadow: 0 1px 0 rgba(255,255,255,0.8);">
+							Pending Patients
+						</h3>
+						<span class="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full text-amber-800"
+							style="background-color: rgba(251,191,36,0.2); border: 1px solid rgba(251,191,36,0.4);">
+							{pendingPatients.length}
+						</span>
+					</div>
+					<ChevronDown class="w-4 h-4 text-gray-600 transition-transform" style="transform: rotate({showPendingSection ? 180 : 0}deg);" />
+				</button>
+
+				{#if showPendingSection}
+					<div class="p-3 space-y-2">
+						{#each pendingPatients as patient}
+							<div class="overflow-hidden"
+								style="background-color: {patient.has_appointment || patient.has_admission ? '#f0fdf4' : 'white'};
+									   border-radius: 8px;
+									   box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+									   border: 1px solid {patient.has_appointment || patient.has_admission ? '#86efac' : 'rgba(0,0,0,0.07)'};">
+								<div class="px-3 py-2.5">
+									<div class="flex items-center gap-2">
+										<Avatar name={patient.name} size="sm" />
+										<div class="min-w-0 flex-1">
+											<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
+											<p class="text-[10px] text-gray-400 truncate">
+												ID: {patient.patient_id}
+												{#if patient.age}
+													· Age: {patient.age}
+												{/if}
+											</p>
+											<p class="text-[9px] text-gray-400">
+												Registered: {new Date(patient.registered_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+											</p>
+										</div>
+										{#if patient.has_appointment}
+											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
+												style="background: rgba(34,197,94,0.1); color: #16a34a;">
+												✓ Clinic
+											</span>
+										{:else if patient.has_admission}
+											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
+												style="background: rgba(59,130,246,0.1); color: #2563eb;">
+												✓ Ward
+											</span>
+										{:else}
+											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
+												style="background: rgba(251,191,36,0.1); color: #d97706;">
+												Unassigned
+											</span>
+										{/if}
+									</div>
+								</div>
+								{#if !patient.has_appointment && !patient.has_admission}
+									<div class="px-3 py-1.5"
+										style="border-top: 1px solid rgba(0,0,0,0.05); background-color: #fafbfc;">
+										<button
+											class="w-full py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-pointer"
+											style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+												   box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3);
+												   border: 1px solid rgba(0,0,0,0.12);"
+											onclick={() => openAssignModal(patient)}
+										>
+											<Building class="w-2.5 h-2.5 mr-1" /> Assign to Clinic
+										</button>
+									</div>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -418,3 +561,83 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Assign to Clinic Modal -->
+{#if showAssignModal && selectedPatientForAssign}
+	<AquaModal title="Assign Patient to Clinic" onclose={() => showAssignModal = false}>
+		<div class="space-y-4">
+			<div>
+				<p class="text-sm font-semibold text-gray-800 mb-1">{selectedPatientForAssign.name}</p>
+				<p class="text-xs text-gray-500">ID: {selectedPatientForAssign.patient_id}</p>
+			</div>
+
+			<div>
+				<label for="assign-clinic" class="block text-xs font-medium text-gray-600 mb-1.5">Select Clinic</label>
+				<div class="relative">
+					<select
+						id="assign-clinic"
+						class="w-full px-3 py-2 text-sm outline-none border rounded-lg bg-white"
+						style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
+						bind:value={assignClinicId}
+					>
+						<option value="">-- Select Clinic --</option>
+						{#each clinics as clinic}
+							<option value={clinic.id}>{clinic.name}</option>
+						{/each}
+					</select>
+				</div>
+			</div>
+
+			<div>
+				<label for="assign-date" class="block text-xs font-medium text-gray-600 mb-1.5">Appointment Date</label>
+				<input
+					id="assign-date"
+					type="date"
+					class="w-full px-3 py-2 text-sm outline-none border rounded-lg"
+					style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
+					bind:value={assignDate}
+				/>
+			</div>
+
+			<div>
+				<label for="assign-notes" class="block text-xs font-medium text-gray-600 mb-1.5">Notes (optional)</label>
+				<textarea
+					id="assign-notes"
+					rows="3"
+					class="w-full px-3 py-2 text-sm outline-none border rounded-lg resize-none"
+					style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
+					placeholder="Add any notes about the appointment..."
+					bind:value={assignNotes}
+				></textarea>
+			</div>
+
+			<div class="flex gap-2">
+				<button
+					class="flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #f3f4f6, #e5e7eb);
+						   color: #4b5563; border: 1px solid rgba(0,0,0,0.1);
+						   box-shadow: 0 1px 2px rgba(0,0,0,0.1);"
+					onclick={() => showAssignModal = false}
+					disabled={isAssigning}
+				>
+					Cancel
+				</button>
+				<button
+					class="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white cursor-pointer flex items-center justify-center"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+						   border: 1px solid rgba(0,0,0,0.12);
+						   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);"
+					disabled={!assignClinicId || !assignDate || isAssigning}
+					onclick={handleAssignToClinic}
+				>
+					{#if isAssigning}
+						<Loader2 class="w-3.5 h-3.5 animate-spin mr-1" />
+						Assigning...
+					{:else}
+						Assign to Clinic
+					{/if}
+				</button>
+			</div>
+		</div>
+	</AquaModal>
+{/if}

@@ -58,8 +58,14 @@ async def select_nurse_station(
     nurse.department = station.department
     nurse.has_selected_station = 1
 
+    nurse_id = nurse.id  # Store ID before commit
     await db.commit()
-    await db.refresh(nurse)
+    
+    # Reload nurse to get fresh data
+    result = await db.execute(
+        select(Nurse).where(Nurse.id == nurse_id)
+    )
+    nurse = result.scalar_one()
 
     return nurse
 
@@ -84,8 +90,14 @@ async def update_nurse_profile(
     for field, value in update_data.items():
         setattr(nurse, field, value)
 
+    nurse_id = nurse.id  # Store ID before commit
     await db.commit()
-    await db.refresh(nurse)
+    
+    # Reload nurse to get fresh data
+    result = await db.execute(
+        select(Nurse).where(Nurse.id == nurse_id)
+    )
+    nurse = result.scalar_one()
 
     return nurse
 
@@ -279,8 +291,14 @@ async def complete_order(
     order.completed_at = datetime.utcnow()
     order.nurse_id = nurse.id
 
+    order_id = order.id  # Store ID before commit
     await db.commit()
-    await db.refresh(order)
+    
+    # Reload order to get fresh data
+    result = await db.execute(
+        select(NurseOrder).where(NurseOrder.id == order_id)
+    )
+    order = result.scalar_one()
 
     return {
         "id": order.id,
@@ -356,8 +374,14 @@ async def create_sbar_note(
     )
 
     db.add(sbar_note)
+    sbar_note_id = sbar_note.id  # Store ID before commit
     await db.commit()
-    await db.refresh(sbar_note)
+    
+    # Reload sbar_note to get fresh data
+    result = await db.execute(
+        select(SBARNote).where(SBARNote.id == sbar_note_id)
+    )
+    sbar_note = result.scalar_one()
 
     return {
         "id": sbar_note.id,

@@ -415,31 +415,40 @@ async def create_lab_test_group(
     if not result.scalar_one_or_none():
         raise NotFoundException("Lab not found")
 
+    group_id = str(uuid.uuid4())
     group = LabTestGroup(
-        id=str(uuid.uuid4()),
+        id=group_id,
         lab_id=lab_id,
         name=data.name,
         description=data.description,
         is_active=data.is_active,
     )
     db.add(group)
+    await db.commit()
     
-    # Add tests to group
+    # Now add tests to the committed group
     if data.test_ids:
+        # Reload group with selectinload to avoid lazy loading
+        result = await db.execute(
+            select(LabTestGroup)
+            .options(selectinload(LabTestGroup.tests))
+            .where(LabTestGroup.id == group_id)
+        )
+        group = result.scalar_one()
+        
+        # Fetch the tests
         result = await db.execute(
             select(LabTest).where(LabTest.id.in_(data.test_ids))
         )
         tests = result.scalars().all()
         group.tests = list(tests)
+        await db.commit()
     
-    await db.commit()
-    await db.refresh(group)
-    
-    # Reload with tests
+    # Reload with tests for response
     result = await db.execute(
         select(LabTestGroup)
         .options(selectinload(LabTestGroup.tests))
-        .where(LabTestGroup.id == group.id)
+        .where(LabTestGroup.id == group_id)
     )
     group = result.scalar_one()
     
@@ -487,14 +496,14 @@ async def update_lab_test_group(
         tests = result.scalars().all()
         group.tests = list(tests)
 
+    group_id = group.id  # Store ID before commit
     await db.commit()
-    await db.refresh(group)
     
     # Reload with tests
     result = await db.execute(
         select(LabTestGroup)
         .options(selectinload(LabTestGroup.tests))
-        .where(LabTestGroup.id == group.id)
+        .where(LabTestGroup.id == group_id)
     )
     group = result.scalar_one()
     
@@ -617,14 +626,14 @@ async def create_charge_item(
         )
         db.add(price_obj)
     
+    item_id = item.id  # Store ID before commit
     await db.commit()
-    await db.refresh(item)
     
     # Reload with prices
     result = await db.execute(
         select(ChargeItem)
         .options(selectinload(ChargeItem.prices))
-        .where(ChargeItem.id == item.id)
+        .where(ChargeItem.id == item_id)
     )
     item = result.scalar_one()
     
@@ -688,13 +697,14 @@ async def update_charge_item(
                 )
                 db.add(price_obj)
 
+    item_id = item.id  # Store ID before commit
     await db.commit()
     
     # Reload with prices
     result = await db.execute(
         select(ChargeItem)
         .options(selectinload(ChargeItem.prices))
-        .where(ChargeItem.id == item.id)
+        .where(ChargeItem.id == item_id)
     )
     item = result.scalar_one()
     

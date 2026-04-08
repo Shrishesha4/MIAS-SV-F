@@ -9,7 +9,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { FlaskConical, Trash2, X, Plus } from 'lucide-svelte';
+	import { FlaskConical, Trash2, X, Plus, Pencil } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	let loading = $state(true);
@@ -40,6 +40,7 @@
 
 	// Test modal
 	let testModal = $state(false);
+	let editingTest: LabTest | null = $state(null);
 	let testData = $state({
 		name: '',
 		code: '',
@@ -49,6 +50,7 @@
 
 	// Group modal
 	let groupModal = $state(false);
+	let editingGroup: LabTestGroup | null = $state(null);
 	let groupData = $state({
 		name: '',
 		test_ids: [] as string[]
@@ -149,7 +151,18 @@
 	}
 
 	function openTestModal() {
+		editingTest = null;
 		testData = { name: '', code: '', category: 'Hematology' };
+		testModal = true;
+	}
+
+	function openEditTestModal(test: LabTest) {
+		editingTest = test;
+		testData = {
+			name: test.name,
+			code: test.code,
+			category: test.category
+		};
 		testModal = true;
 	}
 
@@ -160,13 +173,18 @@
 		}
 		savingTest = true;
 		try {
-			await labsApi.createTest(configLab.id, testData);
-			toastStore.addToast('Test created successfully', 'success');
+			if (editingTest) {
+				await labsApi.updateTest(configLab.id, editingTest.id, testData);
+				toastStore.addToast('Test updated successfully', 'success');
+			} else {
+				await labsApi.createTest(configLab.id, testData);
+				toastStore.addToast('Test created successfully', 'success');
+			}
 			testModal = false;
 			await loadLabConfig(configLab.id);
 			await loadLabs();
 		} catch (e: any) {
-			toastStore.addToast(e.response?.data?.detail || 'Failed to create test', 'error');
+			toastStore.addToast(e.response?.data?.detail || `Failed to ${editingTest ? 'update' : 'create'} test`, 'error');
 		} finally {
 			savingTest = false;
 		}
@@ -192,7 +210,20 @@
 	}
 
 	async function openGroupModal() {
+		editingGroup = null;
 		groupData = { name: '', test_ids: [] };
+		if (configLab) {
+			allAvailableTests = await labsApi.getTests(configLab.id);
+		}
+		groupModal = true;
+	}
+
+	async function openEditGroupModal(group: LabTestGroup) {
+		editingGroup = group;
+		groupData = {
+			name: group.name,
+			test_ids: group.tests.map(t => t.id)
+		};
 		if (configLab) {
 			allAvailableTests = await labsApi.getTests(configLab.id);
 		}
@@ -214,13 +245,18 @@
 		}
 		savingGroup = true;
 		try {
-			await labsApi.createGroup(configLab.id, groupData);
-			toastStore.addToast('Group created successfully', 'success');
+			if (editingGroup) {
+				await labsApi.updateGroup(configLab.id, editingGroup.id, groupData);
+				toastStore.addToast('Group updated successfully', 'success');
+			} else {
+				await labsApi.createGroup(configLab.id, groupData);
+				toastStore.addToast('Group created successfully', 'success');
+			}
 			groupModal = false;
 			await loadLabConfig(configLab.id);
 			await loadLabs();
 		} catch (e: any) {
-			toastStore.addToast(e.response?.data?.detail || 'Failed to create group', 'error');
+			toastStore.addToast(e.response?.data?.detail || `Failed to ${editingGroup ? 'update' : 'create'} group`, 'error');
 		} finally {
 			savingGroup = false;
 		}
@@ -342,9 +378,14 @@
 									<p class="font-semibold text-slate-900">{test.name}</p>
 									<p class="text-xs text-slate-500">{test.category} • {test.code}</p>
 								</div>
+							<div class="flex items-center gap-1">
+								<button onclick={() => openEditTestModal(test)} class="p-1.5 text-slate-400 hover:text-blue-500">
+									<Pencil class="w-4 h-4" />
+								</button>
 								<button onclick={() => confirmDeleteTest(test)} class="p-1.5 text-slate-400 hover:text-red-500">
 									<Trash2 class="w-4 h-4" />
 								</button>
+							</div>
 							</div>
 						{/each}
 					</div>
@@ -360,9 +401,14 @@
 							<div class="p-3 rounded-xl" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04);">
 								<div class="flex items-center justify-between mb-2">
 									<p class="font-semibold text-slate-900">{group.name}</p>
+								<div class="flex items-center gap-1">
+									<button onclick={() => openEditGroupModal(group)} class="p-1.5 text-slate-400 hover:text-blue-500">
+										<Pencil class="w-4 h-4" />
+									</button>
 									<button onclick={() => confirmDeleteGroup(group)} class="p-1.5 text-slate-400 hover:text-red-500">
 										<Trash2 class="w-4 h-4" />
 									</button>
+								</div>
 								</div>
 								<div class="flex flex-wrap gap-1.5">
 									{#each group.tests as test (test.id)}
@@ -418,7 +464,7 @@
 {/if}
 
 {#if testModal}
-	<AquaModal title="Add New Lab Test" onclose={() => { testModal = false; }}>
+	<AquaModal title={editingTest ? 'Edit Lab Test' : 'Add New Lab Test'} onclose={() => { testModal = false; }}>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-3">
 			<div>
@@ -436,13 +482,13 @@
 		</div>
 		<div class="flex gap-2 mt-4">
 			<button onclick={() => { testModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingTest}>Cancel</button>
-			<button onclick={saveTest} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingTest}>{savingTest ? 'Creating...' : 'Create Test'}</button>
+			<button onclick={saveTest} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingTest}>{savingTest ? (editingTest ? 'Updating...' : 'Creating...') : (editingTest ? 'Update Test' : 'Create Test')}</button>
 		</div>
 	</AquaModal>
 {/if}
 
 {#if groupModal}
-	<AquaModal title="Create Test Group" onclose={() => { groupModal = false; }}>
+	<AquaModal title={editingGroup ? 'Edit Test Group' : 'Create Test Group'} onclose={() => { groupModal = false; }}>
 		<div class="space-y-3">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<div>
@@ -464,7 +510,7 @@
 		</div>
 		<div class="flex gap-2 mt-4">
 			<button onclick={() => { groupModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingGroup}>Cancel</button>
-			<button onclick={saveGroup} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingGroup}>{savingGroup ? 'Creating...' : 'Create Group'}</button>
+			<button onclick={saveGroup} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingGroup}>{savingGroup ? (editingGroup ? 'Updating...' : 'Creating...') : (editingGroup ? 'Update Group' : 'Create Group')}</button>
 		</div>
 	</AquaModal>
 {/if}
