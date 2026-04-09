@@ -22,7 +22,8 @@ UPLOADS_DIR = os.path.join(
 
 
 class FormFieldPayload(BaseModel):
-    key: str
+    key: Optional[str] = None
+    id: Optional[str] = None
     label: str
     type: str
     required: bool = False
@@ -37,12 +38,35 @@ class FormFieldPayload(BaseModel):
 class FormDefinitionPayload(BaseModel):
     name: str
     description: Optional[str] = None
-    form_type: str = "CASE_RECORD"
+    form_type: Optional[str] = None
+    section: Optional[str] = None
     department: Optional[str] = None
     procedure_name: Optional[str] = None
     fields: list[FormFieldPayload] = Field(default_factory=list)
     sort_order: int = 0
     is_active: bool = True
+
+
+FORM_SECTIONS = {"CLINICAL", "LABORATORY", "ADMINISTRATIVE"}
+
+
+def _resolve_section(form_type: Optional[str]) -> str:
+    normalized = (form_type or "").upper()
+    if normalized in {"CLINICAL", "CASE_RECORD", "ADMISSION", "ADMISSION_REQUEST", "ADMISSION_INTAKE", "ADMISSION_DISCHARGE", "ADMISSION_TRANSFER", "PRESCRIPTION", "PRESCRIPTION_CREATE", "PRESCRIPTION_EDIT", "PRESCRIPTION_REQUEST", "VITAL_ENTRY"}:
+        return "CLINICAL"
+    if normalized in {"LABORATORY", "LAB", "LABS"}:
+        return "LABORATORY"
+    return "ADMINISTRATIVE"
+
+
+def _resolve_form_type(payload: FormDefinitionPayload, existing_form_type: Optional[str] = None) -> str:
+    if payload.form_type:
+        return payload.form_type.strip().upper()
+    if payload.section:
+        return payload.section.strip().upper()
+    if existing_form_type:
+        return existing_form_type.strip().upper()
+    return "ADMINISTRATIVE"
 
 
 ALLOWED_FIELD_TYPES = {
@@ -63,8 +87,8 @@ def _slugify(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
-def _build_slug(payload: FormDefinitionPayload) -> str:
-    parts = [payload.form_type]
+def _build_slug(payload: FormDefinitionPayload, resolved_form_type: str) -> str:
+    parts = [resolved_form_type]
     if payload.department:
         parts.append(payload.department)
     if payload.procedure_name:
@@ -78,16 +102,36 @@ def _safe_upload_context(value: Optional[str]) -> str:
     return cleaned or "general"
 
 
+def _normalize_field(field: FormFieldPayload | dict) -> dict:
+    field_data = field.model_dump() if isinstance(field, FormFieldPayload) else dict(field)
+    label = (field_data.get("label") or "").strip()
+    key = (field_data.get("key") or field_data.get("id") or _slugify(label) or "").strip()
+    return {
+        "key": key,
+        "label": label,
+        "type": field_data.get("type"),
+        "required": bool(field_data.get("required", False)),
+        "placeholder": field_data.get("placeholder"),
+        "options": field_data.get("options") or [],
+        "rows": field_data.get("rows"),
+        "accept": field_data.get("accept"),
+        "multiple": bool(field_data.get("multiple", False)),
+        "help_text": field_data.get("help_text"),
+    }
+
+
 def _serialize_form(form: FormDefinition) -> dict:
+    normalized_fields = [_normalize_field(field) for field in (form.fields or [])]
     return {
         "id": form.id,
         "slug": form.slug,
         "name": form.name,
         "description": form.description,
         "form_type": form.form_type,
+        "section": _resolve_section(form.form_type),
         "department": form.department,
         "procedure_name": form.procedure_name,
-        "fields": form.fields or [],
+        "fields": normalized_fields,
         "sort_order": form.sort_order,
         "is_active": form.is_active,
         "created_at": form.created_at.isoformat() if form.created_at else None,
@@ -95,8 +139,11 @@ def _serialize_form(form: FormDefinition) -> dict:
     }
 
 
-def _validate_payload(payload: FormDefinitionPayload):
-    if payload.form_type == "CASE_RECORD":
+def _validate_payload(payload: FormDefinitionPayload, resolved_form_type: str):
+    if payload.section and payload.section.strip().upper() not in FORM_SECTIONS:
+        raise HTTPException(status_code=400, detail="Unsupported section")
+
+    if resolved_form_type == "CASE_RECORD":
         if not payload.department or not payload.procedure_name:
             raise HTTPException(status_code=400, detail="Case record forms require department and procedure name")
 
@@ -105,7 +152,8 @@ def _validate_payload(payload: FormDefinitionPayload):
 
     seen_keys: set[str] = set()
     for field in payload.fields:
-        field.key = field.key.strip()
+        normalized_field = _normalize_field(field)
+        field.key = normalized_field["key"]
         field.label = field.label.strip()
         if not field.key or not field.label:
             raise HTTPException(status_code=400, detail="Each field requires a key and label")
@@ -121,6 +169,7 @@ def _validate_payload(payload: FormDefinitionPayload):
 @router.get("")
 async def list_forms(
     form_type: Optional[str] = Query(None),
+    section: Optional[str] = Query(None),
     department: Optional[str] = Query(None),
     procedure_name: Optional[str] = Query(None),
     include_inactive: bool = Query(False),
@@ -146,7 +195,11 @@ async def list_forms(
         FormDefinition.name,
     )
     result = await db.execute(query)
-    return [_serialize_form(form) for form in result.scalars().all()]
+    forms = [_serialize_form(form) for form in result.scalars().all()]
+    if section:
+        target_section = section.strip().upper()
+        forms = [form for form in forms if form["section"] == target_section]
+    return forms
 
 
 @router.post("", status_code=201)
@@ -155,8 +208,9 @@ async def create_form_definition(
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_payload(payload)
-    slug = _build_slug(payload)
+    resolved_form_type = _resolve_form_type(payload)
+    _validate_payload(payload, resolved_form_type)
+    slug = _build_slug(payload, resolved_form_type)
 
     existing = (
         await db.execute(select(FormDefinition).where(FormDefinition.slug == slug))
@@ -169,10 +223,10 @@ async def create_form_definition(
         slug=slug,
         name=payload.name.strip(),
         description=payload.description.strip() if payload.description else None,
-        form_type=payload.form_type,
+        form_type=resolved_form_type,
         department=payload.department.strip() if payload.department else None,
         procedure_name=payload.procedure_name.strip() if payload.procedure_name else None,
-        fields=[field.model_dump() for field in payload.fields],
+        fields=[_normalize_field(field) for field in payload.fields],
         sort_order=payload.sort_order,
         is_active=payload.is_active,
     )
@@ -189,14 +243,16 @@ async def update_form_definition(
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    _validate_payload(payload)
     form = (
         await db.execute(select(FormDefinition).where(FormDefinition.id == form_id))
     ).scalar_one_or_none()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
 
-    slug = _build_slug(payload)
+    resolved_form_type = _resolve_form_type(payload, form.form_type)
+    _validate_payload(payload, resolved_form_type)
+
+    slug = _build_slug(payload, resolved_form_type)
     existing = (
         await db.execute(
             select(FormDefinition).where(
@@ -211,10 +267,10 @@ async def update_form_definition(
     form.slug = slug
     form.name = payload.name.strip()
     form.description = payload.description.strip() if payload.description else None
-    form.form_type = payload.form_type
+    form.form_type = resolved_form_type
     form.department = payload.department.strip() if payload.department else None
     form.procedure_name = payload.procedure_name.strip() if payload.procedure_name else None
-    form.fields = [field.model_dump() for field in payload.fields]
+    form.fields = [_normalize_field(field) for field in payload.fields]
     form.sort_order = payload.sort_order
     form.is_active = payload.is_active
 

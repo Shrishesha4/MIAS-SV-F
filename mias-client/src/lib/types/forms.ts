@@ -1,5 +1,8 @@
 export type FormType =
 	| 'CASE_RECORD'
+	| 'CLINICAL'
+	| 'LABORATORY'
+	| 'ADMINISTRATIVE'
 	| 'ADMISSION'
 	| 'ADMISSION_REQUEST'
 	| 'ADMISSION_INTAKE'
@@ -25,6 +28,8 @@ export type FormFieldType =
 	| 'email'
 	| 'password'
 	| 'tel';
+
+export type FormSection = 'CLINICAL' | 'LABORATORY' | 'ADMINISTRATIVE';
 
 export interface FormFieldDefinition {
 	key: string;
@@ -53,6 +58,7 @@ export interface FormDefinition {
 	name: string;
 	description: string | null;
 	form_type: FormType | string;
+	section?: FormSection | string;
 	department: string | null;
 	procedure_name: string | null;
 	fields: FormFieldDefinition[];

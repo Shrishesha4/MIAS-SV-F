@@ -656,6 +656,20 @@ async def seed():
 
         # ── Form Definitions ─────────────────────────────
         for form_def in FORM_DEFINITIONS_DATA:
+            normalized_fields = []
+            for field in form_def["fields"]:
+                normalized_fields.append({
+                    "key": field.get("key") or field.get("id") or "",
+                    "label": field["label"],
+                    "type": field["type"],
+                    "required": field.get("required", False),
+                    "placeholder": field.get("placeholder"),
+                    "options": field.get("options", []),
+                    "rows": field.get("rows"),
+                    "accept": field.get("accept"),
+                    "multiple": field.get("multiple", False),
+                    "help_text": field.get("help_text"),
+                })
             db.add(FormDefinition(
                 id=uid(),
                 slug=form_def["slug"],
@@ -664,7 +678,7 @@ async def seed():
                 form_type=form_def["form_type"],
                 department=form_def.get("department"),
                 procedure_name=form_def.get("procedure_name"),
-                fields=form_def["fields"],
+                fields=normalized_fields,
                 sort_order=form_def.get("sort_order", 0),
                 is_active=True,
             ))

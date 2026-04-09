@@ -1,10 +1,41 @@
 import client from './client';
-import type { FormDefinition, FormFieldDefinition, FormType, UploadedFormFile } from '$lib/types/forms';
+import type { FormDefinition, FormFieldDefinition, FormSection, FormType, UploadedFormFile } from '$lib/types/forms';
+
+type ApiFormFieldDefinition = FormFieldDefinition & {
+	id?: string;
+};
+
+type ApiFormDefinition = Omit<FormDefinition, 'fields'> & {
+	fields: ApiFormFieldDefinition[];
+};
+
+function normalizeFormField(field: ApiFormFieldDefinition): FormFieldDefinition {
+	return {
+		key: field.key ?? field.id ?? '',
+		label: field.label,
+		type: field.type,
+		required: field.required,
+		placeholder: field.placeholder,
+		options: field.options,
+		rows: field.rows,
+		accept: field.accept,
+		multiple: field.multiple,
+		help_text: field.help_text,
+	};
+}
+
+function normalizeFormDefinition(form: ApiFormDefinition): FormDefinition {
+	return {
+		...form,
+		fields: (form.fields ?? []).map(normalizeFormField),
+	};
+}
 
 export interface FormDefinitionPayload {
 	name: string;
 	description?: string;
-	form_type: FormType | string;
+	form_type?: FormType | string;
+	section?: FormSection | string;
 	department?: string;
 	procedure_name?: string;
 	fields: FormFieldDefinition[];
@@ -15,22 +46,23 @@ export interface FormDefinitionPayload {
 export const formsApi = {
 	async getForms(params?: {
 		form_type?: string;
+		section?: string;
 		department?: string;
 		procedure_name?: string;
 		include_inactive?: boolean;
 	}): Promise<FormDefinition[]> {
-		const response = await client.get('/forms', { params });
-		return response.data;
+		const response = await client.get<ApiFormDefinition[]>('/forms', { params });
+		return response.data.map(normalizeFormDefinition);
 	},
 
 	async createForm(data: FormDefinitionPayload): Promise<FormDefinition> {
-		const response = await client.post('/forms', data);
-		return response.data;
+		const response = await client.post<ApiFormDefinition>('/forms', data);
+		return normalizeFormDefinition(response.data);
 	},
 
 	async updateForm(formId: string, data: FormDefinitionPayload): Promise<FormDefinition> {
-		const response = await client.put(`/forms/${formId}`, data);
-		return response.data;
+		const response = await client.put<ApiFormDefinition>(`/forms/${formId}`, data);
+		return normalizeFormDefinition(response.data);
 	},
 
 	async uploadFile(file: File, options?: { context?: string; fieldKey?: string }): Promise<UploadedFormFile> {
