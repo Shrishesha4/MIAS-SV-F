@@ -99,6 +99,23 @@ export const facultyApi = {
     return response.data;
   },
 
+  async getAdmittedPatients(status: string = 'Active') {
+    const response = await client.get('/admissions/', {
+      params: { status },
+    });
+    return response.data;
+  },
+
+  async getFacultyClinics(facultyId: string) {
+    const response = await client.get(`/clinics/faculty/${facultyId}/clinics`);
+    return response.data;
+  },
+
+  async getClinicPatients(clinicId: string) {
+    const response = await client.get(`/clinics/${clinicId}/patients`);
+    return response.data;
+  },
+
   async uploadSignature(file: File) {
     const formData = new FormData();
     formData.append('file', file);

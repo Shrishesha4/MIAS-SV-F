@@ -63,11 +63,22 @@
 		total: 0,
 	});
 	let todaySchedule: ScheduleItem[] = $state([]);
+	let admittedPatients: any[] = $state([]);
+	let facultyClinics: any[] = $state([]);
+	let selectedFacultyClinic: any = $state(null);
+	let facultyClinicPatients: any[] = $state([]);
+	let facultyTab = $state('admitted');
+	let facultyPatientSearch = $state('');
 
 	const studentTabs = [
 		{ id: 'clinic', label: 'Clinic' },
 		{ id: 'today', label: 'Today' },
 		{ id: 'previous', label: 'Previous' },
+	];
+
+	const facultyTabs = [
+		{ id: 'admitted', label: 'My Admitted Patients' },
+		{ id: 'clinic', label: 'Clinic View' },
 	];
 
 	// Faculty approval cards config
@@ -109,6 +120,25 @@
 		patient?.allergies?.forEach((a: any) => alerts.push(`${a.allergen} Allergy`));
 		patient?.medical_alerts?.forEach((a: any) => alerts.push(a.title));
 		return alerts.join(', ');
+	});
+
+	const filteredAdmittedPatients = $derived.by(() => {
+		if (!facultyPatientSearch.trim()) return admittedPatients;
+		const search = facultyPatientSearch.toLowerCase();
+		return admittedPatients.filter((p: any) =>
+			p.patient_name?.toLowerCase().includes(search) ||
+			p.patient_display_id?.toLowerCase().includes(search) ||
+			p.diagnosis?.toLowerCase().includes(search)
+		);
+	});
+
+	const filteredClinicPatients = $derived.by(() => {
+		if (!facultyPatientSearch.trim()) return facultyClinicPatients;
+		const search = facultyPatientSearch.toLowerCase();
+		return facultyClinicPatients.filter((p: any) =>
+			p.patient_name?.toLowerCase().includes(search) ||
+			p.patient_id?.toLowerCase().includes(search)
+		);
 	});
 
 	function formatDate(dateStr: string | null): string {
@@ -174,6 +204,12 @@
 				approvals = await facultyApi.getApprovals(faculty.id);
 				approvalStats = await approvalsApi.getApprovalStats(faculty.id);
 				todaySchedule = await approvalsApi.getTodaySchedule(faculty.id);
+				admittedPatients = await facultyApi.getAdmittedPatients('Active');
+				facultyClinics = await facultyApi.getFacultyClinics(faculty.id);
+				if (facultyClinics.length > 0) {
+					selectedFacultyClinic = facultyClinics[0];
+					facultyClinicPatients = await facultyApi.getClinicPatients(facultyClinics[0].id);
+				}
 			} else if (role === 'NURSE') {
 				// Redirect nurses to their station dashboard
 				goto('/nurse-station');
@@ -616,10 +652,10 @@
 			</div>
 		</AquaCard>
 
-		
+		<div class="text-base font-bold text-gray-700 mb-2">Approvals</div>
 
 		<!-- Approval Cards -->
-		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
 			{#each approvalCards as card}
 				<button
 					class="w-full text-left cursor-pointer"
@@ -632,8 +668,8 @@
 								<card.icon class="w-6 h-6" style="color: {card.color}" />
 							</div>
 							<div class="flex-1 min-w-0">
-								<p class="text-base font-semibold text-gray-800">{card.label}</p>
-								<p class="text-sm text-gray-500">{card.count} pending approvals</p>
+								<p class="text-sm font-semibold text-gray-800 leading-tight">{card.label}</p>
+								<p class="text-xs text-gray-500 mt-0.5">{card.count} pending approval requests</p>
 							</div>
 							<ChevronRight class="w-5 h-5 text-gray-300 shrink-0" />
 						</div>
@@ -642,25 +678,131 @@
 			{/each}
 		</div>
 
-		<!-- Today's Schedule -->
-		<AquaCard>
-			{#snippet header()}
-				<Calendar class="w-4 h-4 text-blue-600 mr-2" />
-				<span class="text-blue-900 font-semibold text-sm">Today's Schedule</span>
-			{/snippet}
-			<div class="space-y-3">
-				{#each todaySchedule as item}
-					{@const colors = getScheduleColor(item.type)}
-					<div class="p-3 rounded-lg" style="background: {colors.bg}; border-left: 3px solid {colors.text};">
-						<p class="text-sm font-bold" style="color: {colors.text};">
-							{item.time_start} - {item.time_end}
-						</p>
-						<p class="text-sm font-medium" style="color: {colors.text};">{item.title}</p>
-					</div>
-				{/each}
+		<!-- Patient List with Tabs -->
+		<AquaCard padding={false}>
+			<!-- Tabs -->
+			<div class="border-b border-gray-200">
+				<div class="flex">
+					<button
+						class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+						class:border-b-2={facultyTab === 'admitted'}
+						class:border-blue-500={facultyTab === 'admitted'}
+						class:text-blue-600={facultyTab === 'admitted'}
+						class:text-gray-500={facultyTab !== 'admitted'}
+						onclick={() => { facultyTab = 'admitted'; facultyPatientSearch = ''; }}
+						style={facultyTab === 'admitted' ? 'background: rgba(59, 130, 246, 0.03);' : ''}
+						type="button"
+					>
+						<div class="flex items-center justify-center gap-2">
+							<Bed class="w-4 h-4" />
+							My Admitted Patients
+						</div>
+					</button>
+					<button
+						class="flex-1 px-4 py-3 text-sm font-medium transition-colors"
+						class:border-b-2={facultyTab === 'clinic'}
+						class:border-blue-500={facultyTab === 'clinic'}
+						class:text-blue-600={facultyTab === 'clinic'}
+						class:text-gray-500={facultyTab !== 'clinic'}
+						onclick={() => { facultyTab = 'clinic'; facultyPatientSearch = ''; }}
+						style={facultyTab === 'clinic' ? 'background: rgba(59, 130, 246, 0.03);' : ''}
+						type="button"
+					>
+						<div class="flex items-center justify-center gap-2">
+							<Building class="w-4 h-4" />
+							Clinic View
+						</div>
+					</button>
+				</div>
+			</div>
 
-				{#if todaySchedule.length === 0}
-					<p class="text-sm text-gray-400 text-center py-4">No scheduled items for today</p>
+			<!-- Search Bar -->
+			<div class="p-3 border-b border-gray-100">
+				<div class="relative">
+					<input
+						type="text"
+						bind:value={facultyPatientSearch}
+						placeholder={facultyTab === 'admitted' ? 'Search admitted patients...' : 'Search clinic patients...'}
+						class="w-full px-4 py-2 pl-10 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400"
+					/>
+					<div class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+					</div>
+				</div>
+			</div>
+
+			<!-- Patient List -->
+			<div class="max-h-96 overflow-y-auto">
+				{#if facultyTab === 'admitted'}
+					{#each filteredAdmittedPatients as patient}
+						<div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+							<div class="flex items-start gap-3">
+								<Avatar name={patient.patient_name || 'Patient'} size="md" />
+								<div class="flex-1 min-w-0">
+									<div class="flex items-start justify-between gap-2">
+										<div class="flex-1 min-w-0">
+											<p class="font-semibold text-gray-800 text-sm">{patient.patient_name}</p>
+											<p class="text-xs text-gray-500">45y, Male</p>
+										</div>
+										<StatusBadge variant={patient.status === 'Active' ? 'success' : patient.status === 'Critical' ? 'critical' : 'warning'}>
+											{patient.status === 'Active' ? 'STABLE' : patient.status === 'Critical' ? 'Critical' : 'Under Observation'}
+										</StatusBadge>
+									</div>
+									<div class="mt-1.5 space-y-0.5">
+										<div class="flex items-center gap-1.5 text-xs text-gray-600">
+											<Bed class="w-3 h-3" />
+											<span>Admitted: {new Date(patient.admission_date).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })}</span>
+										</div>
+										<div class="flex items-center gap-1.5 text-xs text-gray-600">
+											<CircleDot class="w-3 h-3" />
+											<span>{patient.reason || patient.diagnosis || 'No diagnosis recorded'}</span>
+										</div>
+										{#if patient.diagnosis && patient.reason && patient.diagnosis !== patient.reason}
+											<div class="flex flex-wrap gap-1 mt-1">
+												<span class="px-2 py-0.5 rounded-full text-[10px] font-medium" style="background: rgba(239, 68, 68, 0.1); color: #dc2626;">Penicillin Allergy</span>
+											</div>
+										{/if}
+									</div>
+								</div>
+							</div>
+						</div>
+					{/each}
+					{#if filteredAdmittedPatients.length === 0}
+						<div class="py-12 text-center">
+							<Bed class="w-12 h-12 text-gray-300 mx-auto mb-2" />
+							<p class="text-sm text-gray-400">{facultyPatientSearch ? 'No patients found' : 'No admitted patients'}</p>
+						</div>
+					{/if}
+				{:else if facultyTab === 'clinic'}
+					{#each filteredClinicPatients as patient}
+						<div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+							<div class="flex items-start gap-3">
+								<Avatar name={patient.patient_name || 'Patient'} size="md" />
+								<div class="flex-1 min-w-0">
+									<p class="font-semibold text-gray-800 text-sm">{patient.patient_name}</p>
+									<p class="text-xs text-gray-500">({patient.patient_id})</p>
+									<div class="mt-1.5 space-y-0.5">
+										<div class="flex items-center gap-1.5 text-xs text-gray-600">
+											<Clock class="w-3 h-3" />
+											<span>32y, Female · {patient.appointment_time}</span>
+										</div>
+										<div class="flex items-center gap-1 mt-1">
+											<span class="px-2 py-0.5 rounded text-[10px] font-semibold" style="background: rgba(59, 130, 246, 0.1); color: #2563eb;">{patient.status || 'Scheduled'}</span>
+											{#if patient.provider_name}
+												<span class="text-[10px] text-gray-500">· {patient.provider_name}</span>
+											{/if}
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+					{/each}
+					{#if filteredClinicPatients.length === 0}
+						<div class="py-12 text-center">
+							<Building class="w-12 h-12 text-gray-300 mx-auto mb-2" />
+							<p class="text-sm text-gray-400">{facultyPatientSearch ? 'No patients found' : 'No clinic appointments today'}</p>
+						</div>
+					{/if}
 				{/if}
 			</div>
 		</AquaCard>

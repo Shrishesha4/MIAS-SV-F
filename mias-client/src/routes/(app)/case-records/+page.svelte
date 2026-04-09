@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { studentApi } from '$lib/api/students';
+	import { studentApi, type AssignedPatient } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
@@ -10,6 +10,7 @@
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus } from 'lucide-svelte';
 
@@ -32,6 +33,8 @@
 	let selectedDepartment = $state('');
 	let selectedProcedure = $state('');
 	let selectedPatientId = $state('');
+	let patientSearch = $state('');
+	let formSearch = $state('');
 	let formData: Record<string, any> = $state({});
 	let icdCode = $state('');
 	let icdDescription = $state('');
@@ -48,9 +51,63 @@
 		caseRecordForms.find(f => f.id === selectedFormId) || null
 	);
 
+	const selectedPatient = $derived(
+		assignedPatients.find(patient => patient.id === selectedPatientId) || null
+	);
+
 	const crFields: FormFieldDefinition[] | null = $derived(
 		selectedForm ? selectedForm.fields : null
 	);
+
+	const searchablePatients = $derived.by(() =>
+		assignedPatients.map((patient) => ({
+			...patient,
+			meta: [
+				patient.gender,
+				patient.age ? `${patient.age} yrs` : '',
+				patient.primary_diagnosis,
+			].filter(Boolean).join(' · '),
+			badge: patient.patient_id,
+		}))
+	);
+
+	const filteredPatients = $derived.by(() => {
+		const query = patientSearch.trim().toLowerCase();
+		if (!query) return searchablePatients;
+		return searchablePatients.filter((patient) =>
+			[
+				patient.name,
+				patient.patient_id,
+				patient.primary_diagnosis,
+				patient.gender,
+			]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
+
+	const searchableForms = $derived.by(() =>
+		caseRecordForms.map((form) => ({
+			...form,
+			meta: [form.department, form.procedure_name, form.description].filter(Boolean).join(' · '),
+			badge: form.department || '',
+		}))
+	);
+
+	const filteredForms = $derived.by(() => {
+		const query = formSearch.trim().toLowerCase();
+		if (!query) return searchableForms;
+		return searchableForms.filter((form) =>
+			[
+				form.name,
+				form.department,
+				form.procedure_name,
+				form.description,
+			]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
 
 	async function handleDiagnosisSearch(query: string) {
 		if (query.length < 2) {
@@ -72,6 +129,64 @@
 		formData['diagnosis'] = item.text;
 		icdCode = item.icd_code || '';
 		icdDescription = item.icd_description || item.text;
+	}
+
+	function patientDisplayLabel(patient: AssignedPatient) {
+		return `${patient.name} (${patient.patient_id})`;
+	}
+
+	function formDisplayLabel(form: FormDefinition) {
+		const suffix = [form.department, form.procedure_name].filter(Boolean).join(' · ');
+		return suffix ? `${form.name} · ${suffix}` : form.name;
+	}
+
+	function clearSelectedForm() {
+		selectedFormId = '';
+		selectedDepartment = '';
+		selectedProcedure = '';
+		formData = {};
+		icdCode = '';
+		icdDescription = '';
+		diagnosisSuggestions = [];
+	}
+
+	function handlePatientSearch(query: string) {
+		if (selectedPatientId && selectedPatient && query !== patientDisplayLabel(selectedPatient)) {
+			selectedPatientId = '';
+		}
+	}
+
+	function handlePatientSelect(patient: AssignedPatient) {
+		selectedPatientId = patient.id;
+		patientSearch = patientDisplayLabel(patient);
+	}
+
+	function handlePatientClear() {
+		selectedPatientId = '';
+		patientSearch = '';
+	}
+
+	function handleFormSearch(query: string) {
+		if (selectedFormId && selectedForm && query !== formDisplayLabel(selectedForm)) {
+			clearSelectedForm();
+		}
+	}
+
+	function handleFormSelect(form: FormDefinition) {
+		handleFormSelection(form.id);
+		formSearch = formDisplayLabel(form);
+	}
+
+	function handleFormClear() {
+		formSearch = '';
+		clearSelectedForm();
+	}
+
+	function isEmptyFormValue(value: unknown): boolean {
+		if (value === null || value === undefined) return true;
+		if (typeof value === 'string') return value.trim().length === 0;
+		if (Array.isArray(value)) return value.length === 0;
+		return false;
 	}
 
 	const hasPermission = $derived(
@@ -122,6 +237,8 @@
 		selectedDepartment = '';
 		selectedProcedure = '';
 		selectedPatientId = '';
+		patientSearch = '';
+		formSearch = '';
 		formData = {};
 		icdCode = '';
 		icdDescription = '';
@@ -132,6 +249,16 @@
 
 	async function handleSubmit() {
 		if (!selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId) {
+			toastStore.addToast('Select a patient, case record form, and faculty approver before submitting', 'error');
+			return;
+		}
+
+		const missingRequiredFields = (crFields ?? [])
+			.filter((field) => field.required && isEmptyFormValue(formData[field.key]))
+			.map((field) => field.label);
+
+		if (missingRequiredFields.length > 0) {
+			toastStore.addToast(`Complete required fields: ${missingRequiredFields.join(', ')}`, 'error');
 			return;
 		}
 		submitting = true;
@@ -339,42 +466,47 @@
 		<div class="space-y-4">
 			<!-- Patient Selection -->
 			<div>
-				<label for="cr-patient" class="block text-sm font-medium text-gray-700 mb-1">
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<label class="block text-sm font-medium text-gray-700 mb-1">
 					Patient <span class="text-red-500">*</span>
 				</label>
-				<select id="cr-patient"
-					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					bind:value={selectedPatientId}
-				>
-					<option value="">Select a patient</option>
-					{#each assignedPatients as patient}
-						<option value={patient.id}>{patient.name} ({patient.patient_id})</option>
-					{/each}
-				</select>
+				<Autocomplete
+					placeholder="Search assigned patients by name, ID, or diagnosis"
+					bind:value={patientSearch}
+					items={filteredPatients}
+					labelKey="name"
+					sublabelKey="meta"
+					badgeKey="badge"
+					onInput={handlePatientSearch}
+					onSelect={handlePatientSelect}
+					onClear={handlePatientClear}
+					minChars={0}
+				/>
+				{#if selectedPatient}
+					<div class="mt-2 rounded-lg border border-blue-100 bg-blue-50/70 px-3 py-2 text-xs text-blue-900">
+						<span class="font-semibold">Selected patient:</span> {selectedPatient.name} ({selectedPatient.patient_id})
+					</div>
+				{/if}
 			</div>
 
 			<!-- Form Selection -->
 			<div>
-				<label for="cr-form" class="block text-sm font-medium text-gray-700 mb-1">
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<label class="block text-sm font-medium text-gray-700 mb-1">
 					Case Record Form <span class="text-red-500">*</span>
 				</label>
-				<select id="cr-form"
-					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-					bind:value={selectedFormId}
-					onchange={() => handleFormSelection(selectedFormId)}
-				>
-					<option value="">Search and select a form...</option>
-					{#each caseRecordForms as form}
-						<option value={form.id}>
-							{form.name}
-							{#if form.department || form.procedure_name}
-								· {form.department || ''} {form.procedure_name ? `— ${form.procedure_name}` : ''}
-							{/if}
-						</option>
-					{/each}
-				</select>
+				<Autocomplete
+					placeholder="Search case record forms by name, department, or procedure"
+					bind:value={formSearch}
+					items={filteredForms}
+					labelKey="name"
+					sublabelKey="meta"
+					badgeKey="badge"
+					onInput={handleFormSearch}
+					onSelect={handleFormSelect}
+					onClear={handleFormClear}
+					minChars={0}
+				/>
 				{#if selectedForm && selectedForm.description}
 					<p class="text-xs text-gray-500 mt-1.5">{selectedForm.description}</p>
 				{/if}

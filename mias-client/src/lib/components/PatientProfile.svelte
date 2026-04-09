@@ -34,7 +34,9 @@
 	} from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
@@ -107,8 +109,8 @@
 	let diagnosisSubmitting = $state(false);
 
 	// ── Case Record form ──────────────────────────────────────────
-	let crDepartment = $state('');
-	let crProcedure = $state('');
+	let selectedCrFormId = $state('');
+	let crFormSearch = $state('');
 	let crFacultyId = $state('');
 	let crSubmitting = $state(false);
 	let crFormData: Record<string, any> = $state({});
@@ -118,18 +120,34 @@
 	let crIcdDescription = $state('');
 	let allowedDepartments: string[] = $state([]);
 
-	const mergedProcedureMap = $derived(
-		mergeProcedureMaps(procedureMap, buildCaseRecordProcedureMap(caseRecordForms))
+	const selectedCrForm = $derived(
+		caseRecordForms.find(f => f.id === selectedCrFormId) || null
 	);
 
 	const hasPermission = $derived(
-		role !== 'STUDENT' || !crDepartment || allowedDepartments.includes(crDepartment)
+		role !== 'STUDENT' || !selectedCrForm?.department || allowedDepartments.includes(selectedCrForm.department)
 	);
-	const availableProcedures = $derived(
-		crDepartment && hasPermission ? (mergedProcedureMap[crDepartment] || []) : []
+
+	const searchableCrForms = $derived.by(() =>
+		caseRecordForms.map((form) => ({
+			...form,
+			meta: [form.department, form.procedure_name, form.description].filter(Boolean).join(' · '),
+			badge: form.department || '',
+		}))
 	);
+
+	const filteredCrForms = $derived.by(() => {
+		const query = crFormSearch.trim().toLowerCase();
+		if (!query) return searchableCrForms;
+		return searchableCrForms.filter((form) =>
+			[form.name, form.department, form.procedure_name, form.description]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
+
 	const crFields: FormFieldDefinition[] | null = $derived(
-		crDepartment && crProcedure ? resolveCaseRecordFields(caseRecordForms, crDepartment, crProcedure) : null
+		selectedCrForm ? selectedCrForm.fields : null
 	);
 	const vitalEntryFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'VITAL_ENTRY', defaultVitalEntryFields)
@@ -163,6 +181,35 @@
 		crFormData['diagnosis'] = item.text;
 		crIcdCode = item.icd_code || '';
 		crIcdDescription = item.icd_description || item.text;
+	}
+
+	function crFormDisplayLabel(form: FormDefinition) {
+		const suffix = [form.department, form.procedure_name].filter(Boolean).join(' · ');
+		return suffix ? `${form.name} · ${suffix}` : form.name;
+	}
+
+	function handleCrFormSearch(query: string) {
+		if (selectedCrFormId && selectedCrForm && query !== crFormDisplayLabel(selectedCrForm)) {
+			clearCrFormSelection();
+		}
+	}
+
+	function handleCrFormSelect(form: FormDefinition) {
+		selectedCrFormId = form.id;
+		crFormSearch = crFormDisplayLabel(form);
+	}
+
+	function handleCrFormClear() {
+		crFormSearch = '';
+		clearCrFormSelection();
+	}
+
+	function clearCrFormSelection() {
+		selectedCrFormId = '';
+		crFormData = {};
+		crIcdCode = '';
+		crIcdDescription = '';
+		crDiagnosisSuggestions = [];
 	}
 
 	// ── Add Vital form ────────────────────────────────────────────
@@ -629,21 +676,21 @@
 
 	// ── Case Record Submit ────────────────────────────────────────
 	function resetCaseRecordForm() {
-		crDepartment = ''; crProcedure = ''; crFacultyId = '';
+		selectedCrFormId = ''; crFormSearch = ''; crFacultyId = '';
 		crFormData = {}; crDiagnosisSuggestions = [];
 		crIcdCode = ''; crIcdDescription = '';
 	}
 
 	async function submitCaseRecord() {
-		if (!patient || crSubmitting) return;
+		if (!patient || crSubmitting || !selectedCrForm) return;
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
 			const now = new Date();
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
-				department: crDepartment,
-				procedure: crProcedure,
+				department: selectedCrForm.department || '',
+				procedure: selectedCrForm.procedure_name || '',
 				findings: stringifyFormValue(crFormData['findings']) || '',
 				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
 				treatment: stringifyFormValue(crFormData['treatment']) || '',
@@ -744,6 +791,48 @@
 			resetPrescriptionForm();
 		} catch (err) { console.error('Failed to create prescription', err); }
 		finally { rxSubmitting = false; }
+	}
+
+	async function submitStudentPrescription(data: {
+		diagnosis: string;
+		medications: Array<{
+			name: string;
+			dosage: string;
+			duration: string;
+			frequency: string;
+			timing: string;
+			instructions: string;
+		}>;
+		faculty_id: string;
+	}) {
+		if (!patient || !studentData) return;
+		try {
+			const today = new Date().toISOString().split('T')[0];
+			const medications = data.medications.map(med => ({
+				name: med.name,
+				dosage: med.dosage,
+				frequency: med.frequency,
+				duration: med.duration,
+				timing: med.timing,
+				instructions: med.instructions,
+				start_date: today,
+				end_date: today,
+			}));
+			await studentApi.submitPrescription(studentData.id, {
+				patient_id: patient.id,
+				faculty_id: data.faculty_id,
+				department: studentData.department || '',
+				diagnosis: data.diagnosis,
+				notes: '',
+				medications,
+			});
+			toastStore.addToast('Prescription submitted for approval', 'success');
+			showAddPrescriptionModal = false;
+		} catch (err) {
+			console.error('Failed to submit prescription', err);
+			toastStore.addToast('Failed to submit prescription', 'error');
+			throw err;
+		}
 	}
 
 	// ── Prescription Request Submit ───────────────────────────────
@@ -1809,44 +1898,32 @@
 
 	<div class="space-y-4">
 		<div>
-			<label for="cr-dept" class="block text-sm font-medium text-gray-700 mb-1">
-				Department <span class="text-red-500">*</span>
+			<label for="cr-form" class="block text-sm font-medium text-gray-700 mb-1">
+				Case Record Form <span class="text-red-500">*</span>
 			</label>
-			<select id="cr-dept" bind:value={crDepartment}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				onchange={() => { crProcedure = ''; crFormData = {}; crIcdCode = ''; crIcdDescription = ''; }}>
-				<option value="">Select Department</option>
-				{#each departments as dept}
-					<option value={dept}>{dept}</option>
-				{/each}
-			</select>
+			<Autocomplete
+				items={filteredCrForms}
+				labelKey="name"
+				sublabelKey="meta"
+				badgeKey="badge"
+				minChars={0}
+				placeholder="Search case record forms..."
+				bind:value={crFormSearch}
+				onInput={handleCrFormSearch}
+				onSelect={handleCrFormSelect}
+				onClear={handleCrFormClear}
+			/>
 		</div>
 
-		{#if crDepartment && hasPermission}
-		<div>
-			<label for="cr-proc" class="block text-sm font-medium text-gray-700 mb-1">
-				Procedure <span class="text-red-500">*</span>
-			</label>
-			<select id="cr-proc" bind:value={crProcedure}
-				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-				onchange={() => { crFormData = {}; crIcdCode = ''; crIcdDescription = ''; }}>
-				<option value="">Select Procedure</option>
-				{#each availableProcedures as proc}
-					<option value={proc}>{proc}</option>
-				{/each}
-			</select>
-		</div>
-		{:else if crDepartment && !hasPermission}
+		{#if selectedCrForm && !hasPermission}
 		<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
-			<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {crDepartment}.</p>
+			<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {selectedCrForm.department}.</p>
 			<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>
 		</div>
 		{/if}
 
 		<!-- Dynamic procedure-specific fields -->
-		{#if crFields}
+		{#if crFields && hasPermission}
 			<DynamicFormRenderer
 				fields={crFields}
 				bind:values={crFormData}
@@ -1882,7 +1959,7 @@
 		{/if}
 	</div>
 
-	{#if crFields}
+	{#if crFields && hasPermission}
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
 			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
@@ -1893,7 +1970,7 @@
 			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
 			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 			onclick={submitCaseRecord}
-			disabled={crSubmitting || !crDepartment || !crProcedure}>
+			disabled={crSubmitting || !selectedCrFormId}>
 			{crSubmitting ? 'Submitting...' : (role === 'FACULTY' ? 'Save Record' : 'Submit for Review')}
 		</button>
 	</div>
@@ -1937,35 +2014,44 @@
 
 <!-- Add Prescription Modal -->
 {#if showAddPrescriptionModal}
-<AquaModal onclose={() => { showAddPrescriptionModal = false; resetPrescriptionForm(); }}>
-	{#snippet header()}
-		<div class="flex items-center gap-2">
-			<Pill class="w-5 h-5 text-blue-600" />
-			<span class="text-blue-900 font-semibold">Medications</span>
-		</div>
-	{/snippet}
-
-	<div class="space-y-4">
-		<DynamicFormRenderer
-			fields={prescriptionCreateFields}
-			bind:values={prescriptionFormData}
-			idPrefix="patient-profile-prescription"
+	{#if role === 'STUDENT'}
+		<PrescriptionForm
+			patient={{ id: patient.id, patient_id: patient.patient_id, name: patient.name }}
+			facultyApprovers={facultyApprovers}
+			onClose={() => { showAddPrescriptionModal = false; }}
+			onSubmit={submitStudentPrescription}
 		/>
-	</div>
-	<div class="flex justify-end gap-2 mt-6">
-		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
-			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
-			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
-			onclick={() => { showAddPrescriptionModal = false; resetPrescriptionForm(); }}>Cancel</button>
-		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
-			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
-			onclick={submitPrescription}
-			disabled={rxSubmitting || !prescriptionFormData.name || !prescriptionFormData.dosage || !prescriptionFormData.frequency}>
-			{rxSubmitting ? 'Adding...' : 'Add Prescription'}
-		</button>
-	</div>
-</AquaModal>
+	{:else}
+		<AquaModal onclose={() => { showAddPrescriptionModal = false; resetPrescriptionForm(); }}>
+			{#snippet header()}
+				<div class="flex items-center gap-2">
+					<Pill class="w-5 h-5 text-blue-600" />
+					<span class="text-blue-900 font-semibold">Medications</span>
+				</div>
+			{/snippet}
+
+			<div class="space-y-4">
+				<DynamicFormRenderer
+					fields={prescriptionCreateFields}
+					bind:values={prescriptionFormData}
+					idPrefix="patient-profile-prescription"
+				/>
+			</div>
+			<div class="flex justify-end gap-2 mt-6">
+				<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
+					style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
+					       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+					onclick={() => { showAddPrescriptionModal = false; resetPrescriptionForm(); }}>Cancel</button>
+				<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
+					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
+					       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
+					onclick={submitPrescription}
+					disabled={rxSubmitting || !prescriptionFormData.name || !prescriptionFormData.dosage || !prescriptionFormData.frequency}>
+					{rxSubmitting ? 'Adding...' : 'Add Prescription'}
+				</button>
+			</div>
+		</AquaModal>
+	{/if}
 {/if}
 
 <!-- Patient Prescription Request Modal -->

@@ -29,7 +29,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="absolute inset-0" onclick={handleClose}></div>
     <div
-      class="relative w-full sm:max-w-md max-h-[90vh] overflow-y-auto animate-slide-up"
+      class="relative w-full sm:max-w-md max-h-[90vh] flex flex-col animate-slide-up"
       style="background-color: white;
              border-radius: 16px 16px 0 0;
              box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
@@ -37,7 +37,7 @@
     >
       <!-- Header -->
       <div
-        class="sticky top-0 px-4 py-3 flex items-center justify-between z-10"
+        class="px-4 py-3 flex items-center justify-between z-10 shrink-0"
         style="background-image: linear-gradient(to bottom, #f8f9fb, #e8eef5);
                box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1);
                border-bottom: 1px solid rgba(0,0,0,0.1);
@@ -58,7 +58,7 @@
           <X class="w-5 h-5" />
         </button>
       </div>
-      <div class="p-4">
+      <div class="p-4 overflow-y-auto flex-1">
         {@render children()}
       </div>
     </div>

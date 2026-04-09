@@ -8,11 +8,10 @@
     import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
     import AquaCard from '$lib/components/ui/AquaCard.svelte';
     import Avatar from '$lib/components/ui/Avatar.svelte';
-    import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
     import {
         CheckCircle, XCircle, Clock, ClipboardList, AlertTriangle,
         FileText, Eye, Calendar, Stethoscope, ChevronLeft, X,
-        Building, Bed, User, Shield, Hash, MapPin, Heart
+        Building, Bed, User, Shield, Heart
     } from 'lucide-svelte';
 
     // State
@@ -41,6 +40,8 @@
     };
 
     let isAdmissionType = $derived(approvalType === 'admissions');
+    let pageTitle = $derived(typeLabels[approvalType] || 'Approvals');
+    let activeCount = $derived(activeTab === 'pending' ? pendingApprovals.length : historyApprovals.length);
 
     function getScore(id: string): number {
         return scores[id] || 3;
@@ -151,273 +152,275 @@
     });
 </script>
 
-<div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
+<div class="px-4 py-4 md:px-6 md:py-6">
     {#if loading}
         <div class="flex items-center justify-center py-20">
             <div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         </div>
     {:else}
-        <!-- Header -->
-        <div class="flex items-center gap-3 mb-2">
-            <button
-                class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
-                style="background: linear-gradient(to bottom, #f8f9fb, #e8eef5); border: 1px solid rgba(0,0,0,0.1);"
-                onclick={() => goto('/dashboard')}
-            >
-                <ChevronLeft class="w-5 h-5 text-blue-600" />
-            </button>
-            <div class="w-10 h-10 rounded-lg flex items-center justify-center"
-                style="background: linear-gradient(to bottom, #3b82f620, #3b82f610); border: 1px solid rgba(59,130,246,0.3);">
-                <ClipboardList class="w-5 h-5 text-blue-600" />
-            </div>
-            <h1 class="text-xl font-bold text-gray-800">{typeLabels[approvalType] || 'Approvals'}</h1>
-        </div>
-
-        <!-- Tab Bar -->
-        <div class="flex rounded-lg overflow-hidden" style="background: #f1f5f9; border: 1px solid rgba(0,0,0,0.1);">
-            {#each tabs as tab}
+        <div class="mx-auto max-w-5xl space-y-5">
+            <!-- Header -->
+            <div class="flex items-start gap-3">
                 <button
-                    class="flex-1 py-2.5 text-sm font-medium text-center cursor-pointer transition-all"
-                    style="color: {activeTab === tab.id ? '#2563eb' : '#64748b'};
-                           background: {activeTab === tab.id ? 'white' : 'transparent'};
-                           border-bottom: {activeTab === tab.id ? '2px solid #2563eb' : '2px solid transparent'};"
-                    onclick={() => activeTab = tab.id}
+                    class="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full cursor-pointer"
+                    style="background: linear-gradient(to bottom, #f8f9fb, #e8eef5); border: 1px solid rgba(0,0,0,0.1); box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);"
+                    onclick={() => goto('/dashboard')}
+                    aria-label="Back to dashboard"
                 >
-                    {tab.label}
+                    <ChevronLeft class="h-5 w-5 text-blue-600" />
                 </button>
-            {/each}
-        </div>
 
-        <!-- Pending Approvals Tab -->
-        {#if activeTab === 'pending'}
-            {#each pendingApprovals as approval (approval.id)}
-                {@const currentScore = getScore(approval.id)}
-                {@const isProcessing = processingId === approval.id}
-                <AquaCard padding={false}>
-                    <div class="p-4">
-                        <!-- Patient Info Header -->
-                        <div class="flex items-start gap-3 mb-3">
-                            <div class="relative shrink-0">
-                                {#if approval.patient?.photo}
-                                    <img src={approval.patient.photo} alt={approval.patient?.name || 'Patient'}
-                                        class="w-14 h-14 rounded-full object-cover border-2 border-white shadow" />
-                                {:else}
-                                    <Avatar name={approval.patient?.name || 'Patient'} size="lg" />
-                                {/if}
-                            </div>
-                            <div class="flex-1 min-w-0">
-                                <div class="flex items-center justify-between">
-                                    <h3 class="text-base font-bold text-gray-800">
-                                        {approval.patient?.name || 'Unknown Patient'}
-                                    </h3>
-                                    <button
-                                        class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-                                        style="background: rgba(0,0,0,0.05);"
-                                        onclick={() => openDetail(approval)}
-                                        title="View full details"
-                                    >
-                                        <Eye class="w-4 h-4 text-blue-500" />
-                                    </button>
-                                </div>
-                                <p class="text-xs text-gray-500">
-                                    ID: {approval.patient?.patient_id || 'N/A'}
-                                </p>
-                                <div class="flex items-center gap-2 mt-1 flex-wrap">
-                                    <span class="text-xs text-gray-500">
-                                        {approval.patient?.age || '—'}, {approval.patient?.gender || '—'}
-                                    </span>
-                                    {#if approval.patient?.blood_group}
-                                        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded"
-                                            style="background: rgba(239, 68, 68, 0.1); color: #dc2626;">
-                                            {approval.patient.blood_group}
-                                        </span>
-                                    {/if}
-                                    {#if isAdmissionType && approval.admission?.department}
-                                        <span class="text-[10px] font-medium px-1.5 py-0.5 rounded"
-                                            style="background: rgba(59, 130, 246, 0.1); color: #2563eb;">
-                                            {approval.admission.department}
-                                        </span>
-                                    {/if}
-                                </div>
-                            </div>
+                <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-3">
+                        <div
+                            class="flex h-11 w-11 items-center justify-center rounded-2xl"
+                            style="background: linear-gradient(to bottom, #eef5ff, #dbeafe); border: 1px solid rgba(59,130,246,0.2); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
+                        >
+                            <ClipboardList class="h-5 w-5 text-blue-600" />
                         </div>
-
-                        <!-- Medical Alerts -->
-                        {#if approval.patient?.medical_alerts && approval.patient.medical_alerts.length > 0}
-                            <div class="rounded-lg p-2.5 mb-3" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2);">
-                                <div class="flex items-center gap-1.5 mb-1">
-                                    <Shield class="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                                    <span class="text-xs font-semibold text-amber-700">Medical Alerts</span>
-                                </div>
-                                <div class="flex flex-wrap gap-1">
-                                    {#each approval.patient.medical_alerts as alert}
-                                        <span class="text-[10px] px-1.5 py-0.5 rounded font-medium"
-                                            style="background: {alert.severity === 'HIGH' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(245, 158, 11, 0.1)'};
-                                                   color: {alert.severity === 'HIGH' ? '#dc2626' : '#d97706'};">
-                                            {alert.title}
-                                        </span>
-                                    {/each}
-                                </div>
+                        <div class="min-w-0">
+                            <div class="flex flex-wrap items-center gap-2">
+                                <h1 class="text-2xl font-bold text-slate-900">{pageTitle}</h1>
+                                <span
+                                    class="rounded-full px-2 py-0.5 text-xs font-bold"
+                                    style="background: rgba(59,130,246,0.12); color: #2563eb;"
+                                >
+                                    {activeCount}
+                                </span>
                             </div>
-                        {/if}
-
-                        <!-- Allergy Warning (if any) -->
-                        {#if approval.patient?.allergies && approval.patient.allergies.length > 0}
-                            <div class="rounded-lg p-2.5 mb-3" style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2);">
-                                <div class="flex items-center gap-2">
-                                    <AlertTriangle class="w-4 h-4 text-red-500 shrink-0" />
-                                    <span class="text-xs font-semibold text-red-600">
-                                        {approval.patient.allergies.map((a: any) => a.allergen).join(', ')} Allergy
-                                    </span>
-                                </div>
-                            </div>
-                        {/if}
-
-                        <!-- Primary Diagnosis -->
-                        <div class="rounded-lg p-2.5 mb-3" style="background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.1);">
-                            <div class="flex items-start gap-2">
-                                <FileText class="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                                <div>
-                                    {#if approval.patient?.primary_diagnosis}
-                                        <p class="text-sm text-gray-700">{approval.patient.primary_diagnosis}</p>
-                                    {:else}
-                                        <p class="text-sm text-gray-400 italic">No primary diagnosis recorded</p>
-                                    {/if}
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Procedure / Admission Details -->
-                        <div class="mb-4">
-                            {#if isAdmissionType && approval.admission}
-                                <!-- Admission-specific details -->
-                                <h4 class="text-sm font-bold text-gray-800 mb-1">Admission Request</h4>
-                                <p class="text-sm text-gray-600 mb-2">
-                                    {approval.admission.reason || 'No reason provided'}
-                                </p>
-                                <div class="grid grid-cols-2 gap-2 text-xs text-gray-500 mb-2">
-                                    <span class="flex items-center gap-1">
-                                        <Building class="w-3 h-3" />
-                                        {approval.admission.department}
-                                    </span>
-                                    <span class="flex items-center gap-1">
-                                        <Bed class="w-3 h-3" />
-                                        {approval.admission.ward || 'N/A'} {approval.admission.bed_number ? `· ${approval.admission.bed_number}` : ''}
-                                    </span>
-                                    <span class="flex items-center gap-1">
-                                        <Stethoscope class="w-3 h-3" />
-                                        {approval.admission.attending_doctor || 'N/A'}
-                                    </span>
-                                    <span class="flex items-center gap-1">
-                                        <Calendar class="w-3 h-3" />
-                                        {formatDate(approval.admission.admission_date || approval.created_at)}
-                                    </span>
-                                </div>
-                                {#if approval.admission.diagnosis}
-                                    <p class="text-xs text-gray-600">
-                                        <span class="font-semibold">Diagnosis:</span> {approval.admission.diagnosis}
-                                    </p>
-                                {/if}
-                            {:else}
-                                <!-- Case record details -->
-                                <h4 class="text-sm font-bold text-gray-800 mb-1">
-                                    {approval.case_record?.procedure_name || approval.case_record?.type || 'Case Record'}
-                                </h4>
-                                <p class="text-sm text-gray-600 mb-2">
-                                    {approval.case_record?.description || approval.case_record?.procedure_description || 'No description provided'}
-                                </p>
-                                <div class="flex items-center gap-4 text-xs text-gray-500">
-                                    <span class="flex items-center gap-1">
-                                        <Stethoscope class="w-3 h-3" />
-                                        {approval.case_record?.doctor_name || 'Unknown'}
-                                    </span>
-                                    <span class="flex items-center gap-1">
-                                        <Calendar class="w-3 h-3" />
-                                        {formatDate(approval.case_record?.date || approval.created_at)}
-                                    </span>
-                                </div>
-                            {/if}
-                        </div>
-
-                        <!-- Submitted By -->
-                        {#if approval.submitted_by}
-                            <div class="flex items-center gap-2 mb-3 text-xs text-gray-500">
-                                <User class="w-3 h-3" />
-                                <span>Submitted by <span class="font-semibold text-gray-700">{approval.submitted_by.name}</span></span>
-                            </div>
-                        {/if}
-
-                        <!-- Score Selection -->
-                        <div class="mb-4">
-                            <p class="text-xs text-gray-500 mb-2">Score:</p>
-                            <div class="flex gap-2">
-                                {#each [1, 2, 3, 4, 5] as score}
-                                    <button
-                                        class="w-9 h-9 rounded-lg text-sm font-bold cursor-pointer transition-all"
-                                        style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
-                                               color: {currentScore === score ? 'white' : '#64748b'};
-                                               border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(0,0,0,0.1)'};"
-                                        onclick={() => setScore(approval.id, score)}
-                                        disabled={isProcessing}
-                                    >
-                                        {score}
-                                    </button>
-                                {/each}
-                            </div>
-                        </div>
-
-                        <!-- Comments -->
-                        <div class="mb-4">
-                            <p class="text-xs text-gray-500 mb-2">Comments (optional):</p>
-                            <textarea
-                                class="w-full rounded-lg border border-gray-200 p-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
-                                rows="2"
-                                placeholder="Add comments..."
-                                value={approvalComments[approval.id] || ''}
-                                oninput={(e) => {
-                                    approvalComments[approval.id] = e.currentTarget.value;
-                                    approvalComments = { ...approvalComments };
-                                }}
-                                disabled={isProcessing}
-                            ></textarea>
-                        </div>
-
-                        <!-- Action Buttons -->
-                        <div class="flex gap-3">
-                            <button
-                                class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50"
-                                style="background: white; color: #dc2626; border: 2px solid #fecaca;"
-                                onclick={() => handleReject(approval.id)}
-                                disabled={isProcessing}
-                            >
-                                <XCircle class="w-4 h-4" />
-                                Reject
-                            </button>
-                            <button
-                                class="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-white text-sm font-semibold cursor-pointer disabled:opacity-50"
-                                style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.1);"
-                                onclick={() => handleApprove(approval.id)}
-                                disabled={isProcessing}
-                            >
-                                <CheckCircle class="w-4 h-4" />
-                                Approve
-                            </button>
+                            <p class="mt-1 text-sm text-slate-500">
+                                {activeTab === 'pending'
+                                    ? 'Review requests and process the pending approvals below.'
+                                    : 'Processed decisions for this approval workflow.'}
+                            </p>
                         </div>
                     </div>
-                </AquaCard>
-            {/each}
-
-            {#if pendingApprovals.length === 0}
-                <div class="text-center py-12">
-                    <CheckCircle class="w-12 h-12 text-green-200 mx-auto mb-3" />
-                    <p class="text-sm text-gray-400">No pending approvals</p>
-                    <p class="text-xs text-gray-300 mt-1">All caught up!</p>
                 </div>
-            {/if}
+            </div>
 
-        <!-- Approval History Tab -->
-        {:else if activeTab === 'history'}
-            <AquaCard>
+            <!-- Tab Bar -->
+            <div class="mx-auto flex max-w-3xl rounded-[20px] p-1" style="background: linear-gradient(to bottom, #e2e8f0, #eef2f7); border: 1px solid rgba(148,163,184,0.2); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
+                {#each tabs as tab}
+                    <button
+                        class="flex-1 rounded-[16px] px-4 py-3 text-sm font-semibold text-center cursor-pointer transition-all"
+                        style="color: {activeTab === tab.id ? '#2563eb' : '#64748b'};
+                               background: {activeTab === tab.id ? 'linear-gradient(to bottom, #ffffff, #f8fafc)' : 'transparent'};
+                               box-shadow: {activeTab === tab.id ? '0 10px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85)' : 'none'};"
+                        onclick={() => activeTab = tab.id}
+                    >
+                        {tab.label}
+                    </button>
+                {/each}
+            </div>
+
+            <!-- Pending Approvals Tab -->
+            {#if activeTab === 'pending'}
+                <div class="space-y-5">
+                    {#each pendingApprovals as approval (approval.id)}
+                        {@const currentScore = getScore(approval.id)}
+                        {@const isProcessing = processingId === approval.id}
+                        {@const requestDate = approval.submitted_at || approval.case_record?.date || approval.admission?.admission_date || approval.created_at}
+                        {@const requestedBy = isAdmissionType
+                            ? approval.admission?.referring_doctor || approval.admission?.attending_doctor || approval.submitted_by?.name || 'Not provided'
+                            : approval.submitted_by?.name || approval.case_record?.doctor_name || 'Not provided'}
+                        {@const summaryLabel = isAdmissionType ? 'Reason for Admission' : 'Case Record Summary'}
+                        {@const summaryTitle = isAdmissionType
+                            ? approval.admission?.reason || 'No reason provided'
+                            : approval.case_record?.procedure_name || approval.case_record?.type || 'Case Record'}
+                        {@const summaryBody = isAdmissionType
+                            ? approval.admission?.diagnosis || approval.patient?.primary_diagnosis || 'No diagnosis recorded'
+                            : approval.case_record?.description || approval.case_record?.procedure_description || approval.patient?.primary_diagnosis || 'No description provided'}
+                        <div class="mx-auto max-w-3xl rounded-[28px] border border-slate-200 px-4 py-4 md:px-5 md:py-5"
+                            style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 24px 50px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.8);">
+                            <div class="flex items-start justify-between gap-4">
+                                <div class="flex min-w-0 items-start gap-4">
+                                    <div class="shrink-0">
+                                        {#if approval.patient?.photo}
+                                            <img src={approval.patient.photo} alt={approval.patient?.name || 'Patient'}
+                                                class="h-16 w-16 rounded-full object-cover border-2 border-white shadow-md" />
+                                        {:else}
+                                            <Avatar name={approval.patient?.name || 'Patient'} size="lg" />
+                                        {/if}
+                                    </div>
+                                    <div class="min-w-0">
+                                        <h3 class="text-2xl font-bold text-slate-900">{approval.patient?.name || 'Unknown Patient'}</h3>
+                                        <p class="mt-1 text-sm font-semibold text-slate-400">{approval.patient?.patient_id || 'N/A'}</p>
+                                        <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                            <span>{approval.patient?.age || '—'}{approval.patient?.age ? ' yrs' : ''}</span>
+                                            <span>{approval.patient?.gender || '—'}</span>
+                                            {#if approval.patient?.blood_group}
+                                                <span class="rounded-full px-2 py-0.5 font-bold"
+                                                    style="background: rgba(239, 68, 68, 0.1); color: #dc2626;">
+                                                    {approval.patient.blood_group}
+                                                </span>
+                                            {/if}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <button
+                                    class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full cursor-pointer"
+                                    style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); border: 1px solid rgba(148,163,184,0.18);"
+                                    onclick={() => openDetail(approval)}
+                                    title="View full details"
+                                    aria-label="View full details"
+                                >
+                                    <Eye class="h-4 w-4 text-blue-500" />
+                                </button>
+                            </div>
+
+                            <div class="mt-5 grid gap-3 md:grid-cols-3">
+                                <div class="rounded-2xl px-4 py-3 text-center" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.16);">
+                                    <p class="text-xs font-semibold text-slate-400">{isAdmissionType ? 'Department' : 'Record Type'}</p>
+                                    <p class="mt-1 text-base font-bold text-slate-800">
+                                        {isAdmissionType
+                                            ? approval.admission?.department || 'General'
+                                            : approval.case_record?.procedure_name || approval.case_record?.type || 'Case Record'}
+                                    </p>
+                                </div>
+                                <div class="rounded-2xl px-4 py-3 text-center" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.16);">
+                                    <p class="text-xs font-semibold text-slate-400">Requested by</p>
+                                    <p class="mt-1 text-base font-bold text-slate-800">{requestedBy}</p>
+                                </div>
+                                <div class="rounded-2xl px-4 py-3 text-center" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.16);">
+                                    <p class="text-xs font-semibold text-slate-400">Date</p>
+                                    <p class="mt-1 text-base font-bold text-slate-800">{formatDate(requestDate)}</p>
+                                </div>
+                            </div>
+
+                            <div class="mt-4 rounded-2xl px-4 py-3" style="background: linear-gradient(to right, #eff6ff, #dbeafe66); border: 1px solid rgba(96,165,250,0.22);">
+                                <div class="flex items-center gap-2 text-blue-600">
+                                    {#if isAdmissionType}
+                                        <Building class="h-4 w-4" />
+                                    {:else}
+                                        <FileText class="h-4 w-4" />
+                                    {/if}
+                                    <span class="text-xs font-bold">{summaryLabel}</span>
+                                </div>
+                                <p class="mt-1.5 text-lg font-bold text-slate-900">{summaryTitle}</p>
+                                <p class="mt-1 text-sm text-slate-600">{summaryBody}</p>
+                            </div>
+
+                            {#if (approval.patient?.medical_alerts && approval.patient.medical_alerts.length > 0) || (approval.patient?.allergies && approval.patient.allergies.length > 0)}
+                                <div class="mt-3 rounded-2xl px-4 py-3" style="background: linear-gradient(to right, #fef2f2, #fee2e266); border: 1px solid rgba(248,113,113,0.2);">
+                                    <div class="flex items-center gap-2 text-red-500">
+                                        <AlertTriangle class="h-4 w-4" />
+                                        <span class="text-xs font-bold text-red-500">Medical Alerts</span>
+                                    </div>
+                                    <p class="mt-1.5 text-base font-bold text-red-600">
+                                        {#if approval.patient?.allergies && approval.patient.allergies.length > 0}
+                                            {approval.patient.allergies.map((allergy) => allergy.allergen).join(', ')}
+                                        {:else}
+                                            {approval.patient?.medical_alerts?.map((alert) => alert.title).join(', ')}
+                                        {/if}
+                                    </p>
+                                </div>
+                            {/if}
+
+                            <div class="mt-4 space-y-2 text-sm text-slate-600">
+                                {#if !isAdmissionType && approval.case_record?.doctor_name}
+                                    <p class="flex items-center gap-2">
+                                        <Stethoscope class="h-4 w-4 text-slate-400" />
+                                        <span><span class="font-semibold text-slate-700">Provider:</span> {approval.case_record.doctor_name}</span>
+                                    </p>
+                                {/if}
+                                {#if isAdmissionType && approval.admission?.ward}
+                                    <p class="flex items-center gap-2">
+                                        <Bed class="h-4 w-4 text-slate-400" />
+                                        <span><span class="font-semibold text-slate-700">Ward / Bed:</span> {approval.admission.ward}{approval.admission.bed_number ? ` · ${approval.admission.bed_number}` : ''}</span>
+                                    </p>
+                                {/if}
+                                {#if approval.submitted_by}
+                                    <p class="flex items-center gap-2">
+                                        <User class="h-4 w-4 text-slate-400" />
+                                        <span><span class="font-semibold text-slate-700">Submitted by:</span> {approval.submitted_by.name}</span>
+                                    </p>
+                                {/if}
+                                {#if approval.patient?.primary_diagnosis && (!isAdmissionType || approval.patient.primary_diagnosis !== approval.admission?.diagnosis)}
+                                    <p class="flex items-start gap-2">
+                                        <Heart class="mt-0.5 h-4 w-4 text-slate-400" />
+                                        <span><span class="font-semibold text-slate-700">Primary diagnosis:</span> {approval.patient.primary_diagnosis}</span>
+                                    </p>
+                                {/if}
+                            </div>
+
+                            <div class="mt-5 border-t border-slate-200 pt-4">
+                                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+                                    <div class="space-y-4">
+                                        <div>
+                                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Score</p>
+                                            <div class="flex flex-wrap gap-2">
+                                                {#each [1, 2, 3, 4, 5] as score}
+                                                    <button
+                                                        class="h-10 min-w-10 rounded-2xl px-3 text-sm font-bold cursor-pointer transition-all"
+                                                        style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'};
+                                                               color: {currentScore === score ? 'white' : '#64748b'};
+                                                               border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(148,163,184,0.24)'};
+                                                               box-shadow: {currentScore === score ? '0 10px 20px rgba(37,99,235,0.22)' : 'none'};"
+                                                        onclick={() => setScore(approval.id, score)}
+                                                        disabled={isProcessing}
+                                                    >
+                                                        {score}
+                                                    </button>
+                                                {/each}
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Comments</p>
+                                            <textarea
+                                                class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300"
+                                                rows="3"
+                                                placeholder="Add comments..."
+                                                value={approvalComments[approval.id] || ''}
+                                                oninput={(e) => {
+                                                    approvalComments[approval.id] = e.currentTarget.value;
+                                                    approvalComments = { ...approvalComments };
+                                                }}
+                                                disabled={isProcessing}
+                                            ></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex flex-col gap-2 sm:flex-row">
+                                        <button
+                                            class="inline-flex min-w-32 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold cursor-pointer disabled:opacity-50"
+                                            style="background: linear-gradient(to bottom, #fffbfb, #fff1f2); color: #dc2626; border: 1px solid rgba(248,113,113,0.24); box-shadow: 0 10px 18px rgba(248,113,113,0.08);"
+                                            onclick={() => handleReject(approval.id)}
+                                            disabled={isProcessing}
+                                        >
+                                            <XCircle class="h-4 w-4" />
+                                            Reject
+                                        </button>
+                                        <button
+                                            class="inline-flex min-w-32 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
+                                            style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 12px 22px rgba(34,197,94,0.24);"
+                                            onclick={() => handleApprove(approval.id)}
+                                            disabled={isProcessing}
+                                        >
+                                            <CheckCircle class="h-4 w-4" />
+                                            {isAdmissionType ? 'Admit' : 'Approve'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {/each}
+
+                    {#if pendingApprovals.length === 0}
+                        <div class="mx-auto max-w-3xl rounded-[28px] border border-slate-200 px-6 py-12 text-center"
+                            style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 18px 40px rgba(15,23,42,0.06);">
+                            <CheckCircle class="mx-auto mb-3 h-12 w-12 text-green-200" />
+                            <p class="text-base font-semibold text-slate-500">No pending approvals</p>
+                            <p class="mt-1 text-sm text-slate-400">All requests in this queue have been processed.</p>
+                        </div>
+                    {/if}
+                </div>
+
+            <!-- Approval History Tab -->
+            {:else if activeTab === 'history'}
+                <div class="mx-auto max-w-3xl">
+                    <AquaCard>
                 {#snippet header()}
                     <ClipboardList class="w-4 h-4 text-blue-600 mr-2" />
                     <span class="text-blue-900 font-semibold text-sm">Approval History</span>
@@ -471,8 +474,10 @@
                         </div>
                     {/if}
                 </div>
-            </AquaCard>
-        {/if}
+                    </AquaCard>
+                </div>
+            {/if}
+        </div>
     {/if}
 </div>
 

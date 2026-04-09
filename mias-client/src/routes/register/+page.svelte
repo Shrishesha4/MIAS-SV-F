@@ -176,7 +176,11 @@
 			const username = phone.replace(/\D/g, '');
 			const result = await authApi.login(username, patPassword);
 			authStore.setTokens(result.access_token, result.refresh_token, result.user_id, result.role);
-			goto('/dashboard');
+			if (result.role === 'STUDENT') {
+				goto('/patients');
+			} else {
+				goto('/dashboard');
+			}
 		} catch {
 			goto('/login');
 		} finally {

@@ -7,7 +7,11 @@
 	onMount(() => {
 		const auth = get(authStore);
 		if (auth.isAuthenticated) {
-			goto('/dashboard');
+			if (auth.role === 'STUDENT') {
+				goto('/patients');
+			} else {
+				goto('/dashboard');
+			}
 		} else {
 			goto('/login');
 		}

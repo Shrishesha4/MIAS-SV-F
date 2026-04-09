@@ -157,4 +157,25 @@ export const studentApi = {
     const response = await client.get(`/students/${studentId}/previous-patients`);
     return response.data;
   },
+
+  async submitPrescription(studentId: string, data: {
+    patient_id: string;
+    faculty_id: string;
+    department?: string;
+    notes?: string;
+    diagnosis?: string;
+    medications: Array<{
+      name: string;
+      dosage: string;
+      frequency: string;
+      duration: string;
+      timing?: string;
+      instructions?: string;
+      start_date: string;
+      end_date: string;
+    }>;
+  }) {
+    const response = await client.post(`/students/${studentId}/prescriptions/submit`, data);
+    return response.data;
+  },
 };

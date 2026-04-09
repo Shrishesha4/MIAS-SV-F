@@ -15,6 +15,7 @@ from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalS
 from app.models.patient import Patient, Allergy, MedicalAlert
 from app.models.faculty import Faculty
 from app.models.admission import Admission
+from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 from app.models.student_permission import StudentPermission
@@ -883,3 +884,100 @@ async def get_student_admission_requests(
         }
         for a in approvals
     ]
+
+
+@router.post("/{student_id}/prescriptions/submit")
+async def submit_prescription(
+    student_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a prescription for faculty approval.
+    
+    Student creates a prescription (status=ACTIVE) with medications
+    and an Approval record linked to it for faculty review.
+    """
+    import uuid
+
+    patient_id = body.get("patient_id")
+    faculty_id = body.get("faculty_id")
+    if not patient_id or not faculty_id:
+        raise HTTPException(status_code=400, detail="patient_id and faculty_id are required")
+
+    # Validate patient exists
+    patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Validate faculty exists
+    faculty_result = await db.execute(select(Faculty).where(Faculty.id == faculty_id))
+    faculty = faculty_result.scalar_one_or_none()
+    if not faculty:
+        raise HTTPException(status_code=404, detail="Faculty not found")
+
+    # Get student info
+    student_result = await db.execute(select(Student).where(Student.id == student_id))
+    student = student_result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Create prescription
+    rx_id = f"RX-{datetime.utcnow().strftime('%Y')}-{str(uuid.uuid4())[:4].upper()}"
+    prescription = Prescription(
+        id=str(uuid.uuid4()),
+        prescription_id=rx_id,
+        patient_id=patient_id,
+        date=datetime.utcnow(),
+        doctor=student.name,  # Submitted by student, awaiting faculty approval
+        department=body.get("department", faculty.department or "General"),
+        status=PrescriptionStatus.ACTIVE,
+        notes=body.get("notes", ""),
+        hospital_name="SMC Hospital",
+    )
+    db.add(prescription)
+    await db.flush()
+
+    # Add medications
+    medications_data = body.get("medications", [])
+    for med in medications_data:
+        pm = PrescriptionMedication(
+            id=str(uuid.uuid4()),
+            prescription_id=prescription.id,
+            name=med.get("name", ""),
+            dosage=med.get("dosage", ""),
+            frequency=med.get("frequency", ""),
+            duration=med.get("duration", ""),
+            instructions=med.get("instructions", ""),
+            start_date=med.get("start_date", ""),
+            end_date=med.get("end_date", ""),
+        )
+        db.add(pm)
+
+    # Create approval request
+    approval = Approval(
+        id=str(uuid.uuid4()),
+        approval_type=ApprovalType.PRESCRIPTION,
+        prescription_id=prescription.id,
+        faculty_id=faculty_id,
+        patient_id=patient_id,
+        student_id=student_id,
+        status=ApprovalStatus.PENDING,
+    )
+    db.add(approval)
+
+    # Create notification for faculty
+    from app.models.faculty import FacultyNotification
+    notification = FacultyNotification(
+        id=str(uuid.uuid4()),
+        faculty_id=faculty_id,
+        type="APPROVAL_REQUEST",
+        title="New Prescription for Review",
+        message=f"Prescription for {patient.name} submitted by {student.name} pending your approval",
+        is_read=False,
+    )
+    db.add(notification)
+
+    await db.commit()
+    return {"id": prescription.id, "prescription_id": rx_id, "approval_id": approval.id, "status": "submitted"}
