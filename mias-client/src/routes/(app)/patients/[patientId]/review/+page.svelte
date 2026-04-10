@@ -773,8 +773,6 @@
 								{/if}
 							</div>
 
-						<!-- X-axis labels (times) -->
-						<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
 							<!-- X-axis labels (times) -->
 							<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
 								{#each sortedVitals as v, i}
