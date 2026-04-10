@@ -6,6 +6,7 @@
 	import { formsApi } from '$lib/api/forms';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
+	import type { AttendanceCalendarSession } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { defaultProfileEditFields } from '$lib/config/default-form-definitions';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
@@ -48,7 +49,7 @@
 	let savingProfile = $state(false);
 
 	// Student attendance calendar state
-	let attendanceCalendar: any[] = $state([]);
+	let attendanceCalendar: AttendanceCalendarSession[] = $state([]);
 	let calendarMonth = $state(new Date().getMonth());
 	let calendarYear = $state(new Date().getFullYear());
 
@@ -177,9 +178,10 @@
 	async function loadAttendanceCalendar() {
 		if (!sp) return;
 		try {
-			attendanceCalendar = await studentApi.getAttendanceCalendar(sp.id, calendarMonth + 1, calendarYear);
+			const calendarEntries = await studentApi.getAttendanceCalendar(sp.id, calendarMonth + 1, calendarYear);
+			attendanceCalendar = Array.isArray(calendarEntries) ? calendarEntries : [];
 		} catch (err) {
-			// Calendar is optional - fail silently
+			attendanceCalendar = [];
 		}
 	}
 
@@ -207,9 +209,13 @@
 		return days;
 	}
 
-	function getAttendanceForDay(day: number): any | null {
+	function getAttendanceForDay(day: number): AttendanceCalendarSession | null {
 		const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-		return attendanceCalendar.find(a => a.session_date === dateStr);
+		if (!Array.isArray(attendanceCalendar)) {
+			return null;
+		}
+
+		return attendanceCalendar.find((session) => session.date === dateStr) ?? null;
 	}
 
 	onMount(async () => {

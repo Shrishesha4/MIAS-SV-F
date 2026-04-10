@@ -1378,12 +1378,12 @@
 			<p class="text-sm">Patient not found</p>
 		</div>
 	{:else}
-	{#if studentReadOnly}
+	<!-- {#if studentReadOnly}
 		<div class="rounded-[20px] px-4 py-3 text-sm font-medium text-amber-800"
 			style="background: linear-gradient(to bottom, rgba(254,249,195,0.95), rgba(254,240,138,0.78)); border: 1px solid rgba(245,158,11,0.22); box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);">
 			View only. This patient is in the selected clinic, but not assigned to you, so editing actions are disabled.
 		</div>
-	{/if}
+	{/if} -->
 
 	<div class="overflow-hidden rounded-[22px]"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 8px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85);">

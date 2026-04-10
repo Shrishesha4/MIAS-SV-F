@@ -43,6 +43,19 @@ export interface AssignedPatient {
   status: string;
 }
 
+export interface AttendanceCalendarSession {
+  id: string;
+  date: string;
+  clinic_name: string;
+  department: string | null;
+  time_start: string | null;
+  time_end: string | null;
+  status: string;
+  checked_in_at: string | null;
+  checked_out_at: string | null;
+  duration_minutes: number | null;
+}
+
 export const studentApi = {
   async getMe() {
     const response = await client.get('/students/me');
@@ -115,13 +128,23 @@ export const studentApi = {
     return response.data;
   },
 
-  async getAttendanceCalendar(studentId: string, month?: number, year?: number) {
+  async getAttendanceCalendar(studentId: string, month?: number, year?: number): Promise<AttendanceCalendarSession[]> {
     const params = new URLSearchParams();
     if (month) params.append('month', month.toString());
     if (year) params.append('year', year.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
     const response = await client.get(`/students/${studentId}/attendance-calendar${query}`);
-    return response.data;
+    const payload = response.data;
+
+    if (Array.isArray(payload)) {
+      return payload;
+    }
+
+    if (Array.isArray(payload?.sessions)) {
+      return payload.sessions;
+    }
+
+    return [];
   },
 
   async getDepartments(): Promise<string[]> {

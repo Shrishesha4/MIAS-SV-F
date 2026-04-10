@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { Search, X, ChevronDown } from 'lucide-svelte';
 
 	interface Props {
@@ -35,6 +36,14 @@
 	let inputEl: HTMLInputElement | undefined = $state();
 	let highlightIndex = $state(-1);
 	let dropdownEl: HTMLDivElement | undefined = $state();
+	let dropdownStyle = $state('');
+
+	function updateDropdownPosition() {
+		if (!inputEl) return;
+
+		const rect = inputEl.getBoundingClientRect();
+		dropdownStyle = `top: ${Math.round(rect.bottom + 4)}px; left: ${Math.round(rect.left)}px; width: ${Math.round(rect.width)}px;`;
+	}
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLInputElement;
@@ -42,6 +51,7 @@
 		highlightIndex = -1;
 		if (value.length >= minChars) {
 			showDropdown = true;
+			requestAnimationFrame(updateDropdownPosition);
 			onInput?.(value);
 		} else {
 			showDropdown = false;
@@ -67,6 +77,7 @@
 		if (!showDropdown || items.length === 0) {
 			if (e.key === 'ArrowDown' && value.length >= minChars) {
 				showDropdown = true;
+				requestAnimationFrame(updateDropdownPosition);
 				onInput?.(value);
 			}
 			return;
@@ -108,6 +119,7 @@
 	function handleFocus() {
 		if (value.length >= minChars && items.length > 0) {
 			showDropdown = true;
+			requestAnimationFrame(updateDropdownPosition);
 		}
 	}
 
@@ -133,6 +145,28 @@
 		if (!badgeKey || typeof item === 'string') return '';
 		return item[badgeKey] || '';
 	}
+
+	onMount(() => {
+		const syncPosition = () => {
+			if (showDropdown) {
+				requestAnimationFrame(updateDropdownPosition);
+			}
+		};
+
+		window.addEventListener('resize', syncPosition);
+		window.addEventListener('scroll', syncPosition, true);
+
+		return () => {
+			window.removeEventListener('resize', syncPosition);
+			window.removeEventListener('scroll', syncPosition, true);
+		};
+	});
+
+	$effect(() => {
+		if (showDropdown) {
+			requestAnimationFrame(updateDropdownPosition);
+		}
+	});
 </script>
 
 <div class="relative w-full">
@@ -173,7 +207,8 @@
 	{#if showDropdown}
 		<div
 			bind:this={dropdownEl}
-			class="absolute left-0 right-0 top-full z-[220] mt-1 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
+			class="fixed z-[260] max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
+			style={dropdownStyle}
 		>
 			{#if loading}
 				<div class="flex items-center justify-center py-4">
