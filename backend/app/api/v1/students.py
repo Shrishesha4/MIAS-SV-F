@@ -16,6 +16,7 @@ from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalS
 from app.models.patient import Patient, Allergy, MedicalAlert
 from app.models.faculty import Faculty, FacultyNotification
 from app.models.admission import Admission
+from app.models.department import Department
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
@@ -245,16 +246,14 @@ async def get_procedures():
 
 
 @router.get("/departments")
-async def get_departments():
-    """Get list of departments"""
-    return [
-        "Internal Medicine",
-        "Pediatrics",
-        "Surgery",
-        "OB/GYN",
-        "Psychiatry",
-        "Emergency Medicine",
-    ]
+async def get_departments(db: AsyncSession = Depends(get_db)):
+    """Get list of active departments configured by admin."""
+    result = await db.execute(
+        select(Department.name)
+        .where(Department.is_active == True)
+        .order_by(Department.name.asc())
+    )
+    return [name for name in result.scalars().all() if name]
 
 
 @router.get("/faculty-approvers")
