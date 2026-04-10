@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: mias_secret
       POSTGRES_DB: mias_mp
     ports:
-      - "5433:5432"
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     # PostgreSQL performance tuning for 2000+ concurrent users
@@ -47,7 +47,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "8080:8000"
     volumes:
       - uploads_data:/app/uploads
     environment:
