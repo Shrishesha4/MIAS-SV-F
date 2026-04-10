@@ -8,9 +8,10 @@ import asyncio
 import os
 
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine
 from app.api.v1.router import api_router
 from app.core.middleware import limiter
+from app.db_init import run_startup_migrations
 from app.services.notification_scheduler import run_notification_scheduler
 
 # Import all models so they are registered with metadata
@@ -25,9 +26,8 @@ os.makedirs(os.path.join(UPLOADS_DIR, "forms"), exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Startup: run schema migrations before serving traffic
+    await run_startup_migrations()
     # Start notification scheduler as background task
     scheduler_task = asyncio.create_task(run_notification_scheduler())
     yield

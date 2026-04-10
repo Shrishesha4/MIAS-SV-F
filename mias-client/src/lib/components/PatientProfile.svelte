@@ -209,6 +209,12 @@
 	const prescriptionRequestFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_REQUEST', defaultPrescriptionRequestFields)
 	);
+	const defaultPrescriptionFrequency = $derived.by(() => {
+		const frequencyField = prescriptionCreateFields.find(
+			(field) => field.key === 'frequency' && field.type === 'select'
+		);
+		return frequencyField?.options?.[0] ?? '';
+	});
 	const admissionRequestFields = $derived(
 		mergeFieldOptions(
 			resolveFormFieldsByType(caseRecordForms, 'ADMISSION_REQUEST', defaultAdmissionRequestFields),
@@ -668,6 +674,13 @@
 						formsApi.getForms().catch(() => []),
 					);
 				}
+				if (role === 'ADMIN') {
+					fetchList.push(
+						studentApi.getDepartments().catch(() => []),
+						studentApi.getProcedures().catch(() => ({})),
+						formsApi.getForms().catch(() => []),
+					);
+				}
 				const results = await Promise.all(fetchList);
 				patient = results[0];
 				caseRecords = results[1];
@@ -677,7 +690,7 @@
 				prescriptionRequests = results[4];
 				reports = results[5];
 				admissions = results[6];
-				if (role === 'FACULTY') {
+				if (role === 'FACULTY' || role === 'ADMIN') {
 					const merged = mergeProcedureMaps(results[8] || {}, buildCaseRecordProcedureMap(results[9] || []));
 					departments = Array.from(new Set([...(results[7] || []), ...Object.keys(merged)])).sort();
 					procedureMap = merged;
@@ -849,7 +862,42 @@
 
 	// ── Prescription Submit ───────────────────────────────────────
 	function resetPrescriptionForm() {
-		prescriptionFormData = { start_date: new Date().toISOString().split('T')[0] };
+		const today = new Date().toISOString().split('T')[0];
+		prescriptionFormData = {
+			start_date: today,
+			end_date: today,
+			frequency: defaultPrescriptionFrequency,
+		};
+	}
+
+	function getPrescriptionAuthorMeta() {
+		const activeAdmission = admissions.find((admission: any) => admission.status === 'Active') ?? admissions[0] ?? null;
+
+		if (role === 'STUDENT') {
+			return {
+				doctor: studentData?.name || 'Student Clinician',
+				department: studentData?.department || activeAdmission?.department || '',
+			};
+		}
+
+		if (role === 'FACULTY') {
+			return {
+				doctor: facultyData?.name || 'Faculty Clinician',
+				department: facultyData?.department || activeAdmission?.department || '',
+			};
+		}
+
+		if (role === 'ADMIN') {
+			return {
+				doctor: 'Administrator',
+				department: activeAdmission?.department || '',
+			};
+		}
+
+		return {
+			doctor: patient?.primary_doctor || 'Clinical Staff',
+			department: activeAdmission?.department || '',
+		};
 	}
 
 	async function submitPrescription() {
@@ -870,14 +918,16 @@
 					new Set(['name', 'dosage', 'frequency', 'start_date', 'end_date', 'instructions', 'notes'])
 				)
 			);
+			const authorMeta = getPrescriptionAuthorMeta();
 			await patientApi.createPrescription(patient.id, {
-				doctor: studentData?.name || facultyData?.name || '',
-				department: facultyData?.department || '',
+				doctor: authorMeta.doctor,
+				department: authorMeta.department,
 				notes,
 				medications: [{
 					name: asOptionalString(submittedValues.name) || '',
 					dosage: asOptionalString(submittedValues.dosage) || '',
 					frequency: asOptionalString(submittedValues.frequency) || '',
+					duration: asOptionalString(submittedValues.duration) || 'As directed',
 					start_date: asOptionalString(submittedValues.start_date) || new Date().toISOString().split('T')[0],
 					end_date: asOptionalString(submittedValues.end_date) || new Date().toISOString().split('T')[0],
 					instructions: asOptionalString(submittedValues.instructions),
@@ -887,7 +937,11 @@
 			medications = prescriptions.flatMap((rx: any) => rx.medications || []);
 			showAddPrescriptionModal = false;
 			resetPrescriptionForm();
-		} catch (err) { console.error('Failed to create prescription', err); }
+			toastStore.addToast('Prescription added successfully', 'success');
+		} catch (err) {
+			console.error('Failed to create prescription', err);
+			toastStore.addToast('Failed to create prescription', 'error');
+		}
 		finally { rxSubmitting = false; }
 	}
 
@@ -1643,7 +1697,10 @@
 					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 						style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
 						       border: 1px solid rgba(0,0,0,0.15);"
-						onclick={() => showAddPrescriptionModal = true}>
+						onclick={() => {
+							resetPrescriptionForm();
+							showAddPrescriptionModal = true;
+						}}>
 						<Plus class="w-3 h-3" /> Add Prescription
 					</button>
 				</div>

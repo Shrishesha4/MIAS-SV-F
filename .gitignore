@@ -32,7 +32,7 @@ build/
 Thumbs.db
 
 # Environment variables
-.env
+*.env.*
 
 mockui/
 viana-mias-frontend-main/
