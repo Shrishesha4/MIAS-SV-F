@@ -17,6 +17,7 @@ from app.models.patient import Patient, Allergy, MedicalAlert
 from app.models.faculty import Faculty, FacultyNotification
 from app.models.admission import Admission
 from app.models.department import Department
+from app.models.form_definition import FormDefinition
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
@@ -203,46 +204,32 @@ async def get_emergency_contacts(
 
 
 @router.get("/procedures")
-async def get_procedures():
-    """Get available procedures organized by department"""
-    return {
-        "Internal Medicine": [
-            "Blood Pressure Monitoring",
-            "Physical Examination",
-            "ECG Recording",
-            "Medication Review",
-        ],
-        "Pediatrics": [
-            "Growth Assessment",
-            "Developmental Screening",
-            "Vaccination",
-            "Well-child Checkup",
-        ],
-        "Surgery": [
-            "Wound Care",
-            "Suture Removal",
-            "Pre-operative Assessment",
-            "Post-operative Follow-up",
-        ],
-        "OB/GYN": [
-            "Prenatal Checkup",
-            "Pap Smear",
-            "Breast Examination",
-            "Fetal Monitoring",
-        ],
-        "Psychiatry": [
-            "Mental Status Examination",
-            "Counseling Session",
-            "Medication Management",
-            "Risk Assessment",
-        ],
-        "Emergency Medicine": [
-            "Triage Assessment",
-            "Trauma Care",
-            "Resuscitation",
-            "Emergency Stabilization",
-        ],
-    }
+async def get_procedures(db: AsyncSession = Depends(get_db)):
+    """Get available procedures grouped by department from active form definitions."""
+    result = await db.execute(
+        select(FormDefinition.department, FormDefinition.procedure_name)
+        .where(
+            FormDefinition.form_type == "CASE_RECORD",
+            FormDefinition.is_active == True,
+            FormDefinition.department.is_not(None),
+            FormDefinition.procedure_name.is_not(None),
+        )
+        .order_by(
+            FormDefinition.department.asc(),
+            FormDefinition.sort_order.asc(),
+            FormDefinition.procedure_name.asc(),
+        )
+    )
+
+    procedures: dict[str, list[str]] = {}
+    for department, procedure_name in result.all():
+        if not department or not procedure_name:
+            continue
+        department_procedures = procedures.setdefault(department, [])
+        if procedure_name not in department_procedures:
+            department_procedures.append(procedure_name)
+
+    return procedures
 
 
 @router.get("/departments")

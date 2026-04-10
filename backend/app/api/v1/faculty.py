@@ -563,15 +563,10 @@ async def get_faculty_schedule(
                 for s in schedules
             ],
         }
-    
-    # Fallback to static schedule for demo
+
     return {
         "faculty_id": faculty_id,
-        "schedule": [
-            {"day": "Monday", "time": "9:00 AM - 1:00 PM", "location": "OPD Block A"},
-            {"day": "Wednesday", "time": "10:00 AM - 2:00 PM", "location": "OPD Block B"},
-            {"day": "Friday", "time": "9:00 AM - 12:00 PM", "location": "Ward 3"},
-        ],
+        "schedule": [],
     }
 
 
