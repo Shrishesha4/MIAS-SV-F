@@ -270,6 +270,7 @@
 												<h3 class="font-bold text-gray-900">SBAR Notes</h3>
 											</div>
 
+											<!-- svelte-ignore a11y_label_has_associated_control -->
 											<div class="space-y-3">
 												<!-- Situation -->
 												<div>
