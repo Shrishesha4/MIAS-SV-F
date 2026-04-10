@@ -118,6 +118,24 @@
 	let crDiagnosisLoading = $state(false);
 	let crIcdCode = $state('');
 	let crIcdDescription = $state('');
+	let selectedVitalFormId = $state('');
+	let vitalFormSearch = $state('');
+
+	const defaultVitalForm: FormDefinition = {
+		id: '__default_vital_entry__',
+		slug: 'default-vital-entry',
+		name: 'Quick Vital Entry',
+		description: 'Default vital entry template for major parameters.',
+		form_type: 'VITAL_ENTRY',
+		section: 'CLINICAL',
+		department: null,
+		procedure_name: null,
+		fields: defaultVitalEntryFields,
+		sort_order: 0,
+		is_active: true,
+		created_at: null,
+		updated_at: null,
+	};
 
 	const selectedCrForm = $derived(
 		caseRecordForms.find(f => f.id === selectedCrFormId) || null
@@ -144,9 +162,44 @@
 	const crFields: FormFieldDefinition[] | null = $derived(
 		selectedCrForm ? selectedCrForm.fields : null
 	);
-	const vitalEntryFields = $derived(
-		resolveFormFieldsByType(caseRecordForms, 'VITAL_ENTRY', defaultVitalEntryFields)
+	const vitalFormOptions = $derived.by((): FormDefinition[] => {
+		const activeVitalForms = caseRecordForms.filter(
+			(form) => form.form_type === 'VITAL_ENTRY' && form.is_active
+		);
+		return activeVitalForms.length > 0 ? activeVitalForms : [defaultVitalForm];
+	});
+	const searchableVitalForms = $derived.by(() =>
+		vitalFormOptions.map((form) => ({
+			...form,
+			meta: [form.department, form.procedure_name, form.description].filter(Boolean).join(' · '),
+			badge: form.department || 'Vitals',
+		}))
 	);
+	const filteredVitalForms = $derived.by(() => {
+		const query = vitalFormSearch.trim().toLowerCase();
+		if (!query) return searchableVitalForms;
+		return searchableVitalForms.filter((form) =>
+			[form.name, form.department, form.procedure_name, form.description]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
+	const selectedVitalForm = $derived(
+		vitalFormOptions.find((form) => form.id === selectedVitalFormId) || vitalFormOptions[0] || defaultVitalForm
+	);
+	const selectedVitalFields: FormFieldDefinition[] = $derived(
+		selectedVitalForm?.fields?.length ? selectedVitalForm.fields : defaultVitalEntryFields
+	);
+	const supplementalVitalFields = $derived.by(() => {
+		const primaryKeys = new Set([
+			'systolic_bp',
+			'diastolic_bp',
+			'heart_rate',
+			'respiratory_rate',
+			'blood_glucose',
+		]);
+		return selectedVitalFields.filter((field) => !primaryKeys.has(field.key));
+	});
 	const prescriptionCreateFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_CREATE', defaultPrescriptionCreateFields)
 	);
@@ -205,6 +258,31 @@
 		crIcdCode = '';
 		crIcdDescription = '';
 		crDiagnosisSuggestions = [];
+	}
+
+	function vitalFormDisplayLabel(form: FormDefinition) {
+		const suffix = [form.department, form.procedure_name].filter(Boolean).join(' · ');
+		return suffix ? `${form.name} · ${suffix}` : form.name;
+	}
+
+	function setDefaultVitalFormSelection() {
+		const defaultForm = vitalFormOptions[0] || defaultVitalForm;
+		selectedVitalFormId = defaultForm.id;
+		vitalFormSearch = vitalFormDisplayLabel(defaultForm);
+	}
+
+	function handleVitalFormSelect(form: FormDefinition) {
+		selectedVitalFormId = form.id;
+		vitalFormSearch = vitalFormDisplayLabel(form);
+	}
+
+	function handleVitalFormClear() {
+		setDefaultVitalFormSelection();
+	}
+
+	function openVitalModal() {
+		resetVitalForm();
+		showAddVitalModal = true;
 	}
 
 	// ── Add Vital form ────────────────────────────────────────────
@@ -717,6 +795,7 @@
 	// ── Vital Submit ──────────────────────────────────────────────
 	function resetVitalForm() {
 		vitalFormData = {};
+		setDefaultVitalFormSelection();
 	}
 
 	async function submitVital() {
@@ -724,11 +803,12 @@
 		vSubmitting = true;
 		try {
 			const submittedValues = await persistFormFiles(
-				vitalEntryFields,
+				selectedVitalFields,
 				vitalFormData,
 				(file, options) => formsApi.uploadFile(file, options),
 				'patient-profile-vital'
 			);
+			const urineOutput = asOptionalNumber(submittedValues.urine_output_ml);
 			await patientApi.createVital(patient.id, {
 				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
 				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
@@ -742,9 +822,27 @@
 				bmi: asOptionalNumber(submittedValues.bmi),
 				recorded_by: studentData?.name || 'Student',
 			});
+			if (urineOutput) {
+				if (currentAdmission?.id) {
+					try {
+						await patientApi.addIOEvent(currentAdmission.id, {
+							event_time: new Date().toISOString(),
+							event_type: 'URINE',
+							amount_ml: urineOutput,
+							description: 'Quick vital entry',
+						});
+					} catch (error) {
+						console.error('Failed to record urine output', error);
+						toastStore.addToast('Vital saved, but urine output could not be recorded.', 'error');
+					}
+				} else {
+					toastStore.addToast('Vital saved. Urine output requires an active admission.', 'info');
+				}
+			}
 			vitals = await patientApi.getVitals(patient.id, 30);
 			showAddVitalModal = false;
 			resetVitalForm();
+			toastStore.addToast('Vital entry saved.', 'success');
 		} catch (err) { console.error('Failed to save vital', err); }
 		finally { vSubmitting = false; }
 	}
@@ -1414,7 +1512,7 @@
 					<div class="flex flex-wrap items-center gap-2">
 						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
 							style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #2563eb; border: 1px solid rgba(59,130,246,0.22);"
-							onclick={() => showAddVitalModal = true}>
+							onclick={openVitalModal}>
 							MANUAL ENTRY
 						</button>
 						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
@@ -1978,31 +2076,125 @@
 {#if showAddVitalModal}
 <AquaModal onclose={() => { showAddVitalModal = false; resetVitalForm(); }}>
 	{#snippet header()}
-		<div class="flex items-center gap-2">
-			<HeartPulse class="w-5 h-5 text-blue-600" />
-			<span class="font-semibold text-gray-800">Add New Vital Reading</span>
+		<div class="flex items-center gap-3">
+			<div class="flex h-12 w-12 items-center justify-center rounded-full"
+				style="background: radial-gradient(circle at 30% 30%, #ff5b5b, #d40000 72%); box-shadow: 0 3px 8px rgba(212,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.35);">
+				<HeartPulse class="h-6 w-6 text-white" />
+			</div>
+			<div>
+				<h3 class="text-[1.7rem] font-black leading-none text-slate-900">Quick Vital Entry</h3>
+				<p class="mt-1 text-[0.72rem] font-black uppercase tracking-[0.24em] text-red-600">Major Parameters</p>
+			</div>
 		</div>
 	{/snippet}
 
-	<div class="space-y-4">
-		<DynamicFormRenderer
-			fields={vitalEntryFields}
-			bind:values={vitalFormData}
-			idPrefix="patient-profile-vital"
-		/>
+	<div class="space-y-5">
+		<div>
+			<label for="vital-form" class="mb-1.5 block text-sm font-medium text-slate-700">
+				Vital Form
+			</label>
+			<Autocomplete
+				items={filteredVitalForms}
+				labelKey="name"
+				sublabelKey="meta"
+				badgeKey="badge"
+				minChars={0}
+				placeholder="Search available vital forms..."
+				bind:value={vitalFormSearch}
+				onSelect={handleVitalFormSelect}
+				onClear={handleVitalFormClear}
+			/>
+			{#if selectedVitalForm?.description}
+				<p class="mt-1.5 text-xs text-slate-500">{selectedVitalForm.description}</p>
+			{/if}
+		</div>
+
+		<div class="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-slate-50/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+			<div class="mb-5 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Blood Pressure (mmHg)</div>
+			<div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+				<input
+					bind:value={vitalFormData.systolic_bp}
+					type="number"
+					placeholder="Sys"
+					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+				/>
+				<div class="pb-1 text-4xl font-black text-slate-400">/</div>
+				<input
+					bind:value={vitalFormData.diastolic_bp}
+					type="number"
+					placeholder="Dia"
+					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+				/>
+			</div>
+
+			<div class="mt-6 grid gap-5 sm:grid-cols-2">
+				<div>
+					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Pulse (bpm)</div>
+					<input
+						bind:value={vitalFormData.heart_rate}
+						type="number"
+						placeholder="72"
+						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					/>
+				</div>
+				<div>
+					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Resp. Rate (min)</div>
+					<input
+						bind:value={vitalFormData.respiratory_rate}
+						type="number"
+						placeholder="16"
+						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					/>
+				</div>
+				<div>
+					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Urine Output (mL)</div>
+					<input
+						bind:value={vitalFormData.urine_output_ml}
+						type="number"
+						placeholder="300"
+						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					/>
+					{#if !currentAdmission}
+						<p class="mt-1.5 text-[11px] text-slate-400">Saved only when the patient has an active admission.</p>
+					{/if}
+				</div>
+				<div>
+					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Glucose (mg/dL)</div>
+					<input
+						bind:value={vitalFormData.blood_glucose}
+						type="number"
+						placeholder="110"
+						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					/>
+				</div>
+			</div>
+		</div>
+
+		{#if supplementalVitalFields.length > 0}
+			<div class="rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+				<div class="mb-3 text-[0.72rem] font-black uppercase tracking-[0.24em] text-slate-500">Additional Fields</div>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<DynamicFormRenderer
+						fields={supplementalVitalFields}
+						bind:values={vitalFormData}
+						idPrefix="patient-profile-vital"
+					/>
+				</div>
+			</div>
+		{/if}
 	</div>
-	<div class="flex justify-end gap-2 mt-6">
-		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
-			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
-			       box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.8);"
+	<div class="mt-6 flex justify-end gap-3 border-t border-slate-200 pt-5">
+		<button class="min-w-[9.25rem] rounded-2xl px-5 py-3 text-sm font-black tracking-wide text-slate-500 cursor-pointer"
+			style="background: linear-gradient(to bottom, #f8fafc, #dfe7f1); border: 1px solid rgba(148,163,184,0.26);
+			       box-shadow: 0 4px 10px rgba(148,163,184,0.16), inset 0 1px 0 rgba(255,255,255,0.92);"
 			onclick={() => { showAddVitalModal = false; resetVitalForm(); }}
 			disabled={vSubmitting}>Cancel</button>
-		<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #4d90fe, #0066cc); border: 1px solid rgba(0,0,0,0.2);
-			       box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
+		<button class="min-w-[13rem] rounded-2xl px-6 py-3 text-sm font-black uppercase tracking-[0.08em] text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #ff5b5b, #d40000 72%); border: 1px solid rgba(117,0,0,0.35);
+			       box-shadow: 0 8px 18px rgba(212,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.32);"
 			onclick={submitVital}
 			disabled={vSubmitting}>
-			{vSubmitting ? 'Saving...' : 'Save Vital'}
+			{vSubmitting ? 'Saving...' : 'Save All Entries'}
 		</button>
 	</div>
 </AquaModal>

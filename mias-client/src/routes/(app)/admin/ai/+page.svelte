@@ -114,6 +114,11 @@
 			testing = false;
 		}
 	}
+
+	function truncateMiddle(value: string, maxLength = 28, startChars = 10, endChars = 8) {
+		if (value.length <= maxLength) return value;
+		return `${value.slice(0, startChars)}...${value.slice(-endChars)}`;
+	}
 </script>
 
 <AdminScaffold
@@ -292,7 +297,7 @@
 						<p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Saved Configuration</p>
 						<div class="mt-3 space-y-3 text-sm text-slate-600">
 							<div class="flex items-center gap-2"><Bot class="h-4 w-4 text-slate-400" /> {config?.provider || 'OPENAI'} · {config?.model || 'Not set'}</div>
-							<div class="flex items-center gap-2"><KeyRound class="h-4 w-4 text-slate-400" /> {config?.masked_api_key || 'No API key saved'}</div>
+							<div class="flex items-center gap-2"><KeyRound class="h-4 w-4 text-slate-400" /> {config?.masked_api_key ? truncateMiddle(config.masked_api_key) : 'No API key saved'}</div>
 							<div class="flex items-center gap-2"><Link2 class="h-4 w-4 text-slate-400" /> {config?.base_url || 'Using provider default endpoint'}</div>
 						</div>
 					</div>
