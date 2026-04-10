@@ -20,13 +20,26 @@ export interface WardPatient {
   patient_id: string;
   name: string;
   age: number;
-  gender: string;
+  gender: string | null;
+  ward: string;
   bed_number: string;
   admission_id: string;
   admission_date: string | null;
   primary_diagnosis: string | null;
   pending_tasks: number;
   admission_status: string;
+}
+
+export interface NewlyRegisteredPatient {
+  id: string;
+  patient_id: string;
+  name: string;
+  age: number | null;
+  gender: string | null;
+  phone: string | null;
+  registered_at: string;
+  has_appointment: boolean;
+  has_admission: boolean;
 }
 
 export interface StationSelection {
@@ -81,7 +94,7 @@ export const nurseApi = {
     return response.data;
   },
 
-  async getWardPatients(): Promise<{ nurse: { name: string; hospital: string; ward: string; shift: string }; patients: WardPatient[] }> {
+  async getWardPatients(): Promise<{ nurse: { name: string; hospital: string; ward: string; shift: string }; patients: WardPatient[]; newly_registered: NewlyRegisteredPatient[] }> {
     const response = await client.get('/nurses/ward-patients');
     return response.data;
   },

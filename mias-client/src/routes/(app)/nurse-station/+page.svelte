@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
-	import { nurseApi, type WardPatient, type NurseOrder, type SBARNote } from '$lib/api/nurse';
+	import { nurseApi, type WardPatient, type NurseOrder, type NewlyRegisteredPatient } from '$lib/api/nurse';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -13,10 +13,29 @@
 	let loading = $state(true);
 	let nurseInfo = $state<{ name: string; hospital: string; ward: string; shift: string } | null>(null);
 	let patients = $state<WardPatient[]>([]);
+	let newlyRegisteredPatients = $state<NewlyRegisteredPatient[]>([]);
 	let expandedPatientId = $state<string | null>(null);
 	let currentPatientOrders = $state<NurseOrder[]>([]);
 	let sbarForm = $state({ situation: '', background: '', assessment: '', recommendation: '' });
 	let savingSBAR = $state(false);
+
+	function formatAge(age: number | null) {
+		return age === null ? 'Age N/A' : `${age} yrs`;
+	}
+
+	function formatGender(gender: string | null) {
+		if (!gender) return 'Unknown';
+		return gender.charAt(0).toUpperCase() + gender.slice(1).toLowerCase();
+	}
+
+	function formatRegisteredAt(value: string) {
+		return new Date(value).toLocaleString('en-IN', {
+			day: '2-digit',
+			month: 'short',
+			hour: '2-digit',
+			minute: '2-digit'
+		});
+	}
 
 	async function togglePatient(patient: WardPatient) {
 		if (expandedPatientId === patient.id) {
@@ -83,6 +102,7 @@
 			const data = await nurseApi.getWardPatients();
 			nurseInfo = data.nurse;
 			patients = data.patients;
+			newlyRegisteredPatients = data.newly_registered;
 		} catch (error: any) {
 			console.error('Error loading ward data:', error);
 			toastStore.addToast(error.response?.data?.detail || 'Failed to load ward data', 'error');
@@ -130,7 +150,14 @@
 					style="background: linear-gradient(to bottom, #dbeafe, #bfdbfe); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);"
 				>
 					<div class="text-2xl font-bold text-blue-900">{patients.length}</div>
-					<div class="text-xs font-medium text-blue-700 uppercase">Patients</div>
+					<div class="text-xs font-medium text-blue-700 uppercase">Ward Patients</div>
+				</div>
+				<div
+					class="flex-1 px-4 py-3 rounded-xl text-center"
+					style="background: linear-gradient(to bottom, #dcfce7, #bbf7d0); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);"
+				>
+					<div class="text-2xl font-bold text-green-900">{newlyRegisteredPatients.length}</div>
+					<div class="text-xs font-medium text-green-700 uppercase">New Registrations</div>
 				</div>
 				<div
 					class="flex-1 px-4 py-3 rounded-xl text-center"
@@ -142,20 +169,60 @@
 			</div>
 		</AquaCard>
 
+		<AquaCard padding={false}>
+			{#snippet header()}
+				<div class="flex items-center gap-2">
+					<FileText class="w-5 h-5 text-green-600" />
+					<h2 class="text-base font-bold text-gray-800">Newly Registered Patients</h2>
+				</div>
+				<p class="text-xs text-gray-500 mt-1">Recent registrations visible to all nurses</p>
+			{/snippet}
+
+			<div class="divide-y divide-gray-200">
+				{#if newlyRegisteredPatients.length === 0}
+					<div class="px-4 py-8 text-center text-gray-500">
+						<p class="text-sm">No newly registered patients found</p>
+					</div>
+				{:else}
+					{#each newlyRegisteredPatients as patient (patient.id)}
+						<div class="px-4 py-3 hover:bg-gray-50 transition-colors">
+							<div class="flex items-start gap-3">
+								<Avatar name={patient.name} size="md" />
+								<div class="flex-1 min-w-0">
+									<div class="flex items-center gap-2 flex-wrap">
+										<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>
+										<StatusBadge variant={patient.has_admission ? 'success' : patient.has_appointment ? 'warning' : 'info'} size="sm">
+											{patient.has_admission ? 'Admitted' : patient.has_appointment ? 'Assigned' : 'Unassigned'}
+										</StatusBadge>
+									</div>
+									<p class="text-xs text-gray-600">
+										{formatAge(patient.age)} • {formatGender(patient.gender)}
+									</p>
+									<p class="text-xs text-gray-500 mt-1">
+										{patient.patient_id} • {patient.phone || 'No phone'} • Registered {formatRegisteredAt(patient.registered_at)}
+									</p>
+								</div>
+							</div>
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</AquaCard>
+
 		<!-- Ward Patients Section -->
 		<AquaCard padding={false}>
 			{#snippet header()}
 				<div class="flex items-center gap-2">
 					<FileText class="w-5 h-5 text-blue-600" />
-					<h2 class="text-base font-bold text-gray-800">Ward Patients — SBAR Notes</h2>
+					<h2 class="text-base font-bold text-gray-800">All Ward Patients — SBAR Notes</h2>
 				</div>
-				<p class="text-xs text-gray-500 mt-1">Click a patient to write SBAR notes</p>
+				<p class="text-xs text-gray-500 mt-1">Active admissions across all wards. Click a patient to write SBAR notes</p>
 			{/snippet}
 
 			<div class="divide-y divide-gray-200">
 				{#if patients.length === 0}
 					<div class="px-4 py-8 text-center text-gray-500">
-						<p class="text-sm">No patients assigned to this ward</p>
+						<p class="text-sm">No active ward patients found</p>
 					</div>
 				{:else}
 					{#each patients as patient (patient.id)}
@@ -172,6 +239,9 @@
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-2">
 											<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>
+											<StatusBadge variant="normal" size="sm">
+												{patient.ward}
+											</StatusBadge>
 											<StatusBadge
 												variant={patient.bed_number.startsWith('ICU') ? 'critical' : 'info'}
 												size="sm"
@@ -180,7 +250,7 @@
 											</StatusBadge>
 										</div>
 										<p class="text-xs text-gray-600">
-											{patient.age} yrs • {patient.gender.charAt(0).toUpperCase()} • {patient.pending_tasks} pending
+											{formatAge(patient.age)} • {formatGender(patient.gender)} • {patient.pending_tasks} pending
 										</p>
 									</div>
 									<div class="flex items-center gap-2">

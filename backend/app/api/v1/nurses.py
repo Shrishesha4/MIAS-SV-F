@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import uuid
 
 from app.database import get_db
@@ -12,8 +12,9 @@ from app.models.user import User, UserRole
 from app.models.nurse import Nurse, NurseNotification
 from app.models.nurse_order import NurseOrder
 from app.models.sbar_note import SBARNote
-from app.models.patient import Patient
+from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
+from app.models.student import ClinicAppointment
 from app.schemas.nurse import NurseResponse, NurseUpdate, NurseStationSelect, SBARNoteCreate
 
 
@@ -137,7 +138,7 @@ async def get_ward_patients(
     user: User = Depends(require_role(UserRole.NURSE)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all patients currently in the nurse's assigned ward"""
+    """Get all active ward patients and newly registered patients visible to nurses."""
     result = await db.execute(
         select(Nurse).where(Nurse.user_id == user.id)
     )
@@ -149,12 +150,11 @@ async def get_ward_patients(
     if not nurse.has_selected_station:
         raise HTTPException(status_code=400, detail="Nurse has not selected a station yet")
 
-    # Get all active admissions for the nurse's assigned ward
+    # All nurses can see all currently admitted ward patients.
     result = await db.execute(
         select(Admission)
         .options(selectinload(Admission.patient))
         .where(Admission.status == "Active")
-        .where(Admission.ward == nurse.ward)
         .order_by(Admission.admission_date.desc())
     )
     admissions = result.scalars().all()
@@ -174,7 +174,8 @@ async def get_ward_patients(
                 "patient_id": patient.patient_id,
                 "name": patient.name,
                 "age": age,
-                "gender": patient.gender,
+                "gender": patient.gender.value if patient.gender else None,
+                "ward": admission.ward or "General Ward",
                 "bed_number": admission.bed_number or "N/A",
                 "admission_id": admission.id,
                 "admission_date": admission.admission_date.isoformat() if admission.admission_date else None,
@@ -182,6 +183,46 @@ async def get_ward_patients(
                 "pending_tasks": pending_count,
                 "admission_status": admission.status,
             })
+
+    recent_cutoff = datetime.utcnow() - timedelta(days=7)
+    recent_patients_result = await db.execute(
+        select(Patient)
+        .where(Patient.created_at >= recent_cutoff)
+        .order_by(Patient.created_at.desc())
+        .limit(50)
+    )
+    recent_patients = recent_patients_result.scalars().all()
+
+    newly_registered = []
+    for patient in recent_patients:
+        appointment_result = await db.execute(
+            select(func.count(Appointment.id)).where(Appointment.patient_id == patient.id)
+        )
+        clinic_appointment_result = await db.execute(
+            select(func.count(ClinicAppointment.id)).where(ClinicAppointment.patient_id == patient.id)
+        )
+        admission_result = await db.execute(
+            select(func.count(Admission.id)).where(Admission.patient_id == patient.id)
+        )
+
+        has_appointment = ((appointment_result.scalar() or 0) > 0) or ((clinic_appointment_result.scalar() or 0) > 0)
+        has_admission = (admission_result.scalar() or 0) > 0
+
+        age = None
+        if patient.date_of_birth:
+            age = (date.today() - patient.date_of_birth).days // 365
+
+        newly_registered.append({
+            "id": patient.id,
+            "patient_id": patient.patient_id,
+            "name": patient.name,
+            "age": age,
+            "gender": patient.gender.value if patient.gender else None,
+            "phone": patient.phone,
+            "registered_at": patient.created_at.isoformat(),
+            "has_appointment": has_appointment,
+            "has_admission": has_admission,
+        })
 
     return {
         "nurse": {
@@ -191,6 +232,7 @@ async def get_ward_patients(
             "shift": nurse.shift,
         },
         "patients": patients_data,
+        "newly_registered": newly_registered,
     }
 
 
