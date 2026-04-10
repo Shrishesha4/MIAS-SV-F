@@ -92,7 +92,7 @@
 		},
 		{
 			icon: FileCheck,
-			label: 'Discharge Summary Approvals',
+			label: 'Discharge Approvals',
 			count: approvalStats.discharge_summaries,
 			path: '/approvals?type=discharge',
 			color: '#8b5cf6',
@@ -140,6 +140,14 @@
 			p.patient_id?.toLowerCase().includes(search)
 		);
 	});
+
+	function openPatientCaseLog(patientId?: string | null) {
+		if (!patientId) {
+			toastStore.addToast('Patient record is not available', 'error');
+			return;
+		}
+		void goto(`/patients/${patientId}`);
+	}
 
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '';
@@ -735,7 +743,11 @@
 			<div class="max-h-96 overflow-y-auto">
 				{#if facultyTab === 'admitted'}
 					{#each filteredAdmittedPatients as patient}
-						<div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+						<button
+							class="w-full p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left cursor-pointer"
+							onclick={() => openPatientCaseLog(patient.patient_id)}
+							type="button"
+						>
 							<div class="flex items-start gap-3">
 								<Avatar name={patient.patient_name || 'Patient'} size="md" />
 								<div class="flex-1 min-w-0">
@@ -765,7 +777,7 @@
 									</div>
 								</div>
 							</div>
-						</div>
+						</button>
 					{/each}
 					{#if filteredAdmittedPatients.length === 0}
 						<div class="py-12 text-center">
@@ -775,7 +787,11 @@
 					{/if}
 				{:else if facultyTab === 'clinic'}
 					{#each filteredClinicPatients as patient}
-						<div class="p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors">
+						<button
+							class="w-full p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left cursor-pointer"
+							onclick={() => openPatientCaseLog(patient.patient_db_id)}
+							type="button"
+						>
 							<div class="flex items-start gap-3">
 								<Avatar name={patient.patient_name || 'Patient'} size="md" />
 								<div class="flex-1 min-w-0">
@@ -795,7 +811,7 @@
 									</div>
 								</div>
 							</div>
-						</div>
+						</button>
 					{/each}
 					{#if filteredClinicPatients.length === 0}
 						<div class="py-12 text-center">

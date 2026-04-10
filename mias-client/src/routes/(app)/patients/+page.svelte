@@ -81,7 +81,7 @@
 		},
 		{
 			icon: FileCheck,
-			label: 'Discharge Summary Approvals',
+			label: 'Discharge Approvals',
 			count: approvalStats.discharge_summaries,
 			path: '/approvals?type=discharge',
 			color: '#8b5cf6',

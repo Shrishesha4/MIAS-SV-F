@@ -12,6 +12,8 @@
 	let ward = $state('');
 	let shift = $state('');
 	let loading = $state(false);
+	let wards = $state.raw<string[]>([]);
+	let wardsLoading = $state(false);
 
 	const HOSPITALS = [
 		'Saveetha Medical College Hospital',
@@ -19,23 +21,24 @@
 		'Saveetha General Hospital',
 	];
 
-	const WARDS = [
-		'ICU Ward A',
-		'ICU Ward B',
-		'General Ward 1',
-		'General Ward 2',
-		'Pediatric Ward',
-		'Maternity Ward',
-		'Surgical Ward',
-		'Medical Ward',
-		'Emergency Department',
-	];
-
 	const SHIFTS = [
 		'Morning Shift (08:00-16:00)',
 		'Evening Shift (16:00-00:00)',
 		'Night Shift (00:00-08:00)',
 	];
+
+	async function loadAvailableWards() {
+		wardsLoading = true;
+		try {
+			wards = await nurseApi.getAvailableWards();
+		} catch (error: any) {
+			console.error('Error loading wards:', error);
+			toastStore.addToast(error.response?.data?.detail || 'Failed to load wards', 'error');
+			wards = [];
+		} finally {
+			wardsLoading = false;
+		}
+	}
 
 	async function handleSubmit() {
 		if (!hospital || !ward) {
@@ -65,7 +68,9 @@
 		const auth = get(authStore);
 		if (auth.role !== 'NURSE') {
 			goto('/dashboard');
+			return;
 		}
+		void loadAvailableWards();
 	});
 </script>
 
@@ -120,15 +125,19 @@
 						<label class="block text-sm font-semibold text-gray-700 mb-2">Ward / Station *</label>
 						<select
 							bind:value={ward}
+							disabled={wardsLoading || wards.length === 0}
 							class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:outline-none transition-colors"
 							style="background: linear-gradient(to bottom, #ffffff, #f9fafb);"
 							required
 						>
-							<option value="">Select a ward</option>
-							{#each WARDS as w}
+							<option value="">{wardsLoading ? 'Loading wards...' : (wards.length === 0 ? 'No wards available' : 'Select a ward')}</option>
+							{#each wards as w}
 								<option value={w}>{w}</option>
 							{/each}
 						</select>
+						{#if !wardsLoading && wards.length === 0}
+							<p class="mt-2 text-xs text-gray-500">No created wards are available yet.</p>
+						{/if}
 					</div>
 
 					<!-- Shift Selection (Optional) -->

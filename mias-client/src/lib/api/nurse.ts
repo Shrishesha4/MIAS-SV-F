@@ -71,6 +71,11 @@ export const nurseApi = {
     return response.data;
   },
 
+  async getAvailableWards(): Promise<string[]> {
+    const response = await client.get('/nurses/wards');
+    return response.data;
+  },
+
   async updateProfile(data: Partial<Nurse>): Promise<Nurse> {
     const response = await client.put('/nurses/me', data);
     return response.data;

@@ -14,23 +14,13 @@
 	let saving = $state(false);
 	let nurse = $state<Nurse | null>(null);
 	let editMode = $state(false);
+	let wards = $state.raw<string[]>([]);
+	let wardsLoading = $state(false);
 
 	const HOSPITALS = [
 		'SMC Hospital Main',
 		'SMC Dental Clinic',
 		'SMC Community Health Center',
-	];
-
-	const WARDS = [
-		'ICU',
-		'General Ward A',
-		'General Ward B',
-		'Pediatrics',
-		'Cardiology',
-		'Maternity',
-		'Emergency',
-		'Surgery',
-		'Orthopedics',
 	];
 
 	const SHIFTS = ['Morning (6AM-2PM)', 'Evening (2PM-10PM)', 'Night (10PM-6AM)', 'All Day'];
@@ -46,13 +36,20 @@
 	async function loadProfile() {
 		try {
 			loading = true;
-			nurse = await nurseApi.getMe();
+			const [nurseProfile, availableWards]: [Nurse, string[]] = await Promise.all([
+				nurseApi.getMe(),
+				nurseApi.getAvailableWards().catch((): string[] => []),
+			]);
+			nurse = nurseProfile;
+			wards = nurseProfile.ward && !availableWards.includes(nurseProfile.ward)
+				? [...availableWards, nurseProfile.ward].sort()
+				: availableWards;
 			form = {
-				hospital: nurse.hospital || '',
-				ward: nurse.ward || '',
-				shift: nurse.shift || '',
-				phone: nurse.phone || '',
-				email: nurse.email || '',
+				hospital: nurseProfile.hospital || '',
+				ward: nurseProfile.ward || '',
+				shift: nurseProfile.shift || '',
+				phone: nurseProfile.phone || '',
+				email: nurseProfile.email || '',
 			};
 		} catch (error: any) {
 			console.error('Error loading profile:', error);
@@ -79,6 +76,23 @@
 			toastStore.addToast(error.response?.data?.detail || 'Failed to update profile', 'error');
 		} finally {
 			saving = false;
+		}
+	}
+
+	async function refreshAvailableWards() {
+		wardsLoading = true;
+		try {
+			const availableWards = await nurseApi.getAvailableWards();
+			if (form.ward && !availableWards.includes(form.ward)) {
+				wards = [...availableWards, form.ward].sort();
+			} else {
+				wards = availableWards;
+			}
+		} catch (error: any) {
+			console.error('Error loading wards:', error);
+			toastStore.addToast(error.response?.data?.detail || 'Failed to load wards', 'error');
+		} finally {
+			wardsLoading = false;
 		}
 	}
 
@@ -177,13 +191,18 @@
 					{#if editMode}
 						<select
 							bind:value={form.ward}
+							disabled={wardsLoading || wards.length === 0}
 							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							onfocus={refreshAvailableWards}
 						>
-							<option value="">Select Ward</option>
-							{#each WARDS as ward}
+							<option value="">{wardsLoading ? 'Loading wards...' : (wards.length === 0 ? 'No wards available' : 'Select Ward')}</option>
+							{#each wards as ward}
 								<option value={ward}>{ward}</option>
 							{/each}
 						</select>
+						{#if !wardsLoading && wards.length === 0}
+							<p class="mt-2 text-xs text-gray-500">No created wards are available yet.</p>
+						{/if}
 					{:else}
 						<p class="text-base text-gray-900">{form.ward || 'Not assigned'}</p>
 					{/if}

@@ -20,6 +20,36 @@ from app.schemas.nurse import NurseResponse, NurseUpdate, NurseStationSelect, SB
 router = APIRouter(prefix="/nurses", tags=["Nurses"])
 
 
+@router.get("/wards", response_model=List[str])
+async def list_available_wards(
+    user: User = Depends(require_role(UserRole.NURSE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return distinct ward names derived from admissions data."""
+    nurse_result = await db.execute(
+        select(Nurse).where(Nurse.user_id == user.id)
+    )
+    nurse = nurse_result.scalar_one_or_none()
+
+    if not nurse:
+        raise HTTPException(status_code=404, detail="Nurse profile not found")
+
+    ward_result = await db.execute(
+        select(Admission.ward)
+        .where(Admission.ward.is_not(None))
+        .where(Admission.ward != "")
+        .distinct()
+        .order_by(Admission.ward.asc())
+    )
+
+    wards = [ward for ward in ward_result.scalars().all() if ward]
+    if nurse.ward and nurse.ward not in wards:
+        wards.append(nurse.ward)
+        wards.sort()
+
+    return wards
+
+
 @router.get("/me", response_model=NurseResponse)
 async def get_current_nurse(
     user: User = Depends(require_role(UserRole.NURSE)),
@@ -119,12 +149,12 @@ async def get_ward_patients(
     if not nurse.has_selected_station:
         raise HTTPException(status_code=400, detail="Nurse has not selected a station yet")
 
-    # Get all active admissions for the nurse's ward
-    # This is a simplified version - you might want to add a ward field to Admission model
+    # Get all active admissions for the nurse's assigned ward
     result = await db.execute(
         select(Admission)
         .options(selectinload(Admission.patient))
         .where(Admission.status == "Active")
+        .where(Admission.ward == nurse.ward)
         .order_by(Admission.admission_date.desc())
     )
     admissions = result.scalars().all()

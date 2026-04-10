@@ -34,7 +34,7 @@
     // Approval type titles
     const typeLabels: Record<string, string> = {
         'case-records': 'Case Record Approvals',
-        'discharge': 'Discharge Summary Approvals',
+        'discharge': 'Discharge Approvals',
         'admissions': 'Admission Approvals',
         'prescriptions': 'Prescription Approvals',
     };
