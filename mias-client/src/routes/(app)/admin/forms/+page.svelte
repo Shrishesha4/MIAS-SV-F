@@ -130,13 +130,6 @@
 		showFormEditor = true;
 	}
 
-	function setEditorSection(section: FormSection) {
-		formEditorSection = section;
-		if (!editingFormId && section !== activeSection) {
-			activeSection = section;
-		}
-	}
-
 	function addFormField() {
 		formEditorFields = [
 			...formEditorFields,
@@ -369,22 +362,12 @@
 	{#if showFormEditor}
 		<div class="fixed inset-0 z-50 flex items-center justify-center px-3 py-3" style="background: rgba(148, 163, 184, 0.42); backdrop-filter: blur(8px);">
 			<div class="w-full max-w-[900px] overflow-hidden rounded-[20px] border border-slate-200" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb); box-shadow: 0 18px 42px rgba(15,23,42,0.2), inset 0 1px 0 rgba(255,255,255,0.7); max-height: calc(100vh - 1.5rem); overflow-y: auto;">
-				<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-300 px-5 py-3 md:px-6">
-					<div class="flex flex-wrap items-center gap-6">
+				<div class="flex items-center justify-between gap-3 border-b border-slate-300 px-5 py-3 md:px-6">
+					<div class="flex items-center gap-3">
 						<h3 class="text-sm font-bold text-slate-900">Form Configuration</h3>
-						<div class="rounded-[12px] p-1 flex flex-wrap gap-1" style="background: linear-gradient(to bottom, #eef2f7, #e2e8f0); border: 1px solid rgba(148,163,184,0.22);">
-							{#each sectionTabs as section}
-								<button
-									onclick={() => setEditorSection(section)}
-									class="rounded-[10px] px-3 py-1.5 text-[10px] font-bold tracking-[0.1em] cursor-pointer"
-									style={formEditorSection === section
-										? 'background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #2563eb; box-shadow: 0 4px 10px rgba(15,23,42,0.08);'
-										: 'background: transparent; color: #5b6473;'}
-								>
-									{section}
-								</button>
-							{/each}
-						</div>
+						<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
+							{formEditorSection}
+						</span>
 					</div>
 					<button onclick={resetFormEditor} class="text-slate-400 hover:text-slate-700 cursor-pointer" aria-label="Close form editor">
 						<X class="w-5 h-5" />
