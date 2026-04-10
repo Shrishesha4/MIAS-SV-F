@@ -6,13 +6,15 @@ services:
       POSTGRES_USER: mias
       POSTGRES_PASSWORD: mias_secret
       POSTGRES_DB: mias_mp
+      PGPORT: 5434
     ports:
-      - "5433:5432"
+      - "5434:5434"
     volumes:
       - pgdata:/var/lib/postgresql/data
     # PostgreSQL performance tuning for 2000+ concurrent users
     command: >
       postgres
+      -p 5434
       -c max_connections=200
       -c shared_buffers=256MB
       -c effective_cache_size=768MB
@@ -22,7 +24,7 @@ services:
       -c wal_buffers=16MB
       -c default_statistics_target=100
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mias -d mias_mp"]
+      test: ["CMD-SHELL", "pg_isready -U mias -d mias_mp -p 5434"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -31,12 +33,12 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6381:6381"
     volumes:
       - redisdata:/data
-    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    command: redis-server --port 6381 --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6381", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -47,12 +49,12 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "8001:8000"
+      - "8081:8000"
     volumes:
       - uploads_data:/app/uploads
     environment:
-      DATABASE_URL: postgresql://mias:mias_secret@db:5432/mias_mp
-      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://mias:mias_secret@db:5434/mias_mp
+      REDIS_URL: redis://redis:6381
       JWT_SECRET_KEY: mias-super-secret-jwt-key-change-in-production-256bit
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30
