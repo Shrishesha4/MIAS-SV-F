@@ -2090,9 +2090,9 @@
 
 	<div class="space-y-5">
 		<div>
-			<label for="vital-form" class="mb-1.5 block text-sm font-medium text-slate-700">
+			<div class="mb-1.5 block text-sm font-medium text-slate-700">
 				Vital Form
-			</label>
+			</div>
 			<Autocomplete
 				items={filteredVitalForms}
 				labelKey="name"

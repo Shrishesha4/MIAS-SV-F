@@ -428,6 +428,9 @@
 	</div>
 {:else if patient && admission}
 
+<!-- Max width container for narrower page -->
+<div class="mx-auto" style="max-width: 768px;">
+
 <!-- ── Top Header Bar ─────────────────────────────────────────── -->
 <div class="sticky top-0 z-30 px-4 py-3 flex items-center gap-3"
 	style="background: linear-gradient(to bottom, #1e3a5f, #162d4a); box-shadow: 0 2px 8px rgba(0,0,0,0.4);">
@@ -710,18 +713,18 @@
 								</div>
 
 								<!-- Line chart using SVG -->
-								<svg class="w-full h-full" preserveAspectRatio="none">
+								<svg class="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
 									<!-- Line path -->
 									<polyline
 										fill="none"
 										stroke={cfg.color}
-										stroke-width="2"
+										stroke-width="0.5"
 										stroke-linecap="round"
 										stroke-linejoin="round"
 										points={data.map((v, i) => {
 											const x = (i / (data.length - 1 || 1)) * 100;
 											const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
-											return `${x}%,${y}%`;
+											return `${x},${y}`;
 										}).join(' ')}
 									/>
 									<!-- Data points -->
@@ -731,9 +734,9 @@
 											{@const y = 100 - ((v - min) / range) * 100}
 											{@const isHovered = hoveredVitalIndex === i && hoveredVitalParam === param}
 											<circle 
-												cx="{x}%" 
-												cy="{y}%" 
-												r={isHovered ? "6" : "4"} 
+												cx="{x}" 
+												cy="{y}" 
+												r={isHovered ? "2" : "1.5"} 
 												fill={cfg.color}
 												role="button"
 												tabindex="0"
@@ -752,24 +755,26 @@
 									{@const diaMin = getChartMin(diaData)}
 									{@const diaMax = getChartMax(diaData)}
 									{@const diaRange = diaMax - diaMin || 1}
-									<svg class="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-										<polyline
-											fill="none"
-											stroke={cfg.color}
-											stroke-width="2"
-											stroke-dasharray="4 4"
-											stroke-linecap="round"
-											opacity="0.5"
-											points={diaData.map((v, i) => {
-												const x = (i / (diaData.length - 1 || 1)) * 100;
-												const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
-												return `${x}%,${y}%`;
+										<svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+											<polyline
+												fill="none"
+												stroke={cfg.color}
+												stroke-width="0.5"
+												stroke-dasharray="2 2"
+												stroke-linecap="round"
+												opacity="0.5"
+												points={diaData.map((v, i) => {
+													const x = (i / (diaData.length - 1 || 1)) * 100;
+													const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
+													return `${x},${y}`;
 											}).join(' ')}
 										/>
 									</svg>
 								{/if}
 							</div>
 
+						<!-- X-axis labels (times) -->
+						<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
 							<!-- X-axis labels (times) -->
 							<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
 								{#each sortedVitals as v, i}
@@ -1382,6 +1387,8 @@
 {/if}
 
 </div> <!-- /px-4 py-4 -->
+
+</div> <!-- /max-width container -->
 
 {:else if !loading}
 	<div class="flex flex-col items-center justify-center h-64 gap-3 px-8 text-center">
