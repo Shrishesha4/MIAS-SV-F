@@ -9,7 +9,20 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { Plus, Trash2, Pencil, IndianRupee } from 'lucide-svelte';
+	import { Plus, Trash2, Pencil, IndianRupee, Check, X } from 'lucide-svelte';
+
+	type ChargeMetaDraft = {
+		name: string;
+		item_code: string;
+		category: ChargeCategory;
+		description: string;
+	};
+
+	type PriceEditState = {
+		chargeId: string;
+		tier: ChargeTier;
+		value: string;
+	};
 
 	const auth = get(authStore);
 	let loading = $state(true);
@@ -43,6 +56,16 @@
 		prices: { CLASSIC: 0, PRIME: 0, ELITE: 0, COMMUNITY: 0 }
 	});
 	let savingCharge = $state(false);
+	let editingMetaId = $state<string | null>(null);
+	let metaDraft = $state<ChargeMetaDraft>({
+		name: '',
+		item_code: '',
+		category: 'CLINICAL',
+		description: ''
+	});
+	let savingMeta = $state(false);
+	let editingPrice = $state<PriceEditState | null>(null);
+	let savingPrice = $state(false);
 
 	// Delete confirmation
 	let confirmModal = $state(false);
@@ -69,6 +92,92 @@
 		}
 	}
 
+	function updateChargeInState(updatedCharge: ChargeItem) {
+		charges = charges.map((charge) => (charge.id === updatedCharge.id ? updatedCharge : charge));
+	}
+
+	function startMetaEdit(charge: ChargeItem) {
+		editingPrice = null;
+		editingMetaId = charge.id;
+		metaDraft = {
+			name: charge.name,
+			item_code: charge.item_code,
+			category: charge.category,
+			description: charge.description || ''
+		};
+	}
+
+	function cancelMetaEdit() {
+		editingMetaId = null;
+		metaDraft = {
+			name: '',
+			item_code: '',
+			category: 'CLINICAL',
+			description: ''
+		};
+	}
+
+	async function saveMetaEdit(charge: ChargeItem) {
+		if (!metaDraft.name.trim() || !metaDraft.item_code.trim()) {
+			toastStore.addToast('Title and code are required', 'error');
+			return;
+		}
+
+		savingMeta = true;
+		try {
+			const updated = await chargesApi.update(charge.id, {
+				name: metaDraft.name.trim(),
+				item_code: metaDraft.item_code.trim(),
+				category: metaDraft.category,
+				description: metaDraft.description.trim() || undefined
+			});
+			updateChargeInState(updated);
+			cancelMetaEdit();
+			toastStore.addToast('Charge details updated', 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update charge details', 'error');
+		} finally {
+			savingMeta = false;
+		}
+	}
+
+	function startPriceEdit(charge: ChargeItem, tier: ChargeTier) {
+		editingMetaId = null;
+		editingPrice = {
+			chargeId: charge.id,
+			tier,
+			value: String(charge.prices[tier] ?? 0)
+		};
+	}
+
+	function cancelPriceEdit() {
+		editingPrice = null;
+	}
+
+	async function savePriceEdit(charge: ChargeItem) {
+		if (!editingPrice || editingPrice.chargeId !== charge.id) return;
+
+		const nextPrice = Number(editingPrice.value);
+		if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+			toastStore.addToast('Price must be a valid non-negative number', 'error');
+			return;
+		}
+
+		savingPrice = true;
+		try {
+			const updated = await chargesApi.update(charge.id, {
+				prices: { [editingPrice.tier]: nextPrice }
+			});
+			updateChargeInState(updated);
+			cancelPriceEdit();
+			toastStore.addToast('Price updated', 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update price', 'error');
+		} finally {
+			savingPrice = false;
+		}
+	}
+
 	function openCreateModal() {
 		editingCharge = null;
 		chargeData = {
@@ -78,19 +187,6 @@
 			description: '',
 			is_active: true,
 			prices: { CLASSIC: 0, PRIME: 0, ELITE: 0, COMMUNITY: 0 }
-		};
-		chargeModal = true;
-	}
-
-	function openEditModal(charge: ChargeItem) {
-		editingCharge = charge;
-		chargeData = {
-			name: charge.name,
-			item_code: charge.item_code,
-			category: charge.category,
-			description: charge.description || '',
-			is_active: charge.is_active,
-			prices: { ...charge.prices }
 		};
 		chargeModal = true;
 	}
@@ -185,30 +281,144 @@
 				</div>
 			{:else}
 				{#each filteredCharges as charge, i (charge.id)}
+					{@const isEditingMeta = editingMetaId === charge.id}
 					<div
 						class="grid grid-cols-6 gap-2 px-4 py-3 items-center group"
 						class:border-t={i > 0}
 						style={i > 0 ? 'border-color: rgba(0,0,0,0.06);' : ''}
 					>
 						<div class="col-span-2">
-							<div class="flex items-center gap-2">
-								<div>
-									<p class="font-semibold text-slate-900 text-sm">{charge.name}</p>
-									<p class="text-xs text-slate-500">{charge.item_code}</p>
+							{#if isEditingMeta}
+								<div class="space-y-2 rounded-xl border border-blue-200/70 bg-blue-50/55 p-3">
+									<input
+										type="text"
+										class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-900"
+										style="background: rgba(255,255,255,0.95);"
+										bind:value={metaDraft.name}
+										placeholder="Title"
+									/>
+									<div class="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+										<input
+											type="text"
+											class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+											style="background: rgba(255,255,255,0.95);"
+											bind:value={metaDraft.item_code}
+											placeholder="Code"
+										/>
+										<select
+											class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+											style="background: rgba(255,255,255,0.95);"
+											bind:value={metaDraft.category}
+										>
+											<option value="CLINICAL">Clinical</option>
+											<option value="LABS">Labs</option>
+											<option value="ADMIN">Admin</option>
+										</select>
+									</div>
+									<input
+										type="text"
+										class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+										style="background: rgba(255,255,255,0.95);"
+										bind:value={metaDraft.description}
+										placeholder="Description"
+									/>
+									<div class="flex items-center justify-end gap-1.5">
+										<button
+											onclick={() => saveMetaEdit(charge)}
+											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+											style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+											disabled={savingMeta}
+										>
+											<Check class="h-3.5 w-3.5" />
+										</button>
+										<button
+											onclick={cancelMetaEdit}
+											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+											style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
+											disabled={savingMeta}
+										>
+											<X class="h-3.5 w-3.5" />
+										</button>
+									</div>
 								</div>
-								<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-									<button onclick={() => openEditModal(charge)} class="p-1 text-slate-400 hover:text-blue-500">
-										<Pencil class="w-3.5 h-3.5" />
-									</button>
-									<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500">
-										<Trash2 class="w-3.5 h-3.5" />
-									</button>
+							{:else}
+								<div class="flex items-start gap-2">
+									<div class="min-w-0 flex-1">
+										<p class="font-semibold text-slate-900 text-sm">{charge.name}</p>
+										<div class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+											<span>{charge.item_code}</span>
+											<span class="rounded-full px-2 py-0.5 font-semibold"
+												style="background: rgba(59,130,246,0.1); color: #1d4ed8;">
+												{charge.category}
+											</span>
+										</div>
+										{#if charge.description}
+											<p class="mt-1 line-clamp-2 text-xs text-slate-400">{charge.description}</p>
+										{/if}
+									</div>
+									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
+											<Pencil class="w-3.5 h-3.5" />
+										</button>
+										<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
+											<Trash2 class="w-3.5 h-3.5" />
+										</button>
+									</div>
 								</div>
-							</div>
+							{/if}
 						</div>
 						{#each tiers as tier}
-							<div class="text-center">
-								<span class="text-sm font-semibold text-slate-800">{formatPrice(charge.prices[tier])}</span>
+							{@const isEditingThisPrice = editingPrice?.chargeId === charge.id && editingPrice?.tier === tier}
+							<div class="flex justify-center">
+								{#if isEditingThisPrice}
+									<div class="flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50/60 px-2 py-1">
+										<span class="text-xs font-semibold text-slate-500">₹</span>
+										<input
+											type="number"
+											min="0"
+											step="1"
+											class="w-16 bg-transparent text-center text-sm font-semibold text-slate-800 outline-none"
+											value={editingPrice?.value ?? ''}
+											oninput={(event) => {
+												if (editingPrice) {
+													editingPrice.value = (event.currentTarget as HTMLInputElement).value;
+												}
+											}}
+											onkeydown={(event) => {
+												if (event.key === 'Enter') {
+													savePriceEdit(charge);
+												}
+												if (event.key === 'Escape') {
+													cancelPriceEdit();
+												}
+											}}
+										/>
+										<button
+											onclick={() => savePriceEdit(charge)}
+											class="flex h-6 w-6 items-center justify-center rounded-full text-white cursor-pointer"
+											style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+											disabled={savingPrice}
+										>
+											<Check class="h-3 w-3" />
+										</button>
+										<button
+											onclick={cancelPriceEdit}
+											class="flex h-6 w-6 items-center justify-center rounded-full text-white cursor-pointer"
+											style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
+											disabled={savingPrice}
+										>
+											<X class="h-3 w-3" />
+										</button>
+									</div>
+								{:else}
+									<button
+										onclick={() => startPriceEdit(charge, tier)}
+										class="min-w-[92px] rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 cursor-pointer transition-colors hover:bg-slate-100"
+										style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
+									>
+										{formatPrice(charge.prices[tier])}
+									</button>
+								{/if}
 							</div>
 						{/each}
 					</div>

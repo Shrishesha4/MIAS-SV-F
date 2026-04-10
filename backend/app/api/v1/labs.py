@@ -10,6 +10,7 @@ from app.api.deps import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory, ChargeTier
 from app.core.exceptions import NotFoundException
+from app.services.charge_sync import sync_charge_sources
 
 router = APIRouter(prefix="/labs", tags=["Labs"])
 
@@ -574,6 +575,8 @@ async def list_charge_items(
     current_user: User = Depends(get_current_user),
 ):
     """List all charge items, optionally filtered by category"""
+    await sync_charge_sources(db)
+
     query = select(ChargeItem).options(selectinload(ChargeItem.prices))
     if category:
         query = query.where(ChargeItem.category == ChargeCategory(category))
