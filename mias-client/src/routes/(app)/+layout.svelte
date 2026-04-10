@@ -36,6 +36,7 @@
 	const sidebarOpen = $derived(sidebarPinned || sidebarHovered);
 
 	const currentPath = $derived(page.url.pathname);
+	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath);
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
 
 	const filteredMenuItems = $derived(
@@ -248,7 +249,7 @@
 
 		<main class="flex-1 pb-4">
 			<div class="content-container">
-				{#key currentPath}
+				{#key pageTransitionKey}
 					<div
 						class="page-transition-shell"
 						in:fly={{ y: 16, duration: 260, easing: cubicOut }}

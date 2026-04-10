@@ -4,8 +4,6 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { labsApi, type LabInfo, type LabTest, type LabTestGroup } from '$lib/api/labs';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
@@ -282,7 +280,6 @@
 	}
 </script>
 
-<AdminScaffold navItems={adminPageNavItems} title="Labs" activeNav="labs" titleIcon={FlaskConical}>
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -422,7 +419,6 @@
 			</div>
 		{/if}
 	{/if}
-</AdminScaffold>
 
 {#if labModal}
 	<AquaModal title={editingLab ? 'Edit Lab' : 'Add New Lab'} onclose={() => { labModal = false; }}>

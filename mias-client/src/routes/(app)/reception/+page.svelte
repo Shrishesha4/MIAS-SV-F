@@ -140,6 +140,19 @@
 			const patient = results[0];
 			const result = await clinicsApi.checkInPatient(selectedClinic.id, { patient_id: patient.id });
 			toastStore.addToast(result.message || `${patient.name} checked in successfully`, 'success');
+			
+			// Auto-assign to student if toggle is enabled
+			if (autoAssign) {
+				try {
+					const assignResult = await staffApi.autoAssignPatient(patient.id, selectedClinic.id);
+					toastStore.addToast(`Assigned to ${assignResult.student_name}`, 'success');
+				} catch (assignErr: any) {
+					// Don't fail the check-in, just warn about auto-assign failure
+					const detail = assignErr?.response?.data?.detail || 'Auto-assign failed';
+					toastStore.addToast(detail, 'warning');
+				}
+			}
+			
 			patientIdInput = '';
 			lookupError = '';
 			await loadClinicPatients();

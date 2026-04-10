@@ -41,5 +41,21 @@ export const staffApi = {
 	async assignToWard(data: AssignToWardRequest): Promise<{ id: string; admission_id: string }> {
 		const response = await client.post('/staff/assign-to-ward', data);
 		return response.data;
+	},
+
+	async autoAssignPatient(patientId: string, clinicId: string): Promise<{
+		message: string;
+		assignment_id: string;
+		patient_id: string;
+		patient_name: string;
+		student_id: string;
+		student_name: string;
+		student_patient_count: number;
+	}> {
+		const response = await client.post('/staff/auto-assign', {
+			patient_id: patientId,
+			clinic_id: clinicId,
+		});
+		return response.data;
 	}
 };

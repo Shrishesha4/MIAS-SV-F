@@ -7,9 +7,34 @@ from datetime import datetime, timedelta
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.vital import Vital
+from app.models.vital import Vital, VitalParameter
 
 router = APIRouter(prefix="/vitals", tags=["Vitals"])
+
+
+@router.get("/parameters")
+async def get_active_vital_parameters(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all active vital parameters for use in forms."""
+    result = await db.execute(
+        select(VitalParameter)
+        .where(VitalParameter.is_active == True)
+        .order_by(VitalParameter.category, VitalParameter.sort_order)
+    )
+    parameters = result.scalars().all()
+    return [
+        {
+            "name": p.name,
+            "display_name": p.display_name,
+            "category": p.category,
+            "unit": p.unit,
+            "min_value": p.min_value,
+            "max_value": p.max_value,
+        }
+        for p in parameters
+    ]
 
 
 @router.get("/latest/{patient_id}")

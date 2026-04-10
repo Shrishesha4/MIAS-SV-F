@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fade, scale, slide } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
@@ -34,6 +35,7 @@
 	} from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
@@ -106,6 +108,7 @@
 	let showAdmissionRequestModal = $state(false);
 	let showEditEmergencyModal = $state(false);
 	let showAddInsuranceModal = $state(false);
+	let showAdmissionHistoryModal = $state(false);
 
 	// Medical Alerts UI
 	let showAlertInput = $state(false);
@@ -374,6 +377,8 @@
 	const activeAlerts = $derived(
 		patient?.medical_alerts?.filter((a: any) => a.is_active !== false) ?? []
 	);
+	const alertPanelOpen = $derived(showAlertInput || showAlertHistory);
+	const diagnosisPanelOpen = $derived(showDiagnosisInput || showDiagnosisHistory);
 	const currentAdmission = $derived(
 		admissions.find((a: any) => a.status === 'Active') ?? null
 	);
@@ -1235,6 +1240,32 @@
 		} catch (err) { console.error('Failed to load history', err); }
 	}
 
+	async function toggleAlertDetails() {
+		if (alertPanelOpen) {
+			showAlertInput = false;
+			showAlertHistory = false;
+			return;
+		}
+
+		await loadAlertHistory();
+	}
+
+	function toggleAlertComposer() {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
+
+		const nextState = !showAlertInput;
+		showAlertInput = nextState;
+
+		if (nextState) {
+			void loadAlertHistory();
+		} else if (!showAlertHistory) {
+			newAlertTitle = '';
+		}
+	}
+
 	// ── Primary Diagnosis ─────────────────────────────────────────
 	async function updateDiagnosis() {
 		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
@@ -1253,6 +1284,27 @@
 			showDiagnosisInput = false;
 		} catch (err) { console.error('Failed to update diagnosis', err); }
 		finally { diagnosisSubmitting = false; }
+	}
+
+	function toggleDiagnosisDetails() {
+		if (diagnosisPanelOpen) {
+			showDiagnosisInput = false;
+			showDiagnosisHistory = false;
+			return;
+		}
+
+		showDiagnosisHistory = true;
+	}
+
+	function toggleDiagnosisComposer() {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
+
+		const nextState = !showDiagnosisInput;
+		showDiagnosisInput = nextState;
+		showDiagnosisHistory = nextState || showDiagnosisHistory;
 	}
 </script>
 
@@ -1298,20 +1350,25 @@
 			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
 				style="background: linear-gradient(135deg, rgba(254,242,242,0.95), rgba(254,226,226,0.82));">
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex items-center gap-2">
+					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+						type="button"
+						onclick={toggleAlertDetails}>
 						<AlertTriangle class="h-4 w-4 text-red-500" />
 						<span class="text-[13px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
-					</div>
+						<ChevronDown class="h-4 w-4 text-red-400 transition-transform duration-300 {alertPanelOpen ? 'rotate-180' : ''}" />
+					</button>
 					<div class="flex gap-2">
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
-							onclick={loadAlertHistory}>
+							type="button"
+							onclick={toggleAlertDetails}>
 							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 						{#if studentEditAllowed}
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
-							onclick={() => showAlertInput = !showAlertInput}>
+							type="button"
+							onclick={toggleAlertComposer}>
 							<Plus class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 						{/if}
@@ -1319,8 +1376,10 @@
 				</div>
 				<div class="mt-4 flex flex-wrap gap-2">
 					{#if activeAlerts.length > 0}
-						{#each activeAlerts as alert}
+						{#each activeAlerts as alert (alert.id)}
 							<span class="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-[12px] font-semibold text-red-700"
+								in:scale={{ duration: 180, start: 0.9 }}
+								out:scale={{ duration: 140, start: 0.92 }}
 								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(248,113,113,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
 								{alert.title}
 								{#if studentEditAllowed}
@@ -1332,26 +1391,31 @@
 						<p class="text-sm font-medium text-red-300">No active alerts</p>
 					{/if}
 				</div>
-				{#if showAlertInput}
-					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
-						<div class="flex gap-2 items-center">
-							<input type="text" bind:value={newAlertTitle} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter alert..." onkeydown={(e) => e.key === 'Enter' && addAlert()} />
-							<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" onclick={addAlert} disabled={alertSubmitting}>Add</button>
-							<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showAlertInput = false; newAlertTitle = ''; }}>Close</button>
-						</div>
-					</div>
-				{/if}
-				{#if showAlertHistory}
-					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
-						<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Alert History</h4>
-						<div class="space-y-2 max-h-32 overflow-y-auto pr-1">
-							{#each alertHistory as h}
-								<div class="flex items-center gap-2 pl-2" style="border-left: 2px solid {h.is_active ? '#ef4444' : '#d1d5db'};">
-									<p class="text-xs flex-1" style="color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.title}</p>
-									<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: {h.is_active ? 'rgba(239,68,68,0.1)' : 'rgba(0,0,0,0.05)'}; color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.is_active ? 'Active' : 'Inactive'}</span>
+				{#if alertPanelOpen}
+					<div class="mt-4 space-y-3 overflow-hidden" transition:slide={{ duration: 260 }}>
+						{#if showAlertInput}
+							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+								<div class="flex gap-2 items-center">
+									<input type="text" bind:value={newAlertTitle} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none transition-shadow duration-200 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.12)]" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter alert..." onkeydown={(e) => e.key === 'Enter' && addAlert()} />
+									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" onclick={addAlert} disabled={alertSubmitting}>Add</button>
+									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showAlertInput = false; newAlertTitle = ''; }}>Close</button>
 								</div>
-							{/each}
-						</div>
+							</div>
+						{/if}
+
+						{#if showAlertHistory}
+							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+								<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Alert History</h4>
+								<div class="space-y-2 max-h-32 overflow-y-auto pr-1">
+									{#each alertHistory as h}
+										<div class="flex items-center gap-2 pl-2" in:fade={{ duration: 150 }} style="border-left: 2px solid {h.is_active ? '#ef4444' : '#d1d5db'};">
+											<p class="text-xs flex-1" style="color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.title}</p>
+											<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: {h.is_active ? 'rgba(239,68,68,0.1)' : 'rgba(0,0,0,0.05)'}; color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.is_active ? 'Active' : 'Inactive'}</span>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -1359,20 +1423,25 @@
 			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
 				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));">
 				<div class="flex items-center justify-between gap-3">
-					<div class="flex items-center gap-2">
+					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+						type="button"
+						onclick={toggleDiagnosisDetails}>
 						<FileText class="h-4 w-4 text-blue-600" />
 						<span class="text-[13px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
-					</div>
+						<ChevronDown class="h-4 w-4 text-blue-400 transition-transform duration-300 {diagnosisPanelOpen ? 'rotate-180' : ''}" />
+					</button>
 					<div class="flex gap-2">
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
-							onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
+							type="button"
+							onclick={toggleDiagnosisDetails}>
 							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 						{#if studentEditAllowed}
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
-							onclick={() => showDiagnosisInput = !showDiagnosisInput}>
+							type="button"
+							onclick={toggleDiagnosisComposer}>
 							<Edit class="h-3.5 w-3.5 text-blue-500" />
 						</button>
 						{/if}
@@ -1386,25 +1455,30 @@
 						<p class="text-sm font-medium text-blue-300">No diagnosis recorded</p>
 					{/if}
 				</div>
-				{#if showDiagnosisInput}
-					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
-						<div class="flex gap-2 items-center">
-							<input type="text" bind:value={newDiagnosis} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter diagnosis..." onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
-							<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting}>Save</button>
-							<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>Close</button>
-						</div>
-					</div>
-				{/if}
-				{#if showDiagnosisHistory}
-					<div class="mt-4 rounded-2xl p-3" style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
-						<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis History</h4>
-						{#if patient.primary_diagnosis}
-							<div class="flex items-center gap-2 pl-2" style="border-left: 2px solid #3b82f6;">
-								<p class="text-xs text-blue-700 flex-1">{patient.primary_diagnosis}</p>
-								<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(59,130,246,0.1); color: #2563eb;">Current</span>
+				{#if diagnosisPanelOpen}
+					<div class="mt-4 space-y-3 overflow-hidden" transition:slide={{ duration: 260 }}>
+						{#if showDiagnosisInput}
+							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+								<div class="flex gap-2 items-center">
+									<input type="text" bind:value={newDiagnosis} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none transition-shadow duration-200 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter diagnosis..." onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
+									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting}>Save</button>
+									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>Close</button>
+								</div>
 							</div>
-						{:else}
-							<p class="text-xs text-gray-400">No history</p>
+						{/if}
+
+						{#if showDiagnosisHistory}
+							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+								<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis History</h4>
+								{#if patient.primary_diagnosis}
+									<div class="flex items-center gap-2 pl-2" in:fade={{ duration: 150 }} style="border-left: 2px solid #3b82f6;">
+										<p class="text-xs text-blue-700 flex-1">{patient.primary_diagnosis}</p>
+										<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(59,130,246,0.1); color: #2563eb;">Current</span>
+									</div>
+								{:else}
+									<p class="text-xs text-gray-400">No history</p>
+								{/if}
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -1417,7 +1491,13 @@
 				<ClipboardList class="h-5 w-5 shrink-0 text-blue-600" />
 				<div class="flex min-w-0 flex-wrap items-center gap-2.5">
 					<span class="text-[15px] font-bold text-slate-800">Admission Status</span>
-					<Clock class="h-4 w-4 text-blue-500" />
+					<button
+						class="p-1 rounded-lg hover:bg-blue-100 transition-colors"
+						onclick={() => showAdmissionHistoryModal = true}
+						title="View Admission History"
+					>
+						<Clock class="h-4 w-4 text-blue-500" />
+					</button>
 					{#if currentAdmission}
 						<span class="rounded-xl bg-blue-600 px-3 py-1 text-xs font-black tracking-wide text-white">ADMITTED</span>
 					{:else if pendingAdmission}
@@ -1506,23 +1586,70 @@
 		</AquaModal>
 	{/if}
 
+	{#if showAdmissionHistoryModal}
+		<AquaModal onclose={() => showAdmissionHistoryModal = false}>
+			{#snippet header()}
+				<div class="flex items-center gap-2">
+					<History class="w-5 h-5 text-blue-600" />
+					<span class="font-semibold text-gray-800">Admission History - {patient?.name}</span>
+				</div>
+			{/snippet}
+			<div class="space-y-3">
+				{#if admissions.length === 0}
+					<p class="text-sm text-gray-400 text-center py-6">No admission history</p>
+				{:else}
+					{#each admissions as admission}
+						<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+							<div class="flex items-start justify-between mb-2">
+								<div>
+									<p class="font-semibold text-gray-800">{admission.department || 'General'}</p>
+									<p class="text-xs text-gray-500">{admission.ward || 'Not assigned'}</p>
+								</div>
+								<span class="px-2 py-0.5 rounded-full text-xs font-bold"
+									style="background: {admission.status === 'ACTIVE' ? '#dcfce7' : admission.status === 'DISCHARGED' ? '#e0e7ff' : '#fef3c7'};
+									       color: {admission.status === 'ACTIVE' ? '#166534' : admission.status === 'DISCHARGED' ? '#4338ca' : '#a16207'};">
+									{admission.status}
+								</span>
+							</div>
+							<div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
+								<div>
+									<span class="text-gray-400">Admitted:</span>
+									{admission.admitted_at ? new Date(admission.admitted_at).toLocaleDateString() : '—'}
+								</div>
+								{#if admission.discharged_at}
+									<div>
+										<span class="text-gray-400">Discharged:</span>
+										{new Date(admission.discharged_at).toLocaleDateString()}
+									</div>
+								{/if}
+							</div>
+							{#if admission.attending_doctor}
+								<p class="text-xs text-gray-500 mt-2">
+									Attending: {admission.attending_doctor}
+								</p>
+							{/if}
+							{#if admission.reason_for_admission}
+								<p class="text-sm text-gray-700 mt-2">
+									<span class="text-gray-400">Reason:</span> {admission.reason_for_admission}
+								</p>
+							{/if}
+							{#if admission.discharge_summary}
+								<p class="text-sm text-gray-700 mt-1">
+									<span class="text-gray-400">Discharge Summary:</span> {admission.discharge_summary}
+								</p>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		</AquaModal>
+	{/if}
+
 	<!-- ═══════════════════════════════════════════════════════════════
 	     TABS
 	     ═══════════════════════════════════════════════════════════════ -->
 	<div class="overflow-x-auto pb-1">
-		<div class="flex min-w-max gap-1.5 rounded-[22px] p-1"
-			style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(241,245,249,0.98)); border: 1px solid rgba(148,163,184,0.2); box-shadow: 0 8px 18px rgba(15,23,42,0.05);">
-			{#each tabs as tab}
-				<button
-					class="flex cursor-pointer items-center gap-1.5 rounded-[16px] px-3 py-2 text-xs font-bold whitespace-nowrap transition-all"
-					style="background: {activeTab === tab.id ? 'linear-gradient(to bottom, #ffffff, #f8fbff)' : 'transparent'}; color: {activeTab === tab.id ? '#2563eb' : '#64748b'}; border: 1px solid {activeTab === tab.id ? 'rgba(59,130,246,0.24)' : 'transparent'}; box-shadow: {activeTab === tab.id ? '0 6px 14px rgba(37,99,235,0.12), inset 0 1px 0 rgba(255,255,255,0.9)' : 'none'};"
-					onclick={() => openTab(tab.id)}
-				>
-					<tab.icon class="h-3.5 w-3.5" />
-					<span>{tab.label}</span>
-				</button>
-			{/each}
-		</div>
+		<TabBar tabs={tabs} activeTab={activeTab} onchange={openTab} variant="jiggle" stretch={false} ariaLabel="Patient detail sections" />
 	</div>
 
 	<!-- ═══════════════════════════════════════════════════════════════

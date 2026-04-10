@@ -111,6 +111,29 @@ export interface AIProviderTestResult {
   };
 }
 
+export interface VitalParameter {
+  id: string;
+  name: string;
+  display_name: string;
+  category: string;
+  unit: string | null;
+  min_value: number | null;
+  max_value: number | null;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export interface VitalParameterCreate {
+  name: string;
+  display_name: string;
+  category?: string;
+  unit?: string;
+  min_value?: number;
+  max_value?: number;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
 // ── API ──────────────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -257,6 +280,27 @@ export const adminApi = {
 
   async testAIProviderConnection(): Promise<AIProviderTestResult> {
     const r = await client.post('/admin/ai-provider/test');
+    return r.data;
+  },
+
+  // Vital Parameters
+  async getVitalParameters(activeOnly = false): Promise<VitalParameter[]> {
+    const r = await client.get('/admin/vital-parameters', { params: { active_only: activeOnly } });
+    return r.data;
+  },
+
+  async createVitalParameter(data: VitalParameterCreate): Promise<VitalParameter> {
+    const r = await client.post('/admin/vital-parameters', data);
+    return r.data;
+  },
+
+  async updateVitalParameter(paramId: string, data: Partial<VitalParameterCreate>): Promise<VitalParameter> {
+    const r = await client.patch(`/admin/vital-parameters/${paramId}`, data);
+    return r.data;
+  },
+
+  async deleteVitalParameter(paramId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/vital-parameters/${paramId}`);
     return r.data;
   },
 };

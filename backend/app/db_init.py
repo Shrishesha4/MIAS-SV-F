@@ -20,9 +20,12 @@ def _upgrade_database(connection: Connection) -> None:
 
 
 async def run_startup_migrations() -> None:
-    async with engine.connect() as connection:
+    async with engine.begin() as connection:
         await connection.execute(text('SELECT pg_advisory_lock(:lock_id)'), {'lock_id': ALEMBIC_LOCK_ID})
         try:
             await connection.run_sync(_upgrade_database)
+        except Exception:
+            await connection.rollback()
+            raise
         finally:
             await connection.execute(text('SELECT pg_advisory_unlock(:lock_id)'), {'lock_id': ALEMBIC_LOCK_ID})

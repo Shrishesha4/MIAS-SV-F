@@ -3,8 +3,6 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type Programme } from '$lib/api/admin';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -122,13 +120,6 @@
 	}
 </script>
 
-<AdminScaffold
-	title="System Administration"
-	titleIcon={BookOpen}
-	navItems={adminPageNavItems}
-	activeNav="programmes"
-	backHref="/admin"
->
 	<div class="space-y-4">
 		<div class="flex items-center justify-between">
 			<div>
@@ -213,7 +204,6 @@
 		</div>
 	{/if}
 	</div>
-</AdminScaffold>
 
 <!-- Create/Edit Programme Modal -->
 {#if showForm}

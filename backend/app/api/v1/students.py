@@ -635,6 +635,146 @@ async def select_clinic_session(
     raise HTTPException(status_code=404, detail="Session not found")
 
 
+@router.post("/{student_id}/clinic-sessions/{session_id}/check-in")
+async def check_in_to_clinic_session(
+    student_id: str,
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record student check-in time for a clinic session (attendance tracking)."""
+    result = await db.execute(
+        select(ClinicSession).where(
+            and_(
+                ClinicSession.id == session_id,
+                ClinicSession.student_id == student_id
+            )
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Clinic session not found")
+    
+    if session.checked_in_at:
+        raise HTTPException(status_code=400, detail="Already checked in to this session")
+    
+    now = datetime.utcnow()
+    session.checked_in_at = now
+    session.status = "Active"
+    await db.commit()
+    
+    return {
+        "status": "checked_in",
+        "session_id": session_id,
+        "checked_in_at": now.isoformat(),
+        "clinic_name": session.clinic_name,
+    }
+
+
+@router.post("/{student_id}/clinic-sessions/{session_id}/check-out")
+async def check_out_from_clinic_session(
+    student_id: str,
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record student check-out time for a clinic session (attendance tracking)."""
+    result = await db.execute(
+        select(ClinicSession).where(
+            and_(
+                ClinicSession.id == session_id,
+                ClinicSession.student_id == student_id
+            )
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Clinic session not found")
+    
+    if not session.checked_in_at:
+        raise HTTPException(status_code=400, detail="Must check in before checking out")
+    
+    if session.checked_out_at:
+        raise HTTPException(status_code=400, detail="Already checked out from this session")
+    
+    now = datetime.utcnow()
+    session.checked_out_at = now
+    session.status = "Completed"
+    
+    # Calculate duration in minutes
+    duration_minutes = int((now - session.checked_in_at).total_seconds() / 60)
+    
+    await db.commit()
+    
+    return {
+        "status": "checked_out",
+        "session_id": session_id,
+        "checked_in_at": session.checked_in_at.isoformat(),
+        "checked_out_at": now.isoformat(),
+        "duration_minutes": duration_minutes,
+        "clinic_name": session.clinic_name,
+    }
+
+
+@router.get("/{student_id}/attendance-calendar")
+async def get_attendance_calendar(
+    student_id: str,
+    month: int = Query(default=None, ge=1, le=12),
+    year: int = Query(default=None, ge=2020, le=2100),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get student's clinic attendance for a specific month for calendar display."""
+    # Default to current month if not specified
+    if not month or not year:
+        now = datetime.utcnow()
+        month = month or now.month
+        year = year or now.year
+    
+    # Calculate date range for the month
+    from calendar import monthrange
+    first_day = datetime(year, month, 1)
+    last_day = datetime(year, month, monthrange(year, month)[1], 23, 59, 59)
+    
+    result = await db.execute(
+        select(ClinicSession)
+        .where(
+            and_(
+                ClinicSession.student_id == student_id,
+                ClinicSession.date >= first_day,
+                ClinicSession.date <= last_day
+            )
+        )
+        .order_by(ClinicSession.date)
+    )
+    sessions = result.scalars().all()
+    
+    calendar_entries = []
+    for s in sessions:
+        duration_minutes = None
+        if s.checked_in_at and s.checked_out_at:
+            duration_minutes = int((s.checked_out_at - s.checked_in_at).total_seconds() / 60)
+        
+        calendar_entries.append({
+            "id": s.id,
+            "date": s.date.strftime("%Y-%m-%d"),
+            "clinic_name": s.clinic_name,
+            "department": s.department,
+            "time_start": s.time_start,
+            "time_end": s.time_end,
+            "status": s.status,
+            "checked_in_at": s.checked_in_at.isoformat() if s.checked_in_at else None,
+            "checked_out_at": s.checked_out_at.isoformat() if s.checked_out_at else None,
+            "duration_minutes": duration_minutes,
+        })
+    
+    return {
+        "month": month,
+        "year": year,
+        "sessions": calendar_entries,
+    }
+
+
 @router.get("/{student_id}/notifications")
 async def get_student_notifications(
     student_id: str,

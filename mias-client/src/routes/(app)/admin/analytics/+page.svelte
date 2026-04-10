@@ -3,8 +3,6 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type TrendData, type TrendPoint } from '$lib/api/admin';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import {
 		BarChart3, TrendingUp, Activity, Pill, Bed, Users
@@ -69,13 +67,6 @@
 	);
 </script>
 
-<AdminScaffold
-	title="System Administration"
-	titleIcon={BarChart3}
-	navItems={adminPageNavItems}
-	activeNav="analytics"
-	backHref="/admin"
->
 	<div class="space-y-4">
 		<div>
 			<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">Analytics</h2>
@@ -187,4 +178,3 @@
 		{/if}
 	{/if}
 	</div>
-</AdminScaffold>

@@ -2,6 +2,8 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { ArrowLeft, Bell, ChevronRight, HeartPulse, Plus, Shield, ShieldCheck, UserRound } from 'lucide-svelte';
+	import { cubicOut, quintOut } from 'svelte/easing';
+	import { fade, fly } from 'svelte/transition';
 	import type { Snippet } from 'svelte';
 
 	type NavItem = {
@@ -49,6 +51,7 @@
 	}
 
 	const TitleIcon = $derived(titleIcon);
+	const contentSlide = { y: 24, duration: 360, opacity: 0.12, easing: quintOut };
 </script>
 
 <div class="pb-2 lg:min-h-screen lg:bg-[linear-gradient(to_bottom,#d9e3f0_0%,#d4dfec_38%,#ccd8e7_100%)] lg:pb-6">
@@ -56,7 +59,7 @@
 		{#if navItems.length > 0}
 			<aside class="hidden lg:block lg:self-start">
 				<div
-					class="motion-surface sticky top-4 flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
+					class="admin-shell motion-surface sticky top-4 flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
 					style="background: linear-gradient(to bottom, rgba(250,252,255,0.96), rgba(242,247,252,0.94)); box-shadow: 0 10px 24px rgba(95,113,136,0.16), inset 0 1px 0 rgba(255,255,255,0.94); border-color: rgba(132,150,175,0.2);"
 				>
 					<div class="border-b px-4 py-3.5" style="border-color: rgba(160,174,196,0.18); background: linear-gradient(to bottom, rgba(220,229,241,0.85), rgba(236,241,249,0.55));">
@@ -78,14 +81,14 @@
 								{@const NavIcon = item.icon}
 								{@const isActive = item.id === activeNav}
 								<button
-									class="motion-list-item flex w-full items-center gap-3 px-4 py-4 text-left cursor-pointer transition-all"
+									class="admin-nav-item motion-list-item flex w-full items-center gap-3 px-4 py-4 text-left cursor-pointer transition-all"
 									style={isActive
 										? 'background: linear-gradient(to bottom, #1a78f5, #005fda); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);'
 										: 'background: linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(246,249,252,0.98));'}
 									onclick={() => handleNav(item)}
 								>
 									<div
-										class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+										class="admin-nav-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
 										style={isActive
 											? 'background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.14);'
 											: 'background: linear-gradient(to bottom, #1d7cf6, #005fd7); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);'}
@@ -103,7 +106,7 @@
 
 					<div class="px-4 py-4" style="background: linear-gradient(to bottom, rgba(255,255,255,0.78), rgba(246,248,252,0.92)); border-top: 1px solid rgba(190,200,214,0.42);">
 						<button
-							class="flex w-full items-center justify-center rounded-[10px] px-4 py-3 text-sm font-bold text-white cursor-pointer"
+							class="admin-signout flex w-full items-center justify-center rounded-[10px] px-4 py-3 text-sm font-bold text-white cursor-pointer"
 							style="background: linear-gradient(to bottom, #ff6e68, #ff2946); box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), 0 4px 10px rgba(255,41,70,0.24);"
 							onclick={logout}
 						>
@@ -116,7 +119,7 @@
 
 		<section class="min-w-0 space-y-4 lg:space-y-0">
 			<div
-				class="motion-surface rounded-[20px] border p-4 lg:hidden"
+				class="admin-mobile-shell motion-surface rounded-[20px] border p-4 lg:hidden"
 				style="background: linear-gradient(to bottom, rgba(255,255,255,0.97), rgba(248,250,253,0.96)); box-shadow: 0 4px 12px rgba(97,112,134,0.14), inset 0 1px 0 rgba(255,255,255,0.78); border-color: rgba(134,151,175,0.18);"
 			>
 				<div class="flex items-center gap-3">
@@ -135,14 +138,14 @@
 
 			{#if navItems.length > 0}
 				<div
-					class="motion-surface overflow-x-auto rounded-[20px] border px-3 py-3 lg:hidden"
+					class="admin-mobile-shell motion-surface overflow-x-auto rounded-[20px] border px-3 py-3 lg:hidden"
 					style="background: linear-gradient(to bottom, rgba(255,255,255,0.54), rgba(241,245,251,0.7)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.92); border-color: rgba(255,255,255,0.42);"
 				>
 					<div class="flex min-w-max items-start justify-between gap-3">
 						{#each navItems as item (item.id)}
 							{@const NavIcon = item.icon}
 							{@const isActive = item.id === activeNav}
-							<button class="motion-control flex min-w-[56px] flex-col items-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)}>
+							<button class="admin-mobile-nav-item motion-control flex min-w-[56px] flex-col items-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)}>
 								<div
 									class="motion-control flex h-10 w-10 items-center justify-center rounded-full transition-all"
 									style={isActive
@@ -158,19 +161,64 @@
 				</div>
 			{/if}
 
-			<div class="motion-surface hidden min-h-[calc(100vh-2rem)] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);">
+			<div class="admin-content-shell motion-surface hidden min-h-[calc(100vh-2rem)] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);" in:fly={contentSlide} out:fade={{ duration: 130 }}>
 				{#if children}
-					<div class="min-w-0 flex-1 px-6 py-5" style="background-image: linear-gradient(to bottom, rgba(238,243,248,0.72), rgba(219,228,238,0.78)), repeating-linear-gradient(180deg, rgba(255,255,255,0.1) 0, rgba(255,255,255,0.1) 1px, transparent 1px, transparent 4px);">
+					<div class="admin-content-panel min-w-0 flex-1 px-6 py-5" style="background-image: linear-gradient(to bottom, rgba(238,243,248,0.72), rgba(219,228,238,0.78)), repeating-linear-gradient(180deg, rgba(255,255,255,0.1) 0, rgba(255,255,255,0.1) 1px, transparent 1px, transparent 4px);">
 						{@render children()}
 					</div>
 				{/if}
 			</div>
 
 			{#if children}
-				<div class="min-w-0 lg:hidden">
+				<div class="admin-content-panel min-w-0 lg:hidden" in:fly={{ y: 18, duration: 300, delay: 90, opacity: 0.14, easing: quintOut }} out:fade={{ duration: 120 }}>
 					{@render children()}
 				</div>
 			{/if}
 		</section>
 	</div>
 </div>
+
+<style>
+	.admin-shell,
+	.admin-mobile-shell,
+	.admin-content-shell,
+	.admin-content-panel {
+		will-change: transform, opacity;
+	}
+
+	.admin-nav-item,
+	.admin-mobile-nav-item,
+	.admin-signout {
+		transition:
+			transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+			box-shadow 220ms ease,
+			filter 220ms ease,
+			opacity 180ms ease;
+	}
+
+	.admin-nav-icon {
+		transition:
+			transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+			box-shadow 220ms ease;
+	}
+
+	@media (hover: hover) and (pointer: fine) {
+		.admin-nav-item:hover {
+			transform: translateY(-2px);
+			filter: saturate(1.03);
+		}
+
+		.admin-nav-item:hover .admin-nav-icon {
+			transform: translateY(-1px);
+		}
+
+		.admin-mobile-nav-item:hover {
+			transform: translateY(-2px);
+		}
+
+		.admin-signout:hover {
+			transform: translateY(-1px);
+			box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), 0 8px 16px rgba(255,41,70,0.28);
+		}
+	}
+</style>

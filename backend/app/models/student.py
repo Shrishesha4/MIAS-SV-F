@@ -114,13 +114,19 @@ class ClinicSession(Base):
     clinic_name = Column(String, nullable=False)
     department = Column(String, nullable=False)
     date = Column(DateTime, nullable=False)
-    time_start = Column(String, nullable=True)  # e.g., "9:00 AM"
-    time_end = Column(String, nullable=True)    # e.g., "12:00 PM"
+    time_start = Column(String, nullable=True)  # e.g., "9:00 AM" (scheduled time)
+    time_end = Column(String, nullable=True)    # e.g., "12:00 PM" (scheduled time)
     status = Column(String, default="Scheduled")  # Scheduled, Active, Completed
     is_selected = Column(Integer, default=0)  # 1 if this is the student's current selected clinic
+    
+    # Attendance tracking fields
+    checked_in_at = Column(DateTime, nullable=True)  # Actual check-in time
+    checked_out_at = Column(DateTime, nullable=True)  # Actual check-out time
+    verified_by_faculty_id = Column(String, ForeignKey("faculty.id"), nullable=True)  # Faculty sign-off
 
     student = relationship("Student", back_populates="clinic_sessions")
     clinic = relationship("Clinic", back_populates="sessions")
+    verified_by = relationship("Faculty", foreign_keys=[verified_by_faculty_id])
 
 
 class Clinic(Base):

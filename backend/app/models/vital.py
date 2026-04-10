@@ -1,8 +1,23 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
+
+
+class VitalParameter(Base):
+    """Configuration for vital parameters that appear in the vitals form."""
+    __tablename__ = "vital_parameters"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False, unique=True)  # e.g., "systolic_bp"
+    display_name = Column(String, nullable=False)  # e.g., "Systolic BP"
+    category = Column(String, nullable=False, default="Primary")  # Primary, Secondary, Biochemistry, Haematology
+    unit = Column(String, nullable=True)  # e.g., "mmHg", "bpm", "°C"
+    min_value = Column(Float, nullable=True)  # For validation
+    max_value = Column(Float, nullable=True)  # For validation
+    is_active = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
 
 
 class Vital(Base):

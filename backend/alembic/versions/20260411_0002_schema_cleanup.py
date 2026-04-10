@@ -18,8 +18,22 @@ branch_labels = None
 depends_on = None
 
 
+def _get_existing_indexes(bind, table_name: str) -> set[str]:
+    inspector = sa.inspect(bind)
+    return {index['name'] for index in inspector.get_indexes(table_name)}
+
+
+def _get_existing_foreign_keys(bind, table_name: str) -> set[str]:
+    inspector = sa.inspect(bind)
+    return {foreign_key['name'] for foreign_key in inspector.get_foreign_keys(table_name) if foreign_key.get('name')}
+
+
 def upgrade() -> None:
     bind = op.get_bind()
+    sbar_indexes = _get_existing_indexes(bind, 'sbar_notes')
+    sbar_foreign_keys = _get_existing_foreign_keys(bind, 'sbar_notes')
+    nurse_order_indexes = _get_existing_indexes(bind, 'nurse_orders')
+    nurse_order_foreign_keys = _get_existing_foreign_keys(bind, 'nurse_orders')
 
     bind.execute(sa.text(
         """
@@ -46,20 +60,32 @@ def upgrade() -> None:
     ))
 
     with op.batch_alter_table('sbar_notes') as batch_op:
-        batch_op.create_index('idx_sbar_patient_created', ['patient_id', 'created_at'], unique=False)
-        batch_op.create_index('idx_sbar_admission_created', ['admission_id', 'created_at'], unique=False)
-        batch_op.create_index('idx_sbar_nurse_created', ['nurse_id', 'created_at'], unique=False)
-        batch_op.create_foreign_key('fk_sbar_patient', 'patients', ['patient_id'], ['id'])
-        batch_op.create_foreign_key('fk_sbar_admission', 'admissions', ['admission_id'], ['id'])
-        batch_op.create_foreign_key('fk_sbar_nurse', 'nurses', ['nurse_id'], ['id'])
+        if 'idx_sbar_patient_created' not in sbar_indexes:
+            batch_op.create_index('idx_sbar_patient_created', ['patient_id', 'created_at'], unique=False)
+        if 'idx_sbar_admission_created' not in sbar_indexes:
+            batch_op.create_index('idx_sbar_admission_created', ['admission_id', 'created_at'], unique=False)
+        if 'idx_sbar_nurse_created' not in sbar_indexes:
+            batch_op.create_index('idx_sbar_nurse_created', ['nurse_id', 'created_at'], unique=False)
+        if 'fk_sbar_patient' not in sbar_foreign_keys:
+            batch_op.create_foreign_key('fk_sbar_patient', 'patients', ['patient_id'], ['id'])
+        if 'fk_sbar_admission' not in sbar_foreign_keys:
+            batch_op.create_foreign_key('fk_sbar_admission', 'admissions', ['admission_id'], ['id'])
+        if 'fk_sbar_nurse' not in sbar_foreign_keys:
+            batch_op.create_foreign_key('fk_sbar_nurse', 'nurses', ['nurse_id'], ['id'])
 
     with op.batch_alter_table('nurse_orders') as batch_op:
-        batch_op.create_index('idx_nurse_order_patient_created', ['patient_id', 'created_at'], unique=False)
-        batch_op.create_index('idx_nurse_order_admission_created', ['admission_id', 'created_at'], unique=False)
-        batch_op.create_index('idx_nurse_order_nurse_created', ['nurse_id', 'created_at'], unique=False)
-        batch_op.create_foreign_key('fk_nurse_order_patient', 'patients', ['patient_id'], ['id'])
-        batch_op.create_foreign_key('fk_nurse_order_admission', 'admissions', ['admission_id'], ['id'])
-        batch_op.create_foreign_key('fk_nurse_order_nurse', 'nurses', ['nurse_id'], ['id'])
+        if 'idx_nurse_order_patient_created' not in nurse_order_indexes:
+            batch_op.create_index('idx_nurse_order_patient_created', ['patient_id', 'created_at'], unique=False)
+        if 'idx_nurse_order_admission_created' not in nurse_order_indexes:
+            batch_op.create_index('idx_nurse_order_admission_created', ['admission_id', 'created_at'], unique=False)
+        if 'idx_nurse_order_nurse_created' not in nurse_order_indexes:
+            batch_op.create_index('idx_nurse_order_nurse_created', ['nurse_id', 'created_at'], unique=False)
+        if 'fk_nurse_order_patient' not in nurse_order_foreign_keys:
+            batch_op.create_foreign_key('fk_nurse_order_patient', 'patients', ['patient_id'], ['id'])
+        if 'fk_nurse_order_admission' not in nurse_order_foreign_keys:
+            batch_op.create_foreign_key('fk_nurse_order_admission', 'admissions', ['admission_id'], ['id'])
+        if 'fk_nurse_order_nurse' not in nurse_order_foreign_keys:
+            batch_op.create_foreign_key('fk_nurse_order_nurse', 'nurses', ['nurse_id'], ['id'])
 
 
 def downgrade() -> None:

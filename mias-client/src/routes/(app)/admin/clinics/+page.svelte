@@ -4,8 +4,6 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
@@ -141,13 +139,6 @@
 	}
 </script>
 
-<AdminScaffold
-	title="Hospital Clinics"
-	titleIcon={Building2}
-	navItems={adminPageNavItems}
-	activeNav="clinics"
-	backHref="/admin"
->
 	<div class="space-y-3">
 		<div class="flex items-center justify-between gap-2">
 			<div>
@@ -236,7 +227,6 @@
 			</div>
 		{/if}
 	</div>
-</AdminScaffold>
 
 {#if clinicModal}
 	<AquaModal title={editingClinic ? 'Edit Clinic' : 'Create New Clinic'} onclose={() => clinicModal = false}>

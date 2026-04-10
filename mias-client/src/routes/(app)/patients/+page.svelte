@@ -516,7 +516,7 @@
 				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
 				<!-- Tabs -->
 				<div class="p-2">
-					<TabBar tabs={studentTabs} activeTab={studentTab} onchange={async (id) => {
+					<TabBar tabs={studentTabs} activeTab={studentTab} variant="jiggle" ariaLabel="Student patient views" onchange={async (id) => {
 						studentTab = id;
 						selectedPatient = null;
 						if (id === 'previous' && previousPatients.length === 0 && student) {

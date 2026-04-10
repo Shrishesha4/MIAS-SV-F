@@ -10,6 +10,7 @@
 	import { facultyApi } from '$lib/api/faculty';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import {
 		Building, MapPin, ChevronRight, Users,
@@ -46,6 +47,60 @@
 
 	// Student-specific
 	let student: any = $state(null);
+	let studentSessions: any[] = $state([]);
+	let activeSession: any = $state(null);
+	let checkingIn = $state(false);
+	let checkingOut = $state(false);
+
+	// Get the active session the student is checked into
+	const currentCheckedInSession = $derived(
+		studentSessions.find(s => s.checked_in_at && !s.checked_out_at)
+	);
+
+	async function loadStudentSessions() {
+		if (!student?.id) return;
+		try {
+			const sessions = await studentApi.getClinicSessions(student.id);
+			studentSessions = sessions;
+		} catch (err) {
+			console.error('Failed to load clinic sessions', err);
+		}
+	}
+
+	async function handleStudentCheckIn(session: any) {
+		if (!student?.id) return;
+		checkingIn = true;
+		try {
+			const result = await studentApi.checkInClinic(student.id, session.id);
+			toastStore.addToast(`Checked in to ${result.clinic_name}`, 'success');
+			await loadStudentSessions();
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to check in', 'error');
+		} finally {
+			checkingIn = false;
+		}
+	}
+
+	async function handleStudentCheckOut(session: any) {
+		if (!student?.id) return;
+		checkingOut = true;
+		try {
+			const result = await studentApi.checkOutClinic(student.id, session.id);
+			const hours = Math.floor(result.duration_minutes / 60);
+			const mins = result.duration_minutes % 60;
+			toastStore.addToast(`Checked out. Duration: ${hours}h ${mins}m`, 'success');
+			await loadStudentSessions();
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to check out', 'error');
+		} finally {
+			checkingOut = false;
+		}
+	}
+
+	function formatTime(isoString: string | null) {
+		if (!isoString) return '';
+		return new Date(isoString).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+	}
 
 	function statusColor(status: string) {
 		switch (status) {
@@ -145,6 +200,7 @@
 			} else if (role === 'STUDENT') {
 				student = await studentApi.getMe();
 				clinics = await clinicsApi.listClinics();
+				await loadStudentSessions();
 				if (clinics.length > 0) {
 					await selectClinic(clinics[0]);
 				}
@@ -245,6 +301,74 @@
 		</AquaCard>
 
 	{:else}
+		<!-- Student Attendance Check-in/out -->
+		{#if role === 'STUDENT'}
+			<AquaCard>
+				<div class="flex items-center gap-2 mb-4">
+					<Clock class="w-5 h-5 text-blue-600" />
+					<h3 class="font-bold text-gray-800">My Attendance</h3>
+				</div>
+
+				{#if currentCheckedInSession}
+					<!-- Currently checked in -->
+					<div class="p-4 rounded-xl" style="background: linear-gradient(to bottom, #dcfce7, #bbf7d0); border: 1px solid #86efac;">
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-semibold text-green-800">Checked In</p>
+								<p class="text-sm text-green-700">{currentCheckedInSession.clinic_name}</p>
+								<p class="text-xs text-green-600 mt-1">
+									Since {formatTime(currentCheckedInSession.checked_in_at)}
+								</p>
+							</div>
+							<AquaButton
+								variant="danger"
+								size="sm"
+								loading={checkingOut}
+								onclick={() => handleStudentCheckOut(currentCheckedInSession.id)}
+							>
+								Check Out
+							</AquaButton>
+						</div>
+					</div>
+				{:else if studentSessions.length > 0}
+					<!-- Sessions available to check into -->
+					<div class="space-y-2">
+						{#each studentSessions as session}
+							<div class="p-3 rounded-xl flex items-center justify-between" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+								<div>
+									<p class="font-medium text-gray-800">{session.clinic_name}</p>
+									<p class="text-xs text-gray-500">
+										{new Date(session.session_date).toLocaleDateString()} · {session.start_time} - {session.end_time}
+									</p>
+									{#if session.checked_out_at}
+										<p class="text-xs text-gray-400 mt-1">
+											Attended: {formatTime(session.checked_in_at)} - {formatTime(session.checked_out_at)}
+										</p>
+									{/if}
+								</div>
+								{#if !session.checked_in_at}
+									<AquaButton
+										variant="primary"
+										size="sm"
+										loading={checkingIn}
+										onclick={() => handleStudentCheckIn(session.id)}
+									>
+										Check In
+									</AquaButton>
+								{:else if session.checked_out_at}
+									<span class="px-2 py-1 text-xs font-medium rounded-full" style="background: #dcfce7; color: #166534;">
+										Completed
+									</span>
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{:else}
+					<p class="text-sm text-center text-gray-400 py-4">No clinic sessions assigned today</p>
+				{/if}
+			</AquaCard>
+		{/if}
+
 		<!-- Student / Faculty / Admin Clinic View -->
 		<AquaCard padding={false}>
 			<div class="p-4">

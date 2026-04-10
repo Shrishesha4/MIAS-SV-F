@@ -4,12 +4,10 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { Plus, Trash2, Pencil, IndianRupee, Check, X } from 'lucide-svelte';
+	import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
 
 	type ChargeMetaDraft = {
 		name: string;
@@ -237,7 +235,6 @@
 	}
 </script>
 
-<AdminScaffold navItems={adminPageNavItems} title="Charge Master" activeNav="charges" titleIcon={IndianRupee}>
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -437,7 +434,6 @@
 			</div>
 		</div>
 	{/if}
-</AdminScaffold>
 
 {#if chargeModal}
 	<AquaModal title={editingCharge ? 'Edit Charge Item' : 'Add New Charge Item'} onclose={() => { chargeModal = false; }}>

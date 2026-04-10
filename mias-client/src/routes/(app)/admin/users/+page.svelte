@@ -4,13 +4,11 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type AdminUser } from '$lib/api/admin';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
-		Search, Users, Shield, ShieldOff, Trash2,
+		Search, Shield, ShieldOff, Trash2,
 		ChevronRight, Plus, User
 	} from 'lucide-svelte';
 
@@ -178,13 +176,6 @@
 	}
 </script>
 
-<AdminScaffold
-	title="System Administration"
-	titleIcon={Users}
-	navItems={adminPageNavItems}
-	activeNav="users"
-	backHref="/admin"
->
 	<div class="space-y-3">
 		<div class="flex items-center justify-between gap-2">
 			<div>
@@ -315,7 +306,6 @@
 			{/if}
 		{/if}
 	</div>
-</AdminScaffold>
 
 <!-- Create User Modal -->
 {#if createUserModal}

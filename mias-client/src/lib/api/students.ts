@@ -105,6 +105,25 @@ export const studentApi = {
     return response.data;
   },
 
+  async checkInClinic(studentId: string, sessionId: string) {
+    const response = await client.post(`/students/${studentId}/clinic-sessions/${sessionId}/check-in`);
+    return response.data;
+  },
+
+  async checkOutClinic(studentId: string, sessionId: string) {
+    const response = await client.post(`/students/${studentId}/clinic-sessions/${sessionId}/check-out`);
+    return response.data;
+  },
+
+  async getAttendanceCalendar(studentId: string, month?: number, year?: number) {
+    const params = new URLSearchParams();
+    if (month) params.append('month', month.toString());
+    if (year) params.append('year', year.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await client.get(`/students/${studentId}/attendance-calendar${query}`);
+    return response.data;
+  },
+
   async getDepartments(): Promise<string[]> {
     const response = await client.get('/students/departments');
     return response.data;

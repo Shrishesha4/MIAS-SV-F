@@ -8,11 +8,8 @@
 		type AIProviderConfig,
 		type AIProviderType,
 	} from '$lib/api/admin';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import {
-		BrainCircuit,
 		Bot,
 		CheckCircle2,
 		KeyRound,
@@ -121,13 +118,6 @@
 	}
 </script>
 
-<AdminScaffold
-	title="AI Provider"
-	titleIcon={BrainCircuit}
-	navItems={adminPageNavItems}
-	activeNav="ai"
-	backHref="/admin"
->
 	<div class="space-y-4">
 		<div class="rounded-[24px] border border-slate-200 p-4"
 			style="background: linear-gradient(to bottom, rgba(255,255,255,0.97), rgba(248,250,253,0.96)); box-shadow: 0 10px 26px rgba(15,23,42,0.06);">
@@ -317,4 +307,3 @@
 			</div>
 		{/if}
 	</div>
-</AdminScaffold>

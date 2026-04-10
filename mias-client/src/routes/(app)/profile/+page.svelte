@@ -47,6 +47,11 @@
 	let profileFormValues: Record<string, any> = $state({});
 	let savingProfile = $state(false);
 
+	// Student attendance calendar state
+	let attendanceCalendar: any[] = $state([]);
+	let calendarMonth = $state(new Date().getMonth());
+	let calendarYear = $state(new Date().getFullYear());
+
 	const profileEditFields = $derived(
 		resolveFormFieldsByType(profileForms, 'PROFILE_EDIT', defaultProfileEditFields)
 	);
@@ -169,6 +174,44 @@
 		}
 	}
 
+	async function loadAttendanceCalendar() {
+		if (!sp) return;
+		try {
+			attendanceCalendar = await studentApi.getAttendanceCalendar(sp.id, calendarMonth + 1, calendarYear);
+		} catch (err) {
+			// Calendar is optional - fail silently
+		}
+	}
+
+	async function changeMonth(delta: number) {
+		let newMonth = calendarMonth + delta;
+		let newYear = calendarYear;
+		if (newMonth > 11) {
+			newMonth = 0;
+			newYear++;
+		} else if (newMonth < 0) {
+			newMonth = 11;
+			newYear--;
+		}
+		calendarMonth = newMonth;
+		calendarYear = newYear;
+		await loadAttendanceCalendar();
+	}
+
+	function getCalendarDays() {
+		const firstDay = new Date(calendarYear, calendarMonth, 1).getDay();
+		const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+		const days: (number | null)[] = [];
+		for (let i = 0; i < firstDay; i++) days.push(null);
+		for (let i = 1; i <= daysInMonth; i++) days.push(i);
+		return days;
+	}
+
+	function getAttendanceForDay(day: number): any | null {
+		const dateStr = `${calendarYear}-${String(calendarMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+		return attendanceCalendar.find(a => a.session_date === dateStr);
+	}
+
 	onMount(async () => {
 		try {
 			if (role === 'PATIENT') {
@@ -180,6 +223,7 @@
 				profileForms = forms;
 			} else if (role === 'STUDENT') {
 				sp = await studentApi.getMe();
+				await loadAttendanceCalendar();
 			} else if (role === 'FACULTY') {
 				faculty = await facultyApi.getMe();
 			}
@@ -434,6 +478,63 @@
 					{/each}
 				</div>
 			{/if}
+		</AquaCard>
+
+		<!-- Clinic Attendance Calendar -->
+		<AquaCard>
+			{#snippet header()}
+				<Clock class="w-4 h-4 text-blue-600 mr-2" />
+				<span class="text-blue-900 font-semibold text-sm">Clinic Attendance History</span>
+			{/snippet}
+			
+			<div class="flex items-center justify-between mb-4">
+				<button class="p-2 rounded-lg hover:bg-gray-100" aria-label="Previous month" onclick={() => changeMonth(-1)}>
+					<svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+					</svg>
+				</button>
+				<h4 class="font-semibold text-gray-700">
+					{new Date(calendarYear, calendarMonth).toLocaleString('default', { month: 'long', year: 'numeric' })}
+				</h4>
+				<button class="p-2 rounded-lg hover:bg-gray-100" aria-label="Next month" onclick={() => changeMonth(1)}>
+					<svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+					</svg>
+				</button>
+			</div>
+
+			<div class="grid grid-cols-7 gap-1 text-center text-xs text-gray-500 mb-2">
+				<span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+			</div>
+			<div class="grid grid-cols-7 gap-1">
+				{#each getCalendarDays() as day}
+					{#if day === null}
+						<div class="h-10"></div>
+					{:else}
+						{@const attendance = getAttendanceForDay(day)}
+						<div class="h-10 flex items-center justify-center rounded-lg text-sm relative"
+							style="background: {attendance?.checked_in_at ? (attendance.checked_out_at ? '#dcfce7' : '#fef3c7') : '#f8f9fb'};">
+							<span class="font-medium {attendance?.checked_in_at ? (attendance.checked_out_at ? 'text-green-700' : 'text-yellow-700') : 'text-gray-600'}">
+								{day}
+							</span>
+							{#if attendance?.checked_in_at}
+								<span class="absolute bottom-0.5 w-1.5 h-1.5 rounded-full {attendance.checked_out_at ? 'bg-green-500' : 'bg-yellow-500'}"></span>
+							{/if}
+						</div>
+					{/if}
+				{/each}
+			</div>
+
+			<div class="flex items-center justify-center gap-4 mt-4 text-xs">
+				<div class="flex items-center gap-1">
+					<span class="w-3 h-3 rounded bg-green-200"></span>
+					<span class="text-gray-600">Completed</span>
+				</div>
+				<div class="flex items-center gap-1">
+					<span class="w-3 h-3 rounded bg-yellow-200"></span>
+					<span class="text-gray-600">In Progress</span>
+				</div>
+			</div>
 		</AquaCard>
 
 	{:else if role === 'PATIENT' && patient}

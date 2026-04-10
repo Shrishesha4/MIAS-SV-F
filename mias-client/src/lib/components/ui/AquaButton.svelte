@@ -39,15 +39,16 @@
 <button
   {type}
   disabled={disabled || loading}
-  class="motion-control relative overflow-hidden transition-all active:translate-y-0.5 active:shadow-inner
+  class="motion-control relative overflow-hidden transition-all duration-200 active:translate-y-0.5 active:shadow-inner
          before:absolute before:inset-0 before:bg-gradient-to-b before:from-white
-         before:via-transparent before:to-transparent before:opacity-50 before:transition-opacity
+    before:via-transparent before:to-transparent before:opacity-50 before:transition-all
          font-medium rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
          {sizeClasses[size]}
          {fullWidth ? 'w-full' : ''}"
   style="{variantStyles[variant]}
          border: 1px solid rgba(0,0,0,0.2);
-         box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4);"
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.4);
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease, filter 180ms ease;"
   {onclick}
 >
   {#if loading}
@@ -64,13 +65,20 @@
 </button>
 
 <style>
+  button::before {
+    transform: translateY(-8%) scaleY(0.96);
+  }
+
   @media (hover: hover) and (pointer: fine) {
     button:hover:not(:disabled) {
-      box-shadow: 0 6px 14px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.45);
+      transform: translateY(-1px);
+      filter: saturate(1.04);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.45);
     }
 
     button:hover:not(:disabled)::before {
       opacity: 0.7;
+      transform: translateY(0) scaleY(1);
     }
   }
 </style>

@@ -5,8 +5,6 @@
 	import { authStore } from '$lib/stores/auth';
 	import { formsApi, type FormDefinitionPayload } from '$lib/api/forms';
 	import type { FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import { toastStore } from '$lib/stores/toast';
 	import { FileText, Loader2, Pencil, Plus, Power, Trash2, X } from 'lucide-svelte';
 
@@ -272,7 +270,6 @@
 	}
 </script>
 
-<AdminScaffold navItems={adminPageNavItems} title="System Forms" activeNav="forms" titleIcon={FileText}>
 	<div class="space-y-4">
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div>
@@ -491,4 +488,3 @@
 			</div>
 		</div>
 	{/if}
-</AdminScaffold>

@@ -18,7 +18,7 @@ from app.models.department import Department
 from app.models.programme import Programme
 from app.models.admission import Admission
 from app.models.prescription import Prescription
-from app.models.vital import Vital
+from app.models.vital import Vital, VitalParameter
 from app.models.medical_record import MedicalRecord
 from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
@@ -780,3 +780,171 @@ async def system_info(
         "database": "PostgreSQL 15",
         "status": "operational",
     }
+
+
+# ── Vital Parameters Management ──────────────────────────────────────
+
+
+class VitalParameterCreate(BaseModel):
+    name: str
+    display_name: str
+    category: str = "Primary"
+    unit: Optional[str] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    is_active: bool = True
+    sort_order: int = 0
+
+
+class VitalParameterUpdate(BaseModel):
+    display_name: Optional[str] = None
+    category: Optional[str] = None
+    unit: Optional[str] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    is_active: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+@router.get("/vital-parameters")
+async def list_vital_parameters(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+    active_only: bool = Query(False, description="Return only active parameters"),
+):
+    """List all vital parameters configurations."""
+    query = select(VitalParameter).order_by(VitalParameter.category, VitalParameter.sort_order)
+    if active_only:
+        query = query.where(VitalParameter.is_active == True)
+    result = await db.execute(query)
+    parameters = result.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "display_name": p.display_name,
+            "category": p.category,
+            "unit": p.unit,
+            "min_value": p.min_value,
+            "max_value": p.max_value,
+            "is_active": p.is_active,
+            "sort_order": p.sort_order,
+        }
+        for p in parameters
+    ]
+
+
+@router.post("/vital-parameters")
+async def create_vital_parameter(
+    data: VitalParameterCreate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new vital parameter configuration."""
+    # Check if parameter with same name exists
+    existing = (await db.execute(
+        select(VitalParameter).where(VitalParameter.name == data.name)
+    )).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"Parameter '{data.name}' already exists")
+
+    param = VitalParameter(
+        id=_uid(),
+        name=data.name,
+        display_name=data.display_name,
+        category=data.category,
+        unit=data.unit,
+        min_value=data.min_value,
+        max_value=data.max_value,
+        is_active=data.is_active,
+        sort_order=data.sort_order,
+    )
+    db.add(param)
+    await db.commit()
+    return {
+        "id": param.id,
+        "name": param.name,
+        "display_name": param.display_name,
+        "category": param.category,
+        "unit": param.unit,
+        "min_value": param.min_value,
+        "max_value": param.max_value,
+        "is_active": param.is_active,
+        "sort_order": param.sort_order,
+    }
+
+
+@router.get("/vital-parameters/{param_id}")
+async def get_vital_parameter(
+    param_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single vital parameter by ID."""
+    param = (await db.execute(
+        select(VitalParameter).where(VitalParameter.id == param_id)
+    )).scalar_one_or_none()
+    if not param:
+        raise HTTPException(status_code=404, detail="Vital parameter not found")
+    return {
+        "id": param.id,
+        "name": param.name,
+        "display_name": param.display_name,
+        "category": param.category,
+        "unit": param.unit,
+        "min_value": param.min_value,
+        "max_value": param.max_value,
+        "is_active": param.is_active,
+        "sort_order": param.sort_order,
+    }
+
+
+@router.patch("/vital-parameters/{param_id}")
+async def update_vital_parameter(
+    param_id: str,
+    data: VitalParameterUpdate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a vital parameter configuration."""
+    param = (await db.execute(
+        select(VitalParameter).where(VitalParameter.id == param_id)
+    )).scalar_one_or_none()
+    if not param:
+        raise HTTPException(status_code=404, detail="Vital parameter not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(param, key, value)
+
+    await db.commit()
+    return {
+        "id": param.id,
+        "name": param.name,
+        "display_name": param.display_name,
+        "category": param.category,
+        "unit": param.unit,
+        "min_value": param.min_value,
+        "max_value": param.max_value,
+        "is_active": param.is_active,
+        "sort_order": param.sort_order,
+    }
+
+
+@router.delete("/vital-parameters/{param_id}")
+async def delete_vital_parameter(
+    param_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a vital parameter configuration (or deactivate it)."""
+    param = (await db.execute(
+        select(VitalParameter).where(VitalParameter.id == param_id)
+    )).scalar_one_or_none()
+    if not param:
+        raise HTTPException(status_code=404, detail="Vital parameter not found")
+
+    # Soft delete by deactivating
+    param.is_active = False
+    await db.commit()
+    return {"message": f"Vital parameter '{param.display_name}' deactivated"}

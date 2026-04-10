@@ -3,8 +3,6 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type Department } from '$lib/api/admin';
-	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
-	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -113,13 +111,6 @@
 	}
 </script>
 
-<AdminScaffold
-	title="Medical Departments"
-	titleIcon={Stethoscope}
-	navItems={adminPageNavItems}
-	activeNav="departments"
-	backHref="/admin"
->
 	<div class="space-y-4 lg:space-y-5">
 		<div class="flex items-center justify-between gap-3">
 			<div>
@@ -204,7 +195,6 @@
 		</div>
 	{/if}
 	</div>
-</AdminScaffold>
 
 <!-- Create/Edit Department Modal -->
 {#if showForm}

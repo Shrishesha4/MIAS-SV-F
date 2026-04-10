@@ -22,7 +22,8 @@
          border-radius: 10px;
          box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24),
                      0 0 0 1px rgba(0,0,0,0.05), inset 0 -5px 10px rgba(0,0,0,0.05);
-         border: 1px solid rgba(0,0,0,0.1);"
+         border: 1px solid rgba(0,0,0,0.1);
+         transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease;"
 >
   {#if header}
     <div
@@ -42,7 +43,8 @@
 <style>
   @media (hover: hover) and (pointer: fine) {
     .aqua-card:hover {
-      box-shadow: 0 10px 22px rgba(85, 102, 130, 0.14), 0 0 0 1px rgba(0,0,0,0.05), inset 0 -5px 10px rgba(0,0,0,0.04);
+      transform: translateY(-2px);
+      box-shadow: 0 14px 28px rgba(85, 102, 130, 0.16), 0 0 0 1px rgba(0,0,0,0.05), inset 0 -5px 10px rgba(0,0,0,0.04);
     }
   }
 </style>

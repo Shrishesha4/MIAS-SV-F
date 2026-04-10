@@ -25,7 +25,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center motion-overlay"
-    style="background-color: rgba(0,0,0,0.5);"
+    style="background-color: rgba(0,0,0,0.5); backdrop-filter: blur(8px);"
     onkeydown={(e) => e.key === 'Escape' && handleClose()}
     transition:fade={{ duration: 180 }}
   >
@@ -35,7 +35,7 @@
       class="motion-dialog relative w-full sm:max-w-md max-h-[90vh] flex flex-col"
       style="background-color: white;
              border-radius: 16px 16px 0 0;
-             box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            box-shadow: 0 -8px 28px rgba(0,0,0,0.18);
              border: 1px solid rgba(0,0,0,0.1);"
       in:fly={{ y: 24, duration: 280, easing: cubicOut }}
       out:fly={{ y: 18, duration: 180 }}
@@ -59,7 +59,7 @@
         {:else}
           <div></div>
         {/if}
-        <button class="motion-control text-gray-500 hover:text-gray-700 cursor-pointer ml-2" onclick={handleClose}>
+        <button class="motion-control modal-close text-gray-500 hover:text-gray-700 cursor-pointer ml-2" onclick={handleClose}>
           <X class="w-5 h-5" />
         </button>
       </div>
@@ -69,3 +69,19 @@
     </div>
   </div>
 {/if}
+
+<style>
+  .motion-dialog {
+    transition: box-shadow 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .modal-close {
+    transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), color 180ms ease;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .modal-close:hover {
+      transform: rotate(90deg) scale(1.04);
+    }
+  }
+</style>
