@@ -41,7 +41,6 @@
 	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let diagnosisLoading = $state(false);
 	let selectedFacultyId = $state('');
-	let allowedDepartments: string[] = $state([]);
 
 	const mergedProcedureMap = $derived(
 		mergeProcedureMaps(procedures, buildCaseRecordProcedureMap(caseRecordForms))
@@ -189,10 +188,6 @@
 		return false;
 	}
 
-	const hasPermission = $derived(
-		!selectedDepartment || allowedDepartments.includes(selectedDepartment)
-	);
-
 	function handleFormSelection(formId: string) {
 		const form = caseRecordForms.find(f => f.id === formId);
 		if (form) {
@@ -206,9 +201,7 @@
 		}
 	}
 
-	const availableProcedures = $derived(
-		selectedDepartment && hasPermission ? (mergedProcedureMap[selectedDepartment] || []) : []
-	);
+	const availableProcedures = $derived(selectedDepartment ? (mergedProcedureMap[selectedDepartment] || []) : []);
 
 	const statusVariant: Record<string, 'success' | 'info' | 'warning' | 'pending'> = {
 		APPROVED: 'success',
@@ -218,12 +211,10 @@
 	};
 
 	async function openCreateModal() {
-		// Load form data + permissions
-		const [depts, procs, approvers, perms, forms] = await Promise.all([
+		const [depts, procs, approvers, forms] = await Promise.all([
 			studentApi.getDepartments(),
 			studentApi.getProcedures(),
 			studentApi.getFacultyApprovers(),
-			student ? studentApi.getPermissions(student.id) : Promise.resolve([]),
 			formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
 		]);
 		const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
@@ -231,7 +222,6 @@
 		procedures = merged;
 		caseRecordForms = forms;
 		facultyApprovers = approvers;
-		allowedDepartments = perms.map((p: any) => p.department);
 		// Reset form
 		selectedFormId = '';
 		selectedDepartment = '';
@@ -539,14 +529,6 @@
 						{selectedForm.procedure_name || 'N/A'}
 					</div>
 				</div>
-			</div>
-			{/if}
-
-			<!-- Permission check -->
-			{#if selectedDepartment && !hasPermission}
-			<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
-				<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {selectedDepartment}.</p>
-				<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>
 			</div>
 			{/if}
 

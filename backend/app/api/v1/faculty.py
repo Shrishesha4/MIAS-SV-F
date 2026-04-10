@@ -16,7 +16,6 @@ from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseR
 from app.models.admission import Admission
 from app.models.prescription import Prescription
 from app.models.student import Student
-from app.models.student_permission import StudentPermission
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
@@ -872,99 +871,3 @@ async def remove_patient_assignment(
     
     return {"message": "Assignment removed"}
 
-
-# ── Student Permissions ──────────────────────────────────────────────
-
-
-@router.get("/{faculty_id}/student-permissions")
-async def get_student_permissions(
-    faculty_id: str,
-    user: User = Depends(require_role(UserRole.FACULTY)),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get all permissions granted by this faculty."""
-    result = await db.execute(
-        select(StudentPermission)
-        .options(selectinload(StudentPermission.student))
-        .where(StudentPermission.granted_by_faculty_id == faculty_id)
-        .order_by(StudentPermission.granted_at.desc())
-    )
-    perms = result.scalars().all()
-    return [
-        {
-            "id": p.id,
-            "student_id": p.student_id,
-            "student_name": p.student.name if p.student else None,
-            "student_display_id": p.student.student_id if p.student else None,
-            "department": p.department,
-            "is_active": p.is_active,
-            "granted_at": p.granted_at.isoformat() if p.granted_at else None,
-        }
-        for p in perms
-    ]
-
-
-@router.post("/{faculty_id}/student-permissions")
-async def grant_student_permission(
-    faculty_id: str,
-    body: dict,
-    user: User = Depends(require_role(UserRole.FACULTY)),
-    db: AsyncSession = Depends(get_db),
-):
-    """Grant a student permission to perform procedures in a department."""
-    student_id = body.get("student_id")
-    department = body.get("department")
-    if not student_id or not department:
-        raise HTTPException(status_code=400, detail="student_id and department are required")
-
-    # Check if permission already exists
-    result = await db.execute(
-        select(StudentPermission).where(
-            StudentPermission.student_id == student_id,
-            StudentPermission.department == department,
-            StudentPermission.granted_by_faculty_id == faculty_id,
-        )
-    )
-    existing = result.scalar_one_or_none()
-    if existing:
-        if existing.is_active:
-            return {"id": existing.id, "message": "Permission already granted"}
-        existing.is_active = True
-        existing.revoked_at = None
-        existing.granted_at = datetime.utcnow()
-        await db.commit()
-        return {"id": existing.id, "message": "Permission re-granted"}
-
-    perm = StudentPermission(
-        id=str(uuid.uuid4()),
-        student_id=student_id,
-        department=department,
-        granted_by_faculty_id=faculty_id,
-    )
-    db.add(perm)
-    await db.commit()
-    return {"id": perm.id, "message": "Permission granted"}
-
-
-@router.delete("/{faculty_id}/student-permissions/{permission_id}")
-async def revoke_student_permission(
-    faculty_id: str,
-    permission_id: str,
-    user: User = Depends(require_role(UserRole.FACULTY)),
-    db: AsyncSession = Depends(get_db),
-):
-    """Revoke a student's permission for a department."""
-    result = await db.execute(
-        select(StudentPermission).where(
-            StudentPermission.id == permission_id,
-            StudentPermission.granted_by_faculty_id == faculty_id,
-        )
-    )
-    perm = result.scalar_one_or_none()
-    if not perm:
-        raise HTTPException(status_code=404, detail="Permission not found")
-
-    perm.is_active = False
-    perm.revoked_at = datetime.utcnow()
-    await db.commit()
-    return {"message": "Permission revoked"}

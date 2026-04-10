@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { facultyApi, type StudentForAssignment, type UnassignedPatient } from '$lib/api/faculty';
-	import { studentApi } from '$lib/api/students';
 	import { authApi } from '$lib/api/auth';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
@@ -9,14 +8,13 @@
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { GraduationCap, Search, BookOpen, Users, Plus, X, UserPlus, UserCheck, Link, Unlink, Shield } from 'lucide-svelte';
+	import { GraduationCap, Search, BookOpen, Users, Plus, X, UserPlus, UserCheck, Link } from 'lucide-svelte';
 
 	// Tab state
 	let activeTab = $state('students');
 	const tabs = [
 		{ id: 'students', label: 'Students', icon: Users },
 		{ id: 'assignments', label: 'Patient Assignment', icon: UserCheck },
-		{ id: 'permissions', label: 'Permissions', icon: Shield },
 	];
 
 	let students: StudentForAssignment[] = $state([]);
@@ -37,25 +35,6 @@
 	let createLoading = $state(false);
 	let createError = $state('');
 	let createSuccess = $state(false);
-
-	// Permissions state
-	let permissions: any[] = $state([]);
-	let permSearchQuery = $state('');
-	let selectedPermStudent: string = $state('');
-	let selectedPermDept: string = $state('');
-	let granting = $state(false);
-
-	let departments: string[] = $state([]);
-
-	const filteredPermissions = $derived(
-		permissions.filter((p: any) =>
-			(!permSearchQuery || 
-				String(p.student_name ?? '').toLowerCase().includes(permSearchQuery.toLowerCase()) ||
-				String(p.student_display_id ?? '').toLowerCase().includes(permSearchQuery.toLowerCase()) ||
-				String(p.department ?? '').toLowerCase().includes(permSearchQuery.toLowerCase())
-			) && p.is_active
-		)
-	);
 
 	// Create student form fields
 	let newUsername = $state('');
@@ -154,49 +133,17 @@
 		}
 	}
 
-	async function grantPermission() {
-		if (!selectedPermStudent || !selectedPermDept || !faculty) return;
-		granting = true;
-		try {
-			await facultyApi.grantStudentPermission(faculty.id, {
-				student_id: selectedPermStudent,
-				department: selectedPermDept,
-			});
-			permissions = await facultyApi.getStudentPermissions(faculty.id);
-			selectedPermStudent = '';
-			selectedPermDept = '';
-		} catch (err) {
-			toastStore.addToast('Failed to grant permission', 'error');
-		} finally {
-			granting = false;
-		}
-	}
-
-	async function revokePermission(permissionId: string) {
-		if (!faculty) return;
-		try {
-			await facultyApi.revokeStudentPermission(faculty.id, permissionId);
-			permissions = permissions.map(p => p.id === permissionId ? { ...p, is_active: false } : p);
-		} catch (err) {
-			toastStore.addToast('Failed to revoke permission', 'error');
-		}
-	}
-
 	onMount(async () => {
 		if (!redirectIfUnauthorized(['FACULTY'])) return;
 		try {
 			faculty = await facultyApi.getMe();
-			const [studentsData, patientsData, permsData, depts] = await Promise.all([
+			const [studentsData, patientsData] = await Promise.all([
 				facultyApi.getStudents(faculty.id),
 				facultyApi.getUnassignedPatients(faculty.id),
-				facultyApi.getStudentPermissions(faculty.id),
-				studentApi.getDepartments(),
 			]);
 			allStudents = studentsData;
 			students = studentsData;
 			unassignedPatients = patientsData;
-			permissions = permsData;
-			departments = depts;
 		} catch (err) {
 			toastStore.addToast('Failed to load students', 'error');
 		} finally {
@@ -426,100 +373,6 @@
 		<div class="text-center py-12">
 			<UserCheck class="w-10 h-10 text-gray-300 mx-auto mb-2" />
 			<p class="text-sm text-gray-400">Select a student to assign patients</p>
-		</div>
-	{/if}
-
-	{:else if activeTab === 'permissions'}
-	<!-- Permissions Tab -->
-	<AquaCard>
-		{#snippet header()}
-			<div class="flex items-center gap-2 w-full">
-				<Shield class="w-5 h-5 text-purple-700" />
-				<h2 class="text-sm font-bold text-purple-900" style="text-shadow: 0 1px 0 rgba(255,255,255,0.7);">
-					Department Permissions
-				</h2>
-				<span class="ml-auto text-xs text-purple-600 font-semibold bg-purple-100 px-2 py-0.5 rounded-full">
-					{filteredPermissions.length}
-				</span>
-			</div>
-		{/snippet}
-
-		<!-- Grant Permission Form -->
-		<div class="mb-4 p-3 rounded-lg" style="background-color: rgba(243, 232, 255, 0.3); border: 1px solid rgba(147, 51, 234, 0.15);">
-			<p class="text-xs font-semibold text-purple-800 mb-2">Grant Department Access</p>
-			<div class="space-y-2">
-				<select bind:value={selectedPermStudent}
-					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-					<option value="">Select Student</option>
-					{#each allStudents as s}
-						<option value={s.id}>{s.name} ({s.student_id}) — Y{s.year}</option>
-					{/each}
-				</select>
-				<select bind:value={selectedPermDept}
-					class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-					style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);">
-					<option value="">Select Department</option>
-					{#each departments as dept}
-						<option value={dept}>{dept}</option>
-					{/each}
-				</select>
-				<button
-					class="w-full py-2 rounded-md text-sm font-semibold cursor-pointer text-white disabled:opacity-50"
-					style="background: linear-gradient(to bottom, #a855f7, #7c3aed);
-					       box-shadow: 0 2px 6px rgba(147,51,234,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
-					       border: 1px solid rgba(0,0,0,0.1);"
-					disabled={granting || !selectedPermStudent || !selectedPermDept}
-					onclick={grantPermission}>
-					{granting ? 'Granting...' : 'Grant Permission'}
-				</button>
-			</div>
-		</div>
-
-		<!-- Search -->
-		<div class="relative mb-3">
-			<Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-			<input type="text" placeholder="Search permissions..."
-				class="w-full pl-9 pr-3 py-2 text-sm rounded-lg outline-none"
-				style="border: 1px solid rgba(0,0,0,0.2); border-radius: 6px; background-color: rgba(255,255,255,0.8); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);"
-				bind:value={permSearchQuery} />
-		</div>
-	</AquaCard>
-
-	<!-- Permission List -->
-	{#each filteredPermissions as perm}
-		<AquaCard padding={false}>
-			<div class="px-4 py-3 flex items-center gap-3">
-				<div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
-					style="background: linear-gradient(to bottom, #a855f7cc, #7c3aed);">
-					<Shield class="w-5 h-5 text-white" />
-				</div>
-				<div class="flex-1 min-w-0">
-					<p class="text-sm font-semibold text-gray-800">{perm.student_name}</p>
-					<p class="text-xs text-gray-500">{perm.student_display_id} · {perm.department}</p>
-					{#if perm.granted_at}
-						<p class="text-[10px] text-gray-400 mt-0.5">
-							Granted {new Date(perm.granted_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-						</p>
-					{/if}
-				</div>
-				<button
-					class="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer"
-					style="background: linear-gradient(to bottom, #fee2e2, #fecaca);
-					       border: 1px solid rgba(239,68,68,0.3);
-					       color: #dc2626;
-					       box-shadow: 0 1px 2px rgba(0,0,0,0.05);"
-					onclick={() => revokePermission(perm.id)}>
-					Revoke
-				</button>
-			</div>
-		</AquaCard>
-	{/each}
-
-	{#if filteredPermissions.length === 0}
-		<div class="text-center py-12">
-			<Shield class="w-10 h-10 text-gray-300 mx-auto mb-2" />
-			<p class="text-sm text-gray-400">No active permissions</p>
 		</div>
 	{/if}
 

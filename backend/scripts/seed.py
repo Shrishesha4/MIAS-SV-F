@@ -25,7 +25,6 @@ from app.models.programme import Programme
 from app.models.admission import Admission
 from app.models.io_event import IOEvent, SOAPNote, AdmissionEquipment
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
-from app.models.student_permission import StudentPermission
 from app.models.form_definition import FormDefinition
 from app.core.security import get_password_hash
 
@@ -712,26 +711,6 @@ async def seed():
                     assigned_date=datetime.utcnow() - timedelta(days=random.randint(5, 30)),
                     status="Active",
                 ))
-
-        # ── Student Department Permissions ──────────────
-        # Grant some departments to each student (granted by first faculty)
-        PERMISSION_DEPARTMENTS = [
-            "Internal Medicine", "Pediatrics", "Surgery",
-            "OB/GYN", "Psychiatry", "Emergency Medicine",
-        ]
-        granter = all_faculty[0]  # Dr. Arun Kumar
-        for i, s in enumerate(all_students):
-            # Give each student 2-4 departments based on their year
-            year = s.year if hasattr(s, 'year') and s.year else 2
-            num_depts = min(year + 1, len(PERMISSION_DEPARTMENTS))
-            for dept in PERMISSION_DEPARTMENTS[:num_depts]:
-                db.add(StudentPermission(
-                    id=uid(),
-                    student_id=s.id,
-                    department=dept,
-                    granted_by_faculty_id=granter.id,
-                ))
-
         # ── Sample Vitals for first 5 patients ──────────
         for p in all_patients[:5]:
             for day_offset in range(10):

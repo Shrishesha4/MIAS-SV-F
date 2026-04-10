@@ -118,14 +118,9 @@
 	let crDiagnosisLoading = $state(false);
 	let crIcdCode = $state('');
 	let crIcdDescription = $state('');
-	let allowedDepartments: string[] = $state([]);
 
 	const selectedCrForm = $derived(
 		caseRecordForms.find(f => f.id === selectedCrFormId) || null
-	);
-
-	const hasPermission = $derived(
-		role !== 'STUDENT' || !selectedCrForm?.department || allowedDepartments.includes(selectedCrForm.department)
 	);
 
 	const searchableCrForms = $derived.by(() =>
@@ -547,7 +542,7 @@
 				if (!studentData) {
 					studentData = await studentApi.getMe();
 				}
-				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, reportData, admissionData, perms, forms] =
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, reportData, admissionData, forms] =
 					await Promise.all([
 						patientApi.getPatient(patientId),
 						studentApi.getCaseRecords(studentData.id, patientId),
@@ -559,7 +554,6 @@
 						patientApi.getPrescriptionRequests(patientId).catch(() => []),
 						patientApi.getReports(patientId).catch(() => []),
 						patientApi.getAdmissions(patientId).catch(() => []),
-						studentApi.getPermissions(studentData.id).catch(() => []),
 						formsApi.getForms().catch(() => []),
 					]);
 				const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
@@ -575,7 +569,6 @@
 				prescriptionRequests = rxReqs;
 				reports = reportData;
 				admissions = admissionData;
-				allowedDepartments = perms.map((p: any) => p.department);
 			} else {
 				// FACULTY / ADMIN / PATIENT viewing a patient detail
 				if (role === 'FACULTY' && !facultyData) {
@@ -1925,15 +1918,8 @@
 			/>
 		</div>
 
-		{#if selectedCrForm && !hasPermission}
-		<div class="rounded-lg p-4 text-center" style="background-color: rgba(254,226,226,0.5); border: 1px solid rgba(239,68,68,0.2);">
-			<p class="text-sm font-medium text-red-700">You don't have permission to perform procedures in {selectedCrForm.department}.</p>
-			<p class="text-xs text-red-500 mt-1">Contact your faculty advisor to request access.</p>
-		</div>
-		{/if}
-
 		<!-- Dynamic procedure-specific fields -->
-		{#if crFields && hasPermission}
+		{#if crFields}
 			<DynamicFormRenderer
 				fields={crFields}
 				bind:values={crFormData}
@@ -1969,7 +1955,7 @@
 		{/if}
 	</div>
 
-	{#if crFields && hasPermission}
+	{#if crFields}
 	<div class="flex justify-end gap-2 mt-6">
 		<button class="px-4 py-2 rounded-md text-sm font-medium cursor-pointer"
 			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);
