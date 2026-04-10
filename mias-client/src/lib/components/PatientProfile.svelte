@@ -212,16 +212,6 @@
 		crDiagnosisSuggestions = [];
 	}
 
-	function buildSubmittedCaseRecordData(baseValues: Record<string, any>, draft: { findings: string; diagnosis: string; treatment: string }): Record<string, any> {
-		return {
-			...baseValues,
-			findings: draft.findings,
-			diagnosis: draft.diagnosis,
-			treatment: draft.treatment,
-			treatment_plan: draft.treatment,
-		};
-	}
-
 	// ── Add Vital form ────────────────────────────────────────────
 	let vitalFormData: Record<string, any> = $state({});
 	let vSubmitting = $state(false);
@@ -696,28 +686,19 @@
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
-			const draft = await patientApi.generateCaseRecordDraft(patient.id, {
-				department: selectedCrForm.department || '',
-				procedure: selectedCrForm.procedure_name || '',
-				form_name: selectedCrForm.name,
-				form_description: selectedCrForm.description || undefined,
-				form_values: crFormData,
-			});
-			const submittedValues = buildSubmittedCaseRecordData(crFormData, draft);
-			crFormData = submittedValues;
 			const now = new Date();
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: selectedCrForm.department || '',
 				procedure: selectedCrForm.procedure_name || '',
-				findings: stringifyFormValue(submittedValues['findings']) || '',
-				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
-				treatment: stringifyFormValue(submittedValues['treatment'] ?? submittedValues['treatment_plan']) || '',
-				notes: stringifyFormValue(submittedValues['notes']) || '',
-				description: buildCaseRecordDescription(crFields, submittedValues),
+				findings: '',
+				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
+				treatment: '',
+				notes: stringifyFormValue(crFormData['notes']) || '',
+				description: buildCaseRecordDescription(crFields, crFormData),
 				icd_code: crIcdCode || undefined,
 				icd_description: crIcdDescription || undefined,
-				form_values: submittedValues,
+				form_values: crFormData,
 				form_name: selectedCrForm.name,
 				form_description: selectedCrForm.description || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -732,7 +713,7 @@
 			}
 			showAddRecordModal = false;
 			resetCaseRecordForm();
-			toastStore.addToast('Case record submitted with AI-generated draft', 'success');
+			toastStore.addToast('Case record submitted. summary pending.', 'success');
 		} catch (err: any) {
 			console.error('Failed to submit case record', err);
 			toastStore.addToast(err?.response?.data?.detail || 'Failed to submit case record', 'error');
@@ -1395,6 +1376,9 @@
 								</div>
 							</div>
 							<div class="ml-12 p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+								{#if !(record.examination || record.findings || record.diagnosis || record.treatment_plan || record.treatment)}
+									<p class="text-sm text-amber-700"><strong>Status:</strong>Pending</p>
+								{/if}
 								<p class="text-sm text-gray-700"><strong>Findings:</strong> {record.examination || record.findings || '—'}</p>
 								<p class="text-sm text-gray-700 mt-1"><strong>Diagnosis:</strong> {record.diagnosis || '—'}</p>
 								<p class="text-sm text-gray-700 mt-1"><strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}</p>

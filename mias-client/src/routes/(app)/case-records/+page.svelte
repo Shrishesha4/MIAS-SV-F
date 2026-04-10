@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { studentApi, type AssignedPatient } from '$lib/api/students';
-	import { patientApi } from '$lib/api/patients';
 	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
@@ -190,16 +189,6 @@
 		return false;
 	}
 
-	function buildSubmittedCaseRecordValues(baseValues: Record<string, any>, draft: { findings: string; diagnosis: string; treatment: string }): Record<string, any> {
-		return {
-			...baseValues,
-			findings: draft.findings,
-			diagnosis: draft.diagnosis,
-			treatment: draft.treatment,
-			treatment_plan: draft.treatment,
-		};
-	}
-
 	const hasPermission = $derived(
 		!selectedDepartment || allowedDepartments.includes(selectedDepartment)
 	);
@@ -275,34 +264,25 @@
 		}
 		submitting = true;
 		try {
-			const draft = await patientApi.generateCaseRecordDraft(selectedPatientId, {
-				department: selectedDepartment,
-				procedure: selectedProcedure,
-				form_name: selectedForm?.name,
-				form_description: selectedForm?.description || undefined,
-				form_values: formData,
-			});
-			const submittedValues = buildSubmittedCaseRecordValues(formData, draft);
-			formData = submittedValues;
 			await studentApi.submitCaseRecord(student.id, {
 				patient_id: selectedPatientId,
 				department: selectedDepartment,
 				procedure: selectedProcedure,
-				procedure_description: buildCaseRecordDescription(crFields, submittedValues) || undefined,
-				notes: stringifyFormValue(submittedValues['notes']) || '',
-				findings: stringifyFormValue(submittedValues['findings']) || '',
-				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
-				treatment: stringifyFormValue(submittedValues['treatment'] ?? submittedValues['treatment_plan']) || '',
+				procedure_description: buildCaseRecordDescription(crFields, formData) || undefined,
+				notes: stringifyFormValue(formData['notes']) || '',
+				findings: '',
+				diagnosis: stringifyFormValue(formData['diagnosis']) || '',
+				treatment: '',
 				icd_code: icdCode || undefined,
 				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
-				form_values: submittedValues,
+				form_values: formData,
 				form_name: selectedForm?.name,
 				form_description: selectedForm?.description || undefined,
 				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
 			});
 			showCreateModal = false;
-			toastStore.addToast('Case record submitted with AI-generated draft', 'success');
+			toastStore.addToast('Case record submitted. summary pending.', 'success');
 			// Refresh case records
 			caseRecords = await studentApi.getCaseRecords(student.id);
 		} catch (err) {
@@ -364,7 +344,7 @@
 					<Clipboard class="w-5 h-5 text-white" />
 				</div>
 				<div class="flex-1 min-w-0">
-					<p class="text-sm font-semibold text-gray-800">{cr.chief_complaint}</p>
+					<p class="text-sm font-semibold text-gray-800">{cr.procedure_name || cr.type || 'Case Record'}</p>
 					<p class="text-xs text-gray-500 mt-0.5">
 						{new Date(cr.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
 						{#if cr.time} · {cr.time}{/if}
@@ -383,13 +363,20 @@
 
 			{#if expandedId === cr.id}
 				<div class="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
-					<!-- Examination -->
+					{#if !(cr.findings || cr.diagnosis || cr.treatment)}
+						<div class="p-3 rounded-lg bg-amber-50 border border-amber-100">
+							<p class="text-xs font-semibold text-amber-700 mb-1">Summary Pending</p>
+							<p class="text-xs text-amber-700/80">The case record is submitted. Findings, diagnosis, and treatment will appear here after background processing completes.</p>
+						</div>
+					{/if}
+
+					<!-- Findings -->
 					<div class="p-3 rounded-lg bg-gray-50">
 						<p class="text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
 							<Stethoscope class="w-3 h-3" />
-							Examination
+							Findings
 						</p>
-						<p class="text-xs text-gray-600">{cr.examination}</p>
+						<p class="text-xs text-gray-600">{cr.findings || '—'}</p>
 					</div>
 
 					<!-- Diagnosis -->
@@ -404,7 +391,7 @@
 					<!-- Treatment Plan -->
 					<div class="p-3 rounded-lg bg-green-50">
 						<p class="text-xs font-semibold text-green-700 mb-1">Treatment Plan</p>
-						<p class="text-xs text-gray-700">{cr.treatment_plan}</p>
+						<p class="text-xs text-gray-700">{cr.treatment || '—'}</p>
 					</div>
 
 					<!-- History -->

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
+import uuid
 
-from app.database import get_db
+from app.database import AsyncSessionLocal, get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.student import (
@@ -13,14 +14,98 @@ from app.models.student import (
 )
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.patient import Patient, Allergy, MedicalAlert
-from app.models.faculty import Faculty
+from app.models.faculty import Faculty, FacultyNotification
 from app.models.admission import Admission
 from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 from app.models.student_permission import StudentPermission
+from app.services.ai_provider import AIProviderError, generate_case_record_draft
 
 router = APIRouter(prefix="/students", tags=["Students"])
+
+
+async def _complete_case_record_generation(
+    *,
+    record_id: str,
+    patient_id: str,
+    faculty_id: str | None,
+    student_id: str,
+    student_name: str,
+    form_name: str | None,
+    form_description: str | None,
+    form_values: dict | None,
+):
+    async with AsyncSessionLocal() as db:
+        record = (
+            await db.execute(
+                select(CaseRecord).where(CaseRecord.id == record_id)
+            )
+        ).scalar_one_or_none()
+        if not record:
+            return
+
+        patient = (
+            await db.execute(
+                select(Patient)
+                .options(
+                    selectinload(Patient.allergies),
+                    selectinload(Patient.medical_alerts),
+                )
+                .where(Patient.id == patient_id)
+            )
+        ).scalar_one_or_none()
+        if not patient:
+            return
+
+        try:
+            draft = await generate_case_record_draft(
+                db=db,
+                patient=patient,
+                department=record.department,
+                procedure=record.procedure_name or record.type,
+                form_name=form_name,
+                form_description=form_description,
+                form_values=form_values or {},
+            )
+        except AIProviderError:
+            return
+
+        record.findings = draft["findings"]
+        record.diagnosis = draft["diagnosis"]
+        record.treatment = draft["treatment"]
+        record.last_modified_by = "AI Summary Generator"
+        record.last_modified_at = datetime.utcnow()
+
+        if faculty_id:
+            existing_approval = (
+                await db.execute(
+                    select(Approval).where(Approval.case_record_id == record.id)
+                )
+            ).scalar_one_or_none()
+            if not existing_approval:
+                approval = Approval(
+                    id=str(uuid.uuid4()),
+                    approval_type=ApprovalType.CASE_RECORD,
+                    case_record_id=record.id,
+                    faculty_id=faculty_id,
+                    patient_id=patient_id,
+                    student_id=student_id,
+                    status=ApprovalStatus.PENDING,
+                )
+                db.add(approval)
+
+                notification = FacultyNotification(
+                    id=str(uuid.uuid4()),
+                    faculty_id=faculty_id,
+                    type="APPROVAL_REQUEST",
+                    title="New Case Record for Review",
+                    message=f"Case record for {patient.name} submitted by {student_name} is ready for your approval",
+                    is_read=False,
+                )
+                db.add(notification)
+
+        await db.commit()
 
 
 @router.get("/me")
@@ -690,12 +775,11 @@ async def get_previous_patients(
 async def submit_case_record_for_approval(
     student_id: str,
     body: dict,
+    background_tasks: BackgroundTasks,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a case record for faculty approval"""
-    import uuid
-
     department = body.get("department")
 
     # Check student has permission for this department
@@ -745,23 +829,23 @@ async def submit_case_record_for_approval(
     )
     db.add(record)
     await db.flush()
-    
-    # Create an approval request
+
+    # Queue AI generation, then create the faculty approval after the summary is ready.
     faculty_id = body.get("faculty_id")
-    if faculty_id:
-        approval = Approval(
-            id=str(uuid.uuid4()),
-            approval_type=ApprovalType.CASE_RECORD,
-            case_record_id=record.id,
-            faculty_id=faculty_id,
-            patient_id=body.get("patient_id"),
-            student_id=student_id,
-            status=ApprovalStatus.PENDING,
-        )
-        db.add(approval)
-    
+
     await db.commit()
-    return {"id": record.id, "status": "submitted"}
+    background_tasks.add_task(
+        _complete_case_record_generation,
+        record_id=record.id,
+        patient_id=body.get("patient_id"),
+        faculty_id=faculty_id,
+        student_id=student_id,
+        student_name=student_name,
+        form_name=body.get("form_name"),
+        form_description=body.get("form_description"),
+        form_values=body.get("form_values") or {},
+    )
+    return {"id": record.id, "status": "submitted", "summary_status": "PENDING"}
 
 
 @router.post("/{student_id}/admission-requests")
