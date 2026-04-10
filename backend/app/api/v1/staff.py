@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time as dt_time
 from pydantic import BaseModel
 import uuid
 
@@ -12,7 +12,8 @@ from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
-from app.models.student import Clinic
+from app.models.student import Clinic, ClinicAppointment
+from app.models.nurse import Nurse
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
 
@@ -35,6 +36,7 @@ class PendingPatient(BaseModel):
 class AssignToClinicRequest(BaseModel):
     patient_id: str
     clinic_id: str
+    scheduled_date: Optional[str] = None
     appointment_date: Optional[str] = None
     appointment_time: Optional[str] = None
     notes: Optional[str] = None
@@ -42,11 +44,39 @@ class AssignToClinicRequest(BaseModel):
 
 class AssignToWardRequest(BaseModel):
     patient_id: str
-    ward: str
+    ward: Optional[str] = None
+    ward_type: Optional[str] = None
     room_number: Optional[str] = None
     bed_number: Optional[str] = None
     department: Optional[str] = None
+    admission_date: Optional[str] = None
+    chief_complaint: Optional[str] = None
     admitting_diagnosis: Optional[str] = None
+    notes: Optional[str] = None
+
+
+def _parse_iso_date(value: Optional[str]) -> datetime:
+    if not value:
+        return datetime.utcnow()
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        parsed = datetime.combine(date.fromisoformat(value), dt_time.min)
+    if parsed.time() == dt_time.min:
+        return datetime.combine(parsed.date(), dt_time(hour=9, minute=0))
+    return parsed
+
+
+def _parse_appointment_time(value: Optional[str], fallback: datetime) -> str:
+    if not value:
+        return fallback.strftime("%I:%M %p")
+    normalized = value.strip()
+    for fmt in ("%H:%M", "%I:%M %p"):
+        try:
+            return datetime.strptime(normalized, fmt).strftime("%I:%M %p")
+        except ValueError:
+            continue
+    return normalized
 
 
 @router.get("/pending-patients")
@@ -77,7 +107,11 @@ async def get_pending_patients(
             select(func.count(Appointment.id))
             .where(Appointment.patient_id == patient.id)
         )
-        has_appointment = appt_result.scalar() > 0
+        clinic_appt_result = await db.execute(
+            select(func.count(ClinicAppointment.id))
+            .where(ClinicAppointment.patient_id == patient.id)
+        )
+        has_appointment = (appt_result.scalar() or 0) > 0 or (clinic_appt_result.scalar() or 0) > 0
         
         # Check if patient has any admissions
         adm_result = await db.execute(
@@ -131,37 +165,67 @@ async def assign_patient_to_clinic(
     
     # Verify clinic exists
     clinic_result = await db.execute(
-        select(Clinic).where(Clinic.id == data.clinic_id)
+        select(Clinic)
+        .options(selectinload(Clinic.faculty))
+        .where(Clinic.id == data.clinic_id)
     )
     clinic = clinic_result.scalar_one_or_none()
     if not clinic:
         raise HTTPException(status_code=404, detail="Clinic not found")
-    
-    # Parse appointment datetime
-    if data.appointment_date and data.appointment_time:
-        appt_datetime = datetime.fromisoformat(f"{data.appointment_date}T{data.appointment_time}")
-    else:
-        # Default to current time
-        appt_datetime = datetime.utcnow()
-    
-    # Create appointment
+
+    scheduled_date = data.scheduled_date or data.appointment_date
+    appt_datetime = _parse_iso_date(scheduled_date)
+    appointment_time = _parse_appointment_time(data.appointment_time, appt_datetime)
+    provider_name = clinic.faculty.name if clinic.faculty else clinic.name
+
+    day_start = datetime.combine(appt_datetime.date(), dt_time.min)
+    day_end = datetime.combine(appt_datetime.date(), dt_time.max)
+    existing_clinic_appt_result = await db.execute(
+        select(ClinicAppointment).where(
+            and_(
+                ClinicAppointment.patient_id == patient.id,
+                ClinicAppointment.clinic_id == clinic.id,
+                ClinicAppointment.appointment_date >= day_start,
+                ClinicAppointment.appointment_date <= day_end,
+                ClinicAppointment.status.in_(["Scheduled", "Checked In", "In Progress"]),
+            )
+        )
+    )
+    existing_clinic_appt = existing_clinic_appt_result.scalar_one_or_none()
+    if existing_clinic_appt:
+        raise HTTPException(status_code=400, detail="Patient already has a clinic assignment for this date")
+
+    clinic_appointment = ClinicAppointment(
+        id=str(uuid.uuid4()),
+        clinic_id=clinic.id,
+        patient_id=patient.id,
+        appointment_date=appt_datetime,
+        appointment_time=appointment_time,
+        provider_name=provider_name,
+        status="Scheduled",
+    )
+
     appointment = Appointment(
         id=str(uuid.uuid4()),
         patient_id=patient.id,
-        clinic_id=clinic.id,
-        appointment_date=appt_datetime,
+        date=appt_datetime,
+        time=appointment_time,
+        doctor=provider_name,
+        department=clinic.department,
         status="Scheduled",
-        notes=data.notes,
+        notes=data.notes or f"Assigned to clinic: {clinic.name}",
     )
+    db.add(clinic_appointment)
     db.add(appointment)
     await db.commit()
     
     return {
         "message": f"Patient {patient.name} assigned to {clinic.name}",
         "appointment_id": appointment.id,
+        "clinic_appointment_id": clinic_appointment.id,
         "patient_name": patient.name,
         "clinic_name": clinic.name,
-        "appointment_date": appointment.appointment_date.isoformat(),
+        "appointment_date": appointment.date.isoformat(),
     }
 
 
@@ -174,6 +238,15 @@ async def assign_patient_to_ward(
     """Create admission for patient to ward (nurse/admin only)"""
     if user.role not in [UserRole.NURSE, UserRole.ADMIN]:
         raise HTTPException(status_code=403, detail="Not authorized")
+
+    nurse = None
+    if user.role == UserRole.NURSE:
+        nurse_result = await db.execute(
+            select(Nurse).where(Nurse.user_id == user.id)
+        )
+        nurse = nurse_result.scalar_one_or_none()
+        if not nurse:
+            raise HTTPException(status_code=404, detail="Nurse profile not found")
     
     # Verify patient exists
     patient_result = await db.execute(
@@ -194,26 +267,38 @@ async def assign_patient_to_ward(
     existing = active_adm_result.scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=400, detail="Patient already has an active admission")
+
+    ward_name = data.ward or data.ward_type
+    if not ward_name:
+        raise HTTPException(status_code=400, detail="Ward is required")
+
+    admission_dt = _parse_iso_date(data.admission_date)
+    department = data.department or (nurse.department if nurse and nurse.department else None) or "General"
+    diagnosis = data.admitting_diagnosis or data.chief_complaint
+    attending_doctor = nurse.name if nurse else "Ward Staff"
     
     # Create admission
     admission = Admission(
         id=str(uuid.uuid4()),
         patient_id=patient.id,
-        admission_date=datetime.utcnow(),
+        admission_date=admission_dt,
         status="Active",
-        ward=data.ward,
+        department=department,
+        ward=ward_name,
         room_number=data.room_number,
         bed_number=data.bed_number,
-        department=data.department,
-        admitting_diagnosis=data.admitting_diagnosis,
+        attending_doctor=attending_doctor,
+        reason=data.chief_complaint,
+        diagnosis=diagnosis,
+        notes=data.notes,
     )
     db.add(admission)
     await db.commit()
     
     return {
-        "message": f"Patient {patient.name} admitted to {data.ward}",
+        "message": f"Patient {patient.name} admitted to {ward_name}",
         "admission_id": admission.id,
         "patient_name": patient.name,
-        "ward": data.ward,
+        "ward": ward_name,
         "admission_date": admission.admission_date.isoformat(),
     }

@@ -35,6 +35,8 @@ class Nurse(Base):
     # Relationships
     user = relationship("User", back_populates="nurse")
     notifications = relationship("NurseNotification", back_populates="nurse")
+    completed_orders = relationship("NurseOrder", back_populates="nurse")
+    sbar_notes = relationship("SBARNote", back_populates="nurse")
 
 
 class NurseNotification(Base):

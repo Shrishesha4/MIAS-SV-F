@@ -385,6 +385,23 @@ async def create_sbar_note(
     if not nurse:
         raise HTTPException(status_code=404, detail="Nurse profile not found")
 
+    patient_result = await db.execute(
+        select(Patient).where(Patient.id == patient_id)
+    )
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    admission_result = await db.execute(
+        select(Admission).where(
+            Admission.id == admission_id,
+            Admission.patient_id == patient_id,
+        )
+    )
+    admission = admission_result.scalar_one_or_none()
+    if not admission:
+        raise HTTPException(status_code=404, detail="Admission not found for patient")
+
     # Generate SBAR ID
     result = await db.execute(select(SBARNote))
     existing_sbars = result.scalars().all()

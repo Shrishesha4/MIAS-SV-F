@@ -93,3 +93,5 @@ class Admission(Base):
     io_events = relationship("IOEvent", back_populates="admission", cascade="all, delete-orphan")
     soap_notes = relationship("SOAPNote", back_populates="admission", cascade="all, delete-orphan")
     equipment = relationship("AdmissionEquipment", back_populates="admission", cascade="all, delete-orphan")
+    nurse_orders = relationship("NurseOrder", back_populates="admission")
+    sbar_notes = relationship("SBARNote", back_populates="admission")
