@@ -52,11 +52,11 @@
 </script>
 
 <div class="pb-2 lg:min-h-screen lg:bg-[linear-gradient(to_bottom,#d9e3f0_0%,#d4dfec_38%,#ccd8e7_100%)] lg:pb-6">
-	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
+	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:min-h-[calc(100vh-2rem)] lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
 		{#if navItems.length > 0}
 			<aside class="hidden lg:block lg:self-start">
 				<div
-					class="sticky top-4 flex min-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
+					class="sticky top-4 flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
 					style="background: linear-gradient(to bottom, rgba(250,252,255,0.96), rgba(242,247,252,0.94)); box-shadow: 0 10px 24px rgba(95,113,136,0.16), inset 0 1px 0 rgba(255,255,255,0.94); border-color: rgba(132,150,175,0.2);"
 				>
 					<div class="border-b px-4 py-3.5" style="border-color: rgba(160,174,196,0.18); background: linear-gradient(to bottom, rgba(220,229,241,0.85), rgba(236,241,249,0.55));">
@@ -72,8 +72,7 @@
 							</div>
 						</div>
 					</div>
-
-					<div class="flex-1 overflow-hidden bg-white/55">
+					<div class="flex-1 overflow-y-auto overflow-x-hidden bg-white/55">
 						<div class="divide-y" style="border-color: rgba(190,200,214,0.42);">
 							{#each navItems as item (item.id)}
 								{@const NavIcon = item.icon}

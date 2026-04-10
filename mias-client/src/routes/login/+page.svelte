@@ -157,14 +157,14 @@
 				</div>
 
 				<!-- Divider -->
-				<div class="relative flex items-center py-4">
+				<!-- <div class="relative flex items-center py-4">
 					<div class="flex-grow border-t border-gray-200"></div>
 					<span class="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase tracking-wider">Or</span>
 					<div class="flex-grow border-t border-gray-200"></div>
-				</div>
+				</div> -->
 
 				<!-- New Patient Registration -->
-				<button
+				<!-- <button
 					type="button"
 					onclick={() => goto('/register')}
 					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
@@ -175,10 +175,10 @@
 				>
 					<UserPlus class="w-4 h-4" />
 					New Patient Registration
-				</button>
+				</button> -->
 
 				<!-- Quick Login (Dev) -->
-				<div class="mt-5 pt-4 border-t border-gray-100">
+				<!-- <div class="mt-5 pt-4 border-t border-gray-100">
 					<p class="text-[10px] text-gray-400 text-center mb-2.5 uppercase tracking-wider">Quick Login (Dev)</p>
 					<div class="flex flex-wrap justify-center gap-1.5">
 						<button
@@ -207,7 +207,7 @@
 							onclick={() => { username = 'a'; password = 'a'; }}
 						>Admin</button>
 					</div>
-				</div>
+				</div> -->
 			</div>
 		</div>
 
