@@ -9,7 +9,7 @@
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
-		Building, Plus, Edit3, Trash2, Users, CheckCircle
+		ChevronRight, Plus, Stethoscope, Trash2
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -123,24 +123,26 @@
 </script>
 
 <AdminScaffold
-	title="System Administration"
-	titleIcon={Building}
+	title="Medical Departments"
+	titleIcon={Stethoscope}
 	navItems={adminPageNavItems}
 	activeNav="departments"
 	backHref="/admin"
 >
-	<div class="space-y-4">
-		<div class="flex items-center justify-between">
+	<div class="space-y-4 lg:space-y-5">
+		<div class="flex items-center justify-between gap-3">
 			<div>
-				<h2 class="text-sm font-bold uppercase tracking-[0.18em] text-slate-600">Departments</h2>
-				<p class="mt-1 text-xs text-slate-500">{departments.length} departments configured</p>
+				<h2 class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 lg:text-[13px]">Medical Departments</h2>
+				<p class="mt-1 text-xs text-slate-500 lg:hidden">{departments.length} departments configured</p>
 			</div>
-			<AquaButton size="sm" onclick={openCreate}>
-				<div class="flex items-center gap-1">
-					<Plus class="w-4 h-4" />
-					<span>Add</span>
-				</div>
-			</AquaButton>
+			<button
+				onclick={openCreate}
+				class="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white cursor-pointer lg:px-4"
+				style="background: linear-gradient(to bottom, #3c8af4, #1667d8); box-shadow: 0 3px 8px rgba(22,103,216,0.24), inset 0 1px 0 rgba(255,255,255,0.22);"
+			>
+				<Plus class="h-3.5 w-3.5" />
+				<span>Add New</span>
+			</button>
 		</div>
 
 	{#if loading}
@@ -153,55 +155,56 @@
 		</AquaCard>
 	{:else}
 		<div class="space-y-3">
-			{#each departments as dept}
-				<AquaCard>
-					<div class="flex items-start gap-3">
-						<div
-							class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-							style="background: linear-gradient(135deg, {dept.is_active ? '#8b5cf6' : '#9ca3af'}, {dept.is_active ? '#6d28d9' : '#6b7280'});"
-						>
-							<Building class="w-5 h-5 text-white" />
-						</div>
-						<div class="flex-1 min-w-0">
-							<div class="flex items-center gap-2">
-								<h3 class="text-sm font-semibold text-blue-900">{dept.name}</h3>
-								<span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-mono">{dept.code}</span>
-								{#if !dept.is_active}
-									<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700">Inactive</span>
-								{/if}
-							</div>
-							{#if dept.description}
-								<p class="text-xs text-gray-500 mt-0.5">{dept.description}</p>
-							{/if}
-							<div class="flex items-center gap-3 mt-2 text-xs text-gray-500">
-								<span class="flex items-center gap-1">
-									<Users class="w-3 h-3" />
-									{dept.faculty_count} faculty
-								</span>
-								{#if dept.head_faculty_name}
-									<span class="flex items-center gap-1">
-										<CheckCircle class="w-3 h-3 text-green-500" />
-										Head: {dept.head_faculty_name}
-									</span>
-								{/if}
-							</div>
-						</div>
-						<div class="flex gap-1 shrink-0">
-							<button class="p-2 rounded-lg cursor-pointer hover:bg-gray-100" onclick={() => openEdit(dept)}>
-								<Edit3 class="w-4 h-4 text-blue-500" />
-							</button>
-							<button class="p-2 rounded-lg cursor-pointer hover:bg-red-50" onclick={() => confirmDelete(dept)}>
-								<Trash2 class="w-4 h-4 text-red-400" />
-							</button>
-						</div>
+			{#each departments as dept (dept.id)}
+				<div
+					class="group flex items-center gap-4 rounded-[18px] border px-4 py-4 cursor-pointer transition-transform hover:-translate-y-[1px]"
+					style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);"
+					role="button"
+					tabindex="0"
+					onclick={() => openEdit(dept)}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' || event.key === ' ') {
+							event.preventDefault();
+							openEdit(dept);
+						}
+					}}
+				>
+					<div
+						class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
+						style="background: linear-gradient(180deg, ${dept.is_active ? '#b26eff' : '#b5bcc8'} 0%, ${dept.is_active ? '#7b23df' : '#7f8a99'} 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);"
+					>
+						<Stethoscope class="h-5 w-5 text-white" />
 					</div>
-				</AquaCard>
+
+					<div class="min-w-0 flex-1">
+						<div class="flex items-center gap-2">
+							<h3 class="truncate text-[15px] font-bold text-slate-900">{dept.name}</h3>
+							{#if !dept.is_active}
+								<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
+							{/if}
+						</div>
+						<p class="mt-0.5 text-[10px] font-bold uppercase tracking-[0.18em] text-violet-600">Medical Department</p>
+						{#if dept.description}
+							<p class="mt-1 truncate text-xs text-slate-500">{dept.description}</p>
+						{/if}
+					</div>
+
+					<div class="flex items-center gap-2 shrink-0">
+						<button
+							class="hidden h-8 w-8 items-center justify-center rounded-full cursor-pointer opacity-0 transition-opacity hover:bg-rose-50 group-hover:flex group-hover:opacity-100"
+							onclick={(event) => { event.stopPropagation(); confirmDelete(dept); }}
+						>
+							<Trash2 class="h-4 w-4 text-rose-500" />
+						</button>
+						<ChevronRight class="h-4 w-4 text-slate-300 transition-colors group-hover:text-slate-500" />
+					</div>
+				</div>
 			{/each}
 
 			{#if departments.length === 0}
-				<div class="text-center py-12">
-					<Building class="w-12 h-12 text-gray-300 mx-auto mb-3" />
-					<p class="text-gray-400 text-sm">No departments yet</p>
+				<div class="rounded-[18px] border px-6 py-12 text-center" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);">
+					<Stethoscope class="mx-auto mb-3 h-12 w-12 text-violet-300" />
+					<p class="text-sm font-semibold text-slate-500">No departments yet</p>
 					<AquaButton size="sm" onclick={openCreate}>
 						<span>Create First Department</span>
 					</AquaButton>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { ArrowLeft, ChevronRight, Shield } from 'lucide-svelte';
+	import { authStore } from '$lib/stores/auth';
+	import { ArrowLeft, Bell, ChevronRight, HeartPulse, Plus, Shield, ShieldCheck, UserRound } from 'lucide-svelte';
 	import type { Snippet } from 'svelte';
 
 	type NavItem = {
@@ -42,66 +43,80 @@
 		}
 	}
 
+	function logout() {
+		authStore.logout();
+		goto('/login');
+	}
+
 	const TitleIcon = $derived(titleIcon);
 </script>
 
-<div class="pb-2 lg:min-h-screen lg:bg-[linear-gradient(to_bottom,rgba(225,232,244,0.88),rgba(236,241,249,0.94))] lg:pb-6">
-	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:max-w-[1480px] lg:grid lg:grid-cols-[290px_minmax(0,1fr)] lg:gap-5 lg:px-5 lg:pt-4">
+<div class="pb-2 lg:min-h-screen lg:bg-[linear-gradient(to_bottom,#d9e3f0_0%,#d4dfec_38%,#ccd8e7_100%)] lg:pb-6">
+	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
 		{#if navItems.length > 0}
 			<aside class="hidden lg:block lg:self-start">
 				<div
-					class="sticky top-4 flex min-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[28px] border"
-					style="background: linear-gradient(to bottom, rgba(255,255,255,0.94), rgba(243,247,252,0.97)); box-shadow: 0 12px 30px rgba(97,112,134,0.18), inset 0 1px 0 rgba(255,255,255,0.92); border-color: rgba(134,151,175,0.22);"
+					class="sticky top-4 flex min-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
+					style="background: linear-gradient(to bottom, rgba(250,252,255,0.96), rgba(242,247,252,0.94)); box-shadow: 0 10px 24px rgba(95,113,136,0.16), inset 0 1px 0 rgba(255,255,255,0.94); border-color: rgba(132,150,175,0.2);"
 				>
-					<div class="border-b px-4 py-4" style="border-color: rgba(160,174,196,0.2); background: linear-gradient(to bottom, rgba(206,218,237,0.78), rgba(225,232,244,0.42));">
+					<div class="border-b px-4 py-3.5" style="border-color: rgba(160,174,196,0.18); background: linear-gradient(to bottom, rgba(220,229,241,0.85), rgba(236,241,249,0.55));">
 						<div class="flex items-center gap-3">
 							<div
-								class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-								style="background: linear-gradient(to bottom, #6eafff, #0d66d0); box-shadow: 0 4px 12px rgba(13,102,208,0.32), inset 0 1px 0 rgba(255,255,255,0.34); border: 1px solid rgba(0,0,0,0.16);"
+								class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+								style="background: linear-gradient(to bottom, #287cff, #005fd8); box-shadow: 0 4px 10px rgba(20,95,210,0.25), inset 0 1px 0 rgba(255,255,255,0.3); border: 1px solid rgba(255,255,255,0.55);"
 							>
 								<Shield class="h-5 w-5 text-white" />
 							</div>
 							<div class="min-w-0 flex-1">
 								<p class="text-base font-bold leading-tight text-slate-900">Admin Panel</p>
-								<p class="mt-0.5 text-xs font-medium text-slate-500">Desktop Control Center</p>
 							</div>
 							<div class="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(74,222,128,0.9)]"></div>
 						</div>
 					</div>
 
-					<div class="flex-1 px-3 py-3">
-						<div class="space-y-2">
+					<div class="flex-1 overflow-hidden bg-white/55">
+						<div class="divide-y" style="border-color: rgba(190,200,214,0.42);">
 							{#each navItems as item (item.id)}
 								{@const NavIcon = item.icon}
 								{@const isActive = item.id === activeNav}
 								<button
-									class="flex w-full items-center gap-3 rounded-[18px] px-3 py-3 text-left cursor-pointer transition-all"
+									class="flex w-full items-center gap-3 px-4 py-4 text-left cursor-pointer transition-all"
 									style={isActive
-										? 'background: linear-gradient(to bottom, #2a7bf5, #0d66d0); box-shadow: 0 8px 18px rgba(13,102,208,0.28), inset 0 1px 0 rgba(255,255,255,0.3); border: 1px solid rgba(0,0,0,0.14);'
-										: 'background: linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(238,243,248,0.96)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.88); border: 1px solid rgba(175,189,208,0.2);'}
+										? 'background: linear-gradient(to bottom, #1a78f5, #005fda); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);'
+										: 'background: linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(246,249,252,0.98));'}
 									onclick={() => handleNav(item)}
 								>
 									<div
 										class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
 										style={isActive
-											? 'background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.18);'
-											: 'background: linear-gradient(to bottom, rgba(255,255,255,0.82), rgba(229,236,244,0.92)); border: 1px solid rgba(160,174,196,0.18);'}
+											? 'background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.14);'
+											: 'background: linear-gradient(to bottom, #1d7cf6, #005fd7); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);'}
 									>
-										<NavIcon class="h-4 w-4 {isActive ? 'text-white' : 'text-slate-500'}" />
+										<NavIcon class="h-4 w-4 {isActive ? 'text-white' : 'text-white'}" />
 									</div>
 									<div class="min-w-0 flex-1">
-										<p class="truncate text-[13px] font-bold {isActive ? 'text-white' : 'text-slate-800'}">{item.label}</p>
+										<p class="truncate text-[14px] font-bold {isActive ? 'text-white' : 'text-slate-900'}">{item.label}</p>
 									</div>
-									<ChevronRight class="h-4 w-4 shrink-0 {isActive ? 'text-white/80' : 'text-slate-400'}" />
+									<ChevronRight class="h-4 w-4 shrink-0 {isActive ? 'text-white/85' : 'text-slate-400'}" />
 								</button>
 							{/each}
 						</div>
+					</div>
+
+					<div class="px-4 py-4" style="background: linear-gradient(to bottom, rgba(255,255,255,0.78), rgba(246,248,252,0.92)); border-top: 1px solid rgba(190,200,214,0.42);">
+						<button
+							class="flex w-full items-center justify-center rounded-[10px] px-4 py-3 text-sm font-bold text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #ff6e68, #ff2946); box-shadow: inset 0 1px 0 rgba(255,255,255,0.32), 0 4px 10px rgba(255,41,70,0.24);"
+							onclick={logout}
+						>
+							Sign Out
+						</button>
 					</div>
 				</div>
 			</aside>
 		{/if}
 
-		<section class="min-w-0 space-y-4 lg:space-y-5">
+		<section class="min-w-0 space-y-4 lg:space-y-0">
 			<div
 				class="rounded-[20px] border p-4 lg:hidden"
 				style="background: linear-gradient(to bottom, rgba(255,255,255,0.97), rgba(248,250,253,0.96)); box-shadow: 0 4px 12px rgba(97,112,134,0.14), inset 0 1px 0 rgba(255,255,255,0.78); border-color: rgba(134,151,175,0.18);"
@@ -145,35 +160,16 @@
 				</div>
 			{/if}
 
-			<div
-				class="hidden items-center justify-between rounded-[24px] border px-5 py-4 lg:flex"
-				style="background: linear-gradient(to bottom, rgba(208,219,236,0.82), rgba(227,234,244,0.7)); box-shadow: 0 8px 18px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.7); border-color: rgba(146,163,186,0.22);"
-			>
-				<div class="flex min-w-0 items-center gap-3">
-					{#if backHref}
-						<button
-							class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full cursor-pointer"
-							style="background: linear-gradient(to bottom, rgba(255,255,255,0.95), rgba(232,239,247,0.96)); box-shadow: 0 4px 10px rgba(97,112,134,0.14), inset 0 1px 0 rgba(255,255,255,0.9); border: 1px solid rgba(150,166,188,0.2);"
-							onclick={() => goto(backHref)}
-						>
-							<ArrowLeft class="h-4 w-4 text-blue-700" />
-						</button>
-					{/if}
-					<div
-						class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
-						style="background: linear-gradient(to bottom, #6eafff, #0d66d0); box-shadow: 0 4px 12px rgba(13,102,208,0.32), inset 0 1px 0 rgba(255,255,255,0.34); border: 1px solid rgba(0,0,0,0.16);"
-					>
-						<TitleIcon class="h-6 w-6 text-white" />
+			<div class="hidden min-h-[calc(100vh-2rem)] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);">
+				{#if children}
+					<div class="min-w-0 flex-1 px-6 py-5" style="background-image: linear-gradient(to bottom, rgba(238,243,248,0.72), rgba(219,228,238,0.78)), repeating-linear-gradient(180deg, rgba(255,255,255,0.1) 0, rgba(255,255,255,0.1) 1px, transparent 1px, transparent 4px);">
+						{@render children()}
 					</div>
-					<div class="min-w-0">
-						<h1 class="truncate text-2xl font-bold leading-tight text-slate-900">{title}</h1>
-						<p class="mt-0.5 truncate text-sm text-slate-500">{subtitle}</p>
-					</div>
-				</div>
+				{/if}
 			</div>
 
 			{#if children}
-				<div class="min-w-0">
+				<div class="min-w-0 lg:hidden">
 					{@render children()}
 				</div>
 			{/if}
