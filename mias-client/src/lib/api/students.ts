@@ -23,10 +23,12 @@ export interface Clinic {
 export interface ClinicPatient {
   id: string;
   patient_id: string;
+  patient_db_id: string | null;
   patient_name: string;
   appointment_time: string;
   provider_name: string;
   status: 'Waiting' | 'In Progress' | 'Completed';
+  is_assigned: boolean;
 }
 
 export interface AssignedPatient {

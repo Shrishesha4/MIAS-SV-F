@@ -78,34 +78,8 @@ async def _complete_case_record_generation(
         record.last_modified_by = "AI Summary Generator"
         record.last_modified_at = datetime.utcnow()
 
-        if faculty_id:
-            existing_approval = (
-                await db.execute(
-                    select(Approval).where(Approval.case_record_id == record.id)
-                )
-            ).scalar_one_or_none()
-            if not existing_approval:
-                approval = Approval(
-                    id=str(uuid.uuid4()),
-                    approval_type=ApprovalType.CASE_RECORD,
-                    case_record_id=record.id,
-                    faculty_id=faculty_id,
-                    patient_id=patient_id,
-                    student_id=student_id,
-                    status=ApprovalStatus.PENDING,
-                )
-                db.add(approval)
-
-                notification = FacultyNotification(
-                    id=str(uuid.uuid4()),
-                    faculty_id=faculty_id,
-                    type="APPROVAL_REQUEST",
-                    title="New Case Record for Review",
-                    message=f"Case record for {patient.name} submitted by {student_name} is ready for your approval",
-                    is_read=False,
-                )
-                db.add(notification)
-
+        # Approval and notification are now created immediately in submit_case_record_for_approval
+        # (not deferred to background task) to ensure faculty sees pending approvals even if AI fails
         await db.commit()
 
 
@@ -313,6 +287,7 @@ async def get_clinic_patients_static(
         {
             "id": a.id,
             "patient_id": a.patient.patient_id if a.patient else None,
+            "patient_db_id": a.patient.id if a.patient else None,
             "patient_name": a.patient.name if a.patient else None,
             "appointment_time": a.appointment_time,
             "provider_name": a.provider_name,
@@ -601,15 +576,31 @@ async def get_clinic_patients(
         .order_by(ClinicAppointment.appointment_time)
     )
     appointments = result.scalars().all()
+
+    patient_ids = [a.patient.id for a in appointments if a.patient]
+    assigned_patient_ids: set[str] = set()
+    if patient_ids:
+        assignment_result = await db.execute(
+            select(StudentPatientAssignment.patient_id).where(
+                and_(
+                    StudentPatientAssignment.student_id == student_id,
+                    StudentPatientAssignment.patient_id.in_(patient_ids),
+                    StudentPatientAssignment.status == "Active",
+                )
+            )
+        )
+        assigned_patient_ids = {patient_id for (patient_id,) in assignment_result.all()}
     
     return [
         {
             "id": a.id,
             "patient_id": a.patient.patient_id if a.patient else None,
+            "patient_db_id": a.patient.id if a.patient else None,
             "patient_name": a.patient.name if a.patient else None,
             "appointment_time": a.appointment_time,
             "provider_name": a.provider_name,
             "status": a.status,
+            "is_assigned": bool(a.patient and a.patient.id in assigned_patient_ids),
         }
         for a in appointments
     ]
@@ -774,8 +765,45 @@ async def submit_case_record_for_approval(
     db.add(record)
     await db.flush()
 
-    # Queue AI generation, then create the faculty approval after the summary is ready.
+    # Create approval record immediately (not deferred to background task)
+    # This ensures faculty can see pending approvals even if AI generation fails
     faculty_id = body.get("faculty_id")
+    patient_id = body.get("patient_id")
+    
+    if faculty_id:
+        # Validate faculty exists
+        faculty_result = await db.execute(select(Faculty).where(Faculty.id == faculty_id))
+        faculty = faculty_result.scalar_one_or_none()
+        if not faculty:
+            raise HTTPException(status_code=400, detail="Invalid faculty_id")
+        
+        # Get patient name for notification
+        patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
+        patient = patient_result.scalar_one_or_none()
+        patient_name = patient.name if patient else "Patient"
+        
+        # Create approval record
+        approval = Approval(
+            id=str(uuid.uuid4()),
+            approval_type=ApprovalType.CASE_RECORD,
+            case_record_id=record.id,
+            faculty_id=faculty_id,
+            patient_id=patient_id,
+            student_id=student_id,
+            status=ApprovalStatus.PENDING,
+        )
+        db.add(approval)
+        
+        # Create notification for faculty
+        notification = FacultyNotification(
+            id=str(uuid.uuid4()),
+            faculty_id=faculty_id,
+            type="APPROVAL_REQUEST",
+            title="New Case Record for Review",
+            message=f"Case record for {patient_name} submitted by {student_name} requires your approval",
+            is_read=False,
+        )
+        db.add(notification)
 
     await db.commit()
     background_tasks.add_task(

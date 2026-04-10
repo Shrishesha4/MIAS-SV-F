@@ -12,7 +12,7 @@ from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
-from app.models.student import Clinic, ClinicAppointment
+from app.models.student import Clinic, ClinicAppointment, ClinicSession, Student, StudentPatientAssignment, StudentNotification
 from app.models.nurse import Nurse
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
@@ -301,4 +301,121 @@ async def assign_patient_to_ward(
         "patient_name": patient.name,
         "ward": ward_name,
         "admission_date": admission.admission_date.isoformat(),
+    }
+
+
+class AutoAssignRequest(BaseModel):
+    patient_id: str
+    clinic_id: str
+
+
+@router.post("/auto-assign")
+async def auto_assign_patient_to_student(
+    data: AutoAssignRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Auto-assign a patient to a student in the same clinic.
+    Picks the student with the lowest active patient assignment count.
+    """
+    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Verify patient exists
+    patient_result = await db.execute(
+        select(Patient).where(Patient.id == data.patient_id)
+    )
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    # Check if patient is already assigned to a student
+    existing_assignment = await db.execute(
+        select(StudentPatientAssignment).where(
+            and_(
+                StudentPatientAssignment.patient_id == data.patient_id,
+                StudentPatientAssignment.status == "Active"
+            )
+        )
+    )
+    if existing_assignment.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Patient is already assigned to a student")
+    
+    # Get students who have active ClinicSessions for this clinic
+    clinic_sessions_result = await db.execute(
+        select(ClinicSession)
+        .options(selectinload(ClinicSession.student))
+        .where(
+            and_(
+                ClinicSession.clinic_id == data.clinic_id,
+                ClinicSession.status.in_(["Scheduled", "Active"])
+            )
+        )
+    )
+    clinic_sessions = clinic_sessions_result.scalars().all()
+    
+    if not clinic_sessions:
+        raise HTTPException(
+            status_code=400, 
+            detail="No students are assigned to this clinic. Please assign a student manually."
+        )
+    
+    # Get unique students from clinic sessions
+    students_in_clinic = {cs.student_id: cs.student for cs in clinic_sessions if cs.student}
+    
+    if not students_in_clinic:
+        raise HTTPException(
+            status_code=400, 
+            detail="No students found in this clinic"
+        )
+    
+    # Count active assignments for each student
+    student_counts = []
+    for student_id, student in students_in_clinic.items():
+        count_result = await db.execute(
+            select(func.count(StudentPatientAssignment.id)).where(
+                and_(
+                    StudentPatientAssignment.student_id == student_id,
+                    StudentPatientAssignment.status == "Active"
+                )
+            )
+        )
+        count = count_result.scalar() or 0
+        student_counts.append((student_id, student, count))
+    
+    # Sort by count (ascending) to find student with fewest patients
+    student_counts.sort(key=lambda x: x[2])
+    selected_student_id, selected_student, assignment_count = student_counts[0]
+    
+    # Create the assignment
+    assignment = StudentPatientAssignment(
+        id=str(uuid.uuid4()),
+        student_id=selected_student_id,
+        patient_id=data.patient_id,
+        status="Active",
+    )
+    db.add(assignment)
+    
+    # Notify the student
+    notification = StudentNotification(
+        id=str(uuid.uuid4()),
+        student_id=selected_student_id,
+        title="New Patient Assigned",
+        message=f"Patient {patient.name} ({patient.patient_id}) has been assigned to you.",
+        type="ASSIGNMENT",
+        is_read=0,
+    )
+    db.add(notification)
+    
+    await db.commit()
+    
+    return {
+        "message": f"Patient {patient.name} assigned to {selected_student.name}",
+        "assignment_id": assignment.id,
+        "patient_id": patient.id,
+        "patient_name": patient.name,
+        "student_id": selected_student_id,
+        "student_name": selected_student.name,
+        "student_patient_count": assignment_count + 1,
     }

@@ -49,11 +49,22 @@
 
 	Chart.register(...registerables);
 
-	interface Props { patientId: string; }
-	let { patientId: pid }: Props = $props();
+	interface Props {
+		patientId: string;
+		canEdit?: boolean;
+	}
+	const { patientId, canEdit = true }: Props = $props();
+	const pid = $derived(patientId);
 
 	const auth = get(authStore);
 	const role = auth.role;
+	const studentReadOnly = $derived(role === 'STUDENT' && !canEdit);
+	const studentEditAllowed = $derived(role !== 'STUDENT' || canEdit);
+	const interactiveClinicalAccess = $derived(role !== 'PATIENT' && (role !== 'STUDENT' || canEdit));
+
+	function showReadOnlyToast() {
+		toastStore.addToast('This patient is not assigned to you. You can view details, but editing is disabled.', 'info');
+	}
 
 	// ── Core data (reactive) ──────────────────────────────────────
 	let patient: any = $state(null);
@@ -287,6 +298,10 @@
 	}
 
 	function openVitalModal() {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
 		resetVitalForm();
 		showAddVitalModal = true;
 	}
@@ -597,6 +612,10 @@
 	}
 
 	function requestLabOrder() {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
 		toastStore.addToast('Lab ordering workflow is not available in this view yet', 'info');
 	}
 
@@ -767,6 +786,7 @@
 
 	async function submitCaseRecord() {
 		if (!patient || crSubmitting || !selectedCrForm) return;
+		if (studentReadOnly) return;
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
@@ -813,6 +833,7 @@
 
 	async function submitVital() {
 		if (!patient || vSubmitting) return;
+		if (studentReadOnly) return;
 		vSubmitting = true;
 		try {
 			const submittedValues = await persistFormFiles(
@@ -902,6 +923,7 @@
 
 	async function submitPrescription() {
 		if (!patient || rxSubmitting) return;
+		if (studentReadOnly) return;
 		rxSubmitting = true;
 		try {
 			const submittedValues = await persistFormFiles(
@@ -958,6 +980,7 @@
 		faculty_id: string;
 	}) {
 		if (!patient || !studentData) return;
+		if (studentReadOnly) return;
 		try {
 			const today = new Date().toISOString().split('T')[0];
 			const medications = data.medications.map(med => ({
@@ -999,12 +1022,16 @@
 	}
 
 	function openAdmissionRequestModal() {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
 		resetAdmissionRequestForm();
 		showAdmissionRequestModal = true;
 	}
 
 	async function submitAdmissionRequest() {
-		if (role !== 'STUDENT' || !patient || !studentData || admissionSubmitting) return;
+		if (role !== 'STUDENT' || studentReadOnly || !patient || !studentData || admissionSubmitting) return;
 		if (!admissionFacultyId) {
 			admissionError = 'Please select a faculty approver';
 			return;
@@ -1058,6 +1085,10 @@
 
 	// ── Edit Prescription ─────────────────────────────────────────
 	function openEditPrescription(rx: any) {
+		if (studentReadOnly) {
+			showReadOnlyToast();
+			return;
+		}
 		editRxId = rx.id;
 		editRxStatus = rx.status || 'ACTIVE';
 		const med = rx.medications?.[0];
@@ -1152,6 +1183,7 @@
 
 	async function respondToRequest(requestId: string, status: string) {
 		if (!patient) return;
+		if (studentReadOnly) return;
 		try {
 			await patientApi.respondToPrescriptionRequest(patient.id, requestId, {
 				status,
@@ -1164,6 +1196,7 @@
 	// ── Medical Alerts ────────────────────────────────────────────
 	async function addAlert() {
 		if (!patient || !newAlertTitle.trim() || alertSubmitting) return;
+		if (studentReadOnly) return;
 		alertSubmitting = true;
 		try {
 			await patientApi.addMedicalAlert(patient.id, {
@@ -1180,6 +1213,7 @@
 
 	async function removeAlert(alertId: string) {
 		if (!patient) return;
+		if (studentReadOnly) return;
 		// Optimistic update: immediately mark alert inactive locally
 		patient.medical_alerts = patient.medical_alerts.map((a: any) =>
 			a.id === alertId ? { ...a, is_active: false } : a
@@ -1204,6 +1238,7 @@
 	// ── Primary Diagnosis ─────────────────────────────────────────
 	async function updateDiagnosis() {
 		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
+		if (studentReadOnly) return;
 		diagnosisSubmitting = true;
 		try {
 			const now = new Date();
@@ -1231,6 +1266,12 @@
 			<p class="text-sm">Patient not found</p>
 		</div>
 	{:else}
+	{#if studentReadOnly}
+		<div class="rounded-[20px] px-4 py-3 text-sm font-medium text-amber-800"
+			style="background: linear-gradient(to bottom, rgba(254,249,195,0.95), rgba(254,240,138,0.78)); border: 1px solid rgba(245,158,11,0.22); box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);">
+			View only. This patient is in the selected clinic, but not assigned to you, so editing actions are disabled.
+		</div>
+	{/if}
 
 	<div class="overflow-hidden rounded-[22px]"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 8px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85);">
@@ -1267,11 +1308,13 @@
 							onclick={loadAlertHistory}>
 							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
+						{#if studentEditAllowed}
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={() => showAlertInput = !showAlertInput}>
 							<Plus class="h-3.5 w-3.5 text-blue-500" />
 						</button>
+						{/if}
 					</div>
 				</div>
 				<div class="mt-4 flex flex-wrap gap-2">
@@ -1280,7 +1323,9 @@
 							<span class="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-[12px] font-semibold text-red-700"
 								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(248,113,113,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
 								{alert.title}
-								<button class="cursor-pointer text-red-400 hover:text-red-600 leading-none" onclick={() => removeAlert(alert.id)}>×</button>
+								{#if studentEditAllowed}
+									<button class="cursor-pointer text-red-400 hover:text-red-600 leading-none" onclick={() => removeAlert(alert.id)}>×</button>
+								{/if}
 							</span>
 						{/each}
 					{:else}
@@ -1324,11 +1369,13 @@
 							onclick={() => showDiagnosisHistory = !showDiagnosisHistory}>
 							<History class="h-3.5 w-3.5 text-blue-500" />
 						</button>
+						{#if studentEditAllowed}
 						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							onclick={() => showDiagnosisInput = !showDiagnosisInput}>
 							<Edit class="h-3.5 w-3.5 text-blue-500" />
 						</button>
+						{/if}
 					</div>
 				</div>
 				<div class="mt-4">
@@ -1381,16 +1428,16 @@
 				</div>
 			</div>
 
-			{#if currentAdmission && role !== 'PATIENT'}
+			{#if currentAdmission && interactiveClinicalAccess}
 				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-1.5 text-[13px] font-black tracking-wide text-blue-600">
 					REVIEW & VITALS <ChevronRight class="h-4 w-4" />
 				</a>
-			{:else if pendingAdmission && role === 'STUDENT'}
+			{:else if pendingAdmission && role === 'STUDENT' && canEdit}
 				<button class="shrink-0 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-bold cursor-not-allowed"
 					style="background: rgba(240,253,244,0.9); border: 1px solid rgba(134,239,172,0.95); color: #15803d; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);" disabled>
 					<CheckCircle class="h-4 w-4" /> Sent for Approval
 				</button>
-			{:else if role === 'STUDENT'}
+			{:else if role === 'STUDENT' && canEdit}
 				<button class="shrink-0 rounded-2xl px-5 py-2.5 text-[13px] font-bold text-white cursor-pointer"
 					style="background: linear-gradient(to bottom, #4ade80, #16a34a); border: 1px solid rgba(21,128,61,0.45); box-shadow: 0 6px 14px rgba(34,197,94,0.25), inset 0 1px 0 rgba(255,255,255,0.45);"
 					onclick={openAdmissionRequestModal}>
@@ -1488,12 +1535,14 @@
 					<FileText class="w-5 h-5 text-blue-600" />
 					<h3 class="font-bold text-gray-800">Case Records</h3>
 				</div>
-				<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-					style="background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white;
-					       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);"
-					onclick={() => showAddRecordModal = true}>
-					<Plus class="w-3 h-3" /> Add Entry
-				</button>
+				{#if studentEditAllowed || role !== 'STUDENT'}
+					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+						style="background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white;
+						       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);"
+						onclick={() => showAddRecordModal = true}>
+						<Plus class="w-3 h-3" /> Add Entry
+					</button>
+				{/if}
 			</div>
 
 			{#if caseRecords.length === 0}
@@ -1564,11 +1613,13 @@
 						</div>
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
-						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+						{#if studentEditAllowed || role !== 'STUDENT'}
+							<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
 							style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #2563eb; border: 1px solid rgba(59,130,246,0.22);"
 							onclick={openVitalModal}>
 							MANUAL ENTRY
-						</button>
+							</button>
+						{/if}
 						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
 							style="background: {trendsView === 'charts' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'white'}; color: {trendsView === 'charts' ? 'white' : '#2563eb'}; border: 1px solid rgba(59,130,246,0.24);"
 							onclick={() => trendsView = 'charts'}>
@@ -1694,15 +1745,17 @@
 							<Send class="w-3 h-3" /> Request Rx
 						</button>
 					{/if}
-					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-						style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
-						       border: 1px solid rgba(0,0,0,0.15);"
-						onclick={() => {
-							resetPrescriptionForm();
-							showAddPrescriptionModal = true;
-						}}>
-						<Plus class="w-3 h-3" /> Add Prescription
-					</button>
+					{#if studentEditAllowed || role !== 'STUDENT'}
+						<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+							style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
+							       border: 1px solid rgba(0,0,0,0.15);"
+							onclick={() => {
+								resetPrescriptionForm();
+								showAddPrescriptionModal = true;
+							}}>
+							<Plus class="w-3 h-3" /> Add Prescription
+						</button>
+					{/if}
 				</div>
 			</div>
 
@@ -1738,11 +1791,13 @@
 											<Send class="w-3 h-3" /> Renew
 										</button>
 									{/if}
-									<button class="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
-										style="background: rgba(0,0,0,0.06);"
-										onclick={() => openEditPrescription(rx)}>
-										<Edit class="w-3 h-3 text-gray-500" />
-									</button>
+									{#if studentEditAllowed || role !== 'STUDENT'}
+										<button class="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
+											style="background: rgba(0,0,0,0.06);"
+											onclick={() => openEditPrescription(rx)}>
+											<Edit class="w-3 h-3 text-gray-500" />
+										</button>
+									{/if}
 								</div>
 							</div>
 							{#each (rx.medications || []) as med}
@@ -1803,7 +1858,7 @@
 										       color: {req.status === 'PENDING' ? '#ea580c' : req.status === 'APPROVED' ? '#16a34a' : '#dc2626'};">
 										{req.status}
 									</span>
-									{#if req.status === 'PENDING' && role !== 'PATIENT'}
+									{#if req.status === 'PENDING' && interactiveClinicalAccess}
 										<button class="block mt-1.5 px-3 py-1 rounded text-xs font-medium cursor-pointer"
 											style="background: linear-gradient(to bottom, #1e40af, #1e3a8a); color: white;
 											       border: 1px solid rgba(0,0,0,0.15);"
@@ -1833,7 +1888,7 @@
 							<p class="text-xs text-slate-500">{investigationReports.length} reports recorded for this patient</p>
 						</div>
 					</div>
-					{#if role !== 'PATIENT'}
+					{#if interactiveClinicalAccess}
 						<button class="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold text-white cursor-pointer"
 							style="background: linear-gradient(to bottom, #60a5fa, #2563eb); border: 1px solid rgba(37,99,235,0.34); box-shadow: 0 8px 18px rgba(37,99,235,0.2);"
 							onclick={requestLabOrder}>

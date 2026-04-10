@@ -28,6 +28,13 @@
 	const auth = get(authStore);
 	const role = auth.role;
 
+	type StudentPatientSelection = {
+		id: string;
+		patient_id: string;
+		name: string;
+		canEdit: boolean;
+	};
+
 	// Shared state
 	let loading = $state(true);
 	let error = $state('');
@@ -43,11 +50,12 @@
 	let assignedPatients: AssignedPatient[] = $state([]);
 	let clinicSessions: any[] = $state([]);
 	let studentTab = $state('today');
-	let selectedPatient: AssignedPatient | null = $state(null);
+	let selectedPatient: StudentPatientSelection | null = $state(null);
 	let emergencyContacts: EmergencyContact[] = $state([]);
 	let clinics: Clinic[] = $state([]);
 	let selectedClinic: Clinic | null = $state(null);
 	let clinicPatients: ClinicPatient[] = $state([]);
+	let clinicSearch = $state('');
 	let showAllPatients = $state(false);
 	let previousPatients: any[] = $state([]);
 	let previousPatientsLoading = $state(false);
@@ -122,6 +130,25 @@
 		return alerts.join(', ');
 	});
 
+	const assignedPatientIds = $derived(new Set(assignedPatients.map((patient) => patient.id)));
+
+	const searchableClinics = $derived.by(() =>
+		clinics.map((clinic) => ({
+			...clinic,
+			meta: [clinic.department, clinic.location, clinic.faculty_name].filter(Boolean).join(' · '),
+		}))
+	);
+
+	const filteredClinicOptions = $derived.by(() => {
+		const query = clinicSearch.trim().toLowerCase();
+		if (!query) return searchableClinics;
+		return searchableClinics.filter((clinic) =>
+			[clinic.name, clinic.department, clinic.location, clinic.faculty_name]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
+
 	const filteredAdmittedPatients = $derived.by(() => {
 		if (!facultyPatientSearch.trim()) return admittedPatients;
 		const search = facultyPatientSearch.toLowerCase();
@@ -147,6 +174,69 @@
 			return;
 		}
 		void goto(`/patients/${patientId}`);
+	}
+
+	function clinicDisplayLabel(clinic: Clinic) {
+		return clinic.name;
+	}
+
+	function toAssignedSelection(patient: AssignedPatient): StudentPatientSelection {
+		return {
+			id: patient.id,
+			patient_id: patient.patient_id,
+			name: patient.name,
+			canEdit: true,
+		};
+	}
+
+	function toClinicSelection(patient: ClinicPatient): StudentPatientSelection | null {
+		if (!patient.patient_db_id) return null;
+		return {
+			id: patient.patient_db_id,
+			patient_id: patient.patient_id,
+			name: patient.patient_name,
+			canEdit: patient.is_assigned || assignedPatientIds.has(patient.patient_db_id),
+		};
+	}
+
+	async function loadStudentClinicPatients(clinic: Clinic | null) {
+		selectedPatient = null;
+		selectedClinic = clinic;
+		if (!clinic) {
+			clinicPatients = [];
+			return;
+		}
+		clinicSearch = clinicDisplayLabel(clinic);
+		clinicPatients = await studentApi.getClinicPatients(clinic.id);
+	}
+
+	function handleClinicSearchInput(query: string) {
+		if (selectedClinic && query !== clinicDisplayLabel(selectedClinic)) {
+			selectedClinic = null;
+			selectedPatient = null;
+			clinicPatients = [];
+		}
+	}
+
+	function clearClinicSelection() {
+		clinicSearch = '';
+		selectedClinic = null;
+		selectedPatient = null;
+		clinicPatients = [];
+	}
+
+	function openStudentPatient(selection: StudentPatientSelection | null) {
+		if (!selection) {
+			toastStore.addToast('Patient details are not available for this clinic appointment', 'error');
+			return;
+		}
+
+		if (window.innerWidth < 768) {
+			goto(selection.canEdit ? `/patients/${selection.id}` : `/patients/${selection.id}?mode=view`);
+			return;
+		}
+
+		selectedPatient = selection;
 	}
 
 	function formatDate(dateStr: string | null): string {
@@ -204,8 +294,7 @@
 				emergencyContacts = await studentApi.getEmergencyContacts();
 				clinics = await studentApi.getClinics();
 				if (clinics.length > 0) {
-					selectedClinic = clinics[0];
-					clinicPatients = await studentApi.getClinicPatients(clinics[0].id);
+					await loadStudentClinicPatients(clinics[0]);
 				}
 			} else if (role === 'FACULTY') {
 				faculty = await facultyApi.getMe();
@@ -498,13 +587,7 @@
 							<button
 								class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
 								class:bg-blue-50={selectedPatient?.id === ap.id}
-								onclick={() => {
-									if (window.innerWidth < 768) {
-										goto(`/patients/${ap.id}`);
-									} else {
-										selectedPatient = ap;
-									}
-								}}
+								onclick={() => openStudentPatient(toAssignedSelection(ap))}
 							>
 								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
 									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
@@ -527,25 +610,29 @@
 					{:else if studentTab === 'clinic'}
 						<!-- Clinic Selector -->
 						{#if clinics.length > 0}
-							<div class="flex gap-2 overflow-x-auto p-3 border-b border-gray-100">
-								{#each clinics as clinic}
-									<button
-										class="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
-										style="background: {selectedClinic?.id === clinic.id ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
-											   color: {selectedClinic?.id === clinic.id ? 'white' : '#475569'};
-											   border: 1px solid {selectedClinic?.id === clinic.id ? '#2563eb' : '#e2e8f0'};"
-										onclick={async () => {
-											selectedClinic = clinic;
-											clinicPatients = await studentApi.getClinicPatients(clinic.id);
-										}}
-									>
-										{clinic.name}
-									</button>
-								{/each}
+							<div class="p-3 border-b border-gray-100">
+								<Autocomplete
+									items={filteredClinicOptions}
+									labelKey="name"
+									sublabelKey="meta"
+									minChars={0}
+									placeholder="Search and select clinic..."
+									bind:value={clinicSearch}
+									onInput={handleClinicSearchInput}
+									onSelect={(clinic) => void loadStudentClinicPatients(clinic as Clinic)}
+									onClear={clearClinicSelection}
+								/>
+								{#if selectedClinic}
+									<p class="mt-2 text-xs text-gray-500">{selectedClinic.department} · {selectedClinic.location}</p>
+								{/if}
 							</div>
 						{/if}
 						{#each clinicPatients as cp}
-							<div class="flex items-center gap-3 px-4 py-3 border-b border-gray-50">
+							<button
+								class="w-full flex items-center gap-3 px-4 py-3 text-left border-b border-gray-50 transition-colors cursor-pointer hover:bg-gray-50"
+								class:bg-blue-50={selectedPatient?.id === cp.patient_db_id}
+								onclick={() => openStudentPatient(toClinicSelection(cp))}
+							>
 								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
 									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
 									<User class="w-5 h-5 text-white" />
@@ -553,15 +640,21 @@
 								<div class="flex-1 min-w-0">
 									<p class="font-semibold text-gray-800 text-sm">{cp.patient_name}</p>
 									<p class="text-xs text-gray-500 truncate">{cp.appointment_time} · {cp.provider_name}</p>
+									<p class="mt-1 text-[11px] font-medium {cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'text-emerald-600' : 'text-amber-600'}">
+										{cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'Assigned to you · edit enabled' : 'View only · not assigned to you'}
+									</p>
 								</div>
-								<span
-									class="px-2 py-0.5 text-[10px] font-medium rounded-full shrink-0"
-									style="background: {cp.status === 'Completed' ? 'rgba(34, 197, 94, 0.1)' : cp.status === 'In Progress' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(251, 191, 36, 0.1)'};
-										   color: {cp.status === 'Completed' ? '#16a34a' : cp.status === 'In Progress' ? '#2563eb' : '#d97706'};"
-								>
-									{cp.status}
-								</span>
-							</div>
+								<div class="flex flex-col items-end gap-1 shrink-0">
+									<span
+										class="px-2 py-0.5 text-[10px] font-medium rounded-full"
+										style="background: {cp.status === 'Completed' ? 'rgba(34, 197, 94, 0.1)' : cp.status === 'In Progress' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(251, 191, 36, 0.1)'};
+											   color: {cp.status === 'Completed' ? '#16a34a' : cp.status === 'In Progress' ? '#2563eb' : '#d97706'};"
+									>
+										{cp.status}
+									</span>
+									<span class="text-[11px] font-semibold text-blue-600">{cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'Edit' : 'View'}</span>
+								</div>
+							</button>
 						{/each}
 						{#if clinicPatients.length === 0}
 							<div class="flex flex-col items-center justify-center py-16 text-center px-4">
@@ -580,13 +673,7 @@
 								<button
 									class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
 									class:bg-blue-50={selectedPatient?.id === ap.id}
-									onclick={() => {
-										if (window.innerWidth < 768) {
-											goto(`/patients/${ap.id}`);
-										} else {
-											selectedPatient = ap;
-										}
-									}}
+									onclick={() => openStudentPatient(toAssignedSelection(ap))}
 								>
 									<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
 										style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
@@ -620,7 +707,7 @@
 							onclick={() => selectedPatient = null}>
 							<X class="w-4 h-4 text-gray-500" />
 						</button>
-						<PatientProfile patientId={selectedPatient.id} />
+						<PatientProfile patientId={selectedPatient.id} canEdit={selectedPatient.canEdit} />
 					</div>
 				{:else}
 					<!-- Empty State -->
