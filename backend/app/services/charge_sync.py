@@ -77,16 +77,16 @@ def _ensure_price_tiers(item: ChargeItem, db: AsyncSession) -> None:
 
 
 def _upsert_charge_item(
-	db: AsyncSession,
-	existing_items: dict[tuple[str, str], ChargeItem],
-	*,
-	source_type: str,
-	source_id: str,
-	item_code: str,
-	name: str,
-	category: ChargeCategory,
-	description: str | None,
-	is_active: bool,
+    db: AsyncSession,
+    existing_items: dict[tuple[str, str], ChargeItem],
+    *,
+    source_type: str,
+    source_id: str,
+    item_code: str,
+    name: str,
+    category: ChargeCategory,
+    description: str | None,
+    is_active: bool,
 ) -> None:
     key = (source_type, source_id)
     item = existing_items.get(key)
@@ -104,11 +104,7 @@ def _upsert_charge_item(
         item.prices = []
         db.add(item)
         existing_items[key] = item
-    else:
-        item.item_code = item_code
-        item.name = name
-        item.category = category
-        item.description = description if description is not None else item.description
+    elif not is_active and item.is_active:
         item.is_active = is_active
 
     _ensure_price_tiers(item, db)
@@ -125,9 +121,11 @@ async def sync_charge_sources(db: AsyncSession) -> None:
         for item in existing_result.scalars().all()
         if item.source_type and item.source_id
     }
+    seen_source_keys: set[tuple[str, str]] = set()
 
     forms_result = await db.execute(select(FormDefinition))
     for form in forms_result.scalars().all():
+        seen_source_keys.add((FORM_SOURCE_TYPE, form.id))
         _upsert_charge_item(
             db,
             existing_items,
@@ -142,6 +140,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
 
     tests_result = await db.execute(select(LabTest))
     for test in tests_result.scalars().all():
+        seen_source_keys.add((LAB_TEST_SOURCE_TYPE, test.id))
         _upsert_charge_item(
             db,
             existing_items,
@@ -156,6 +155,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
 
     groups_result = await db.execute(select(LabTestGroup))
     for group in groups_result.scalars().all():
+        seen_source_keys.add((LAB_GROUP_SOURCE_TYPE, group.id))
         _upsert_charge_item(
             db,
             existing_items,
@@ -167,3 +167,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
             description=group.description,
             is_active=group.is_active,
         )
+
+    for key, item in existing_items.items():
+        if key not in seen_source_keys:
+            await db.delete(item)
