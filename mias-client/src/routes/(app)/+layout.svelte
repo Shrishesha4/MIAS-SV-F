@@ -252,7 +252,7 @@
 				{#key pageTransitionKey}
 					<div
 						class="page-transition-shell"
-						in:fly={{ y: 16, duration: 260, easing: cubicOut }}
+						in:fade={{ duration: 180 }}
 						out:fade={{ duration: 140 }}
 					>
 						{@render children()}

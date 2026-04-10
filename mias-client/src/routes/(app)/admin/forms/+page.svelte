@@ -357,7 +357,7 @@
 	</div>
 
 	{#if showFormEditor}
-		<div class="fixed inset-0 z-50 flex items-center justify-center px-3 py-3" style="background: rgba(148, 163, 184, 0.42); backdrop-filter: blur(8px);">
+		<div class="fixed left-0 top-0 z-[80] flex h-[100dvh] w-screen items-center justify-center px-3 py-3 sm:px-4" style="background: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);">
 			<div class="w-full max-w-[900px] overflow-hidden rounded-[20px] border border-slate-200" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb); box-shadow: 0 18px 42px rgba(15,23,42,0.2), inset 0 1px 0 rgba(255,255,255,0.7); max-height: calc(100vh - 1.5rem); overflow-y: auto;">
 				<div class="flex items-center justify-between gap-3 border-b border-slate-300 px-5 py-3 md:px-6">
 					<div class="flex items-center gap-3">

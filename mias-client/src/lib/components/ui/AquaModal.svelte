@@ -24,17 +24,17 @@
 {#if open}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="fixed inset-0 z-50 flex items-end sm:items-center justify-center motion-overlay"
-    style="background-color: rgba(0,0,0,0.5); backdrop-filter: blur(8px);"
+    class="fixed left-0 top-0 z-[200] flex h-[100dvh] w-screen items-end justify-center p-3 sm:items-center sm:p-4 motion-overlay"
+    style="background-color: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);"
     onkeydown={(e) => e.key === 'Escape' && handleClose()}
     transition:fade={{ duration: 180 }}
   >
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="absolute inset-0" onclick={handleClose}></div>
     <div
-      class="motion-dialog relative w-full sm:max-w-md max-h-[90vh] flex flex-col"
+      class="motion-dialog pointer-events-auto relative flex max-h-[90vh] w-full flex-col sm:max-w-md"
       style="background-color: white;
-             border-radius: 16px 16px 0 0;
+            border-radius: 20px;
             box-shadow: 0 -8px 28px rgba(0,0,0,0.18);
              border: 1px solid rgba(0,0,0,0.1);"
       in:fly={{ y: 24, duration: 280, easing: cubicOut }}
@@ -46,7 +46,7 @@
         style="background-image: linear-gradient(to bottom, #f8f9fb, #e8eef5);
                box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1);
                border-bottom: 1px solid rgba(0,0,0,0.1);
-               border-radius: 16px 16px 0 0;"
+           border-radius: 20px 20px 0 0;"
       >
         {#if header}
           <div class="flex-1">
@@ -73,6 +73,11 @@
 <style>
   .motion-dialog {
     transition: box-shadow 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    overflow: hidden;
+  }
+
+  .motion-overlay {
+    inset: 0;
   }
 
   .modal-close {

@@ -133,7 +133,7 @@
 }
 
 .page-transition-shell {
-  will-change: transform, opacity;
+  will-change: opacity;
 }
 
 .motion-surface {
@@ -144,7 +144,7 @@
     background-color var(--motion-duration-fast) var(--motion-ease-standard),
     opacity var(--motion-duration-fast) var(--motion-ease-standard),
     filter var(--motion-duration-fast) var(--motion-ease-standard);
-  will-change: transform, box-shadow;
+  will-change: box-shadow;
 }
 
 .motion-control {
@@ -170,7 +170,8 @@
 }
 
 .motion-overlay {
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .motion-dialog {

@@ -9,6 +9,7 @@
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { facultyApi } from '$lib/api/faculty';
+	import type { VitalParameterConfig } from '$lib/api/types';
 	import type { Report } from '$lib/api/types';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import {
@@ -87,6 +88,7 @@
 	let departments: string[] = $state([]);
 	let studentData: any = $state(null);
 	let facultyData: any = $state(null);
+	let vitalParameterConfigs: VitalParameterConfig[] = $state([]);
 
 	// ── UI State ──────────────────────────────────────────────────
 	let activeTab = $state('case-records');
@@ -151,6 +153,45 @@
 		updated_at: null,
 	};
 
+	const supportedVitalKeys = new Set([
+		'systolic_bp',
+		'diastolic_bp',
+		'heart_rate',
+		'respiratory_rate',
+		'temperature',
+		'oxygen_saturation',
+		'weight',
+		'blood_glucose',
+		'cholesterol',
+		'bmi',
+		'creatinine',
+		'urea',
+		'sodium',
+		'potassium',
+		'sgot',
+		'sgpt',
+		'hemoglobin',
+		'wbc',
+		'platelet',
+		'rbc',
+		'hct',
+	]);
+
+	const configuredVitalFields = $derived.by<FormFieldDefinition[]>(() =>
+		vitalParameterConfigs
+			.filter((parameter) => supportedVitalKeys.has(parameter.name))
+			.map((parameter) => ({
+				key: parameter.name,
+				label: parameter.display_name,
+				type: 'number' as const,
+				placeholder: parameter.unit ? `${parameter.display_name} (${parameter.unit})` : parameter.display_name,
+				help_text:
+					parameter.min_value !== null && parameter.min_value !== undefined && parameter.max_value !== null && parameter.max_value !== undefined
+						? `Reference range: ${parameter.min_value} - ${parameter.max_value}${parameter.unit ? ` ${parameter.unit}` : ''}`
+						: parameter.unit ?? undefined,
+			}))
+	);
+
 	const selectedCrForm = $derived(
 		caseRecordForms.find(f => f.id === selectedCrFormId) || null
 	);
@@ -180,7 +221,10 @@
 		const activeVitalForms = caseRecordForms.filter(
 			(form) => form.form_type === 'VITAL_ENTRY' && form.is_active
 		);
-		return activeVitalForms.length > 0 ? activeVitalForms : [defaultVitalForm];
+		return [
+			defaultVitalForm,
+			...activeVitalForms.filter((form) => form.id !== defaultVitalForm.id),
+		];
 	});
 	const searchableVitalForms = $derived.by(() =>
 		vitalFormOptions.map((form) => ({
@@ -202,17 +246,28 @@
 		vitalFormOptions.find((form) => form.id === selectedVitalFormId) || vitalFormOptions[0] || defaultVitalForm
 	);
 	const selectedVitalFields: FormFieldDefinition[] = $derived(
-		selectedVitalForm?.fields?.length ? selectedVitalForm.fields : defaultVitalEntryFields
+		selectedVitalForm?.id === defaultVitalForm.id
+			? (configuredVitalFields.length > 0 ? configuredVitalFields : defaultVitalEntryFields)
+			: (selectedVitalForm?.fields?.length ? selectedVitalForm.fields : (configuredVitalFields.length > 0 ? configuredVitalFields : defaultVitalEntryFields))
 	);
+	const majorVitalFieldKeys = new Set([
+		'systolic_bp',
+		'diastolic_bp',
+		'heart_rate',
+		'respiratory_rate',
+		'blood_glucose',
+	]);
+	const majorVitalFieldMap = $derived.by(() => {
+		const map = new Map<string, FormFieldDefinition>();
+		for (const field of selectedVitalFields) {
+			if (majorVitalFieldKeys.has(field.key)) {
+				map.set(field.key, field);
+			}
+		}
+		return map;
+	});
 	const supplementalVitalFields = $derived.by(() => {
-		const primaryKeys = new Set([
-			'systolic_bp',
-			'diastolic_bp',
-			'heart_rate',
-			'respiratory_rate',
-			'blood_glucose',
-		]);
-		return selectedVitalFields.filter((field) => !primaryKeys.has(field.key));
+		return selectedVitalFields.filter((field) => !majorVitalFieldKeys.has(field.key));
 	});
 	const prescriptionCreateFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_CREATE', defaultPrescriptionCreateFields)
@@ -286,7 +341,7 @@
 	}
 
 	function setDefaultVitalFormSelection() {
-		const defaultForm = vitalFormOptions[0] || defaultVitalForm;
+		const defaultForm = vitalFormOptions.find((form) => form.id === defaultVitalForm.id) || defaultVitalForm;
 		selectedVitalFormId = defaultForm.id;
 		vitalFormSearch = vitalFormDisplayLabel(defaultForm);
 	}
@@ -650,7 +705,7 @@
 				if (!studentData) {
 					studentData = await studentApi.getMe();
 				}
-				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, reportData, admissionData, forms] =
+				const [patientData, caseData, vitalData, rxData, depts, procs, approvers, rxReqs, reportData, admissionData, forms, vitalParameters] =
 					await Promise.all([
 						patientApi.getPatient(patientId),
 						studentApi.getCaseRecords(studentData.id, patientId),
@@ -663,6 +718,7 @@
 						patientApi.getReports(patientId).catch(() => []),
 						patientApi.getAdmissions(patientId).catch(() => []),
 						formsApi.getForms().catch(() => []),
+						patientApi.getActiveVitalParameters().catch(() => []),
 					]);
 				const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
 				patient = patientData;
@@ -673,6 +729,7 @@
 				departments = Array.from(new Set([...depts, ...Object.keys(merged)])).sort();
 				procedureMap = merged;
 				caseRecordForms = forms;
+				vitalParameterConfigs = vitalParameters;
 				facultyApprovers = approvers;
 				prescriptionRequests = rxReqs;
 				reports = reportData;
@@ -696,6 +753,7 @@
 						studentApi.getDepartments().catch(() => []),
 						studentApi.getProcedures().catch(() => ({})),
 						formsApi.getForms().catch(() => []),
+						patientApi.getActiveVitalParameters().catch(() => []),
 					);
 				}
 				if (role === 'ADMIN') {
@@ -703,6 +761,7 @@
 						studentApi.getDepartments().catch(() => []),
 						studentApi.getProcedures().catch(() => ({})),
 						formsApi.getForms().catch(() => []),
+						patientApi.getActiveVitalParameters().catch(() => []),
 					);
 				}
 				const results = await Promise.all(fetchList);
@@ -719,6 +778,7 @@
 					departments = Array.from(new Set([...(results[7] || []), ...Object.keys(merged)])).sort();
 					procedureMap = merged;
 					caseRecordForms = results[9] || [];
+					vitalParameterConfigs = results[10] || [];
 				}
 			}
 		} catch (err) {
@@ -848,19 +908,19 @@
 				'patient-profile-vital'
 			);
 			const urineOutput = asOptionalNumber(submittedValues.urine_output_ml);
-			await patientApi.createVital(patient.id, {
-				systolic_bp: asOptionalNumber(submittedValues.systolic_bp),
-				diastolic_bp: asOptionalNumber(submittedValues.diastolic_bp),
-				heart_rate: asOptionalNumber(submittedValues.heart_rate),
-				oxygen_saturation: asOptionalNumber(submittedValues.oxygen_saturation),
-				temperature: asOptionalNumber(submittedValues.temperature),
-				weight: asOptionalNumber(submittedValues.weight),
-				respiratory_rate: asOptionalNumber(submittedValues.respiratory_rate),
-				blood_glucose: asOptionalNumber(submittedValues.blood_glucose),
-				cholesterol: asOptionalNumber(submittedValues.cholesterol),
-				bmi: asOptionalNumber(submittedValues.bmi),
+			const vitalPayload = selectedVitalFields.reduce<Record<string, number | string>>((payload, field) => {
+				if (!supportedVitalKeys.has(field.key)) {
+					return payload;
+				}
+				const value = asOptionalNumber(submittedValues[field.key]);
+				if (value !== undefined) {
+					payload[field.key] = value;
+				}
+				return payload;
+			}, {
 				recorded_by: studentData?.name || 'Student',
 			});
+			await patientApi.createVital(patient.id, vitalPayload);
 			if (urineOutput) {
 				if (currentAdmission?.id) {
 					try {
@@ -2350,41 +2410,49 @@
 
 		<div class="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-slate-50/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
 			<div class="mb-5 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Blood Pressure (mmHg)</div>
+			{#if majorVitalFieldMap.has('systolic_bp') || majorVitalFieldMap.has('diastolic_bp')}
 			<div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
 				<input
 					bind:value={vitalFormData.systolic_bp}
 					type="number"
-					placeholder="Sys"
+					placeholder={majorVitalFieldMap.get('systolic_bp')?.label || 'Sys'}
 					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					disabled={!majorVitalFieldMap.has('systolic_bp')}
 				/>
 				<div class="pb-1 text-4xl font-black text-slate-400">/</div>
 				<input
 					bind:value={vitalFormData.diastolic_bp}
 					type="number"
-					placeholder="Dia"
+					placeholder={majorVitalFieldMap.get('diastolic_bp')?.label || 'Dia'}
 					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+					disabled={!majorVitalFieldMap.has('diastolic_bp')}
 				/>
 			</div>
+			{/if}
 
 			<div class="mt-6 grid gap-5 sm:grid-cols-2">
+				{#if majorVitalFieldMap.has('heart_rate')}
 				<div>
 					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Pulse (bpm)</div>
 					<input
 						bind:value={vitalFormData.heart_rate}
 						type="number"
-						placeholder="72"
+						placeholder={majorVitalFieldMap.get('heart_rate')?.label || '72'}
 						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
 					/>
 				</div>
+				{/if}
+				{#if majorVitalFieldMap.has('respiratory_rate')}
 				<div>
 					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Resp. Rate (min)</div>
 					<input
 						bind:value={vitalFormData.respiratory_rate}
 						type="number"
-						placeholder="16"
+						placeholder={majorVitalFieldMap.get('respiratory_rate')?.label || '16'}
 						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
 					/>
 				</div>
+				{/if}
 				<div>
 					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Urine Output (mL)</div>
 					<input
@@ -2397,15 +2465,17 @@
 						<p class="mt-1.5 text-[11px] text-slate-400">Saved only when the patient has an active admission.</p>
 					{/if}
 				</div>
+				{#if majorVitalFieldMap.has('blood_glucose')}
 				<div>
 					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Glucose (mg/dL)</div>
 					<input
 						bind:value={vitalFormData.blood_glucose}
 						type="number"
-						placeholder="110"
+						placeholder={majorVitalFieldMap.get('blood_glucose')?.label || '110'}
 						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
 					/>
 				</div>
+				{/if}
 			</div>
 		</div>
 

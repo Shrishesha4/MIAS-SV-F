@@ -2,6 +2,7 @@ import client from './client';
 import type {
   Patient,
   Vital,
+  VitalParameterConfig,
   MedicalRecord,
   Prescription,
   WalletTransaction,
@@ -86,6 +87,11 @@ export const patientApi = {
     const response = await client.post(`/patients/${patientId}/vitals`, vital);
     return response.data;
   },
+
+	async getActiveVitalParameters(): Promise<VitalParameterConfig[]> {
+		const response = await client.get('/vitals/parameters');
+		return response.data;
+	},
 
   async getRecords(patientId: string): Promise<MedicalRecord[]> {
     const response = await client.get(`/patients/${patientId}/records`);

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Search, X, ChevronDown } from 'lucide-svelte';
-	import { onMount } from 'svelte';
 
 	interface Props {
 		placeholder?: string;
@@ -36,40 +35,12 @@
 	let inputEl: HTMLInputElement | undefined = $state();
 	let highlightIndex = $state(-1);
 	let dropdownEl: HTMLDivElement | undefined = $state();
-	let dropdownPosition = $state({ top: 0, left: 0, width: 0 });
-
-	// Update dropdown position on scroll/resize when shown
-	$effect(() => {
-		if (showDropdown && inputEl) {
-			const updatePosition = () => updateDropdownPosition();
-			
-			window.addEventListener('scroll', updatePosition, true);
-			window.addEventListener('resize', updatePosition);
-			
-			return () => {
-				window.removeEventListener('scroll', updatePosition, true);
-				window.removeEventListener('resize', updatePosition);
-			};
-		}
-	});
-
-	function updateDropdownPosition() {
-		if (inputEl) {
-			const rect = inputEl.getBoundingClientRect();
-			dropdownPosition = {
-				top: rect.bottom + 4,
-				left: rect.left,
-				width: rect.width
-			};
-		}
-	}
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLInputElement;
 		value = target.value;
 		highlightIndex = -1;
 		if (value.length >= minChars) {
-			updateDropdownPosition();
 			showDropdown = true;
 			onInput?.(value);
 		} else {
@@ -136,7 +107,6 @@
 
 	function handleFocus() {
 		if (value.length >= minChars && items.length > 0) {
-			updateDropdownPosition();
 			showDropdown = true;
 		}
 	}
@@ -203,8 +173,7 @@
 	{#if showDropdown}
 		<div
 			bind:this={dropdownEl}
-			class="fixed z-[9999] mt-1 max-h-60 overflow-y-auto rounded-xl bg-white border border-gray-200 shadow-lg"
-			style="top: {dropdownPosition.top}px; left: {dropdownPosition.left}px; width: {dropdownPosition.width}px;"
+			class="absolute left-0 right-0 top-full z-[220] mt-1 max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
 		>
 			{#if loading}
 				<div class="flex items-center justify-center py-4">

@@ -91,6 +91,18 @@ export interface Vital {
   notes?: string;
 }
 
+export interface VitalParameterConfig {
+  id: string;
+  name: string;
+  display_name: string;
+  category: string;
+  unit?: string | null;
+  min_value?: number | null;
+  max_value?: number | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
 export interface AdmissionIOEvent {
   id: string;
   admission_id: string;

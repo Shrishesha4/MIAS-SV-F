@@ -26,12 +26,15 @@ async def get_active_vital_parameters(
     parameters = result.scalars().all()
     return [
         {
+            "id": p.id,
             "name": p.name,
             "display_name": p.display_name,
             "category": p.category,
             "unit": p.unit,
             "min_value": p.min_value,
             "max_value": p.max_value,
+            "is_active": p.is_active,
+            "sort_order": p.sort_order,
         }
         for p in parameters
     ]

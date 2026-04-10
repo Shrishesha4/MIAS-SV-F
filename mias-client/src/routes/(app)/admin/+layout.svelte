@@ -64,7 +64,7 @@
 	activeNav={scaffoldConfig.activeNav}
 >
 	{#key currentPath}
-		<div in:fly={contentSlide} out:fade={{ duration: 130 }}>
+		<div in:fade={{ duration: 180 }} out:fade={{ duration: 130 }}>
 			{@render children()}
 		</div>
 	{/key}

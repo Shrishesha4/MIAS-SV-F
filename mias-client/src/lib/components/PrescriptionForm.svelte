@@ -106,8 +106,8 @@
 	);
 </script>
 
-<div class="fixed inset-0 z-50 flex items-center justify-center" style="background-color: rgba(0,0,0,0.5);">
-	<div class="relative w-full max-w-4xl max-h-[90vh] flex flex-col" style="background-color: white; border-radius: 16px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.1); margin: 0 16px;">
+<div class="fixed left-0 top-0 z-[80] flex h-[100dvh] w-screen items-center justify-center p-3 sm:p-4" style="background: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);">
+	<div class="relative flex max-h-[90vh] w-full max-w-4xl flex-col" style="background-color: white; border-radius: 16px; box-shadow: 0 -4px 20px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.1);">
 		<!-- Header -->
 		<div class="px-4 py-3 flex items-center justify-between shrink-0" style="background-image: linear-gradient(to bottom, #f8f9fb, #e8eef5); box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 1px 0 rgba(0,0,0,0.1); border-bottom: 1px solid rgba(0,0,0,0.1); border-radius: 16px 16px 0 0;">
 			<div class="flex flex-col gap-1 flex-1">

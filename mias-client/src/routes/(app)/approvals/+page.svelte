@@ -499,14 +499,14 @@
     {@const isProcessing = processingId === approval.id}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div class="fixed inset-0 z-50 flex items-end justify-center"
+    <div class="fixed left-0 top-0 z-[80] flex h-[100dvh] w-screen items-end justify-center p-3 sm:items-center sm:p-4"
         onclick={(e) => { if (e.target === e.currentTarget) detailModal = null; }}>
-        <div class="absolute inset-0 bg-black/50" onclick={() => detailModal = null}></div>
-        <div class="relative w-full max-w-lg bg-white rounded-t-2xl max-h-[92vh] overflow-y-auto"
+        <div class="absolute inset-0" style="background: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);" onclick={() => detailModal = null}></div>
+        <div class="relative w-full max-w-lg bg-white rounded-t-2xl max-h-[92vh] overflow-y-auto sm:rounded-2xl"
             style="animation: slideUp 0.3s ease-out;">
 
             <!-- Modal Header -->
-            <div class="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between rounded-t-2xl">
+            <div class="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between rounded-t-2xl sm:rounded-t-2xl">
                 <h2 class="text-lg font-bold text-gray-800">Patient Record Details</h2>
                 <button
                     class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
