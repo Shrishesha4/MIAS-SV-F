@@ -5,7 +5,7 @@ export interface RegisterData {
   username: string;
   password: string;
   email: string;
-  role: 'PATIENT' | 'STUDENT' | 'FACULTY';
+  role: 'PATIENT';
   patient_data?: {
     name: string;
     date_of_birth: string;
@@ -21,21 +21,6 @@ export interface RegisterData {
       phone: string;
       relationship: string;
     };
-  };
-  student_data?: {
-    name: string;
-    program: string;
-    year: number;
-    semester: number;
-    gpa?: number;
-    academic_advisor?: string;
-  };
-  faculty_data?: {
-    name: string;
-    department: string;
-    specialty?: string;
-    phone?: string;
-    email?: string;
   };
 }
 

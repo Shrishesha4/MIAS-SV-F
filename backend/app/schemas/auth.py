@@ -5,9 +5,6 @@ from enum import Enum
 
 class UserRoleEnum(str, Enum):
     PATIENT = "PATIENT"
-    STUDENT = "STUDENT"
-    FACULTY = "FACULTY"
-    NURSE = "NURSE"
 
 
 class LoginRequest(BaseModel):
@@ -70,8 +67,6 @@ class RegisterRequest(BaseModel):
     email: str
     role: UserRoleEnum
     patient_data: Optional[PatientDataCreate] = None
-    student_data: Optional[StudentDataCreate] = None
-    faculty_data: Optional[FacultyDataCreate] = None
 
 
 class RegisterResponse(BaseModel):

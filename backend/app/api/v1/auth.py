@@ -7,8 +7,6 @@ import uuid
 from app.database import get_db
 from app.models.user import User, UserRole
 from app.models.patient import Patient, EmergencyContact, Gender
-from app.models.student import Student
-from app.models.faculty import Faculty
 from app.models.department import Department
 from app.models.programme import Programme
 from app.schemas.auth import (
@@ -60,16 +58,14 @@ def generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
-def generate_student_id():
-    return f"ST{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
-
-
-def generate_faculty_id():
-    return f"FA{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
-
-
 @router.post("/register", response_model=RegisterResponse)
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    if request.role != request.role.PATIENT:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is available for patients only",
+        )
+
     # Check if username exists
     result = await db.execute(
         select(User).where(User.username == request.username)
@@ -97,74 +93,45 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         username=request.username,
         email=request.email,
         password_hash=get_password_hash(request.password),
-        role=UserRole(request.role.value),
+        role=UserRole.PATIENT,
         is_active=True,
     )
     db.add(user)
     
-    # Create role-specific record
-    if request.role.value == "PATIENT" and request.patient_data:
-        patient_id = str(uuid.uuid4())
-        dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
-        patient = Patient(
-            id=patient_id,
-            patient_id=generate_patient_id(),
-            user_id=user_id,
-            name=request.patient_data.name,
-            date_of_birth=dob,
-            gender=Gender(request.patient_data.gender),
-            blood_group=request.patient_data.blood_group,
-            phone=request.patient_data.phone,
-            email=request.patient_data.email,
-            address=request.patient_data.address or "",
-            aadhaar_id=request.patient_data.aadhaar_id,
-            abha_id=request.patient_data.abha_id,
-        )
-        db.add(patient)
-        
-        # Add emergency contact if provided
-        if request.patient_data.emergency_contact:
-            ec = request.patient_data.emergency_contact
-            emergency_contact = EmergencyContact(
-                id=str(uuid.uuid4()),
-                patient_id=patient_id,
-                name=ec.name,
-                relationship_=ec.relationship,
-                phone=ec.phone,
-            )
-            db.add(emergency_contact)
-    
-    elif request.role.value == "STUDENT" and request.student_data:
-        student = Student(
-            id=str(uuid.uuid4()),
-            student_id=generate_student_id(),
-            user_id=user_id,
-            name=request.student_data.name,
-            year=request.student_data.year,
-            semester=request.student_data.semester,
-            program=request.student_data.program,
-            gpa=request.student_data.gpa,
-            academic_advisor=request.student_data.academic_advisor,
-        )
-        db.add(student)
-    
-    elif request.role.value == "FACULTY" and request.faculty_data:
-        faculty = Faculty(
-            id=str(uuid.uuid4()),
-            faculty_id=generate_faculty_id(),
-            user_id=user_id,
-            name=request.faculty_data.name,
-            department=request.faculty_data.department,
-            specialty=request.faculty_data.specialty,
-            phone=request.faculty_data.phone,
-            email=request.faculty_data.email,
-        )
-        db.add(faculty)
-    else:
+    if not request.patient_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Missing required data for role {request.role.value}",
+            detail="Patient registration data is required",
         )
+
+    patient_id = str(uuid.uuid4())
+    dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
+    patient = Patient(
+        id=patient_id,
+        patient_id=generate_patient_id(),
+        user_id=user_id,
+        name=request.patient_data.name,
+        date_of_birth=dob,
+        gender=Gender(request.patient_data.gender),
+        blood_group=request.patient_data.blood_group,
+        phone=request.patient_data.phone,
+        email=request.patient_data.email,
+        address=request.patient_data.address or "",
+        aadhaar_id=request.patient_data.aadhaar_id,
+        abha_id=request.patient_data.abha_id,
+    )
+    db.add(patient)
+
+    if request.patient_data.emergency_contact:
+        ec = request.patient_data.emergency_contact
+        emergency_contact = EmergencyContact(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            name=ec.name,
+            relationship_=ec.relationship,
+            phone=ec.phone,
+        )
+        db.add(emergency_contact)
     
     await db.commit()
     
