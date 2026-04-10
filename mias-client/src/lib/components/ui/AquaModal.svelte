@@ -1,3 +1,33 @@
+<script module lang="ts">
+  let openModalCount = 0;
+  let previousBodyOverflow = '';
+
+  function lockBodyScroll() {
+    if (typeof document === 'undefined') {
+      return;
+    }
+
+    if (openModalCount === 0) {
+      previousBodyOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+
+    openModalCount += 1;
+  }
+
+  function unlockBodyScroll() {
+    if (typeof document === 'undefined' || openModalCount === 0) {
+      return;
+    }
+
+    openModalCount -= 1;
+
+    if (openModalCount === 0) {
+      document.body.style.overflow = previousBodyOverflow;
+    }
+  }
+</script>
+
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { cubicOut } from 'svelte/easing';
@@ -10,10 +40,37 @@
     onclose?: () => void;
     onClose?: () => void;  // Alternative prop name
     header?: Snippet;
+    panelClass?: string;
+    contentClass?: string;
     children: Snippet;
   }
 
-  let { open = true, title = '', onclose, onClose, header, children }: Props = $props();
+  let {
+    open = true,
+    title = '',
+    onclose,
+    onClose,
+    header,
+    panelClass = 'sm:max-w-md',
+    contentClass = 'p-4',
+    children
+  }: Props = $props();
+
+  function portal(node: HTMLElement) {
+    if (typeof document === 'undefined') {
+      return {};
+    }
+
+    document.body.appendChild(node);
+    lockBodyScroll();
+
+    return {
+      destroy() {
+        unlockBodyScroll();
+        node.remove();
+      }
+    };
+  }
 
   const handleClose = () => {
     if (onclose) onclose();
@@ -24,6 +81,7 @@
 {#if open}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
+    use:portal
     class="fixed left-0 top-0 z-[200] flex h-[100dvh] w-screen items-end justify-center p-3 sm:items-center sm:p-4 motion-overlay"
     style="background-color: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);"
     onkeydown={(e) => e.key === 'Escape' && handleClose()}
@@ -32,7 +90,7 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="absolute inset-0" onclick={handleClose}></div>
     <div
-      class="motion-dialog pointer-events-auto relative flex max-h-[90vh] w-full flex-col sm:max-w-md"
+      class={`motion-dialog pointer-events-auto relative flex max-h-[90vh] w-full flex-col ${panelClass}`}
       style="background-color: white;
             border-radius: 20px;
             box-shadow: 0 -8px 28px rgba(0,0,0,0.18);
@@ -63,7 +121,7 @@
           <X class="w-5 h-5" />
         </button>
       </div>
-      <div class="p-4 overflow-y-auto flex-1">
+      <div class={`${contentClass} overflow-y-auto flex-1`}>
         {@render children()}
       </div>
     </div>

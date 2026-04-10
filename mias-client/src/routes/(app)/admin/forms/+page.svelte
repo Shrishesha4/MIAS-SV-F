@@ -4,9 +4,10 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { formsApi, type FormDefinitionPayload } from '$lib/api/forms';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { FileText, Loader2, Pencil, Plus, Power, Trash2, X } from 'lucide-svelte';
+	import { FileText, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const sectionTabs: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
@@ -270,221 +271,221 @@
 	}
 </script>
 
-	<div class="space-y-4">
-		<div class="flex flex-wrap items-center justify-between gap-3">
-			<div>
-				<p class="text-[10px] font-semibold text-slate-500 tracking-[0.16em] uppercase">Form Studio</p>
-				<h2 class="mt-1 text-lg font-bold text-slate-900 md:text-xl">Forms</h2>
-			</div>
-			<button
-				onclick={() => openCreateFormEditor(activeSection)}
-				class="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold text-white cursor-pointer"
-				style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 6px 14px rgba(37,99,235,0.2), inset 0 1px 0 rgba(255,255,255,0.25);"
-			>
-				<Plus class="w-3.5 h-3.5" />
-				New Configuration
-			</button>
-		</div>
+{#snippet formEditorHeader()}
+	<div class="flex items-center gap-3">
+		<h3 class="text-sm font-bold text-slate-900">Form Configuration</h3>
+		<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
+			{formEditorSection}
+		</span>
+	</div>
+{/snippet}
 
-		<div
-			class="flex flex-wrap gap-1.5 rounded-[16px] p-1"
-			style="background: linear-gradient(to bottom, #eef2f8, #e2e8f0); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
+<div class="space-y-4">
+	<div class="flex flex-wrap items-center justify-between gap-3">
+		<div>
+			<p class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Form Studio</p>
+			<h2 class="mt-1 text-lg font-bold text-slate-900 md:text-xl">Forms</h2>
+		</div>
+		<button
+			onclick={() => openCreateFormEditor(activeSection)}
+			class="inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-xs font-semibold text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 6px 14px rgba(37,99,235,0.2), inset 0 1px 0 rgba(255,255,255,0.25);"
 		>
-			{#each sectionTabs as section}
-				<button
-					onclick={() => activeSection = section}
-					class="rounded-[12px] px-3.5 py-2 text-[11px] font-bold tracking-[0.12em] cursor-pointer md:px-4"
-					style={activeSection === section
-						? 'background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #2563eb; box-shadow: 0 6px 14px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.8);'
-						: 'background: transparent; color: #5b6473;'}
-				>
-					{section}
-				</button>
-			{/each}
-		</div>
-
-		{#if loadingForms}
-			<div class="flex items-center justify-center py-20">
-				<Loader2 class="w-8 h-8 text-blue-500 animate-spin" />
-			</div>
-		{:else if filteredForms.length === 0}
-			<div class="rounded-[18px] border border-slate-200 px-5 py-10 text-center" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
-				<FileText class="w-7 h-7 mx-auto text-slate-300 mb-3" />
-				<p class="text-sm font-semibold text-slate-700">No {activeSection.toLowerCase()} forms configured yet</p>
-				<p class="mt-1.5 text-xs text-slate-400">Create one from the button above and it will appear here.</p>
-			</div>
-		{:else}
-			<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-				{#each filteredForms as form}
-					<div class="rounded-[18px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 20px rgba(15,23,42,0.05); opacity: {form.is_active ? 1 : 0.72};">
-						<div class="flex items-start justify-between gap-3">
-							<div>
-								<p class="text-[9px] font-bold tracking-[0.14em] text-blue-600 uppercase">{resolveFormSection(form)}</p>
-								<h3 class="mt-1 text-sm font-bold text-slate-900">{form.name}</h3>
-							</div>
-							<span class="rounded-full px-2.5 py-1 text-[10px] font-bold" style="background: {form.is_active ? 'rgba(37,99,235,0.1)' : 'rgba(148,163,184,0.12)'}; color: {form.is_active ? '#2563eb' : '#64748b'};">
-								{form.is_active ? 'ACTIVE' : 'INACTIVE'}
-							</span>
-						</div>
-
-						<div class="mt-2.5 space-y-1 text-xs text-slate-500">
-							<p>{form.fields.length} fields configured</p>
-							{#if form.department}<p>Department: {form.department}</p>{/if}
-							{#if form.procedure_name}<p>Context: {form.procedure_name}</p>{/if}
-						</div>
-
-						<div class="mt-3 flex items-center gap-2">
-							<button
-								onclick={() => openEditFormEditor(form)}
-								class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold cursor-pointer"
-								style="background: linear-gradient(to bottom, #ffffff, #eff6ff); color: #2563eb; border: 1px solid rgba(59,130,246,0.18);"
-							>
-								<Pencil class="w-3.5 h-3.5" />
-								Edit
-							</button>
-							<button
-								onclick={() => toggleFormActive(form)}
-								class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer"
-								style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); color: #475569; border: 1px solid rgba(148,163,184,0.24);"
-							>
-								<Power class="w-3.5 h-3.5 inline-block" />
-							</button>
-						</div>
-					</div>
-				{/each}
-			</div>
-		{/if}
+			<Plus class="h-3.5 w-3.5" />
+			New Configuration
+		</button>
 	</div>
 
-	{#if showFormEditor}
-		<div class="fixed left-0 top-0 z-[80] flex h-[100dvh] w-screen items-center justify-center px-3 py-3 sm:px-4" style="background: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);">
-			<div class="w-full max-w-[900px] overflow-hidden rounded-[20px] border border-slate-200" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb); box-shadow: 0 18px 42px rgba(15,23,42,0.2), inset 0 1px 0 rgba(255,255,255,0.7); max-height: calc(100vh - 1.5rem); overflow-y: auto;">
-				<div class="flex items-center justify-between gap-3 border-b border-slate-300 px-5 py-3 md:px-6">
-					<div class="flex items-center gap-3">
-						<h3 class="text-sm font-bold text-slate-900">Form Configuration</h3>
-						<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
-							{formEditorSection}
+	<div
+		class="flex flex-wrap gap-1.5 rounded-[16px] p-1"
+		style="background: linear-gradient(to bottom, #eef2f8, #e2e8f0); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
+	>
+		{#each sectionTabs as section}
+			<button
+				onclick={() => activeSection = section}
+				class="rounded-[12px] px-3.5 py-2 text-[11px] font-bold tracking-[0.12em] cursor-pointer md:px-4"
+				style={activeSection === section
+					? 'background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #2563eb; box-shadow: 0 6px 14px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.8);'
+					: 'background: transparent; color: #5b6473;'}
+			>
+				{section}
+			</button>
+		{/each}
+	</div>
+
+	{#if loadingForms}
+		<div class="flex items-center justify-center py-20">
+			<Loader2 class="h-8 w-8 animate-spin text-blue-500" />
+		</div>
+	{:else if filteredForms.length === 0}
+		<div class="rounded-[18px] border border-slate-200 px-5 py-10 text-center" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
+			<FileText class="mx-auto mb-3 h-7 w-7 text-slate-300" />
+			<p class="text-sm font-semibold text-slate-700">No {activeSection.toLowerCase()} forms configured yet</p>
+			<p class="mt-1.5 text-xs text-slate-400">Create one from the button above and it will appear here.</p>
+		</div>
+	{:else}
+		<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+			{#each filteredForms as form}
+				<div class="rounded-[18px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 20px rgba(15,23,42,0.05); opacity: {form.is_active ? 1 : 0.72};">
+					<div class="flex items-start justify-between gap-3">
+						<div>
+							<p class="text-[9px] font-bold uppercase tracking-[0.14em] text-blue-600">{resolveFormSection(form)}</p>
+							<h3 class="mt-1 text-sm font-bold text-slate-900">{form.name}</h3>
+						</div>
+						<span class="rounded-full px-2.5 py-1 text-[10px] font-bold" style="background: {form.is_active ? 'rgba(37,99,235,0.1)' : 'rgba(148,163,184,0.12)'}; color: {form.is_active ? '#2563eb' : '#64748b'};">
+							{form.is_active ? 'ACTIVE' : 'INACTIVE'}
 						</span>
 					</div>
-					<button onclick={resetFormEditor} class="text-slate-400 hover:text-slate-700 cursor-pointer" aria-label="Close form editor">
-						<X class="w-5 h-5" />
-					</button>
-				</div>
 
-				<div class="px-4 py-4 md:px-5 md:py-5">
-					{#if formSaveError}
-						<div class="mb-4 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
-					{/if}
+					<div class="mt-2.5 space-y-1 text-xs text-slate-500">
+						<p>{form.fields.length} fields configured</p>
+						{#if form.department}<p>Department: {form.department}</p>{/if}
+						{#if form.procedure_name}<p>Context: {form.procedure_name}</p>{/if}
+					</div>
 
-					<div class="space-y-5">
-						<div>
-							<p class="mb-2 text-[11px] font-bold tracking-[0.14em] text-blue-700 uppercase">Form Name</p>
-							<input
-								type="text"
-								placeholder="e.g. Initial Assessment"
-								class="w-full rounded-[14px] border border-slate-300 px-3.5 py-3 text-base font-semibold text-slate-800 outline-none md:px-4"
-								style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-								bind:value={formEditorName}
-							/>
-						</div>
-
-						<div>
-							<div class="mb-2.5 flex items-center justify-between gap-4">
-								<p class="text-[11px] font-bold tracking-[0.14em] text-blue-700 uppercase">Form Fields</p>
-								{#if editingFormId && (formEditorDepartment || formEditorProcedure)}
-									<p class="text-xs text-slate-400">Legacy context stays attached behind the scenes.</p>
-								{/if}
-							</div>
-
-							<div class="rounded-[16px] border border-slate-300 p-2.5 md:p-3" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);">
-								<div class="space-y-2.5">
-									{#each formEditorFields as field, index (index)}
-										<div class="rounded-[12px] border border-slate-200 p-2.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 3px 10px rgba(15,23,42,0.04);">
-											<div class="grid gap-2.5 lg:grid-cols-[minmax(0,1fr)_118px_138px_36px] lg:items-center">
-												<input
-													type="text"
-													placeholder="Field Label"
-													class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-xs font-medium text-slate-700 outline-none"
-													style="background: linear-gradient(to bottom, #ffffff, #fafcff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
-													value={field.label}
-													oninput={(event) => updateFieldLabel(index, (event.currentTarget as HTMLInputElement).value)}
-												/>
-												<select
-													class="w-full rounded-[10px] border border-slate-300 px-2.5 py-2.5 text-xs font-bold text-blue-700 outline-none"
-													style="background: linear-gradient(to bottom, #ffffff, #f5f9ff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
-													value={field.type}
-													onchange={(event) => updateFieldType(index, (event.currentTarget as HTMLSelectElement).value)}
-												>
-													{#each fieldTypes as fieldType}
-														<option value={fieldType}>{fieldType.toUpperCase()}</option>
-													{/each}
-												</select>
-												<div class="flex items-center justify-between gap-2 rounded-[10px] border border-slate-300 px-2.5 py-2.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-													<span class="text-[10px] font-bold text-slate-500">MANDATORY</span>
-													<button
-														type="button"
-														class="relative h-7 w-[46px] rounded-full cursor-pointer transition-colors"
-														style="background: {field.required ? 'linear-gradient(to right, #3b82f6, #1453c4)' : 'linear-gradient(to bottom, #e2e8f0, #cbd5e1)'}; box-shadow: inset 0 1px 3px rgba(15,23,42,0.12);"
-														onclick={() => updateFieldRequired(index, !field.required)}
-														aria-label="Toggle mandatory"
-													>
-														<span
-															class="absolute top-[3px] h-5 w-5 rounded-full bg-white transition-all"
-															style="left: {field.required ? '22px' : '3px'}; box-shadow: 0 3px 8px rgba(15,23,42,0.18);"
-														></span>
-													</button>
-												</div>
-												<button
-													type="button"
-													class="flex h-8 w-8 items-center justify-center rounded-full text-red-500 cursor-pointer"
-													style="background: linear-gradient(to bottom, #fff5f5, #ffe4e6); border: 1px solid rgba(248,113,113,0.26);"
-													onclick={() => removeFormField(index)}
-													aria-label="Delete field"
-												>
-													<Trash2 class="w-3.5 h-3.5" />
-												</button>
-											</div>
-
-											{#if field.type === 'select'}
-												<input
-													type="text"
-													placeholder="Options separated by commas"
-													class="mt-2.5 w-full rounded-[10px] border border-slate-300 px-3 py-2 text-xs text-slate-700 outline-none"
-													style="background: linear-gradient(to bottom, #ffffff, #fafcff);"
-													value={field.options?.join(', ') ?? ''}
-													oninput={(event) => updateFormFieldOptions(index, (event.currentTarget as HTMLInputElement).value)}
-												/>
-											{/if}
-										</div>
-									{/each}
-
-									<button
-										onclick={addFormField}
-										class="w-full rounded-[14px] border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-400 cursor-pointer"
-										style="background: linear-gradient(to bottom, rgba(255,255,255,0.7), rgba(248,250,252,0.95));"
-									>
-										<Plus class="inline-block w-4 h-4 mr-2" />
-										Add New Field
-									</button>
-								</div>
-							</div>
-						</div>
-
+					<div class="mt-3 flex items-center gap-2">
 						<button
-							onclick={saveFormDefinition}
-							disabled={savingForm}
-							class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60"
-							style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
+							onclick={() => openEditFormEditor(form)}
+							class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold cursor-pointer"
+							style="background: linear-gradient(to bottom, #ffffff, #eff6ff); color: #2563eb; border: 1px solid rgba(59,130,246,0.18);"
 						>
-							{#if savingForm}
-								<Loader2 class="inline-block w-4 h-4 mr-2 animate-spin" />
-								Saving...
-							{:else}
-								Save Configuration
-							{/if}
+							<Pencil class="h-3.5 w-3.5" />
+							Edit
+						</button>
+						<button
+							onclick={() => toggleFormActive(form)}
+							class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer"
+							style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); color: #475569; border: 1px solid rgba(148,163,184,0.24);"
+						>
+							<Power class="inline-block h-3.5 w-3.5" />
 						</button>
 					</div>
 				</div>
-			</div>
+			{/each}
 		</div>
 	{/if}
+</div>
+
+{#if showFormEditor}
+	<AquaModal
+		header={formEditorHeader}
+		onclose={resetFormEditor}
+		panelClass="sm:max-w-[760px]"
+		contentClass="p-0"
+	>
+		<div class="px-3.5 py-3.5 md:px-4 md:py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb); max-height: calc(100vh - 12rem);">
+			{#if formSaveError}
+				<div class="mb-4 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
+			{/if}
+
+			<div class="space-y-4">
+				<div>
+					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Form Name</p>
+					<input
+						type="text"
+						placeholder="e.g. Initial Assessment"
+						class="w-full rounded-[14px] border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none md:px-4"
+						style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+						bind:value={formEditorName}
+					/>
+				</div>
+
+				<div>
+					<div class="mb-2.5 flex items-center justify-between gap-4">
+						<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Form Fields</p>
+						<!-- {#if editingFormId && (formEditorDepartment || formEditorProcedure)}
+							<p class="text-xs text-slate-400">Legacy context stays attached behind the scenes.</p>
+						{/if} -->
+					</div>
+
+					<div class="rounded-[16px] border border-slate-300 p-2 md:p-2.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);">
+						<div class="space-y-2">
+							{#each formEditorFields as field, index (index)}
+								<div class="rounded-[12px] border border-slate-200 p-2" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 3px 10px rgba(15,23,42,0.04);">
+									<div class="grid gap-2 lg:grid-cols-[minmax(0,1fr)_100px_118px_32px] lg:items-center">
+										<input
+											type="text"
+											placeholder="Field Label"
+											class="w-full rounded-[10px] border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 outline-none"
+											style="background: linear-gradient(to bottom, #ffffff, #fafcff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
+											value={field.label}
+											oninput={(event) => updateFieldLabel(index, (event.currentTarget as HTMLInputElement).value)}
+										/>
+										<select
+											class="w-full rounded-[10px] border border-slate-300 px-2.5 py-2 text-[11px] font-bold text-blue-700 outline-none"
+											style="background: linear-gradient(to bottom, #ffffff, #f5f9ff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
+											value={field.type}
+											onchange={(event) => updateFieldType(index, (event.currentTarget as HTMLSelectElement).value)}
+										>
+											{#each fieldTypes as fieldType}
+												<option value={fieldType}>{fieldType.toUpperCase()}</option>
+											{/each}
+										</select>
+										<div class="flex items-center justify-between gap-2 rounded-[10px] border border-slate-300 px-2 py-1.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
+											<span class="text-[9px] font-bold text-slate-500">MANDATORY</span>
+											<button
+												type="button"
+												class="relative flex h-6 w-[42px] items-center rounded-full p-[3px] cursor-pointer transition-colors"
+												style="background: {field.required ? 'linear-gradient(to right, #3b82f6, #1453c4)' : 'linear-gradient(to bottom, #e2e8f0, #cbd5e1)'}; box-shadow: inset 0 1px 3px rgba(15,23,42,0.12);"
+												onclick={() => updateFieldRequired(index, !field.required)}
+												aria-label="Toggle mandatory"
+											>
+												<span
+													class="h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform"
+													style="transform: translateX({field.required ? '7px' : '0'}); box-shadow: 0 3px 8px rgba(15,23,42,0.18);"
+												></span>
+											</button>
+										</div>
+										<button
+											type="button"
+											class="flex h-7 w-7 items-center justify-center rounded-full text-red-500 cursor-pointer"
+											style="background: linear-gradient(to bottom, #fff5f5, #ffe4e6); border: 1px solid rgba(248,113,113,0.26);"
+											onclick={() => removeFormField(index)}
+											aria-label="Delete field"
+										>
+											<Trash2 class="h-3.5 w-3.5" />
+										</button>
+									</div>
+
+									{#if field.type === 'select'}
+										<input
+											type="text"
+											placeholder="Options separated by commas"
+											class="mt-2 w-full rounded-[10px] border border-slate-300 px-3 py-2 text-xs text-slate-700 outline-none"
+											style="background: linear-gradient(to bottom, #ffffff, #fafcff);"
+											value={field.options?.join(', ') ?? ''}
+											oninput={(event) => updateFormFieldOptions(index, (event.currentTarget as HTMLInputElement).value)}
+										/>
+									{/if}
+								</div>
+							{/each}
+
+							<button
+								onclick={addFormField}
+								class="w-full rounded-[14px] border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-400 cursor-pointer"
+								style="background: linear-gradient(to bottom, rgba(255,255,255,0.7), rgba(248,250,252,0.95));"
+							>
+								<Plus class="mr-2 inline-block h-4 w-4" />
+								Add New Field
+							</button>
+						</div>
+					</div>
+				</div>
+
+				<button
+					onclick={saveFormDefinition}
+					disabled={savingForm}
+					class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60"
+					style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
+				>
+					{#if savingForm}
+						<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />
+						Saving...
+					{:else}
+						Save Configuration
+					{/if}
+				</button>
+			</div>
+		</div>
+	</AquaModal>
+{/if}

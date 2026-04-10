@@ -50,8 +50,8 @@ async def list_clinics(
 class CreateClinicRequest(BaseModel):
     name: str
     block: Optional[str] = None
-    clinic_type: str = "General"
-    department: str
+    clinic_type: str = "OP"
+    department: Optional[str] = None
     location: Optional[str] = None
     faculty_id: Optional[str] = None
     is_active: bool = True
@@ -66,11 +66,11 @@ async def create_clinic(
     """Create a new clinic (admin only)."""
     clinic = Clinic(
         id=str(uuid.uuid4()),
-        name=request.name,
-        block=request.block,
-        clinic_type=request.clinic_type,
-        department=request.department,
-        location=request.location,
+        name=request.name.strip(),
+        block=request.block.strip() if request.block else None,
+        clinic_type=request.clinic_type.strip(),
+        department=request.department.strip() if request.department else "",
+        location=request.location.strip() if request.location else None,
         faculty_id=request.faculty_id,
         is_active=request.is_active,
     )
@@ -140,15 +140,15 @@ async def update_clinic(
         raise HTTPException(status_code=404, detail="Clinic not found")
     
     if request.name is not None:
-        clinic.name = request.name
+        clinic.name = request.name.strip()
     if request.block is not None:
-        clinic.block = request.block
+        clinic.block = request.block.strip() if request.block else None
     if request.clinic_type is not None:
-        clinic.clinic_type = request.clinic_type
+        clinic.clinic_type = request.clinic_type.strip()
     if request.department is not None:
-        clinic.department = request.department
+        clinic.department = request.department.strip() if request.department else ""
     if request.location is not None:
-        clinic.location = request.location
+        clinic.location = request.location.strip() if request.location else None
     if request.faculty_id is not None:
         clinic.faculty_id = request.faculty_id
     if request.is_active is not None:

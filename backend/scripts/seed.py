@@ -1,4 +1,4 @@
-"""Database seeding script – creates test users and sample data."""
+"""Optional mock-data seeding script. Safe to rerun and does not reset existing data."""
 import asyncio
 import uuid
 import random
@@ -11,7 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import AsyncSessionLocal, engine
-from sqlalchemy import text
+from sqlalchemy import select
 from app.db_init import run_startup_migrations
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Gender, PatientCategory, MedicalAlert
@@ -32,6 +32,11 @@ from app.core.security import get_password_hash
 
 def uid() -> str:
     return str(uuid.uuid4())
+
+
+MOCK_DATA_SENTINEL_USERNAMES = (
+	'r', 'd1', 'd2', 'd3', 's1', 's2', 'n1', 'p1', 'p2'
+)
 
 
 # ── Data ─────────────────────────────────────────────────────────────
@@ -147,9 +152,9 @@ DEPARTMENTS = [
 ]
 
 CLINICS = [
-    {"name": "Saveetha General Clinic", "block": "Block A", "clinic_type": "General", "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
-    {"name": "Saveetha Dental Clinic",  "block": "Block B", "clinic_type": "General", "department": "Dentistry",        "location": "Block B, 1st Floor",           "faculty_idx": 2},
-    {"name": "Cardiology Clinic",       "block": "Block C", "clinic_type": "Specialty", "department": "Cardiology",     "location": "Block C, 2nd Floor",           "faculty_idx": 1},
+    {"name": "Saveetha General Clinic", "block": "Block A", "clinic_type": "OP", "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
+    {"name": "Saveetha Dental Clinic",  "block": "Block B", "clinic_type": "OP", "department": "Dentistry",        "location": "Block B, 1st Floor",           "faculty_idx": 2},
+    {"name": "Cardiology Clinic",       "block": "Block C", "clinic_type": "IP", "department": "Cardiology",     "location": "Block C, 2nd Floor",           "faculty_idx": 1},
 ]
 
 LABS = [
@@ -537,30 +542,19 @@ FORM_DEFINITIONS_DATA = [
 async def seed():
     import app.models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA IF EXISTS public CASCADE"))
-        await conn.execute(text("CREATE SCHEMA public"))
-
     await run_startup_migrations()
 
     async with AsyncSessionLocal() as db:
-        # ── Admin ────────────────────────────────────────
-        admin_user_id = uid()
-        db.add(User(
-            id=admin_user_id,
-            username="admin",
-            email="admin@saveetha.com",
-            password_hash=get_password_hash("admin"),
-            role=UserRole.ADMIN,
-        ))
-        # Additional admin user with short credentials
-        db.add(User(
-            id=uid(),
-            username="a",
-            email="a@saveetha.com",
-            password_hash=get_password_hash("a"),
-            role=UserRole.ADMIN,
-        ))
+        existing_mock_user = (
+            await db.execute(
+                select(User.id).where(User.username.in_(MOCK_DATA_SENTINEL_USERNAMES)).limit(1)
+            )
+        ).scalar_one_or_none()
+
+        if existing_mock_user:
+            print("\nℹ️ Mock data already exists. Skipping seed without resetting the database.\n")
+            print("Default admin login: a / a\n")
+            return
 
         # ── Reception ───────────────────────────────────
         db.add(User(
@@ -723,7 +717,6 @@ async def seed():
         await db.flush()
 
         # ── Fetch all student and patient records ────────
-        from sqlalchemy import select
         stu_result = await db.execute(select(Student))
         all_students = stu_result.scalars().all()
         pat_result = await db.execute(select(Patient))
@@ -853,7 +846,7 @@ async def seed():
                 id=uid(),
                 name=c["name"],
                 block=c.get("block"),
-                clinic_type=c.get("clinic_type", "General"),
+                clinic_type=c.get("clinic_type", "OP"),
                 department=c["department"],
                 location=c.get("location", ""),
                 faculty_id=faculty_list[c["faculty_idx"]].id if faculty_list else None,
@@ -1285,13 +1278,12 @@ async def seed():
     print("LOGIN CREDENTIALS")
     print("=" * 50)
 
-    print("\n🔑 Admin (2):")
+    print("\n🔑 Admin (1):")
     print(f"  {'Username':<10} {'Password':<10}")
     print(f"  {'─'*10} {'─'*10}")
-    print(f"  {'admin':<10} {'admin':<10}")
     print(f"  {'a':<10} {'a':<10}")
 
-    print("\n🏢 Reception (2):")
+    print("\n🏢 Reception (1):")
     print(f"  {'Username':<10} {'Password':<10}")
     print(f"  {'─'*10} {'─'*10}")
     print(f"  {'r':<10} {'r':<10}")

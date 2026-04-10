@@ -324,7 +324,7 @@
 					<option value="RECEPTION">Reception</option>
 					<option value="STUDENT">Student</option>
 					<option value="FACULTY">Faculty</option>
-					<option value="PATIENT">Patient</option>
+					<!-- <option value="PATIENT">Patient</option> -->
 					<option value="ADMIN">Admin</option>
 				</select>
 			</div>

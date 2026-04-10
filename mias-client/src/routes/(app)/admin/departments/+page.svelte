@@ -153,7 +153,7 @@
 				>
 					<div
 						class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
-						style="background: linear-gradient(180deg, ${dept.is_active ? '#b26eff' : '#b5bcc8'} 0%, ${dept.is_active ? '#7b23df' : '#7f8a99'} 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);"
+						style={`background: linear-gradient(180deg, ${dept.is_active ? '#b26eff' : '#b5bcc8'} 0%, ${dept.is_active ? '#7b23df' : '#7f8a99'} 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);`}
 					>
 						<Stethoscope class="h-5 w-5 text-white" />
 					</div>

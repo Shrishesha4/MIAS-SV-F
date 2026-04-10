@@ -71,7 +71,7 @@
 	let confirmMessage = $state('');
 	let actionLoading = $state(false);
 
-	const filteredCharges = $derived(charges.filter(c => c.category === activeCategory));
+	const filteredCharges = $derived.by(() => charges.filter((charge) => charge.category === activeCategory));
 
 	onMount(() => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
@@ -91,7 +91,25 @@
 	}
 
 	function updateChargeInState(updatedCharge: ChargeItem) {
-		charges = charges.map((charge) => (charge.id === updatedCharge.id ? updatedCharge : charge));
+		const existingCharge = charges.find((charge) => charge.id === updatedCharge.id);
+
+		if (!existingCharge) {
+			charges = [...charges, updatedCharge];
+			return;
+		}
+
+		charges = charges.map((charge) =>
+			charge.id === updatedCharge.id
+				? {
+					...charge,
+					...updatedCharge,
+					prices: {
+						...charge.prices,
+						...updatedCharge.prices
+					}
+				}
+				: charge
+		);
 	}
 
 	function startMetaEdit(charge: ChargeItem) {
@@ -129,7 +147,18 @@
 				category: metaDraft.category,
 				description: metaDraft.description.trim() || undefined
 			});
-			updateChargeInState(updated);
+			updateChargeInState({
+				...charge,
+				...updated,
+				name: metaDraft.name.trim(),
+				item_code: metaDraft.item_code.trim(),
+				category: metaDraft.category,
+				description: metaDraft.description.trim() || undefined,
+				prices: {
+					...charge.prices,
+					...updated.prices
+				}
+			});
 			cancelMetaEdit();
 			toastStore.addToast('Charge details updated', 'success');
 		} catch (e: any) {
@@ -166,7 +195,15 @@
 			const updated = await chargesApi.update(charge.id, {
 				prices: { [editingPrice.tier]: nextPrice }
 			});
-			updateChargeInState(updated);
+			updateChargeInState({
+				...charge,
+				...updated,
+				prices: {
+					...charge.prices,
+					...updated.prices,
+					[editingPrice.tier]: nextPrice
+				}
+			});
 			cancelPriceEdit();
 			toastStore.addToast('Price updated', 'success');
 		} catch (e: any) {
@@ -421,17 +458,6 @@
 					</div>
 				{/each}
 			{/if}
-		</div>
-
-		<!-- Legend -->
-		<div class="mt-4 p-3 rounded-xl" style="background: linear-gradient(to bottom, #fffbeb, #fef3c7); border: 1px solid rgba(217,119,6,0.2);">
-			<p class="text-xs font-semibold text-amber-800 mb-2">Pricing Tiers</p>
-			<div class="grid grid-cols-2 gap-2 text-xs text-amber-700">
-				<div><span class="font-semibold">Classic:</span> Standard ward patients</div>
-				<div><span class="font-semibold">Prime:</span> Semi-private rooms</div>
-				<div><span class="font-semibold">Elite:</span> Private/Deluxe rooms</div>
-				<div><span class="font-semibold">Community:</span> Subsidized care</div>
-			</div>
 		</div>
 	{/if}
 

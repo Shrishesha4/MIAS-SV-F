@@ -143,7 +143,7 @@
 				<p class="text-sm text-gray-500">Configure which vitals appear in patient monitoring forms</p>
 			</div>
 			<AquaButton variant="primary" onclick={openCreateModal}>
-				<Plus class="w-4 h-4 mr-1" /> Add Parameter
+				<Plus class="w-4 h-4" />
 			</AquaButton>
 		</div>
 

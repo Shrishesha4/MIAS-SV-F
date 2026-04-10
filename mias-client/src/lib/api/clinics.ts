@@ -85,7 +85,7 @@ export const clinicsApi = {
     name: string;
     block?: string;
     clinic_type?: string;
-    department: string;
+    department?: string;
     location?: string;
     faculty_id?: string;
     is_active?: boolean;
