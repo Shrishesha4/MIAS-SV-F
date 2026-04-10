@@ -70,7 +70,6 @@
 							<div class="min-w-0 flex-1">
 								<p class="text-base font-bold leading-tight text-slate-900">Admin Panel</p>
 							</div>
-							<div class="h-2.5 w-2.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(74,222,128,0.9)]"></div>
 						</div>
 					</div>
 

@@ -60,15 +60,6 @@ export interface TrendData {
   vitals: TrendPoint[];
 }
 
-export interface FacultyItem {
-  id: string;
-  faculty_id: string;
-  name: string;
-  department: string;
-  specialty: string;
-  availability_status: string;
-}
-
 export interface StudentItem {
   id: string;
   student_id: string;
@@ -182,12 +173,12 @@ export const adminApi = {
     return r.data;
   },
 
-  async createDepartment(data: { name: string; code: string; description?: string; head_faculty_id?: string }) {
+  async createDepartment(data: { name: string; code: string; description?: string }) {
     const r = await client.post('/admin/departments', data);
     return r.data;
   },
 
-  async updateDepartment(deptId: string, data: Partial<{ name: string; code: string; description: string; head_faculty_id: string; is_active: boolean }>) {
+  async updateDepartment(deptId: string, data: Partial<{ name: string; code: string; description: string; is_active: boolean }>) {
     const r = await client.put(`/admin/departments/${deptId}`, data);
     return r.data;
   },
@@ -210,12 +201,6 @@ export const adminApi = {
 
   async getRoleDistribution(): Promise<Record<string, number>> {
     const r = await client.get('/admin/analytics/role-distribution');
-    return r.data;
-  },
-
-  // Faculty list
-  async getFaculty(department?: string): Promise<FacultyItem[]> {
-    const r = await client.get('/admin/faculty', { params: department ? { department } : {} });
     return r.data;
   },
 

@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
-	import { adminApi, type Department, type FacultyItem } from '$lib/api/admin';
+	import { adminApi, type Department } from '$lib/api/admin';
 	import AdminScaffold from '$lib/components/layout/AdminScaffold.svelte';
 	import { adminPageNavItems } from '$lib/config/admin-nav';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -16,7 +16,6 @@
 	let loading = $state(true);
 	let error = $state('');
 	let departments: Department[] = $state([]);
-	let facultyList: FacultyItem[] = $state([]);
 
 	// Form state
 	let showForm = $state(false);
@@ -24,7 +23,6 @@
 	let formName = $state('');
 	let formCode = $state('');
 	let formDescription = $state('');
-	let formHeadFacultyId = $state('');
 	let formLoading = $state(false);
 	let formError = $state('');
 
@@ -41,12 +39,8 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const [d, f] = await Promise.all([
-				adminApi.getDepartments(),
-				adminApi.getFaculty(),
-			]);
+			const d = await adminApi.getDepartments();
 			departments = d;
-			facultyList = f;
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load departments';
 		} finally {
@@ -59,7 +53,6 @@
 		formName = '';
 		formCode = '';
 		formDescription = '';
-		formHeadFacultyId = '';
 		formError = '';
 		showForm = true;
 	}
@@ -69,7 +62,6 @@
 		formName = dept.name;
 		formCode = dept.code;
 		formDescription = dept.description || '';
-		formHeadFacultyId = dept.head_faculty_id || '';
 		formError = '';
 		showForm = true;
 	}
@@ -86,7 +78,6 @@
 				name: formName.trim(),
 				code: formCode.trim(),
 				description: formDescription.trim() || undefined,
-				head_faculty_id: formHeadFacultyId || undefined,
 			};
 			if (editingId) {
 				await adminApi.updateDepartment(editingId, data);
@@ -254,19 +245,6 @@
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-400 resize-none"
 					style="box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
 				></textarea>
-			</div>
-			<div>
-				<label for="dept-head" class="text-xs font-medium text-gray-600 block mb-1">Head of Department</label>
-				<select
-					id="dept-head"
-					bind:value={formHeadFacultyId}
-					class="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-400 bg-white"
-				>
-					<option value="">None</option>
-					{#each facultyList as f}
-						<option value={f.id}>{f.name} – {f.department}</option>
-					{/each}
-				</select>
 			</div>
 			<div class="flex gap-2 pt-2">
 				<AquaButton variant="secondary" fullWidth onclick={() => showForm = false}>
