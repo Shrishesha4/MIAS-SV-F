@@ -39,17 +39,25 @@
         'prescriptions': 'Prescription Approvals',
     };
 
+    const scoreOptions = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
     let isAdmissionType = $derived(approvalType === 'admissions');
+    let usesScore = $derived(approvalType === 'case-records');
     let pageTitle = $derived(typeLabels[approvalType] || 'Approvals');
     let activeCount = $derived(activeTab === 'pending' ? pendingApprovals.length : historyApprovals.length);
 
     function getScore(id: string): number {
-        return scores[id] || 3;
+        return scores[id] ?? 5;
     }
 
     function setScore(id: string, score: number) {
         scores[id] = score;
         scores = { ...scores };
+    }
+
+    function formatScoreLabel(score?: number | null): string {
+        if (score === undefined || score === null) return '';
+        return score === 0 ? 'F' : String(score);
     }
 
     async function handleApprove(id: string) {
@@ -58,13 +66,14 @@
             const score = getScore(id);
             await approvalsApi.processApproval(facultyId, id, {
                 status: 'APPROVED',
-                score,
+                score: usesScore ? score : undefined,
+                grade: usesScore ? formatScoreLabel(score) : undefined,
                 comments: approvalComments[id] || 'Approved'
             });
             const item = pendingApprovals.find(a => a.id === id);
             if (item) {
                 pendingApprovals = pendingApprovals.filter(a => a.id !== id);
-                historyApprovals = [{ ...item, status: 'APPROVED', score, processed_at: new Date().toISOString() }, ...historyApprovals];
+                historyApprovals = [{ ...item, status: 'APPROVED', score: usesScore ? score : undefined, processed_at: new Date().toISOString() }, ...historyApprovals];
             }
             if (detailModal?.id === id) detailModal = null;
         } catch (err) {
@@ -347,24 +356,26 @@
                             <div class="mt-5 border-t border-slate-200 pt-4">
                                 <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
                                     <div class="space-y-4">
-                                        <div>
-                                            <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Score</p>
-                                            <div class="flex flex-wrap gap-2">
-                                                {#each [1, 2, 3, 4, 5] as score}
-                                                    <button
-                                                        class="h-10 min-w-10 rounded-2xl px-3 text-sm font-bold cursor-pointer transition-all"
-                                                        style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'};
-                                                               color: {currentScore === score ? 'white' : '#64748b'};
-                                                               border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(148,163,184,0.24)'};
-                                                               box-shadow: {currentScore === score ? '0 10px 20px rgba(37,99,235,0.22)' : 'none'};"
-                                                        onclick={() => setScore(approval.id, score)}
-                                                        disabled={isProcessing}
-                                                    >
-                                                        {score}
-                                                    </button>
-                                                {/each}
+                                        {#if usesScore}
+                                            <div>
+                                                <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Score</p>
+                                                <div class="flex flex-wrap gap-2">
+                                                    {#each scoreOptions as score}
+                                                        <button
+                                                            class="h-10 min-w-10 rounded-2xl px-3 text-sm font-bold cursor-pointer transition-all"
+                                                            style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'};
+                                                                   color: {currentScore === score ? 'white' : '#64748b'};
+                                                                   border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(148,163,184,0.24)'};
+                                                                   box-shadow: {currentScore === score ? '0 10px 20px rgba(37,99,235,0.22)' : 'none'};"
+                                                            onclick={() => setScore(approval.id, score)}
+                                                            disabled={isProcessing}
+                                                        >
+                                                            {formatScoreLabel(score)}
+                                                        </button>
+                                                    {/each}
+                                                </div>
                                             </div>
-                                        </div>
+                                        {/if}
 
                                         <div>
                                             <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Comments</p>
@@ -457,8 +468,8 @@
                                            color: {isApproved ? '#16a34a' : '#dc2626'};">
                                     {isApproved ? 'Approved' : 'Rejected'}
                                 </p>
-                                {#if isApproved && approval.score}
-                                    <p class="text-xs text-gray-500">Score: {approval.score}</p>
+                                {#if isApproved && approval.score !== undefined && approval.score !== null}
+                                    <p class="text-xs text-gray-500">Score: {formatScoreLabel(approval.score)}</p>
                                 {/if}
                                 <p class="text-[10px] text-gray-400">
                                     {formatDate(approval.processed_at || approval.created_at)}
@@ -727,24 +738,25 @@
                     </div>
                 {/if}
 
-                <!-- Score Selection -->
-                <div>
-                    <p class="text-xs text-gray-500 mb-2 font-semibold">Approval Score:</p>
-                    <div class="flex gap-2">
-                        {#each [1, 2, 3, 4, 5] as score}
-                            <button
-                                class="flex-1 h-11 rounded-lg text-sm font-bold cursor-pointer transition-all"
-                                style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
-                                       color: {currentScore === score ? 'white' : '#64748b'};
-                                       border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(0,0,0,0.1)'};"
-                                onclick={() => setScore(approval.id, score)}
-                                disabled={isProcessing}
-                            >
-                                {score}
-                            </button>
-                        {/each}
+                {#if usesScore}
+                    <div>
+                        <p class="text-xs text-gray-500 mb-2 font-semibold">Approval Score:</p>
+                        <div class="flex flex-wrap gap-2">
+                            {#each scoreOptions as score}
+                                <button
+                                    class="h-11 min-w-11 rounded-lg px-3 text-sm font-bold cursor-pointer transition-all"
+                                    style="background: {currentScore === score ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : '#f1f5f9'};
+                                           color: {currentScore === score ? 'white' : '#64748b'};
+                                           border: 1px solid {currentScore === score ? '#2563eb' : 'rgba(0,0,0,0.1)'};"
+                                    onclick={() => setScore(approval.id, score)}
+                                    disabled={isProcessing}
+                                >
+                                    {formatScoreLabel(score)}
+                                </button>
+                            {/each}
+                        </div>
                     </div>
-                </div>
+                {/if}
 
                 <!-- Comments -->
                 <div>

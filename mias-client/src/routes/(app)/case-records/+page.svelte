@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { studentApi, type AssignedPatient } from '$lib/api/students';
+	import { patientApi } from '$lib/api/patients';
 	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
@@ -189,6 +190,16 @@
 		return false;
 	}
 
+	function buildSubmittedCaseRecordValues(baseValues: Record<string, any>, draft: { findings: string; diagnosis: string; treatment: string }): Record<string, any> {
+		return {
+			...baseValues,
+			findings: draft.findings,
+			diagnosis: draft.diagnosis,
+			treatment: draft.treatment,
+			treatment_plan: draft.treatment,
+		};
+	}
+
 	const hasPermission = $derived(
 		!selectedDepartment || allowedDepartments.includes(selectedDepartment)
 	);
@@ -254,6 +265,7 @@
 		}
 
 		const missingRequiredFields = (crFields ?? [])
+			.filter((field) => !['findings', 'diagnosis', 'treatment', 'treatment_plan'].includes(field.key))
 			.filter((field) => field.required && isEmptyFormValue(formData[field.key]))
 			.map((field) => field.label);
 
@@ -263,25 +275,38 @@
 		}
 		submitting = true;
 		try {
+			const draft = await patientApi.generateCaseRecordDraft(selectedPatientId, {
+				department: selectedDepartment,
+				procedure: selectedProcedure,
+				form_name: selectedForm?.name,
+				form_description: selectedForm?.description || undefined,
+				form_values: formData,
+			});
+			const submittedValues = buildSubmittedCaseRecordValues(formData, draft);
+			formData = submittedValues;
 			await studentApi.submitCaseRecord(student.id, {
 				patient_id: selectedPatientId,
 				department: selectedDepartment,
 				procedure: selectedProcedure,
-				procedure_description: buildCaseRecordDescription(crFields, formData) || undefined,
-				notes: stringifyFormValue(formData['notes']) || '',
-				findings: stringifyFormValue(formData['findings']) || '',
-				diagnosis: stringifyFormValue(formData['diagnosis']) || '',
-				treatment: stringifyFormValue(formData['treatment']) || '',
+				procedure_description: buildCaseRecordDescription(crFields, submittedValues) || undefined,
+				notes: stringifyFormValue(submittedValues['notes']) || '',
+				findings: stringifyFormValue(submittedValues['findings']) || '',
+				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
+				treatment: stringifyFormValue(submittedValues['treatment'] ?? submittedValues['treatment_plan']) || '',
 				icd_code: icdCode || undefined,
 				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
+				form_values: submittedValues,
+				form_name: selectedForm?.name,
+				form_description: selectedForm?.description || undefined,
 				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
 			});
 			showCreateModal = false;
+			toastStore.addToast('Case record submitted with AI-generated draft', 'success');
 			// Refresh case records
 			caseRecords = await studentApi.getCaseRecords(student.id);
 		} catch (err) {
-			toastStore.addToast('Failed to submit case record', 'error');
+			toastStore.addToast((err as any)?.response?.data?.detail || 'Failed to submit case record', 'error');
 		} finally {
 			submitting = false;
 		}

@@ -212,6 +212,16 @@
 		crDiagnosisSuggestions = [];
 	}
 
+	function buildSubmittedCaseRecordData(baseValues: Record<string, any>, draft: { findings: string; diagnosis: string; treatment: string }): Record<string, any> {
+		return {
+			...baseValues,
+			findings: draft.findings,
+			diagnosis: draft.diagnosis,
+			treatment: draft.treatment,
+			treatment_plan: draft.treatment,
+		};
+	}
+
 	// ── Add Vital form ────────────────────────────────────────────
 	let vitalFormData: Record<string, any> = $state({});
 	let vSubmitting = $state(false);
@@ -686,18 +696,30 @@
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
+			const draft = await patientApi.generateCaseRecordDraft(patient.id, {
+				department: selectedCrForm.department || '',
+				procedure: selectedCrForm.procedure_name || '',
+				form_name: selectedCrForm.name,
+				form_description: selectedCrForm.description || undefined,
+				form_values: crFormData,
+			});
+			const submittedValues = buildSubmittedCaseRecordData(crFormData, draft);
+			crFormData = submittedValues;
 			const now = new Date();
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: selectedCrForm.department || '',
 				procedure: selectedCrForm.procedure_name || '',
-				findings: stringifyFormValue(crFormData['findings']) || '',
-				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
-				treatment: stringifyFormValue(crFormData['treatment']) || '',
-				notes: stringifyFormValue(crFormData['notes']) || '',
-				description: buildCaseRecordDescription(crFields, crFormData),
+				findings: stringifyFormValue(submittedValues['findings']) || '',
+				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
+				treatment: stringifyFormValue(submittedValues['treatment'] ?? submittedValues['treatment_plan']) || '',
+				notes: stringifyFormValue(submittedValues['notes']) || '',
+				description: buildCaseRecordDescription(crFields, submittedValues),
 				icd_code: crIcdCode || undefined,
 				icd_description: crIcdDescription || undefined,
+				form_values: submittedValues,
+				form_name: selectedCrForm.name,
+				form_description: selectedCrForm.description || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
 			};
 			if (role === 'STUDENT') {
@@ -710,7 +732,11 @@
 			}
 			showAddRecordModal = false;
 			resetCaseRecordForm();
-		} catch (err) { console.error('Failed to submit case record', err); }
+			toastStore.addToast('Case record submitted with AI-generated draft', 'success');
+		} catch (err: any) {
+			console.error('Failed to submit case record', err);
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to submit case record', 'error');
+		}
 		finally { crSubmitting = false; }
 	}
 

@@ -33,3 +33,4 @@ from app.models.department import Department
 from app.models.programme import Programme
 from app.models.student_permission import StudentPermission
 from app.models.form_definition import FormDefinition
+from app.models.ai_provider import AIProviderSettings, AIProviderType

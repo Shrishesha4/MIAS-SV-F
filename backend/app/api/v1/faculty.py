@@ -23,11 +23,17 @@ UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.pa
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
 
 CASE_RECORD_SCORE_TO_GRADE = {
-    5: "A",
-    4: "B",
-    3: "C",
-    2: "D",
-    1: "F",
+    0: "F",
+    1: "1",
+    2: "2",
+    3: "3",
+    4: "4",
+    5: "5",
+    6: "6",
+    7: "7",
+    8: "8",
+    9: "9",
+    10: "10",
 }
 
 
@@ -465,6 +471,9 @@ async def process_approval(
     new_status = body.get("status", "APPROVED")
     score = body.get("score")
     grade = body.get("grade")
+    if approval.approval_type == ApprovalType.CASE_RECORD and score is not None:
+        if not isinstance(score, int) or score < 0 or score > 10:
+            raise HTTPException(status_code=400, detail="Case record score must be between F and 10")
     approval.status = ApprovalStatus.APPROVED if new_status == "APPROVED" else ApprovalStatus.REJECTED
     approval.comments = body.get("comments")
     approval.processed_at = datetime.utcnow()

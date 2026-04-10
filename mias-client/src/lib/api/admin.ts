@@ -92,6 +92,34 @@ export interface Programme {
   created_at: string | null;
 }
 
+export type AIProviderType = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'OPENAI_COMPATIBLE';
+
+export interface AIProviderConfig {
+  provider: AIProviderType;
+  model: string;
+  base_url: string | null;
+  system_prompt: string | null;
+  temperature: number;
+  is_enabled: boolean;
+  has_api_key: boolean;
+  masked_api_key: string | null;
+  last_tested_at: string | null;
+  last_test_status: string | null;
+  last_error: string | null;
+  provider_defaults: Record<string, string>;
+}
+
+export interface AIProviderTestResult {
+  message: string;
+  provider: AIProviderType;
+  model: string;
+  preview: {
+    findings: string;
+    diagnosis: string;
+    treatment: string;
+  };
+}
+
 // ── API ──────────────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -221,6 +249,29 @@ export const adminApi = {
 
   async deleteProgramme(progId: string) {
     const r = await client.delete(`/admin/programmes/${progId}`);
+    return r.data;
+  },
+
+  async getAIProviderConfig(): Promise<AIProviderConfig> {
+    const r = await client.get('/admin/ai-provider');
+    return r.data;
+  },
+
+  async updateAIProviderConfig(data: {
+    provider: AIProviderType;
+    model: string;
+    api_key?: string;
+    base_url?: string;
+    system_prompt?: string;
+    temperature: number;
+    is_enabled: boolean;
+  }): Promise<AIProviderConfig & { message: string }> {
+    const r = await client.put('/admin/ai-provider', data);
+    return r.data;
+  },
+
+  async testAIProviderConnection(): Promise<AIProviderTestResult> {
+    const r = await client.post('/admin/ai-provider/test');
     return r.data;
   },
 };

@@ -24,6 +24,7 @@ from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
+from app.services.ai_provider import AIProviderError, generate_case_record_draft
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -214,6 +215,41 @@ async def create_patient_case_record(
         "status": record.status,
         "created_by_name": record.created_by_name,
     }
+
+
+@router.post("/{patient_id}/case-record-draft")
+async def generate_patient_case_record_draft(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    patient = (
+        await db.execute(
+            select(Patient)
+            .options(
+                selectinload(Patient.allergies),
+                selectinload(Patient.medical_alerts),
+            )
+            .where(Patient.id == patient_id)
+        )
+    ).scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    try:
+        draft = await generate_case_record_draft(
+            db=db,
+            patient=patient,
+            department=body.get("department"),
+            procedure=body.get("procedure"),
+            form_name=body.get("form_name"),
+            form_description=body.get("form_description"),
+            form_values=body.get("form_values") or {},
+        )
+        return draft
+    except AIProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/{patient_id}/vitals")

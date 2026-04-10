@@ -79,7 +79,7 @@ class Approval(Base):
     student_id = Column(String, ForeignKey("students.id"), nullable=True, index=True)
     
     status = Column(SQLEnum(ApprovalStatus), default=ApprovalStatus.PENDING, index=True)
-    score = Column(Integer, nullable=True)  # 1-5 score for approved records
+    score = Column(Integer, nullable=True)  # 0-10 score for approved records, where 0 maps to F
     comments = Column(Text, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     processed_at = Column(DateTime, nullable=True)

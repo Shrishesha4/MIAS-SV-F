@@ -245,6 +245,17 @@ export const patientApi = {
     return response.data;
   },
 
+  async generateCaseRecordDraft(patientId: string, data: {
+    department?: string;
+    procedure?: string;
+    form_name?: string;
+    form_description?: string;
+    form_values?: Record<string, unknown>;
+  }): Promise<{ findings: string; diagnosis: string; treatment: string }> {
+    const response = await client.post(`/patients/${patientId}/case-record-draft`, data);
+    return response.data;
+  },
+
   // Admissions
   async getAllAdmissions(params?: { status?: string; department?: string }) {
     const response = await client.get('/admissions/', { params });
