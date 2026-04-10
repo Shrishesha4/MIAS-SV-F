@@ -39,9 +39,9 @@
 <button
   {type}
   disabled={disabled || loading}
-  class="relative overflow-hidden transition-all active:translate-y-0.5 active:shadow-inner
+  class="motion-control relative overflow-hidden transition-all active:translate-y-0.5 active:shadow-inner
          before:absolute before:inset-0 before:bg-gradient-to-b before:from-white
-         before:via-transparent before:to-transparent before:opacity-50
+         before:via-transparent before:to-transparent before:opacity-50 before:transition-opacity
          font-medium rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed
          {sizeClasses[size]}
          {fullWidth ? 'w-full' : ''}"
@@ -62,3 +62,15 @@
     {@render children()}
   {/if}
 </button>
+
+<style>
+  @media (hover: hover) and (pointer: fine) {
+    button:hover:not(:disabled) {
+      box-shadow: 0 6px 14px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.45);
+    }
+
+    button:hover:not(:disabled)::before {
+      opacity: 0.7;
+    }
+  }
+</style>

@@ -91,7 +91,7 @@
     <div
       role="button"
       tabindex="0"
-      class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+      class="motion-control w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
       style="background: linear-gradient(to bottom, #5a8ed6, #3a6bb5);
              border: 1.5px solid rgba(255,255,255,0.3);
              box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
@@ -118,12 +118,12 @@
         oninput={handleSearchInput}
         onfocus={() => { if (searchResults.length) searchOpen = true; }}
         onblur={handleSearchBlur}
-        class="w-full pl-9 pr-8 py-1.5 text-sm rounded-lg outline-none text-white placeholder-white/50"
+        class="motion-control w-full pl-9 pr-8 py-1.5 text-sm rounded-lg outline-none text-white placeholder-white/50"
         style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2);
                backdrop-filter: blur(4px);"
       />
       {#if searchQuery}
-        <button class="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white cursor-pointer" onclick={clearSearch}>
+        <button class="motion-control absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white cursor-pointer" onclick={clearSearch}>
           <X class="w-3.5 h-3.5" />
         </button>
       {/if}
@@ -132,15 +132,15 @@
     <!-- Search dropdown -->
     {#if searchOpen && searchResults.length > 0}
       <div
-        class="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto z-50"
+        class="motion-surface absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto z-50"
         style="background: white; border: 1px solid rgba(0,0,0,0.12);
                box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
       >
-        {#each searchResults as patient}
+        {#each searchResults as patient (patient.id)}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            class="px-3 py-2 cursor-pointer hover:bg-blue-50 flex items-center gap-3 transition-colors"
+            class="motion-list-item px-3 py-2 cursor-pointer hover:bg-blue-50 flex items-center gap-3 transition-colors"
             style="border-bottom: 1px solid rgba(0,0,0,0.06);"
             onclick={() => selectPatient(patient)}
           >
@@ -169,7 +169,7 @@
   <div class="flex items-center gap-2 shrink-0">
     {#if showNotifications}
       <button
-        class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors"
+        class="motion-control relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors"
         style="background: linear-gradient(to bottom, #5a8ed6, #3a6bb5);
                border: 1.5px solid rgba(255,255,255,0.3);
                box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
@@ -191,7 +191,7 @@
 
     {#if showMenu}
       <button
-        class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors md:hidden"
+        class="motion-control w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors md:hidden"
         style="background: linear-gradient(to bottom, #5a8ed6, #3a6bb5);
                border: 1.5px solid rgba(255,255,255,0.3);
                box-shadow: 0 1px 3px rgba(0,0,0,0.3);"

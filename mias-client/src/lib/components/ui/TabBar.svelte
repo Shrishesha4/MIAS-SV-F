@@ -15,15 +15,15 @@
 </script>
 
 <div
-  class="flex rounded-xl overflow-hidden"
+  class="motion-surface flex rounded-xl overflow-hidden"
   style="background-color: white;
          border-radius: 10px;
          box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
          border: 1px solid rgba(0,0,0,0.1);"
 >
-  {#each tabs as tab}
+  {#each tabs as tab (tab.id)}
     <button
-      class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium cursor-pointer transition-all relative"
+      class="motion-control flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm font-medium cursor-pointer transition-all relative"
       class:active-tab={activeTab === tab.id}
       class:inactive-tab={activeTab !== tab.id}
       onclick={() => onchange(tab.id)}
@@ -33,9 +33,10 @@
         <Icon class="w-4 h-4" />
       {/if}
       <span>{tab.label}</span>
-      {#if activeTab === tab.id}
-        <div class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full" style="background: #3b82f6;"></div>
-      {/if}
+      <div
+        class="absolute bottom-0 left-2 right-2 h-0.5 rounded-full transition-all duration-300"
+        style="background: #3b82f6; transform-origin: center; opacity: {activeTab === tab.id ? 1 : 0}; transform: scaleX({activeTab === tab.id ? 1 : 0.35});"
+      ></div>
     </button>
   {/each}
 </div>

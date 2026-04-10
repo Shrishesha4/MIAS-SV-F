@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { cubicOut } from 'svelte/easing';
+	import { fade, fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
@@ -146,7 +148,7 @@
 	<!-- Desktop: Floating sidebar backdrop (when pinned/hovered) -->
 	{#if sidebarOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<div class="sidebar-backdrop" onclick={closeSidebar}></div>
+		<div class="sidebar-backdrop motion-overlay" onclick={closeSidebar}></div>
 	{/if}
 
 	<!-- Desktop: Thin trigger strip (always visible, left edge) removed - sidebar opens via NavBar icon hover -->
@@ -169,7 +171,7 @@
 				</div>
 			</div>
 			<button
-				class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer shrink-0"
+				class="motion-control w-7 h-7 rounded-md flex items-center justify-center cursor-pointer shrink-0"
 				style="background: rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.1);"
 				onclick={togglePin}
 				title={sidebarPinned ? 'Unpin sidebar' : 'Pin sidebar'}
@@ -190,7 +192,7 @@
 					type="text"
 					placeholder="Search pages..."
 					bind:value={sidebarSearchQuery}
-					class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none"
+					class="motion-control w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none"
 					style="background: rgba(255,255,255,0.7); border: 1px solid rgba(0,0,0,0.12);
 					       box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);"
 				/>
@@ -203,7 +205,7 @@
 				{@const Icon = item.icon}
 				{@const active = isActive(item.path)}
 				<button
-					class="sidebar-item"
+					class="sidebar-item motion-list-item"
 					class:sidebar-item-active={active}
 					onclick={() => navigate(item.path)}
 				>
@@ -221,7 +223,7 @@
 		<!-- Logout -->
 		<div class="p-3" style="border-top: 1px solid rgba(0,0,0,0.1);">
 			<button
-				class="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium cursor-pointer
+				class="motion-control w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-white text-sm font-medium cursor-pointer
 				       transition-all active:translate-y-0.5"
 				style="background: linear-gradient(to bottom, #ff5a5a, #cc0000);
 				       border: 1px solid rgba(0,0,0,0.2);
@@ -246,7 +248,15 @@
 
 		<main class="flex-1 pb-4">
 			<div class="content-container">
-				{@render children()}
+				{#key currentPath}
+					<div
+						class="page-transition-shell"
+						in:fly={{ y: 16, duration: 260, easing: cubicOut }}
+						out:fade={{ duration: 140 }}
+					>
+						{@render children()}
+					</div>
+				{/key}
 			</div>
 		</main>
 	</div>
@@ -317,12 +327,17 @@
 			border-right: 1px solid rgba(0,0,0,0.12);
 			box-shadow: 4px 0 16px rgba(0,0,0,0.12);
 			transform: translateX(-100%);
-			transition: transform 0.2s ease;
+			opacity: 0;
+			transition:
+				transform var(--motion-duration-slow) var(--motion-ease-emphasized),
+				opacity var(--motion-duration-fast) var(--motion-ease-standard),
+				box-shadow var(--motion-duration-base) var(--motion-ease-standard);
 			pointer-events: none;
 		}
 
 		.floating-sidebar-open {
 			transform: translateX(0);
+			opacity: 1;
 			pointer-events: auto;
 		}
 	}
@@ -356,7 +371,12 @@
 		text-align: left;
 		color: #1e3a5f;
 		cursor: pointer;
-		transition: background-color 0.15s;
+		transition:
+			transform var(--motion-duration-fast) var(--motion-ease-standard),
+			background-color var(--motion-duration-fast) var(--motion-ease-standard),
+			border-color var(--motion-duration-fast) var(--motion-ease-standard),
+			box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+			color var(--motion-duration-fast) var(--motion-ease-standard);
 		border: 1px solid transparent;
 		background: transparent;
 	}

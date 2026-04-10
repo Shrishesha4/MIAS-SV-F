@@ -56,7 +56,7 @@
 		{#if navItems.length > 0}
 			<aside class="hidden lg:block lg:self-start">
 				<div
-					class="sticky top-4 flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
+					class="motion-surface sticky top-4 flex h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
 					style="background: linear-gradient(to bottom, rgba(250,252,255,0.96), rgba(242,247,252,0.94)); box-shadow: 0 10px 24px rgba(95,113,136,0.16), inset 0 1px 0 rgba(255,255,255,0.94); border-color: rgba(132,150,175,0.2);"
 				>
 					<div class="border-b px-4 py-3.5" style="border-color: rgba(160,174,196,0.18); background: linear-gradient(to bottom, rgba(220,229,241,0.85), rgba(236,241,249,0.55));">
@@ -78,7 +78,7 @@
 								{@const NavIcon = item.icon}
 								{@const isActive = item.id === activeNav}
 								<button
-									class="flex w-full items-center gap-3 px-4 py-4 text-left cursor-pointer transition-all"
+									class="motion-list-item flex w-full items-center gap-3 px-4 py-4 text-left cursor-pointer transition-all"
 									style={isActive
 										? 'background: linear-gradient(to bottom, #1a78f5, #005fda); box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);'
 										: 'background: linear-gradient(to bottom, rgba(255,255,255,0.96), rgba(246,249,252,0.98));'}
@@ -116,7 +116,7 @@
 
 		<section class="min-w-0 space-y-4 lg:space-y-0">
 			<div
-				class="rounded-[20px] border p-4 lg:hidden"
+				class="motion-surface rounded-[20px] border p-4 lg:hidden"
 				style="background: linear-gradient(to bottom, rgba(255,255,255,0.97), rgba(248,250,253,0.96)); box-shadow: 0 4px 12px rgba(97,112,134,0.14), inset 0 1px 0 rgba(255,255,255,0.78); border-color: rgba(134,151,175,0.18);"
 			>
 				<div class="flex items-center gap-3">
@@ -135,16 +135,16 @@
 
 			{#if navItems.length > 0}
 				<div
-					class="overflow-x-auto rounded-[20px] border px-3 py-3 lg:hidden"
+					class="motion-surface overflow-x-auto rounded-[20px] border px-3 py-3 lg:hidden"
 					style="background: linear-gradient(to bottom, rgba(255,255,255,0.54), rgba(241,245,251,0.7)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.92); border-color: rgba(255,255,255,0.42);"
 				>
 					<div class="flex min-w-max items-start justify-between gap-3">
 						{#each navItems as item (item.id)}
 							{@const NavIcon = item.icon}
 							{@const isActive = item.id === activeNav}
-							<button class="flex min-w-[56px] flex-col items-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)}>
+							<button class="motion-control flex min-w-[56px] flex-col items-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)}>
 								<div
-									class="flex h-10 w-10 items-center justify-center rounded-full transition-all"
+									class="motion-control flex h-10 w-10 items-center justify-center rounded-full transition-all"
 									style={isActive
 										? 'background: linear-gradient(to bottom, #5fa0ff, #0d66d0); box-shadow: 0 3px 8px rgba(13,102,208,0.35), inset 0 1px 0 rgba(255,255,255,0.34); border: 1px solid rgba(0,0,0,0.16);'
 										: 'background: linear-gradient(to bottom, rgba(255,255,255,0.76), rgba(235,240,246,0.95)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.8); border: 1px solid rgba(134,151,175,0.16);'}
@@ -158,7 +158,7 @@
 				</div>
 			{/if}
 
-			<div class="hidden min-h-[calc(100vh-2rem)] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);">
+			<div class="motion-surface hidden min-h-[calc(100vh-2rem)] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);">
 				{#if children}
 					<div class="min-w-0 flex-1 px-6 py-5" style="background-image: linear-gradient(to bottom, rgba(238,243,248,0.72), rgba(219,228,238,0.78)), repeating-linear-gradient(180deg, rgba(255,255,255,0.1) 0, rgba(255,255,255,0.1) 1px, transparent 1px, transparent 4px);">
 						{@render children()}

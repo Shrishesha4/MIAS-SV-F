@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { cubicOut } from 'svelte/easing';
+  import { fade, fly } from 'svelte/transition';
   import { goto } from '$app/navigation';
   import { authStore, userRole } from '$lib/stores/auth';
   import { getMenuItems } from '$lib/config/menuItems';
@@ -41,23 +43,25 @@
   <div class="fixed inset-0 z-50" onkeydown={(e) => e.key === 'Escape' && onclose()}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
-      class="absolute inset-0"
+      class="motion-overlay absolute inset-0"
       style="background-color: rgba(0,0,0,0.5);"
       onclick={onclose}
+      transition:fade={{ duration: 180 }}
     ></div>
 
     <!-- Side panel -->
     <div
-      class="absolute top-0 right-0 bottom-0 w-72"
+      class="motion-drawer absolute top-0 right-0 bottom-0 w-72"
       style="background-image: repeating-linear-gradient(
                0deg,
                rgba(180, 190, 210, 0.2),
                rgba(180, 190, 210, 0.2) 1px,
                rgba(210, 220, 230, 0.4) 1px,
                rgba(210, 220, 230, 0.4) 2px
-             );
-             background-color: #e0e5eb;
-             animation: slideInRight 0.3s ease-out;"
+                  );
+                  background-color: #e0e5eb;"
+                in:fly={{ x: 24, duration: 280, easing: cubicOut }}
+                out:fly={{ x: 18, duration: 180 }}
     >
       <!-- Header -->
       <div
@@ -74,7 +78,7 @@
             <p class="text-blue-700 text-xs">{userId}</p>
           </div>
         </div>
-        <button class="text-blue-800 cursor-pointer" onclick={onclose}>
+        <button class="motion-control text-blue-800 cursor-pointer" onclick={onclose}>
           <X class="w-5 h-5" />
         </button>
       </div>
@@ -84,7 +88,7 @@
         {#each menuItems as item}
           {@const Icon = item.icon}
           <button
-            class="w-full flex items-center gap-3 px-4 py-3 text-left text-blue-800 hover:bg-white/50 transition-colors cursor-pointer"
+            class="motion-list-item w-full flex items-center gap-3 px-4 py-3 text-left text-blue-800 hover:bg-white/50 transition-colors cursor-pointer"
             style="text-shadow: 0 1px 0 rgba(255,255,255,0.5);"
             onclick={() => navigate(item.path)}
           >
@@ -97,7 +101,7 @@
       <!-- Logout -->
       <div class="absolute bottom-0 left-0 right-0 p-4" style="border-top: 1px solid rgba(0,0,0,0.1);">
         <button
-          class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white font-medium cursor-pointer
+           class="motion-control w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white font-medium cursor-pointer
                  relative overflow-hidden transition-all active:translate-y-0.5"
           style="background: linear-gradient(to bottom, #ff5a5a, #cc0000);
                  border: 1px solid rgba(0,0,0,0.2);
@@ -111,10 +115,3 @@
     </div>
   </div>
 {/if}
-
-<style>
-  @keyframes slideInRight {
-    from { transform: translateX(100%); }
-    to { transform: translateX(0); }
-  }
-</style>
