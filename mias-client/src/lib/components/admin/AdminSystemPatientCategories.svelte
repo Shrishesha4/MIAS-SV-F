@@ -159,7 +159,7 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-[24px] border border-slate-200 p-4"
+	<!-- <div class="rounded-[24px] border border-slate-200 p-4"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(247,250,255,0.96)); box-shadow: 0 12px 28px rgba(15,23,42,0.06);">
 		<div class="flex items-start gap-3">
 			<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
@@ -171,7 +171,7 @@
 				<p class="mt-1 text-sm text-slate-500">Define the patient category list used for registration defaults, reporting, and future billing tiers. Classic, Prime, Elite, and Community are seeded automatically, and you can extend the list here.</p>
 			</div>
 		</div>
-	</div>
+	</div> -->
 
 	<div class="rounded-[24px] border border-slate-200 p-3"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(246,249,255,0.92)); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
@@ -201,7 +201,7 @@
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<div>
 				<p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Configured Categories</p>
-				<p class="mt-1 text-sm text-slate-500">Use the default marker to control which category new patients receive when none is explicitly assigned.</p>
+				<p class="mt-1 text-sm text-slate-500">Use the default marker to control which category new patients receive when none is explicitly assigned. These names also drive the charge master pricing columns anywhere patient categories are listed.</p>
 			</div>
 			<button
 				type="button"
@@ -224,7 +224,7 @@
 					<thead style="background: linear-gradient(to bottom, rgba(241,245,249,0.98), rgba(248,250,252,0.98));">
 						<tr class="text-slate-500">
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Category</th>
-							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Description</th>
+							<!-- <th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Description</th> -->
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Patients</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Status</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Actions</th>
@@ -244,7 +244,7 @@
 										{/if}
 									</div>
 								</td>
-								<td class="px-4 py-4 text-slate-500">{category.description || 'No description set.'}</td>
+								<!-- <td class="px-4 py-4 text-slate-500">{category.description || 'No description set.'}</td> -->
 								<td class="px-4 py-4">
 									<span class="text-base font-semibold text-slate-900">{category.patient_count}</span>
 								</td>
@@ -263,7 +263,7 @@
 										</button>
 										{#if !category.is_default}
 											<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-blue-700 cursor-pointer" style="background: rgba(59,130,246,0.12);" onclick={() => setDefault(category)}>
-												<ShieldCheck class="mr-1 inline h-3.5 w-3.5" /> Make Default
+												<ShieldCheck class="mr-1 inline h-3.5 w-3.5" /> Default
 											</button>
 										{/if}
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60" style="background: rgba(248,113,113,0.12);" onclick={() => removeCategory(category)} disabled={deletingId === category.id}>

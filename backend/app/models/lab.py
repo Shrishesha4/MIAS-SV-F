@@ -12,13 +12,6 @@ class ChargeCategory(str, enum.Enum):
     ADMIN = "ADMIN"
 
 
-class ChargeTier(str, enum.Enum):
-    CLASSIC = "CLASSIC"
-    PRIME = "PRIME"
-    ELITE = "ELITE"
-    COMMUNITY = "COMMUNITY"
-
-
 # Junction table for many-to-many relationship between test groups and tests
 lab_test_group_members = Table(
     "lab_test_group_members",
@@ -124,12 +117,12 @@ class ChargeItem(Base):
 
 
 class ChargePrice(Base):
-    """Pricing for each tier of a charge item"""
+    """Pricing for each patient category of a charge item"""
     __tablename__ = "charge_prices"
 
     id = Column(String, primary_key=True)
     item_id = Column(String, ForeignKey("charge_items.id"), nullable=False, index=True)
-    tier = Column(SQLEnum(ChargeTier), nullable=False)
+    tier = Column(String, nullable=False, index=True)
     price = Column(Numeric(10, 2), nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(

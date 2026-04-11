@@ -2,15 +2,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
 
 from app.api.deps import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory, ChargeTier
+from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory
 from app.core.exceptions import NotFoundException
-from app.services.charge_sync import sync_charge_sources
+from app.services.charge_sync import get_charge_price_categories, sync_charge_price_categories, sync_charge_sources
+from app.services.patient_categories import normalize_patient_category_name
 
 router = APIRouter(prefix="/labs", tags=["Labs"])
 
@@ -550,7 +551,7 @@ class CreateChargeItemRequest(BaseModel):
     description: Optional[str] = None
     source_type: Optional[str] = None
     source_id: Optional[str] = None
-    prices: dict = {}  # {"CLASSIC": 500, "PRIME": 800, ...}
+    prices: dict[str, float] = Field(default_factory=dict)
     is_active: bool = True
 
 
@@ -561,8 +562,56 @@ class UpdateChargeItemRequest(BaseModel):
     description: Optional[str] = None
     source_type: Optional[str] = None
     source_id: Optional[str] = None
-    prices: Optional[dict] = None
+    prices: Optional[dict[str, float]] = None
     is_active: Optional[bool] = None
+
+
+def _price_category_key(name: str | None) -> str:
+    return normalize_patient_category_name(name or '').casefold()
+
+
+def _normalize_price_payload(prices: Optional[dict[str, float]]) -> dict[str, float]:
+    normalized_prices: dict[str, float] = {}
+    for raw_name, price in (prices or {}).items():
+        normalized_name = normalize_patient_category_name(raw_name or '')
+        if not normalized_name:
+            continue
+        normalized_prices[normalized_name] = price
+    return normalized_prices
+
+
+def _resolve_price_categories(configured_categories: list[str], payload_prices: dict[str, float]) -> list[str]:
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for raw_name in [*configured_categories, *payload_prices.keys()]:
+        normalized_name = normalize_patient_category_name(raw_name or '')
+        category_key = normalized_name.casefold()
+        if not normalized_name or category_key in seen:
+            continue
+        resolved.append(normalized_name)
+        seen.add(category_key)
+    return resolved
+
+
+def _serialize_charge_item(item: ChargeItem) -> dict:
+    prices: dict[str, float] = {}
+    for price in item.prices:
+        normalized_name = normalize_patient_category_name(price.tier or '') or price.tier
+        if not normalized_name:
+            continue
+        prices[normalized_name] = float(price.price)
+
+    return {
+        "id": item.id,
+        "item_code": item.item_code,
+        "name": item.name,
+        "category": item.category.value,
+        "description": item.description,
+        "source_type": item.source_type,
+        "source_id": item.source_id,
+        "is_active": item.is_active,
+        "prices": prices,
+    }
 
 
 charge_router = APIRouter(prefix="/charges", tags=["Charge Master"])
@@ -576,6 +625,7 @@ async def list_charge_items(
 ):
     """List all charge items, optionally filtered by category"""
     await sync_charge_sources(db)
+    await sync_charge_price_categories(db)
 
     query = select(ChargeItem).options(selectinload(ChargeItem.prices))
     if category:
@@ -584,20 +634,7 @@ async def list_charge_items(
     
     result = await db.execute(query)
     items = result.scalars().all()
-    return [
-        {
-            "id": item.id,
-            "item_code": item.item_code,
-            "name": item.name,
-            "category": item.category.value,
-            "description": item.description,
-            "source_type": item.source_type,
-            "source_id": item.source_id,
-            "is_active": item.is_active,
-            "prices": {p.tier.value: float(p.price) for p in item.prices},
-        }
-        for item in items
-    ]
+    return [_serialize_charge_item(item) for item in items]
 
 
 @charge_router.post("")
@@ -618,17 +655,20 @@ async def create_charge_item(
         is_active=data.is_active,
     )
     db.add(item)
-    
-    # Add prices for each tier
-    for tier_name, price in data.prices.items():
+
+    normalized_prices = _normalize_price_payload(data.prices)
+    configured_categories = await get_charge_price_categories(db)
+    price_categories = _resolve_price_categories(configured_categories, normalized_prices)
+
+    for category_name in price_categories:
         price_obj = ChargePrice(
             id=str(uuid.uuid4()),
             item_id=item.id,
-            tier=ChargeTier(tier_name),
-            price=price,
+            tier=category_name,
+            price=normalized_prices.get(category_name, 0),
         )
         db.add(price_obj)
-    
+
     item_id = item.id  # Store ID before commit
     await db.commit()
     
@@ -639,18 +679,8 @@ async def create_charge_item(
         .where(ChargeItem.id == item_id)
     )
     item = result.scalar_one()
-    
-    return {
-        "id": item.id,
-        "item_code": item.item_code,
-        "name": item.name,
-        "category": item.category.value,
-        "description": item.description,
-        "source_type": item.source_type,
-        "source_id": item.source_id,
-        "is_active": item.is_active,
-        "prices": {p.tier.value: float(p.price) for p in item.prices},
-    }
+
+    return _serialize_charge_item(item)
 
 
 @charge_router.put("/{item_id}")
@@ -684,21 +714,30 @@ async def update_charge_item(
         item.source_id = data.source_id
     if data.is_active is not None:
         item.is_active = data.is_active
-    
-    if data.prices is not None:
-        # Update or create prices
-        existing_prices = {p.tier.value: p for p in item.prices}
-        for tier_name, price in data.prices.items():
-            if tier_name in existing_prices:
-                existing_prices[tier_name].price = price
-            else:
-                price_obj = ChargePrice(
-                    id=str(uuid.uuid4()),
-                    item_id=item.id,
-                    tier=ChargeTier(tier_name),
-                    price=price,
-                )
-                db.add(price_obj)
+
+    configured_categories = await get_charge_price_categories(db)
+    normalized_prices = _normalize_price_payload(data.prices)
+    price_categories = _resolve_price_categories(configured_categories, normalized_prices)
+    existing_prices = {_price_category_key(price.tier): price for price in item.prices}
+
+    for category_name in price_categories:
+        existing_price = existing_prices.get(category_name.casefold())
+        if existing_price:
+            if existing_price.tier != category_name:
+                existing_price.tier = category_name
+            if category_name in normalized_prices:
+                existing_price.price = normalized_prices[category_name]
+            continue
+
+        price_obj = ChargePrice(
+            id=str(uuid.uuid4()),
+            item_id=item.id,
+            tier=category_name,
+            price=normalized_prices.get(category_name, 0),
+        )
+        db.add(price_obj)
+
+    await sync_charge_price_categories(db, [item])
 
     item_id = item.id  # Store ID before commit
     await db.commit()
@@ -710,18 +749,8 @@ async def update_charge_item(
         .where(ChargeItem.id == item_id)
     )
     item = result.scalar_one()
-    
-    return {
-        "id": item.id,
-        "item_code": item.item_code,
-        "name": item.name,
-        "category": item.category.value,
-        "description": item.description,
-        "source_type": item.source_type,
-        "source_id": item.source_id,
-        "is_active": item.is_active,
-        "prices": {p.tier.value: float(p.price) for p in item.prices},
-    }
+
+    return _serialize_charge_item(item)
 
 
 @charge_router.delete("/{item_id}")

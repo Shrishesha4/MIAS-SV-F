@@ -297,13 +297,13 @@
 	</div>
 
 	<div
-		class="flex flex-wrap gap-1.5 rounded-[16px] p-1"
+		class="inline-flex max-w-full flex-wrap gap-1 rounded-[14px] p-1"
 		style="background: linear-gradient(to bottom, #eef2f8, #e2e8f0); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
 	>
 		{#each sectionTabs as section}
 			<button
 				onclick={() => activeSection = section}
-				class="rounded-[12px] px-3.5 py-2 text-[11px] font-bold tracking-[0.12em] cursor-pointer md:px-4"
+				class="rounded-[11px] px-3 py-1.5 text-[10px] font-bold tracking-[0.1em] cursor-pointer md:px-3.5"
 				style={activeSection === section
 					? 'background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #2563eb; box-shadow: 0 6px 14px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.8);'
 					: 'background: transparent; color: #5b6473;'}

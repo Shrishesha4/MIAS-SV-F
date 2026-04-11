@@ -3,11 +3,12 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { Plus, Trash2, Pencil, Check, X } from 'lucide-svelte';
+	import { Trash2, Pencil, Check, X } from 'lucide-svelte';
 
 	type ChargeMetaDraft = {
 		name: string;
@@ -26,6 +27,7 @@
 	let loading = $state(true);
 	let error = $state('');
 	let charges: ChargeItem[] = $state([]);
+	let priceCategories = $state<PatientCategoryConfig[]>([]);
 	let activeCategory: ChargeCategory = $state('CLINICAL');
 
 	const categoryTabs = [
@@ -34,13 +36,26 @@
 		{ id: 'ADMIN', label: 'ADMIN' }
 	];
 
-	const tiers: ChargeTier[] = ['CLASSIC', 'PRIME', 'ELITE', 'COMMUNITY'];
-	const tierLabels: Record<ChargeTier, string> = {
-		CLASSIC: 'Classic',
-		PRIME: 'Prime',
-		ELITE: 'Elite',
-		COMMUNITY: 'Community'
-	};
+	const pricingColumns = $derived.by(() => {
+		const columnNames = priceCategories.map((category) => category.name);
+		const seen = new Set(columnNames.map((name) => name.toLocaleLowerCase()));
+
+		for (const charge of charges) {
+			for (const priceName of Object.keys(charge.prices || {})) {
+				const normalizedName = priceName.trim();
+				const priceKey = normalizedName.toLocaleLowerCase();
+				if (!normalizedName || seen.has(priceKey)) {
+					continue;
+				}
+				columnNames.push(normalizedName);
+				seen.add(priceKey);
+			}
+		}
+
+		return columnNames;
+	});
+
+	const tableGridStyle = $derived.by(() => `grid-template-columns: minmax(240px, 2fr) repeat(${Math.max(pricingColumns.length, 1)}, minmax(112px, 1fr));`);
 
 	// Add/Edit modal
 	let chargeModal = $state(false);
@@ -51,7 +66,7 @@
 		category: 'CLINICAL',
 		description: '',
 		is_active: true,
-		prices: { CLASSIC: 0, PRIME: 0, ELITE: 0, COMMUNITY: 0 }
+		prices: {}
 	});
 	let savingCharge = $state(false);
 	let editingMetaId = $state<string | null>(null);
@@ -73,16 +88,49 @@
 
 	const filteredCharges = $derived.by(() => charges.filter((charge) => charge.category === activeCategory));
 
+	function sortPatientCategories(categories: PatientCategoryConfig[]) {
+		return [...categories].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+	}
+
+	function buildEmptyPrices(categoryNames: string[]): Record<string, number> {
+		return Object.fromEntries(categoryNames.map((categoryName) => [categoryName, 0]));
+	}
+
+	function mergeChargePrices(charge: ChargeItem, categoryNames: string[]): ChargeItem {
+		const mergedPrices = buildEmptyPrices(categoryNames);
+		for (const [categoryName, price] of Object.entries(charge.prices || {})) {
+			mergedPrices[categoryName] = price;
+		}
+
+		return {
+			...charge,
+			prices: mergedPrices,
+		};
+	}
+
+	function priceInputId(categoryName: string): string {
+		return `charge-price-${categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+	}
+
 	onMount(() => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
-		loadCharges();
+		void loadCharges();
 	});
 
 	async function loadCharges() {
 		loading = true;
 		error = '';
 		try {
-			charges = await chargesApi.getAll();
+			const [chargeItems, categoryItems] = await Promise.all([
+				chargesApi.getAll(),
+				adminApi.getPatientCategories(),
+			]);
+			priceCategories = sortPatientCategories(categoryItems);
+			const columnNames = [
+				...priceCategories.map((category) => category.name),
+				...chargeItems.flatMap((charge) => Object.keys(charge.prices || {})),
+			].filter((value, index, values) => value && values.findIndex((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase()) === index);
+			charges = chargeItems.map((charge) => mergeChargePrices(charge, columnNames));
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load charges';
 		} finally {
@@ -91,21 +139,22 @@
 	}
 
 	function updateChargeInState(updatedCharge: ChargeItem) {
+		const hydratedCharge = mergeChargePrices(updatedCharge, pricingColumns);
 		const existingCharge = charges.find((charge) => charge.id === updatedCharge.id);
 
 		if (!existingCharge) {
-			charges = [...charges, updatedCharge];
+			charges = [...charges, hydratedCharge];
 			return;
 		}
 
 		charges = charges.map((charge) =>
-			charge.id === updatedCharge.id
+			charge.id === hydratedCharge.id
 				? {
 					...charge,
-					...updatedCharge,
+					...hydratedCharge,
 					prices: {
 						...charge.prices,
-						...updatedCharge.prices
+						...hydratedCharge.prices
 					}
 				}
 				: charge
@@ -221,7 +270,7 @@
 			category: activeCategory,
 			description: '',
 			is_active: true,
-			prices: { CLASSIC: 0, PRIME: 0, ELITE: 0, COMMUNITY: 0 }
+			prices: buildEmptyPrices(pricingColumns)
 		};
 		chargeModal = true;
 	}
@@ -280,7 +329,7 @@
 		<div class="text-red-500 text-center py-4 text-sm">{error}</div>
 	{:else}
 		<div class="flex items-center justify-between mb-4">
-			<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Charge Master (Rates)</p>
+			<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Charge Master</p>
 			<button
 				onclick={openCreateModal}
 				class="px-4 py-2 text-sm font-semibold text-white rounded-full"
@@ -291,8 +340,15 @@
 		</div>
 
 		<!-- Category Tabs -->
-		<div class="mb-4">
-			<TabBar tabs={categoryTabs} activeTab={activeCategory} onchange={(id) => activeCategory = id as ChargeCategory} />
+		<div class="mb-4 max-w-[560px]">
+			<TabBar
+				tabs={categoryTabs}
+				activeTab={activeCategory}
+				variant="jiggle"
+				stretch={false}
+				ariaLabel="Charge master categories"
+				onchange={(id) => activeCategory = id as ChargeCategory}
+			/>
 		</div>
 
 		<!-- Pricing Table -->
@@ -301,10 +357,10 @@
 			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
 		>
 			<!-- Table Header -->
-			<div class="grid grid-cols-6 gap-2 px-4 py-3" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);">
-				<div class="col-span-2 text-xs font-bold text-slate-700 uppercase tracking-wide">Item</div>
-				{#each tiers as tier}
-					<div class="text-xs font-bold text-slate-700 uppercase tracking-wide text-center">{tierLabels[tier]}</div>
+			<div class="grid gap-2 px-4 py-3" style={`background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); ${tableGridStyle}`}>
+				<div class="text-xs font-bold text-slate-700 uppercase tracking-wide">Item</div>
+				{#each pricingColumns as tier}
+					<div class="text-xs font-bold text-slate-700 uppercase tracking-wide text-center">{tier}</div>
 				{/each}
 			</div>
 
@@ -317,11 +373,11 @@
 				{#each filteredCharges as charge, i (charge.id)}
 					{@const isEditingMeta = editingMetaId === charge.id}
 					<div
-						class="grid grid-cols-6 gap-2 px-4 py-3 items-center group"
+						class="grid gap-2 px-4 py-3 items-center group"
 						class:border-t={i > 0}
-						style={i > 0 ? 'border-color: rgba(0,0,0,0.06);' : ''}
+						style={`${tableGridStyle}${i > 0 ? ' border-color: rgba(0,0,0,0.06);' : ''}`}
 					>
-						<div class="col-span-2">
+						<div>
 							{#if isEditingMeta}
 								<div class="space-y-2 rounded-xl border border-blue-200/70 bg-blue-50/55 p-3">
 									<input
@@ -381,14 +437,7 @@
 										<p class="font-semibold text-slate-900 text-sm">{charge.name}</p>
 										<div class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
 											<span>{charge.item_code}</span>
-											<span class="rounded-full px-2 py-0.5 font-semibold"
-												style="background: rgba(59,130,246,0.1); color: #1d4ed8;">
-												{charge.category}
-											</span>
 										</div>
-										{#if charge.description}
-											<p class="mt-1 line-clamp-2 text-xs text-slate-400">{charge.description}</p>
-										{/if}
 									</div>
 									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
 										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
@@ -401,7 +450,7 @@
 								</div>
 							{/if}
 						</div>
-						{#each tiers as tier}
+						{#each pricingColumns as tier}
 							{@const isEditingThisPrice = editingPrice?.chargeId === charge.id && editingPrice?.tier === tier}
 							<div class="flex justify-center">
 								{#if isEditingThisPrice}
@@ -450,7 +499,7 @@
 										class="min-w-[92px] rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 cursor-pointer transition-colors hover:bg-slate-100"
 										style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
 									>
-										{formatPrice(charge.prices[tier])}
+										{formatPrice(charge.prices[tier] ?? 0)}
 									</button>
 								{/if}
 							</div>
@@ -487,12 +536,12 @@
 
 			<div>
 				<p class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-2">Pricing (₹)</p>
-				<div class="grid grid-cols-2 gap-2">
-					{#each tiers as tier}
+				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+					{#each pricingColumns as tier}
 						<div>
-							<label for="price-{tier}" class="block text-xs text-slate-500 mb-1">{tierLabels[tier]}</label>
+							<label for={priceInputId(tier)} class="block text-xs text-slate-500 mb-1">{tier}</label>
 							<input
-								id="price-{tier}"
+								id={priceInputId(tier)}
 								type="number"
 								min="0"
 								step="1"

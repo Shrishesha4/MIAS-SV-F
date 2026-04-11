@@ -95,7 +95,7 @@ export interface UpdateLabTestGroupRequest {
 
 // Charge Master
 export type ChargeCategory = 'CLINICAL' | 'LABS' | 'ADMIN';
-export type ChargeTier = 'CLASSIC' | 'PRIME' | 'ELITE' | 'COMMUNITY';
+export type ChargeTier = string;
 
 export interface ChargeItem {
 	id: string;
@@ -106,7 +106,7 @@ export interface ChargeItem {
 	source_type?: string;
 	source_id?: string;
 	is_active: boolean;
-	prices: Record<ChargeTier, number>;
+	prices: Record<string, number>;
 }
 
 export interface CreateChargeItemRequest {

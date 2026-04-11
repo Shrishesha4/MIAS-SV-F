@@ -193,19 +193,6 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-[24px] border border-slate-200 p-4"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(247,250,255,0.96)); box-shadow: 0 12px 28px rgba(15,23,42,0.06);">
-		<div class="flex items-start gap-3">
-			<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
-				style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(59,130,246,0.16);">
-				<Sparkles class="h-5 w-5 text-blue-600" />
-			</div>
-			<div>
-				<h2 class="text-sm font-bold uppercase tracking-[0.16em] text-slate-600">AI Provider Table</h2>
-				<p class="mt-1 text-sm text-slate-500">Manage multiple saved AI endpoints here. Add creates a new editable row immediately, and only one row can be active for case-record drafting at a time.</p>
-			</div>
-		</div>
-	</div>
 
 	<div class="rounded-[24px] border border-slate-200 p-3"
 		style="background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(246,249,255,0.92)); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">

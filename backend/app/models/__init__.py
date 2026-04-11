@@ -11,7 +11,7 @@ from app.models.student import (
 )
 from app.models.lab import (
     Lab, LabTest, LabTestGroup, lab_test_group_members,
-    ChargeItem, ChargePrice, ChargeCategory, ChargeTier
+    ChargeItem, ChargePrice, ChargeCategory
 )
 from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
 from app.models.nurse import Nurse, NurseNotification

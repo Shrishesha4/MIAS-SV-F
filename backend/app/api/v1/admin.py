@@ -25,6 +25,8 @@ from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
 from app.models.nurse import Nurse
 from app.core.security import get_password_hash
+from app.models.lab import ChargePrice
+from app.services.charge_sync import sync_charge_price_categories
 from app.services.patient_categories import (
     ensure_patient_categories,
     get_default_patient_category_name,
@@ -861,6 +863,8 @@ async def create_patient_category(
         sort_order=data.sort_order if data.sort_order is not None else len(categories),
     )
     db.add(item)
+    await db.flush()
+    await sync_charge_price_categories(db)
     await db.commit()
     usage_counts = await patient_category_usage_counts(db)
     return _serialize_patient_category(item, usage_counts)
@@ -880,6 +884,7 @@ async def update_patient_category(
         raise HTTPException(status_code=404, detail="Patient category not found")
 
     if data.name is not None:
+        previous_name = item.name
         normalized_name = normalize_patient_category_name(data.name)
         if not normalized_name:
             raise HTTPException(status_code=400, detail="Category name is required")
@@ -897,6 +902,10 @@ async def update_patient_category(
         await db.execute(
             text("UPDATE patients SET category = :new_name WHERE category = :old_name"),
             {"new_name": normalized_name, "old_name": item.name},
+        )
+        await db.execute(
+            text("UPDATE charge_prices SET tier = :new_name WHERE lower(tier) = :old_name"),
+            {"new_name": normalized_name, "old_name": previous_name.casefold()},
         )
         item.name = normalized_name
 
@@ -923,6 +932,7 @@ async def update_patient_category(
         replacement.is_default = True
         item.is_default = False
 
+    await sync_charge_price_categories(db)
     await db.commit()
     usage_counts = await patient_category_usage_counts(db)
     return _serialize_patient_category(item, usage_counts)
@@ -958,7 +968,12 @@ async def delete_patient_category(
         if replacement:
             replacement.is_default = True
 
+    await db.execute(
+        text("DELETE FROM charge_prices WHERE lower(tier) = :category_name"),
+        {"category_name": item.name.casefold()},
+    )
     await db.delete(item)
+    await sync_charge_price_categories(db)
     await db.commit()
     return {"message": f"Patient category '{item.name}' deleted"}
 

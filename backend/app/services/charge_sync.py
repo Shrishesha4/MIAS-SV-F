@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.form_definition import FormDefinition
-from app.models.lab import ChargeCategory, ChargeItem, ChargePrice, ChargeTier, LabTest, LabTestGroup
+from app.models.lab import ChargeCategory, ChargeItem, ChargePrice, LabTest, LabTestGroup
+from app.services.patient_categories import ensure_patient_categories, normalize_patient_category_name
 
 
 FORM_SOURCE_TYPE = 'form_definition'
@@ -57,29 +58,80 @@ def _group_item_code(group: LabTestGroup) -> str:
     return _normalize_code('PANEL', group.name, f'GROUP_{group.id[:8]}')
 
 
-def _base_prices(item: ChargeItem) -> dict[ChargeTier, ChargePrice]:
-    return {price.tier: price for price in item.prices}
+def _price_category_key(name: str | None) -> str:
+    return normalize_patient_category_name(name or '').casefold()
 
 
-def _ensure_price_tiers(item: ChargeItem, db: AsyncSession) -> None:
+def _base_prices(item: ChargeItem) -> dict[str, ChargePrice]:
+    prices: dict[str, ChargePrice] = {}
+    for price in item.prices:
+        normalized_name = normalize_patient_category_name(price.tier or '')
+        price_key = normalized_name.casefold()
+        if not normalized_name or price_key in prices:
+            continue
+        if price.tier != normalized_name:
+            price.tier = normalized_name
+        prices[price_key] = price
+
+    return prices
+
+
+async def get_charge_price_categories(db: AsyncSession) -> list[str]:
+    categories = await ensure_patient_categories(db)
+    category_names: list[str] = []
+    seen: set[str] = set()
+
+    for category in categories:
+        normalized_name = normalize_patient_category_name(category.name)
+        category_key = normalized_name.casefold()
+        if not normalized_name or category_key in seen:
+            continue
+        category_names.append(normalized_name)
+        seen.add(category_key)
+
+    return category_names
+
+
+def _ensure_price_tiers(item: ChargeItem, db: AsyncSession, category_names: list[str]) -> None:
     existing = _base_prices(item)
-    for tier in ChargeTier:
-        if tier in existing:
+    for category_name in category_names:
+        category_key = category_name.casefold()
+        existing_price = existing.get(category_key)
+        if existing_price:
+            if existing_price.tier != category_name:
+                existing_price.tier = category_name
             continue
         price = ChargePrice(
             id=str(uuid.uuid4()),
             item_id=item.id,
-            tier=tier,
+            tier=category_name,
             price=0,
         )
         item.prices.append(price)
         db.add(price)
 
 
+async def sync_charge_price_categories(
+    db: AsyncSession,
+    items: list[ChargeItem] | None = None,
+) -> list[str]:
+    category_names = await get_charge_price_categories(db)
+    if items is None:
+        result = await db.execute(select(ChargeItem).options(selectinload(ChargeItem.prices)))
+        items = list(result.scalars().all())
+
+    for item in items:
+        _ensure_price_tiers(item, db, category_names)
+
+    await db.flush()
+    return category_names
+
+
 def _upsert_charge_item(
     db: AsyncSession,
     existing_items: dict[tuple[str, str], ChargeItem],
     *,
+    category_names: list[str],
     source_type: str,
     source_id: str,
     item_code: str,
@@ -107,10 +159,11 @@ def _upsert_charge_item(
     elif not is_active and item.is_active:
         item.is_active = is_active
 
-    _ensure_price_tiers(item, db)
+    _ensure_price_tiers(item, db, category_names)
 
 
 async def sync_charge_sources(db: AsyncSession) -> None:
+    category_names = await get_charge_price_categories(db)
     existing_result = await db.execute(
         select(ChargeItem)
         .options(selectinload(ChargeItem.prices))
@@ -129,6 +182,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
         _upsert_charge_item(
             db,
             existing_items,
+            category_names=category_names,
             source_type=FORM_SOURCE_TYPE,
             source_id=form.id,
             item_code=_form_item_code(form),
@@ -144,6 +198,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
         _upsert_charge_item(
             db,
             existing_items,
+            category_names=category_names,
             source_type=LAB_TEST_SOURCE_TYPE,
             source_id=test.id,
             item_code=test.code,
@@ -159,6 +214,7 @@ async def sync_charge_sources(db: AsyncSession) -> None:
         _upsert_charge_item(
             db,
             existing_items,
+            category_names=category_names,
             source_type=LAB_GROUP_SOURCE_TYPE,
             source_id=group.id,
             item_code=_group_item_code(group),
