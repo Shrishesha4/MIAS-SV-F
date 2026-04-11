@@ -20,6 +20,17 @@ from app.models.faculty import Faculty
 
 router = APIRouter(prefix="/clinics", tags=["Clinics"])
 
+CLINIC_ACCESS_MODES = {"WALK_IN", "APPOINTMENT_ONLY"}
+
+
+def normalize_clinic_access_mode(value: Optional[str], default: str = "WALK_IN") -> str:
+    normalized_value = (value or "").strip().upper()
+    if not normalized_value:
+        return default
+    if normalized_value not in CLINIC_ACCESS_MODES:
+        raise HTTPException(status_code=400, detail="Invalid clinic access mode")
+    return normalized_value
+
 
 @router.get("")
 async def list_clinics(
@@ -37,6 +48,7 @@ async def list_clinics(
             "name": c.name,
             "block": c.block,
             "clinic_type": c.clinic_type,
+            "access_mode": c.access_mode,
             "department": c.department,
             "location": c.location,
             "faculty_id": c.faculty_id,
@@ -51,6 +63,7 @@ class CreateClinicRequest(BaseModel):
     name: str
     block: Optional[str] = None
     clinic_type: str = "OP"
+    access_mode: str = "WALK_IN"
     department: Optional[str] = None
     location: Optional[str] = None
     faculty_id: Optional[str] = None
@@ -69,6 +82,7 @@ async def create_clinic(
         name=request.name.strip(),
         block=request.block.strip() if request.block else None,
         clinic_type=request.clinic_type.strip(),
+        access_mode=normalize_clinic_access_mode(request.access_mode),
         department=request.department.strip() if request.department else "",
         location=request.location.strip() if request.location else None,
         faculty_id=request.faculty_id,
@@ -81,6 +95,7 @@ async def create_clinic(
         "name": clinic.name,
         "block": clinic.block,
         "clinic_type": clinic.clinic_type,
+        "access_mode": clinic.access_mode,
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
@@ -108,6 +123,7 @@ async def get_clinic(
         "name": clinic.name,
         "block": clinic.block,
         "clinic_type": clinic.clinic_type,
+        "access_mode": clinic.access_mode,
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
@@ -120,6 +136,7 @@ class UpdateClinicRequest(BaseModel):
     name: Optional[str] = None
     block: Optional[str] = None
     clinic_type: Optional[str] = None
+    access_mode: Optional[str] = None
     department: Optional[str] = None
     location: Optional[str] = None
     faculty_id: Optional[str] = None
@@ -145,6 +162,8 @@ async def update_clinic(
         clinic.block = request.block.strip() if request.block else None
     if request.clinic_type is not None:
         clinic.clinic_type = request.clinic_type.strip()
+    if request.access_mode is not None:
+        clinic.access_mode = normalize_clinic_access_mode(request.access_mode, default=clinic.access_mode or "WALK_IN")
     if request.department is not None:
         clinic.department = request.department.strip() if request.department else ""
     if request.location is not None:
@@ -162,6 +181,7 @@ async def update_clinic(
         "name": clinic.name,
         "block": clinic.block,
         "clinic_type": clinic.clinic_type,
+        "access_mode": clinic.access_mode,
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
@@ -313,6 +333,8 @@ async def check_in_patient(
     clinic = clinic_result.scalar_one_or_none()
     if not clinic:
         raise HTTPException(status_code=404, detail="Clinic not found")
+    if clinic.access_mode == "APPOINTMENT_ONLY":
+        raise HTTPException(status_code=400, detail="This clinic accepts appointments only")
 
     now = datetime.now()
     appointment = ClinicAppointment(
@@ -410,6 +432,8 @@ async def get_faculty_clinics(
         {
             "id": c.id,
             "name": c.name,
+            "clinic_type": c.clinic_type,
+            "access_mode": c.access_mode,
             "department": c.department,
             "location": c.location,
             "faculty_name": c.faculty.name if c.faculty else None,

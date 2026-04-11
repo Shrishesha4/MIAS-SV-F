@@ -251,6 +251,8 @@ async def get_all_clinics(
         {
             "id": c.id,
             "name": c.name,
+            "clinic_type": c.clinic_type,
+            "access_mode": c.access_mode,
             "department": c.department,
             "location": c.location,
             "faculty_name": c.faculty.name if c.faculty else None,

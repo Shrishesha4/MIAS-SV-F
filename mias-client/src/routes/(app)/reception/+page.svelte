@@ -15,6 +15,14 @@
 		Crown, ChevronDown, Square, CheckSquare, UserPlus
 	} from 'lucide-svelte';
 
+	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
+		return accessMode === 'APPOINTMENT_ONLY' ? 'Appointment Only' : 'Walk-In';
+	}
+
+	function clinicAllowsWalkIn(clinic: ClinicInfo | null) {
+		return clinic?.access_mode !== 'APPOINTMENT_ONLY';
+	}
+
 	const auth = get(authStore);
 	let loading = $state(true);
 
@@ -50,6 +58,7 @@
 	const inProgressCount = $derived(clinicPatients.filter(p => p.status === 'In Progress').length);
 	const completedCount = $derived(clinicPatients.filter(p => p.status === 'Completed').length);
 	const totalCount = $derived(clinicPatients.length);
+	const selectedClinicAllowsWalkIn = $derived(clinicAllowsWalkIn(selectedClinic));
 
 	const filteredPatients = $derived.by(() => {
 		let list = clinicPatients;
@@ -128,6 +137,11 @@
 
 	async function handleCheckIn() {
 		if (!selectedClinic || !patientIdInput.trim()) return;
+		if (selectedClinic.access_mode === 'APPOINTMENT_ONLY') {
+			lookupError = 'This clinic accepts appointments only.';
+			toastStore.addToast(lookupError, 'warning');
+			return;
+		}
 		isSearching = true;
 		lookupError = '';
 		try {
@@ -192,6 +206,12 @@
 		}, 15000);
 		return () => clearInterval(interval);
 	});
+
+	$effect(() => {
+		if (selectedClinic?.access_mode === 'APPOINTMENT_ONLY' && autoAssign) {
+			autoAssign = false;
+		}
+	});
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6 space-y-4">
@@ -217,6 +237,9 @@
 						<div>
 							<h2 class="text-white font-semibold text-sm">{selectedClinic?.name || 'No Clinic'}</h2>
 							<p class="text-blue-100 text-xs">{selectedClinic?.location || ''}</p>
+							{#if selectedClinic}
+								<p class="mt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-100">{clinicAccessModeLabel(selectedClinic.access_mode)}</p>
+							{/if}
 						</div>
 					</div>
 					<div class="text-right">
@@ -261,7 +284,10 @@
 							   box-shadow: {selectedClinic?.id === clinic.id ? '0 2px 4px rgba(37,99,235,0.3)' : 'none'};"
 						onclick={async () => { selectedClinic = clinic; await loadClinicPatients(); }}
 					>
-						{clinic.name}
+						<div class="flex flex-col items-start gap-0.5">
+							<span>{clinic.name}</span>
+							<span class="text-[9px] uppercase tracking-[0.14em] opacity-80">{clinicAccessModeLabel(clinic.access_mode)}</span>
+						</div>
 					</button>
 				{/each}
 			</div>
@@ -357,29 +383,36 @@
 
 		<!-- Auto-Assign Toggle -->
 		<div class="px-4 py-3 flex items-center justify-between"
-			style="background-color: {autoAssign ? '#f0fdf4' : 'white'};
+			style="background-color: {autoAssign ? '#f0fdf4' : selectedClinicAllowsWalkIn ? 'white' : '#f8fafc'};
 				   border-radius: 10px;
-				   border: 1px solid {autoAssign ? '#86efac' : 'rgba(0,0,0,0.1)'};
+				   border: 1px solid {autoAssign ? '#86efac' : selectedClinicAllowsWalkIn ? 'rgba(0,0,0,0.1)' : '#cbd5e1'};
 				   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 				   transition: all 0.2s ease;">
 			<div class="flex items-center">
 				<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3"
-					style="background: {autoAssign ? 'linear-gradient(to bottom, #10b981, #059669)' : 'linear-gradient(to bottom, #e5e7eb, #d1d5db)'};
+					style="background: {autoAssign ? 'linear-gradient(to bottom, #10b981, #059669)' : selectedClinicAllowsWalkIn ? 'linear-gradient(to bottom, #e5e7eb, #d1d5db)' : 'linear-gradient(to bottom, #e2e8f0, #cbd5e1)'};
 						   box-shadow: 0 1px 2px rgba(0,0,0,0.15); transition: all 0.2s ease;">
 					<Zap class="w-3.5 h-3.5 {autoAssign ? 'text-white' : 'text-gray-500'}" />
 				</div>
 				<div>
 					<p class="text-xs font-semibold text-gray-800">Auto-Assign on Check-In</p>
 					<p class="text-[10px] text-gray-500">
-						{autoAssign ? 'New patients will be auto-assigned' : 'Manual assignment required'}
+						{#if !selectedClinicAllowsWalkIn}
+							Unavailable for appointment-only clinics
+						{:else if autoAssign}
+							New patients will be auto-assigned
+						{:else}
+							Manual assignment required
+						{/if}
 					</p>
 				</div>
 			</div>
 			<button
 				aria-label="Toggle auto-assign"
 				class="relative w-11 h-6 rounded-full transition-all duration-200 cursor-pointer"
-				style="background: {autoAssign ? 'linear-gradient(to right, #10b981, #059669)' : '#d1d5db'};
+				style="background: {autoAssign ? 'linear-gradient(to right, #10b981, #059669)' : selectedClinicAllowsWalkIn ? '#d1d5db' : '#cbd5e1'};
 					   box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);"
+				disabled={!selectedClinicAllowsWalkIn}
 				onclick={() => autoAssign = !autoAssign}
 			>
 				<div class="absolute top-0.5 w-5 h-5 rounded-full transition-all duration-200"
@@ -413,41 +446,52 @@
 				{/if}
 			</div>
 			<div class="p-4">
-				<label for="patient-id-input" class="block text-xs font-medium text-gray-600 mb-1.5">Patient ID</label>
-				<div class="flex gap-2">
-					<div class="flex-1 flex items-center px-3 py-2.5"
-						style="border: 1px solid rgba(0,0,0,0.2); border-radius: 8px;
-							   background-color: rgba(255,255,255,0.8);
-							   box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);">
-						<Search class="w-3.5 h-3.5 text-gray-400 mr-2" />
-						<input type="text"
-							id="patient-id-input"
-							placeholder="Enter Patient ID (e.g. PAT-001)"
-							class="flex-1 outline-none text-sm text-gray-700 bg-transparent"
-							bind:value={patientIdInput}
-							onkeydown={(e) => { if (e.key === 'Enter') handleCheckIn(); }}
-						/>
-						{#if patientIdInput}
-							<button class="cursor-pointer" onclick={() => { patientIdInput = ''; lookupError = ''; }}>
-								<X class="w-3.5 h-3.5 text-gray-400" />
-							</button>
-						{/if}
+				{#if selectedClinicAllowsWalkIn}
+					<label for="patient-id-input" class="block text-xs font-medium text-gray-600 mb-1.5">Patient ID</label>
+					<div class="flex gap-2">
+						<div class="flex-1 flex items-center px-3 py-2.5"
+							style="border: 1px solid rgba(0,0,0,0.2); border-radius: 8px;
+								   background-color: rgba(255,255,255,0.8);
+								   box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);">
+							<Search class="w-3.5 h-3.5 text-gray-400 mr-2" />
+							<input type="text"
+								id="patient-id-input"
+								placeholder="Enter Patient ID (e.g. PAT-001)"
+								class="flex-1 outline-none text-sm text-gray-700 bg-transparent"
+								bind:value={patientIdInput}
+								onkeydown={(e) => { if (e.key === 'Enter') handleCheckIn(); }}
+							/>
+							{#if patientIdInput}
+								<button class="cursor-pointer" onclick={() => { patientIdInput = ''; lookupError = ''; }}>
+									<X class="w-3.5 h-3.5 text-gray-400" />
+								</button>
+							{/if}
+						</div>
+						<button
+							class="px-4 py-2.5 rounded-lg flex items-center justify-center text-xs font-medium text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
+								   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
+								   border: 1px solid rgba(0,0,0,0.15);"
+							disabled={!patientIdInput.trim() || isSearching}
+							onclick={handleCheckIn}
+						>
+							{#if isSearching}
+								<Loader2 class="w-3.5 h-3.5 animate-spin" />
+							{:else}
+								<Search class="w-3.5 h-3.5" />
+							{/if}
+						</button>
 					</div>
-					<button
-						class="px-4 py-2.5 rounded-lg flex items-center justify-center text-xs font-medium text-white cursor-pointer"
-						style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
-							   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
-							   border: 1px solid rgba(0,0,0,0.15);"
-						disabled={!patientIdInput.trim() || isSearching}
-						onclick={handleCheckIn}
-					>
-						{#if isSearching}
-							<Loader2 class="w-3.5 h-3.5 animate-spin" />
-						{:else}
-							<Search class="w-3.5 h-3.5" />
-						{/if}
-					</button>
-				</div>
+				{:else}
+					<div class="flex items-start gap-3 rounded-lg px-3 py-3"
+						style="background-color: #eff6ff; border: 1px solid #bfdbfe;">
+						<Calendar class="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+						<div>
+							<p class="text-xs font-semibold text-blue-900">This clinic accepts appointments only.</p>
+							<p class="mt-1 text-[11px] text-blue-700">Walk-in check-in is disabled here. Schedule or assign an appointment instead.</p>
+						</div>
+					</div>
+				{/if}
 				{#if lookupError}
 					<div class="flex items-center px-3 py-2.5 rounded-lg mt-3"
 						style="background-color: #fef2f2; border: 1px solid #fecaca;">
@@ -456,7 +500,7 @@
 					</div>
 				{/if}
 				{#if !lookupError && !isSearching}
-					<p class="text-xs text-gray-400 text-center mt-2">Enter a registered patient ID to check them in.</p>
+					<p class="text-xs text-gray-400 text-center mt-2">{selectedClinicAllowsWalkIn ? 'Enter a registered patient ID to check them in.' : 'Use the clinic assignment flow for appointment-only clinics.'}</p>
 				{/if}
 			</div>
 		</div>
@@ -595,7 +639,7 @@
 					>
 						<option value="">-- Select Clinic --</option>
 						{#each clinics as clinic}
-							<option value={clinic.id}>{clinic.name}</option>
+							<option value={clinic.id}>{clinic.name} ({clinicAccessModeLabel(clinic.access_mode)})</option>
 						{/each}
 					</select>
 				</div>

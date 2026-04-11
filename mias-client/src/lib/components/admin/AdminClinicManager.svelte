@@ -10,6 +10,14 @@
 
 	const auth = get(authStore);
 	const clinicTypeOptions = ['IP', 'OP', 'ER'];
+	const clinicAccessModeOptions = [
+		{ value: 'WALK_IN', label: 'Walk-In Clinic' },
+		{ value: 'APPOINTMENT_ONLY', label: 'Appointment Only' }
+	] as const;
+
+	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
+		return clinicAccessModeOptions.find((option) => option.value === accessMode)?.label || 'Walk-In Clinic';
+	}
 
 	let loading = $state(true);
 	let error = $state('');
@@ -25,6 +33,7 @@
 		name: '',
 		block: '',
 		clinic_type: 'OP',
+		access_mode: 'WALK_IN' as ClinicInfo['access_mode'],
 		department: '',
 		location: '',
 		is_active: true
@@ -34,7 +43,8 @@
 	const clinicCards = $derived.by(() =>
 		clinics.map((clinic) => ({
 			clinic,
-			description: [clinic.location, clinic.department, clinic.block].filter(Boolean).join(' • ') || 'Clinic service'
+			description: [clinic.location, clinic.department, clinic.block].filter(Boolean).join(' • ') || 'Clinic service',
+			accessModeLabel: clinicAccessModeLabel(clinic.access_mode)
 		}))
 	);
 
@@ -81,6 +91,7 @@
 			name: '',
 			block: '',
 			clinic_type: 'OP',
+			access_mode: 'WALK_IN',
 			department: '',
 			location: '',
 			is_active: true
@@ -94,6 +105,7 @@
 			name: clinic.name,
 			block: clinic.block || '',
 			clinic_type: clinicTypeOptions.includes(clinic.clinic_type) ? clinic.clinic_type : 'OP',
+			access_mode: clinic.access_mode || 'WALK_IN',
 			department: clinic.department || '',
 			location: clinic.location || '',
 			is_active: clinic.is_active
@@ -113,6 +125,7 @@
 				name: clinicData.name.trim(),
 				block: clinicData.block.trim() || undefined,
 				clinic_type: clinicData.clinic_type,
+				access_mode: clinicData.access_mode,
 				department: clinicData.department.trim() || undefined,
 				location: clinicData.location.trim() || undefined,
 				is_active: clinicData.is_active
@@ -217,6 +230,7 @@
 							<h3 class="truncate text-[15px] font-bold text-slate-900">{item.clinic.name}</h3>
 							<div class="mt-1 flex items-center gap-2">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
+								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{item.accessModeLabel}</span>
 								{#if !item.clinic.is_active}
 									<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
 								{/if}
@@ -332,6 +346,20 @@
 						class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
 					/>
 				</div>
+			</div>
+
+			<div>
+				<label for="clinic-access-mode" class="mb-1 block text-sm font-medium text-gray-700">Patient Access</label>
+				<select
+					id="clinic-access-mode"
+					bind:value={clinicData.access_mode}
+					class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+				>
+					{#each clinicAccessModeOptions as option}
+						<option value={option.value}>{option.label}</option>
+					{/each}
+				</select>
+				<p class="mt-1 text-xs text-gray-500">Choose whether this clinic accepts direct walk-ins or requires scheduled appointments.</p>
 			</div>
 
 			<label class="flex items-center gap-2 text-sm text-gray-700">

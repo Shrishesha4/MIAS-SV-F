@@ -137,6 +137,7 @@ class Clinic(Base):
     name = Column(String, nullable=False)
     block = Column(String, nullable=True)  # e.g., "Block A", "Block B"
     clinic_type = Column(String, nullable=False, default="General")  # e.g., "General", "Specialty"
+    access_mode = Column(String, nullable=False, default="WALK_IN")  # WALK_IN or APPOINTMENT_ONLY
     department = Column(String, nullable=False)
     location = Column(String, nullable=True)  # e.g., "Outpatient Wing, 2nd Floor"
     faculty_id = Column(String, ForeignKey("faculty.id"), nullable=True)  # Supervising doctor

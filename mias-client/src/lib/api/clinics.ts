@@ -5,6 +5,7 @@ export interface ClinicInfo {
   name: string;
   block?: string;
   clinic_type: string;
+  access_mode: 'WALK_IN' | 'APPOINTMENT_ONLY';
   department: string;
   location?: string;
   faculty_id?: string;
@@ -85,6 +86,7 @@ export const clinicsApi = {
     name: string;
     block?: string;
     clinic_type?: string;
+    access_mode?: 'WALK_IN' | 'APPOINTMENT_ONLY';
     department?: string;
     location?: string;
     faculty_id?: string;
@@ -98,6 +100,7 @@ export const clinicsApi = {
     name?: string;
     block?: string;
     clinic_type?: string;
+    access_mode?: 'WALK_IN' | 'APPOINTMENT_ONLY';
     department?: string;
     location?: string;
     faculty_id?: string;

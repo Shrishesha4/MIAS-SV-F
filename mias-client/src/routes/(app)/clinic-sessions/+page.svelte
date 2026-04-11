@@ -18,6 +18,10 @@
 		Stethoscope, Plus
 	} from 'lucide-svelte';
 
+	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
+		return accessMode === 'APPOINTMENT_ONLY' ? 'Appointment Only' : 'Walk-In';
+	}
+
 	const auth = get(authStore);
 	const role = auth.role;
 
@@ -287,7 +291,10 @@
 			<div class="space-y-2">
 				{#each clinics as clinic}
 					<div class="p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
-						<p class="text-sm font-semibold text-gray-800">{clinic.name}</p>
+						<div class="flex items-center gap-2">
+							<p class="text-sm font-semibold text-gray-800">{clinic.name}</p>
+							<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{clinicAccessModeLabel(clinic.access_mode)}</span>
+						</div>
 						<p class="text-xs text-gray-500">{clinic.department} · {clinic.location}</p>
 						{#if clinic.faculty_name}
 							<p class="text-xs text-gray-400">Managed by {clinic.faculty_name}</p>
@@ -384,6 +391,7 @@
 								<p class="text-xs text-gray-500 flex items-center gap-1">
 									<MapPin class="w-3 h-3" /> {selectedClinic.location} · {selectedClinic.department}
 								</p>
+								<p class="mt-1 text-[11px] text-gray-500">{clinicAccessModeLabel(selectedClinic.access_mode)} clinic</p>
 							{/if}
 						</div>
 					</div>
@@ -394,7 +402,7 @@
 								       color: white; border: 1px solid rgba(0,0,0,0.15);
 								       box-shadow: 0 1px 2px rgba(0,0,0,0.1);"
 								onclick={() => showAddApptModal = true}>
-								<Plus class="w-3 h-3" /> Add Appointment
+								<Plus class="w-3 h-3" /> {selectedClinic?.access_mode === 'APPOINTMENT_ONLY' ? 'Schedule Appointment' : 'Add Appointment'}
 							</button>
 						{/if}
 						<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
@@ -419,7 +427,10 @@
 							style="background: {selectedClinic?.id === clinic.id ? 'rgba(59,130,246,0.1)' : '#f8f9fb'};
 							       border: 1px solid {selectedClinic?.id === clinic.id ? 'rgba(59,130,246,0.3)' : 'rgba(0,0,0,0.06)'};"
 							onclick={() => selectClinic(clinic)}>
-							<p class="text-sm font-semibold text-gray-800">{clinic.name}</p>
+							<div class="flex items-center gap-2">
+								<p class="text-sm font-semibold text-gray-800">{clinic.name}</p>
+								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{clinicAccessModeLabel(clinic.access_mode)}</span>
+							</div>
 							<p class="text-xs text-gray-500">{clinic.department} · {clinic.location}</p>
 							{#if clinic.faculty_name}
 								<p class="text-xs text-gray-400">Dr. {clinic.faculty_name}</p>
