@@ -29,6 +29,11 @@ def _get_column_names(bind, table_name: str) -> set[str]:
     return {column['name'] for column in inspector.get_columns(table_name)}
 
 
+def _get_index_names(bind, table_name: str) -> set[str]:
+    inspector = sa.inspect(bind)
+    return {index['name'] for index in inspector.get_indexes(table_name)}
+
+
 def _infer_section(form_type: str | None) -> str:
     normalized = (form_type or '').strip().upper()
     if normalized in {
@@ -59,6 +64,7 @@ def upgrade() -> None:
 
     if 'form_definitions' in tables:
         columns = _get_column_names(bind, 'form_definitions')
+        indexes = _get_index_names(bind, 'form_definitions')
         with op.batch_alter_table('form_definitions') as batch_op:
             if 'section' not in columns:
                 batch_op.add_column(sa.Column('section', sa.String(), nullable=True))
@@ -70,7 +76,8 @@ def upgrade() -> None:
             )
         with op.batch_alter_table('form_definitions') as batch_op:
             batch_op.alter_column('section', existing_type=sa.String(), nullable=False)
-        op.create_index('idx_form_definition_section_active', 'form_definitions', ['section', 'is_active'], unique=False)
+        if 'idx_form_definition_section_active' not in indexes:
+            op.create_index('idx_form_definition_section_active', 'form_definitions', ['section', 'is_active'], unique=False)
 
     if 'form_category_options' not in tables:
         op.create_table(
@@ -141,12 +148,16 @@ def downgrade() -> None:
     tables = _get_table_names(bind)
 
     if 'form_category_options' in tables:
-        op.drop_index('ix_form_category_options_name', table_name='form_category_options')
+        category_indexes = _get_index_names(bind, 'form_category_options')
+        if 'ix_form_category_options_name' in category_indexes:
+            op.drop_index('ix_form_category_options_name', table_name='form_category_options')
         op.drop_table('form_category_options')
 
     if 'form_definitions' in tables:
         columns = _get_column_names(bind, 'form_definitions')
+        indexes = _get_index_names(bind, 'form_definitions')
         if 'section' in columns:
-            op.drop_index('idx_form_definition_section_active', table_name='form_definitions')
+            if 'idx_form_definition_section_active' in indexes:
+                op.drop_index('idx_form_definition_section_active', table_name='form_definitions')
             with op.batch_alter_table('form_definitions') as batch_op:
                 batch_op.drop_column('section')

@@ -59,14 +59,20 @@ async def ensure_default_admin_user() -> None:
 
 
 async def run_startup_migrations() -> None:
-    async with engine.begin() as connection:
+    async with engine.connect() as connection:
         await connection.execute(text('SELECT pg_advisory_lock(:lock_id)'), {'lock_id': ALEMBIC_LOCK_ID})
         try:
             await connection.run_sync(_upgrade_database)
+            # The advisory lock is session-scoped, but the SELECT above still
+            # opens an implicit transaction on this connection. Commit here so
+            # Alembic version updates and schema DDL are persisted before any
+            # other worker is allowed to proceed.
+            await connection.commit()
+            # Run post-migration bootstrap while still holding the same advisory
+            # lock, but after Alembic has committed its own transaction.
+            await ensure_default_admin_user()
         except Exception:
             await connection.rollback()
             raise
         finally:
             await connection.execute(text('SELECT pg_advisory_unlock(:lock_id)'), {'lock_id': ALEMBIC_LOCK_ID})
-
-    await ensure_default_admin_user()
