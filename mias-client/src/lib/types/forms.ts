@@ -29,7 +29,16 @@ export type FormFieldType =
 	| 'password'
 	| 'tel';
 
-export type FormSection = 'CLINICAL' | 'LABORATORY' | 'ADMINISTRATIVE';
+export type FormSection = string;
+
+export interface FormCategory {
+	id: string;
+	name: string;
+	sort_order: number;
+	is_active: boolean;
+	is_system: boolean;
+	created_at: string | null;
+}
 
 export interface FormFieldDefinition {
 	key: string;

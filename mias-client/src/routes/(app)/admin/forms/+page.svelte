@@ -5,12 +5,13 @@
 	import { authStore } from '$lib/stores/auth';
 	import { formsApi, type FormDefinitionPayload } from '$lib/api/forms';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import type { FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
+	import type { FormCategory, FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { FileText, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
-	const sectionTabs: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
+	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
 	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'diagnosis', 'date', 'file', 'email', 'password', 'tel'];
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
@@ -35,6 +36,7 @@
 
 	let loadingForms = $state(true);
 	let formDefinitions: FormDefinition[] = $state([]);
+	let formCategories: FormCategory[] = $state([]);
 	let activeSection = $state<FormSection>('CLINICAL');
 
 	let showFormEditor = $state(false);
@@ -50,6 +52,19 @@
 	let formEditorFields: FormFieldDefinition[] = $state([]);
 	let savingForm = $state(false);
 	let formSaveError = $state('');
+	let showCategoryEditor = $state(false);
+	let categoryName = $state('');
+	let savingCategory = $state(false);
+	let categorySaveError = $state('');
+
+	const sectionTabs = $derived.by(() => {
+		const activeCategories = [...formCategories]
+			.filter((category) => category.is_active)
+			.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+		return activeCategories.length > 0 ? activeCategories.map((category) => category.name) : defaultSections;
+	});
+
+	const tabItems = $derived.by(() => sectionTabs.map((section) => ({ id: section, label: section })));
 
 	const filteredForms = $derived.by(() => {
 		return formDefinitions.filter((form) => resolveFormSection(form) === activeSection);
@@ -60,15 +75,30 @@
 			goto('/dashboard');
 			return;
 		}
-		loadForms();
+		loadFormStudio();
 	});
 
 	function resolveFormSection(form: Pick<FormDefinition, 'section' | 'form_type'>): FormSection {
 		const explicitSection = form.section?.toString().toUpperCase();
-		if (explicitSection && sectionTabs.includes(explicitSection as FormSection)) {
-			return explicitSection as FormSection;
+		if (explicitSection) {
+			return explicitSection;
 		}
 		return legacyTypeToSection[form.form_type?.toString().toUpperCase() || ''] || 'ADMINISTRATIVE';
+	}
+
+	function sortFormCategories(categories: FormCategory[]): FormCategory[] {
+		return [...categories].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+	}
+
+	function syncActiveSection(categories: FormCategory[]) {
+		const activeCategories = sortFormCategories(categories).filter((category) => category.is_active);
+		if (activeCategories.length === 0) {
+			activeSection = defaultSections[0];
+			return;
+		}
+		if (!activeCategories.some((category) => category.name === activeSection)) {
+			activeSection = activeCategories[0].name;
+		}
 	}
 
 	function slugify(value: string) {
@@ -79,10 +109,16 @@
 			.replace(/^_+|_+$/g, '');
 	}
 
-	async function loadForms() {
+	async function loadFormStudio() {
 		loadingForms = true;
 		try {
-			formDefinitions = await formsApi.getForms({ include_inactive: true });
+			const [forms, categories] = await Promise.all([
+				formsApi.getForms({ include_inactive: true }),
+				formsApi.getFormCategories(),
+			]);
+			formDefinitions = forms;
+			formCategories = sortFormCategories(categories);
+			syncActiveSection(categories);
 		} catch {
 			toastStore.addToast('Failed to load forms', 'error');
 		} finally {
@@ -105,12 +141,23 @@
 		formSaveError = '';
 	}
 
+	function resetCategoryEditor() {
+		showCategoryEditor = false;
+		categoryName = '';
+		categorySaveError = '';
+	}
+
 	function openCreateFormEditor(section: FormSection = activeSection) {
 		resetFormEditor();
 		formEditorSection = section;
 		activeSection = section;
 		showFormEditor = true;
 		addFormField();
+	}
+
+	function openCategoryEditor() {
+		resetCategoryEditor();
+		showCategoryEditor = true;
 	}
 
 	function openEditFormEditor(form: FormDefinition) {
@@ -242,11 +289,37 @@
 				toastStore.addToast('Configuration created', 'success');
 			}
 			resetFormEditor();
-			await loadForms();
+			await loadFormStudio();
 		} catch (error: any) {
 			formSaveError = error?.response?.data?.detail || 'Failed to save configuration';
 		} finally {
 			savingForm = false;
+		}
+	}
+
+	async function saveFormCategory() {
+		if (!categoryName.trim()) {
+			categorySaveError = 'Category name is required';
+			return;
+		}
+
+		savingCategory = true;
+		categorySaveError = '';
+		try {
+			const created = await formsApi.createFormCategory({
+				name: categoryName.trim(),
+				sort_order: formCategories.length,
+				is_active: true,
+			});
+			const categories = sortFormCategories([...formCategories, created]);
+			formCategories = categories;
+			activeSection = created.name;
+			resetCategoryEditor();
+			toastStore.addToast('Form category created', 'success');
+		} catch (error: any) {
+			categorySaveError = error?.response?.data?.detail || 'Failed to create form category';
+		} finally {
+			savingCategory = false;
 		}
 	}
 
@@ -264,12 +337,21 @@
 				is_active: !form.is_active
 			});
 			toastStore.addToast(form.is_active ? 'Configuration deactivated' : 'Configuration activated', 'success');
-			await loadForms();
+			await loadFormStudio();
 		} catch {
 			toastStore.addToast('Failed to update configuration', 'error');
 		}
 	}
 </script>
+
+{#snippet formCategoryHeader()}
+	<div class="flex items-center gap-3">
+		<h3 class="text-sm font-bold text-slate-900">New Form Category</h3>
+		<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
+			TAB
+		</span>
+	</div>
+{/snippet}
 
 {#snippet formEditorHeader()}
 	<div class="flex items-center gap-3">
@@ -296,21 +378,27 @@
 		</button>
 	</div>
 
-	<div
-		class="inline-flex max-w-full flex-wrap gap-1 rounded-[14px] p-1"
-		style="background: linear-gradient(to bottom, #eef2f8, #e2e8f0); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);"
-	>
-		{#each sectionTabs as section}
-			<button
-				onclick={() => activeSection = section}
-				class="rounded-[11px] px-3 py-1.5 text-[10px] font-bold tracking-[0.1em] cursor-pointer md:px-3.5"
-				style={activeSection === section
-					? 'background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #2563eb; box-shadow: 0 6px 14px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.8);'
-					: 'background: transparent; color: #5b6473;'}
-			>
-				{section}
-			</button>
-		{/each}
+	<div class="flex flex-wrap items-center gap-2">
+		<div class="max-w-full overflow-x-auto md:max-w-[620px]">
+			<TabBar
+				tabs={tabItems}
+				activeTab={activeSection}
+				onchange={(section) => activeSection = section}
+				variant="jiggle"
+				stretch={false}
+				ariaLabel="Form category navigation"
+			/>
+		</div>
+		<button
+			type="button"
+			onclick={openCategoryEditor}
+			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white cursor-pointer"
+			style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.24);"
+			aria-label="Add form category"
+			title="Add form category"
+		>
+			<Plus class="h-4 w-4" />
+		</button>
 	</div>
 
 	{#if loadingForms}
@@ -365,6 +453,48 @@
 		</div>
 	{/if}
 </div>
+
+{#if showCategoryEditor}
+	<AquaModal
+		header={formCategoryHeader}
+		onclose={resetCategoryEditor}
+		panelClass="sm:max-w-[420px]"
+		contentClass="p-0"
+	>
+		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb);">
+			{#if categorySaveError}
+				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{categorySaveError}</div>
+			{/if}
+
+			<div>
+				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category Name</p>
+				<input
+					type="text"
+					placeholder="e.g. RADIOLOGY"
+					class="w-full rounded-[14px] border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none"
+					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+					bind:value={categoryName}
+				/>
+				<p class="mt-2 text-xs text-slate-500">The new tab becomes available immediately in the forms studio and in form creation.</p>
+			</div>
+
+			<button
+				type="button"
+				onclick={saveFormCategory}
+				disabled={savingCategory}
+				class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60"
+				style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
+			>
+				{#if savingCategory}
+					<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />
+					Creating...
+				{:else}
+					Create Category
+				{/if}
+			</button>
+		</div>
+	</AquaModal>
+{/if}
 
 {#if showFormEditor}
 	<AquaModal

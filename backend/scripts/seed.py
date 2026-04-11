@@ -28,6 +28,7 @@ from app.models.io_event import IOEvent, SOAPNote, AdmissionEquipment
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.form_definition import FormDefinition
 from app.core.security import get_password_hash
+from app.services.form_categories import infer_form_section
 
 
 def uid() -> str:
@@ -706,6 +707,7 @@ async def seed():
                 name=form_def["name"],
                 description=form_def.get("description", ""),
                 form_type=form_def["form_type"],
+                section=infer_form_section(form_def.get("form_type"), form_def.get("section")),
                 department=form_def.get("department"),
                 procedure_name=form_def.get("procedure_name"),
                 fields=normalized_fields,

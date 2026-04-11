@@ -1,5 +1,5 @@
 import client from './client';
-import type { FormDefinition, FormFieldDefinition, FormSection, FormType, UploadedFormFile } from '$lib/types/forms';
+import type { FormCategory, FormDefinition, FormFieldDefinition, FormSection, FormType, UploadedFormFile } from '$lib/types/forms';
 
 type ApiFormFieldDefinition = FormFieldDefinition & {
 	id?: string;
@@ -43,7 +43,23 @@ export interface FormDefinitionPayload {
 	is_active?: boolean;
 }
 
+export interface FormCategoryPayload {
+	name: string;
+	sort_order?: number;
+	is_active?: boolean;
+}
+
 export const formsApi = {
+	async getFormCategories(): Promise<FormCategory[]> {
+		const response = await client.get<FormCategory[]>('/forms/categories');
+		return response.data;
+	},
+
+	async createFormCategory(data: FormCategoryPayload): Promise<FormCategory> {
+		const response = await client.post<FormCategory>('/forms/categories', data);
+		return response.data;
+	},
+
 	async getForms(params?: {
 		form_type?: string;
 		section?: string;

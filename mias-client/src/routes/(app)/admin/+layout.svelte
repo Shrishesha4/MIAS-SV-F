@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { cubicOut } from 'svelte/easing';
 	import { fade, fly } from 'svelte/transition';
@@ -57,6 +58,14 @@
 				return { title: 'Hospital Clinics', activeNav: 'clinics', titleIcon: Building2 };
 		}
 	});
+
+	onMount(() => {
+		document.body.classList.add('admin-layout-active');
+
+		return () => {
+			document.body.classList.remove('admin-layout-active');
+		};
+	});
 </script>
 
 <AdminScaffold
@@ -71,3 +80,12 @@
 		</div>
 	{/key}
 </AdminScaffold>
+
+<style>
+	@media (min-width: 768px) {
+		:global(body.admin-layout-active .floating-sidebar),
+		:global(body.admin-layout-active .sidebar-backdrop) {
+			display: none !important;
+		}
+	}
+</style>

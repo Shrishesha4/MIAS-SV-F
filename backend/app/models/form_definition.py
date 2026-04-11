@@ -8,6 +8,7 @@ class FormDefinition(Base):
     __tablename__ = "form_definitions"
     __table_args__ = (
         Index('idx_form_definition_type_active', 'form_type', 'is_active'),
+        Index('idx_form_definition_section_active', 'section', 'is_active'),
         Index('idx_form_definition_context', 'department', 'procedure_name'),
         Index('idx_form_definition_slug', 'slug'),
     )
@@ -17,6 +18,7 @@ class FormDefinition(Base):
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     form_type = Column(String, nullable=False, index=True)
+    section = Column(String, nullable=False, default="ADMINISTRATIVE", index=True)
     department = Column(String, nullable=True, index=True)
     procedure_name = Column(String, nullable=True, index=True)
     fields = Column(JSON, nullable=False, default=list)
