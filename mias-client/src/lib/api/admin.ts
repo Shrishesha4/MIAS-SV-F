@@ -153,6 +153,40 @@ export interface VitalParameterCreate {
   sort_order?: number;
 }
 
+export interface AdminCreateUserPayload {
+  username: string;
+  email: string;
+  password: string;
+  role: string;
+  name?: string;
+  photo?: string;
+  date_of_birth?: string;
+  gender?: string;
+  blood_group?: string;
+  phone?: string;
+  address?: string;
+  category?: string;
+  aadhaar_id?: string;
+  abha_id?: string;
+  primary_diagnosis?: string;
+  diagnosis_doctor?: string;
+  diagnosis_date?: string;
+  diagnosis_time?: string;
+  year?: number;
+  semester?: number;
+  program?: string;
+  degree?: string;
+  gpa?: number;
+  academic_standing?: string;
+  academic_advisor?: string;
+  department?: string;
+  specialty?: string;
+  availability?: string;
+  hospital?: string;
+  ward?: string;
+  shift?: string;
+}
+
 // ── API ──────────────────────────────────────────────────────────────
 
 export const adminApi = {
@@ -189,22 +223,7 @@ export const adminApi = {
     return r.data;
   },
 
-  async createUser(data: {
-    username: string;
-    email: string;
-    password: string;
-    role: string;
-    name?: string;
-    date_of_birth?: string;
-    gender?: string;
-    blood_group?: string;
-    phone?: string;
-    year?: number;
-    semester?: number;
-    program?: string;
-    department?: string;
-    specialty?: string;
-  }) {
+  async createUser(data: AdminCreateUserPayload) {
     const r = await client.post('/admin/users', data);
     return r.data;
   },

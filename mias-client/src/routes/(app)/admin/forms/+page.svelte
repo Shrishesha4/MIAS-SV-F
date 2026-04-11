@@ -379,7 +379,7 @@
 	</div>
 
 	<div class="flex flex-wrap items-center gap-2">
-		<div class="max-w-full overflow-x-auto md:max-w-[620px]">
+		<div class="form-tab-scroll form-tab-shell">
 			<TabBar
 				tabs={tabItems}
 				activeTab={activeSection}
@@ -495,6 +495,33 @@
 		</div>
 	</AquaModal>
 {/if}
+
+<style>
+	.form-tab-scroll {
+		display: block;
+		max-width: 100%;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+		-ms-overflow-style: none;
+	}
+
+	.form-tab-scroll::-webkit-scrollbar {
+		display: none;
+	}
+
+	.form-tab-shell :global(.tab-bar--jiggle) {
+		border-color: rgba(226, 232, 240, 0.9);
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+	}
+
+	@media (min-width: 768px) {
+		.form-tab-scroll {
+			max-width: 620px;
+		}
+	}
+</style>
 
 {#if showFormEditor}
 	<AquaModal

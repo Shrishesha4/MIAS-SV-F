@@ -220,10 +220,6 @@
 	<div class="rounded-[24px] border border-slate-200 p-4"
 		style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 14px 30px rgba(15,23,42,0.06);">
 		<div class="flex flex-wrap items-center justify-between gap-3">
-			<div>
-				<p class="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">Provider Matrix</p>
-				<p class="mt-1 text-sm text-slate-500">Use Save for row edits, Prompt for the drafting instruction set, Test to verify credentials, and Activate to switch the live provider.</p>
-			</div>
 			<button
 				type="button"
 				class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
@@ -236,7 +232,7 @@
 				{:else}
 					<Plus class="h-4 w-4" />
 				{/if}
-				Add Row
+				Add
 			</button>
 		</div>
 

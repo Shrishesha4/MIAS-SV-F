@@ -50,6 +50,11 @@ class UpdateLabRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+def normalize_lab_type(value: Optional[str], default: str = "General") -> str:
+    normalized_value = (value or "").strip()
+    return normalized_value or default
+
+
 @router.get("")
 async def list_labs(
     db: AsyncSession = Depends(get_db),
@@ -91,7 +96,7 @@ async def create_lab(
         id=str(uuid.uuid4()),
         name=data.name,
         block=data.block,
-        lab_type=data.lab_type,
+        lab_type=normalize_lab_type(data.lab_type),
         department=data.department,
         location=data.location,
         contact_phone=data.contact_phone,
@@ -157,7 +162,7 @@ async def update_lab(
     if data.block is not None:
         lab.block = data.block
     if data.lab_type is not None:
-        lab.lab_type = data.lab_type
+        lab.lab_type = normalize_lab_type(data.lab_type, default=lab.lab_type or "General")
     if data.department is not None:
         lab.department = data.department
     if data.location is not None:

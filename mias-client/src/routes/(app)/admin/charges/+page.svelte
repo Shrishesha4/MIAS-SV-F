@@ -353,30 +353,31 @@
 
 		<!-- Pricing Table -->
 		<div
-			class="rounded-2xl overflow-hidden"
-			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
+			class="overflow-x-auto overflow-y-hidden rounded-2xl"
+			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06); -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;"
 		>
-			<!-- Table Header -->
-			<div class="grid gap-2 px-4 py-3" style={`background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); ${tableGridStyle}`}>
-				<div class="text-xs font-bold text-slate-700 uppercase tracking-wide">Item</div>
-				{#each pricingColumns as tier}
-					<div class="text-xs font-bold text-slate-700 uppercase tracking-wide text-center">{tier}</div>
-				{/each}
-			</div>
-
-			<!-- Table Body -->
-			{#if filteredCharges.length === 0}
-				<div class="px-4 py-8 text-center text-slate-500 text-sm">
-					No charges in this category. Click "Add New" to create one.
+			<div class="min-w-max">
+				<!-- Table Header -->
+				<div class="grid gap-2 px-4 py-3" style={`background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); ${tableGridStyle}`}>
+					<div class="text-xs font-bold text-slate-700 uppercase tracking-wide">Item</div>
+					{#each pricingColumns as tier}
+						<div class="text-xs font-bold text-slate-700 uppercase tracking-wide text-center">{tier}</div>
+					{/each}
 				</div>
-			{:else}
-				{#each filteredCharges as charge, i (charge.id)}
-					{@const isEditingMeta = editingMetaId === charge.id}
-					<div
-						class="grid gap-2 px-4 py-3 items-center group"
-						class:border-t={i > 0}
-						style={`${tableGridStyle}${i > 0 ? ' border-color: rgba(0,0,0,0.06);' : ''}`}
-					>
+
+				<!-- Table Body -->
+				{#if filteredCharges.length === 0}
+					<div class="px-4 py-8 text-center text-slate-500 text-sm">
+						No charges in this category. Click "Add New" to create one.
+					</div>
+				{:else}
+					{#each filteredCharges as charge, i (charge.id)}
+						{@const isEditingMeta = editingMetaId === charge.id}
+						<div
+							class="grid gap-2 px-4 py-3 items-center group"
+							class:border-t={i > 0}
+							style={`${tableGridStyle}${i > 0 ? ' border-color: rgba(0,0,0,0.06);' : ''}`}
+						>
 						<div>
 							{#if isEditingMeta}
 								<div class="space-y-2 rounded-xl border border-blue-200/70 bg-blue-50/55 p-3">
@@ -504,9 +505,10 @@
 								{/if}
 							</div>
 						{/each}
-					</div>
-				{/each}
-			{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
 		</div>
 	{/if}
 

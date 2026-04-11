@@ -55,11 +55,11 @@
 </script>
 
 <div class="pb-2 lg:min-h-screen lg:pb-6">
-	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:min-h-[calc(100vh-2rem)] lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
+	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:min-h-[86vh] lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
 		{#if navItems.length > 0}
-			<aside class="hidden lg:block lg:h-[calc(100vh-2rem)] lg:self-start">
+			<aside class="hidden lg:block lg:h-[86vh] lg:self-start">
 				<div
-					class="admin-shell sticky top-4 flex h-[calc(100vh-2rem)] min-h-[calc(100vh-2rem)] max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-[16px] border"
+					class="admin-shell sticky top-4 flex h-[86vh] min-h-[86vh] max-h-[86vh] flex-col overflow-hidden rounded-[16px] border"
 					style="background: linear-gradient(to bottom, rgba(250,252,255,0.96), rgba(242,247,252,0.94)); box-shadow: 0 10px 24px rgba(95,113,136,0.16), inset 0 1px 0 rgba(255,255,255,0.94); border-color: rgba(132,150,175,0.2);"
 				>
 					<div class="shrink-0 border-b px-4 py-3.5" style="border-color: rgba(160,174,196,0.18); background: linear-gradient(to bottom, rgba(220,229,241,0.85), rgba(236,241,249,0.55));">
@@ -145,7 +145,7 @@
 						{#each navItems as item (item.id)}
 							{@const NavIcon = item.icon}
 							{@const isActive = item.id === activeNav}
-							<button class="admin-mobile-nav-item motion-control flex min-w-[56px] flex-col items-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)}>
+							<button class="admin-mobile-nav-item motion-control flex min-w-[56px] flex-col items-center justify-center gap-1.5 cursor-pointer" onclick={() => handleNav(item)} aria-label={item.label}>
 								<div
 									class="motion-control flex h-10 w-10 items-center justify-center rounded-full transition-all"
 									style={isActive
@@ -154,14 +154,14 @@
 								>
 									<NavIcon class="h-4 w-4 {isActive ? 'text-white' : 'text-slate-400'}" />
 								</div>
-								<span class="text-[10px] font-bold uppercase tracking-wide {isActive ? 'text-blue-700' : 'text-slate-400'}">{item.label}</span>
+								<span class="sr-only">{item.label}</span>
 							</button>
 						{/each}
 					</div>
 				</div>
 			{/if}
 
-			<div class="admin-content-shell hidden min-h-[calc(100vh-2rem)] overflow-visible rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);" in:fade={{ duration: 180 }} out:fade={{ duration: 130 }}>
+			<div class="admin-content-shell hidden min-h-[99vh] overflow-visible rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);" in:fade={{ duration: 180 }} out:fade={{ duration: 130 }}>
 				{#if children}
 					<div class="admin-content-panel min-w-0 flex-1 px-6 py-5">
 						{@render children()}

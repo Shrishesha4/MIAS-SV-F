@@ -9,6 +9,33 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { FlaskConical, Trash2, X, Plus, Pencil } from 'lucide-svelte';
 
+	const DEFAULT_LAB_TYPE = 'General';
+	const COMMON_LAB_TYPES = [
+		'Pathology',
+		'Radiology',
+		'Microbiology',
+		'Biochemistry',
+		'Hematology',
+		'General'
+	];
+
+	function createEmptyLabData() {
+		return {
+			name: '',
+			block: '',
+			lab_type: DEFAULT_LAB_TYPE,
+			department: '',
+			location: '',
+			contact_phone: '',
+			operating_hours: '',
+			is_active: true
+		};
+	}
+
+	function normalizeLabText(value: string) {
+		return value.trim();
+	}
+
 	const auth = get(authStore);
 	let loading = $state(true);
 	let error = $state('');
@@ -24,17 +51,15 @@
 	// Create/Edit lab modal
 	let labModal = $state(false);
 	let editingLab: LabInfo | null = $state(null);
-	let labData = $state({
-		name: '',
-		block: '',
-		lab_type: 'Pathology',
-		department: '',
-		location: '',
-		contact_phone: '',
-		operating_hours: '',
-		is_active: true
-	});
+	let labData = $state(createEmptyLabData());
 	let savingLab = $state(false);
+	let availableLabTypes = $derived.by(() => {
+		const suggestedTypes = [...COMMON_LAB_TYPES, ...labs.map((lab) => lab.lab_type), labData.lab_type]
+			.map((value) => value.trim())
+			.filter((value) => value.length > 0);
+
+		return Array.from(new Set(suggestedTypes));
+	});
 
 	// Test modal
 	let testModal = $state(false);
@@ -86,31 +111,33 @@
 
 	function openCreateModal() {
 		editingLab = null;
-		labData = {
-			name: '',
-			block: '',
-			lab_type: 'Pathology',
-			department: '',
-			location: '',
-			contact_phone: '',
-			operating_hours: '',
-			is_active: true
-		};
+		labData = createEmptyLabData();
 		labModal = true;
 	}
 
 	async function saveLab() {
-		if (!labData.name.trim() || !labData.department.trim()) {
+		const payload = {
+			name: normalizeLabText(labData.name),
+			block: normalizeLabText(labData.block),
+			lab_type: normalizeLabText(labData.lab_type) || DEFAULT_LAB_TYPE,
+			department: normalizeLabText(labData.department),
+			location: normalizeLabText(labData.location),
+			contact_phone: normalizeLabText(labData.contact_phone),
+			operating_hours: normalizeLabText(labData.operating_hours),
+			is_active: labData.is_active
+		};
+
+		if (!payload.name || !payload.department) {
 			toastStore.addToast('Name and department are required', 'error');
 			return;
 		}
 		savingLab = true;
 		try {
 			if (editingLab) {
-				await labsApi.update(editingLab.id, labData);
+				await labsApi.update(editingLab.id, payload);
 				toastStore.addToast('Lab updated successfully', 'success');
 			} else {
-				await labsApi.create(labData);
+				await labsApi.create(payload);
 				toastStore.addToast('Lab created successfully', 'success');
 			}
 			labModal = false;
@@ -315,7 +342,7 @@
 							<div>
 								<h3 class="font-bold text-slate-900">{lab.name}</h3>
 								<p class="text-xs text-slate-500">
-									{lab.block || 'No Block'} • {lab.is_active ? 'Active' : 'Inactive'}
+									{lab.lab_type || DEFAULT_LAB_TYPE} • {lab.block || 'No Block'} • {lab.is_active ? 'Active' : 'Inactive'}
 								</p>
 							</div>
 						</div>
@@ -349,7 +376,10 @@
 			>
 				<div class="flex items-center justify-between mb-4">
 					<div class="flex items-center gap-3">
-						<h3 class="font-bold text-slate-900">{configLab.name} Configuration</h3>
+						<div>
+							<h3 class="font-bold text-slate-900">{configLab.name} Configuration</h3>
+							<p class="text-xs text-slate-500">{configLab.lab_type || DEFAULT_LAB_TYPE} • {configLab.department}</p>
+						</div>
 						<TabBar tabs={configTabs} activeTab={configTab} onchange={(id) => configTab = id} />
 					</div>
 					<button onclick={closeConfigPanel} class="p-1.5 text-slate-400 hover:text-slate-600">
@@ -430,14 +460,20 @@
 			</div>
 			<div>
 				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Lab Type</label>
-				<select class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.lab_type}>
-					<option value="Pathology">Pathology</option>
-					<option value="Radiology">Radiology</option>
-					<option value="Microbiology">Microbiology</option>
-					<option value="Biochemistry">Biochemistry</option>
-					<option value="Hematology">Hematology</option>
-					<option value="General">General</option>
-				</select>
+				<input
+					type="text"
+					list="lab-type-options"
+					placeholder="Select or type a lab type"
+					class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl"
+					style="background: linear-gradient(to bottom, #ffffff, #fafafa);"
+					bind:value={labData.lab_type}
+				/>
+				<datalist id="lab-type-options">
+					{#each availableLabTypes as labType (labType)}
+						<option value={labType}></option>
+					{/each}
+				</datalist>
+				<p class="mt-1 text-xs text-slate-500">Pick an existing type or enter a new one.</p>
 			</div>
 			<div>
 				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Department *</label>

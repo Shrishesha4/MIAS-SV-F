@@ -262,22 +262,44 @@ async def delete_user(
 
 class AdminCreateUserRequest(BaseModel):
     username: str
-    email: str
+    email: EmailStr
     password: str
     role: str
-    # PATIENT fields
     name: Optional[str] = None
+    photo: Optional[str] = None
+
+    # PATIENT fields
     date_of_birth: Optional[str] = None  # YYYY-MM-DD
     gender: Optional[str] = None
     blood_group: Optional[str] = None
     phone: Optional[str] = None
+    address: Optional[str] = None
+    category: Optional[str] = None
+    aadhaar_id: Optional[str] = None
+    abha_id: Optional[str] = None
+    primary_diagnosis: Optional[str] = None
+    diagnosis_doctor: Optional[str] = None
+    diagnosis_date: Optional[str] = None
+    diagnosis_time: Optional[str] = None
+
     # STUDENT fields
     year: Optional[int] = None
     semester: Optional[int] = None
     program: Optional[str] = None
-    # FACULTY fields
+    degree: Optional[str] = None
+    gpa: Optional[float] = None
+    academic_standing: Optional[str] = None
+    academic_advisor: Optional[str] = None
+
+    # FACULTY / NURSE fields
     department: Optional[str] = None
     specialty: Optional[str] = None
+    availability: Optional[str] = None
+
+    # NURSE fields
+    hospital: Optional[str] = None
+    ward: Optional[str] = None
+    shift: Optional[str] = None
 
 
 def _generate_patient_id():
@@ -300,10 +322,13 @@ async def admin_create_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin creates a new user directly (no email verification required)."""
+    username = data.username.strip()
+    email = str(data.email).strip()
+
     # Check uniqueness
-    if (await db.execute(select(User).where(User.username == data.username))).scalar_one_or_none():
+    if (await db.execute(select(User).where(User.username == username))).scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Username already exists")
-    if (await db.execute(select(User).where(User.email == data.email))).scalar_one_or_none():
+    if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already exists")
 
     try:
@@ -314,19 +339,27 @@ async def admin_create_user(
     user_id = str(uuid.uuid4())
     user = User(
         id=user_id,
-        username=data.username,
-        email=data.email,
+        username=username,
+        email=email,
         password_hash=get_password_hash(data.password),
         role=role,
         is_active=True,
     )
     db.add(user)
 
-    name = data.name or data.username
+    name = (data.name or data.username).strip()
 
     if role == UserRole.PATIENT:
-        dob = datetime.strptime(data.date_of_birth, "%Y-%m-%d").date() if data.date_of_birth else date.today()
+        if not data.date_of_birth:
+            raise HTTPException(status_code=400, detail="Date of birth is required for patients")
+
+        try:
+            dob = datetime.strptime(data.date_of_birth, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date of birth must be in YYYY-MM-DD format")
+
         from app.models.patient import Gender
+
         db.add(Patient(
             id=str(uuid.uuid4()),
             patient_id=_generate_patient_id(),
@@ -336,32 +369,50 @@ async def admin_create_user(
             gender=Gender(data.gender) if data.gender else Gender.OTHER,
             blood_group=data.blood_group or "Unknown",
             phone=data.phone or "",
-            email=data.email,
-            address="",
-            category=await get_default_patient_category_name(db),
+            email=email,
+            address=data.address or "",
+            photo=data.photo,
+            aadhaar_id=data.aadhaar_id,
+            abha_id=data.abha_id,
+            primary_diagnosis=data.primary_diagnosis,
+            diagnosis_doctor=data.diagnosis_doctor,
+            diagnosis_date=data.diagnosis_date,
+            diagnosis_time=data.diagnosis_time,
+            category=normalize_patient_category_name(data.category) or await get_default_patient_category_name(db),
         ))
     elif role == UserRole.STUDENT:
+        if data.year is None or data.semester is None or not data.program:
+            raise HTTPException(status_code=400, detail="Year, semester, and program are required for students")
+
         db.add(Student(
             id=str(uuid.uuid4()),
             student_id=_generate_student_id(),
             user_id=user_id,
             name=name,
-            year=data.year or 1,
-            semester=data.semester or 1,
-            program=data.program or "",
-            gpa=0.0,
-            academic_advisor="",
+            year=data.year,
+            semester=data.semester,
+            program=data.program,
+            degree=data.degree,
+            photo=data.photo,
+            gpa=data.gpa if data.gpa is not None else 0.0,
+            academic_standing=data.academic_standing or "Good Standing",
+            academic_advisor=data.academic_advisor,
         ))
     elif role == UserRole.FACULTY:
+        if not data.department:
+            raise HTTPException(status_code=400, detail="Department is required for faculty")
+
         db.add(Faculty(
             id=str(uuid.uuid4()),
             faculty_id=_generate_faculty_id(),
             user_id=user_id,
             name=name,
-            department=data.department or "",
-            specialty=data.specialty or "",
-            phone=data.phone or "",
-            email=data.email,
+            department=data.department,
+            specialty=data.specialty,
+            phone=data.phone,
+            email=email,
+            photo=data.photo,
+            availability=data.availability,
         ))
     elif role == UserRole.NURSE:
         db.add(Nurse(
@@ -369,12 +420,13 @@ async def admin_create_user(
             nurse_id=_generate_nurse_id(),
             user_id=user_id,
             name=name,
-            phone=data.phone or "",
-            email=data.email,
-            hospital=None,
-            ward=None,
-            shift=None,
-            department=data.department or None,
+            phone=data.phone,
+            email=email,
+            photo=data.photo,
+            hospital=data.hospital,
+            ward=data.ward,
+            shift=data.shift,
+            department=data.department,
             has_selected_station=0,
         ))
     # ADMIN and RECEPTION roles: no extra profile record needed
