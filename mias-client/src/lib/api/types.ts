@@ -21,7 +21,7 @@ export interface Patient {
   photo?: string;
   aadhaar_id?: string;
   abha_id?: string;
-  category: 'GENERAL' | 'ELITE' | 'VIP' | 'STAFF';
+  category: string;
   emergency_contact?: EmergencyContact;
   allergies: Allergy[];
   medical_alerts: MedicalAlert[];

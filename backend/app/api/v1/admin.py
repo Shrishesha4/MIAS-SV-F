@@ -11,7 +11,8 @@ import uuid
 from app.database import get_db
 from app.api.deps import require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient, PatientCategory
+from app.models.patient import Patient
+from app.models.patient_category import PatientCategoryOption
 from app.models.student import Student
 from app.models.faculty import Faculty
 from app.models.department import Department
@@ -24,6 +25,12 @@ from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
 from app.models.nurse import Nurse
 from app.core.security import get_password_hash
+from app.services.patient_categories import (
+    ensure_patient_categories,
+    get_default_patient_category_name,
+    normalize_patient_category_name,
+    patient_category_usage_counts,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -74,7 +81,7 @@ async def admin_dashboard(
     category_result = await db.execute(
         select(Patient.category, func.count(Patient.id)).group_by(Patient.category)
     )
-    patient_categories = {str(row[0].value) if row[0] else "UNKNOWN": row[1] for row in category_result.all()}
+    patient_categories = {normalize_patient_category_name(row[0] or "UNKNOWN") or "UNKNOWN": row[1] for row in category_result.all()}
 
     # Recent registrations (last 7 days)
     week_ago = datetime.utcnow() - timedelta(days=7)
@@ -329,6 +336,7 @@ async def admin_create_user(
             phone=data.phone or "",
             email=data.email,
             address="",
+            category=await get_default_patient_category_name(db),
         ))
     elif role == UserRole.STUDENT:
         db.add(Student(
@@ -780,6 +788,179 @@ async def system_info(
         "database": "PostgreSQL 15",
         "status": "operational",
     }
+
+
+class PatientCategoryCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+    is_default: bool = False
+    sort_order: Optional[int] = None
+
+
+class PatientCategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+    sort_order: Optional[int] = None
+
+
+def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[str, int]) -> dict:
+    return {
+        "id": item.id,
+        "name": item.name,
+        "description": item.description,
+        "is_active": item.is_active,
+        "is_default": item.is_default,
+        "sort_order": item.sort_order,
+        "patient_count": usage_counts.get(item.name, 0),
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+@router.get("/patient-categories")
+async def list_patient_categories(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    categories = await ensure_patient_categories(db)
+    await db.commit()
+    usage_counts = await patient_category_usage_counts(db)
+    return [_serialize_patient_category(item, usage_counts) for item in categories]
+
+
+@router.post("/patient-categories", status_code=201)
+async def create_patient_category(
+    data: PatientCategoryCreate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    categories = await ensure_patient_categories(db)
+    normalized_name = normalize_patient_category_name(data.name)
+    if not normalized_name:
+        raise HTTPException(status_code=400, detail="Category name is required")
+
+    existing = (
+        await db.execute(
+            select(PatientCategoryOption).where(func.lower(PatientCategoryOption.name) == normalized_name.casefold())
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail="Category name already exists")
+
+    if data.is_default:
+        await db.execute(text("UPDATE patient_category_options SET is_default = FALSE"))
+
+    item = PatientCategoryOption(
+        id=_uid(),
+        name=normalized_name,
+        description=(data.description or "").strip() or None,
+        is_active=data.is_active,
+        is_default=data.is_default,
+        sort_order=data.sort_order if data.sort_order is not None else len(categories),
+    )
+    db.add(item)
+    await db.commit()
+    usage_counts = await patient_category_usage_counts(db)
+    return _serialize_patient_category(item, usage_counts)
+
+
+@router.patch("/patient-categories/{category_id}")
+async def update_patient_category(
+    category_id: str,
+    data: PatientCategoryUpdate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    item = (
+        await db.execute(select(PatientCategoryOption).where(PatientCategoryOption.id == category_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Patient category not found")
+
+    if data.name is not None:
+        normalized_name = normalize_patient_category_name(data.name)
+        if not normalized_name:
+            raise HTTPException(status_code=400, detail="Category name is required")
+
+        existing = (
+            await db.execute(
+                select(PatientCategoryOption)
+                .where(func.lower(PatientCategoryOption.name) == normalized_name.casefold())
+                .where(PatientCategoryOption.id != item.id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=400, detail="Category name already exists")
+
+        await db.execute(
+            text("UPDATE patients SET category = :new_name WHERE category = :old_name"),
+            {"new_name": normalized_name, "old_name": item.name},
+        )
+        item.name = normalized_name
+
+    if data.description is not None:
+        item.description = data.description.strip() or None
+    if data.is_active is not None:
+        item.is_active = data.is_active
+    if data.sort_order is not None:
+        item.sort_order = data.sort_order
+    if data.is_default is True:
+        await db.execute(text("UPDATE patient_category_options SET is_default = FALSE"))
+        item.is_default = True
+    elif data.is_default is False and item.is_default:
+        replacement = (
+            await db.execute(
+                select(PatientCategoryOption)
+                .where(PatientCategoryOption.id != item.id)
+                .where(PatientCategoryOption.is_active == True)
+                .order_by(PatientCategoryOption.sort_order.asc(), PatientCategoryOption.created_at.asc())
+            )
+        ).scalars().first()
+        if not replacement:
+            raise HTTPException(status_code=400, detail="At least one active default category is required")
+        replacement.is_default = True
+        item.is_default = False
+
+    await db.commit()
+    usage_counts = await patient_category_usage_counts(db)
+    return _serialize_patient_category(item, usage_counts)
+
+
+@router.delete("/patient-categories/{category_id}")
+async def delete_patient_category(
+    category_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    item = (
+        await db.execute(select(PatientCategoryOption).where(PatientCategoryOption.id == category_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Patient category not found")
+
+    usage_count = (
+        await db.execute(select(func.count(Patient.id)).where(Patient.category == item.name))
+    ).scalar() or 0
+    if usage_count:
+        raise HTTPException(status_code=409, detail="Cannot delete a category that is already assigned to patients")
+
+    if item.is_default:
+        replacement = (
+            await db.execute(
+                select(PatientCategoryOption)
+                .where(PatientCategoryOption.id != item.id)
+                .where(PatientCategoryOption.is_active == True)
+                .order_by(PatientCategoryOption.sort_order.asc(), PatientCategoryOption.created_at.asc())
+            )
+        ).scalars().first()
+        if replacement:
+            replacement.is_default = True
+
+    await db.delete(item)
+    await db.commit()
+    return {"message": f"Patient category '{item.name}' deleted"}
 
 
 # ── Vital Parameters Management ──────────────────────────────────────

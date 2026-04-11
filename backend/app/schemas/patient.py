@@ -10,13 +10,6 @@ class Gender(str, Enum):
     OTHER = "OTHER"
 
 
-class PatientCategory(str, Enum):
-    GENERAL = "GENERAL"
-    ELITE = "ELITE"
-    VIP = "VIP"
-    STAFF = "STAFF"
-
-
 class EmergencyContactResponse(BaseModel):
     id: str
     name: str
@@ -71,7 +64,7 @@ class PatientResponse(BaseModel):
     phone: str
     email: Optional[str] = None
     photo: Optional[str] = None
-    category: PatientCategory
+    category: str
 
     model_config = {"from_attributes": True}
 

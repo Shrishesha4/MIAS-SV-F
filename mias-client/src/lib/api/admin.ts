@@ -85,23 +85,42 @@ export interface Programme {
 
 export type AIProviderType = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'OPENAI_COMPATIBLE';
 
-export interface AIProviderConfig {
+export interface PatientCategoryConfig {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  is_default: boolean;
+  sort_order: number;
+  patient_count: number;
+  created_at: string | null;
+}
+
+export interface AIProviderConfigRow {
+  id: string;
+  display_name: string;
   provider: AIProviderType;
   model: string;
   base_url: string | null;
   system_prompt: string | null;
   temperature: number;
+  batch_size: number;
   is_enabled: boolean;
   has_api_key: boolean;
   masked_api_key: string | null;
   last_tested_at: string | null;
   last_test_status: string | null;
   last_error: string | null;
+}
+
+export interface AIProviderConfigResponse {
+  items: AIProviderConfigRow[];
   provider_defaults: Record<string, string>;
 }
 
 export interface AIProviderTestResult {
   message: string;
+  id: string;
   provider: AIProviderType;
   model: string;
   preview: {
@@ -260,26 +279,85 @@ export const adminApi = {
     return r.data;
   },
 
-  async getAIProviderConfig(): Promise<AIProviderConfig> {
+  async getPatientCategories(): Promise<PatientCategoryConfig[]> {
+    const r = await client.get('/admin/patient-categories');
+    return r.data;
+  },
+
+  async createPatientCategory(data: {
+    name: string;
+    description?: string;
+    is_active?: boolean;
+    is_default?: boolean;
+    sort_order?: number;
+  }): Promise<PatientCategoryConfig> {
+    const r = await client.post('/admin/patient-categories', data);
+    return r.data;
+  },
+
+  async updatePatientCategory(categoryId: string, data: Partial<{
+    name: string;
+    description: string;
+    is_active: boolean;
+    is_default: boolean;
+    sort_order: number;
+  }>): Promise<PatientCategoryConfig> {
+    const r = await client.patch(`/admin/patient-categories/${categoryId}`, data);
+    return r.data;
+  },
+
+  async deletePatientCategory(categoryId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/patient-categories/${categoryId}`);
+    return r.data;
+  },
+
+  async getAIProviderConfigs(): Promise<AIProviderConfigResponse> {
     const r = await client.get('/admin/ai-provider');
     return r.data;
   },
 
-  async updateAIProviderConfig(data: {
-    provider: AIProviderType;
-    model: string;
+  async createAIProviderConfig(data: {
+    display_name?: string;
+    provider?: AIProviderType;
+    model?: string;
     api_key?: string;
     base_url?: string;
     system_prompt?: string;
-    temperature: number;
-    is_enabled: boolean;
-  }): Promise<AIProviderConfig & { message: string }> {
-    const r = await client.put('/admin/ai-provider', data);
+    temperature?: number;
+    batch_size?: number;
+    is_enabled?: boolean;
+  }): Promise<AIProviderConfigRow & { message: string }> {
+    const r = await client.post('/admin/ai-provider', data);
     return r.data;
   },
 
-  async testAIProviderConnection(): Promise<AIProviderTestResult> {
-    const r = await client.post('/admin/ai-provider/test');
+  async updateAIProviderConfig(configId: string, data: Partial<{
+    display_name: string;
+    provider: AIProviderType;
+    model: string;
+    api_key: string;
+    base_url: string;
+    system_prompt: string;
+    temperature: number;
+    batch_size: number;
+    is_enabled: boolean;
+  }>): Promise<AIProviderConfigRow & { message: string }> {
+    const r = await client.patch(`/admin/ai-provider/${configId}`, data);
+    return r.data;
+  },
+
+  async activateAIProviderConfig(configId: string): Promise<AIProviderConfigRow & { message: string }> {
+    const r = await client.post(`/admin/ai-provider/${configId}/activate`);
+    return r.data;
+  },
+
+  async deleteAIProviderConfig(configId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/ai-provider/${configId}`);
+    return r.data;
+  },
+
+  async testAIProviderConnection(configId: string): Promise<AIProviderTestResult> {
+    const r = await client.post(`/admin/ai-provider/${configId}/test`);
     return r.data;
   },
 

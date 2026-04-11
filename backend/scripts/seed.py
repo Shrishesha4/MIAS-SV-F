@@ -14,7 +14,7 @@ from app.database import AsyncSessionLocal, engine
 from sqlalchemy import select
 from app.db_init import run_startup_migrations
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Gender, PatientCategory, MedicalAlert
+from app.models.patient import Patient, Gender, MedicalAlert
 from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment
 from app.models.faculty import Faculty
 from app.models.nurse import Nurse
@@ -647,7 +647,7 @@ async def seed():
                 phone=p["phone"],
                 email=p["email"],
                 address=p["address"],
-                category=PatientCategory.GENERAL,
+                category="Classic",
             ))
 
         # ── Departments ──────────────────────────────────

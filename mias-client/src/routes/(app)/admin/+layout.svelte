@@ -29,14 +29,16 @@
 	const contentSlide = { y: 20, duration: 280, opacity: 0.12, easing: cubicOut };
 
 	const scaffoldConfig = $derived.by<ScaffoldConfig>(() => {
+		if (currentPath.startsWith('/admin/system')) {
+			return { title: 'System Config', activeNav: 'system', titleIcon: BrainCircuit };
+		}
+
 		switch (currentPath) {
 			case '/admin':
 			case '/admin/clinics':
 				return { title: 'Hospital Clinics', activeNav: 'clinics', titleIcon: Building2 };
 			case '/admin/departments':
 				return { title: 'Medical Departments', activeNav: 'departments', titleIcon: Stethoscope };
-			case '/admin/ai':
-				return { title: 'AI Provider', activeNav: 'ai', titleIcon: BrainCircuit };
 			case '/admin/users':
 				return { title: 'System Administration', activeNav: 'users', titleIcon: Users };
 			case '/admin/labs':

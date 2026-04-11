@@ -15,6 +15,7 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import PatientProfile from '$lib/components/PatientProfile.svelte';
+	import { isHighlightedPatientCategory } from '$lib/utils/patient-category';
 	import {
 		HeartPulse, FileText, Pill, Activity, TestTube, Wallet,
 		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight,
@@ -313,7 +314,7 @@
 						{:else}
 							<Avatar name={patient.name} size="lg" />
 						{/if}
-						{#if patient.category === 'ELITE' || patient.category === 'VIP'}
+						{#if isHighlightedPatientCategory(patient.category)}
 							<div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center"
 								style="background: linear-gradient(to bottom, #fbbf24, #f59e0b); border: 2px solid white;">
 								<Crown class="w-2.5 h-2.5 text-white" />

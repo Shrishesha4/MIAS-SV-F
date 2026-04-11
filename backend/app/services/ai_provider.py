@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 import json
 from typing import Any
+from uuid import uuid4
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_provider import AIProviderSettings, AIProviderType
@@ -32,6 +33,13 @@ class AIProviderError(Exception):
     pass
 
 
+def _default_display_name(provider: AIProviderType, sequence: int | None = None) -> str:
+    base_name = provider.value.replace('_', ' ').title()
+    if not sequence or sequence <= 1:
+        return base_name
+    return f"{base_name} {sequence}"
+
+
 def _mask_api_key(api_key: str | None) -> str | None:
     if not api_key:
         return None
@@ -42,11 +50,14 @@ def _mask_api_key(api_key: str | None) -> str | None:
 
 def get_default_provider_config() -> dict[str, Any]:
     return {
+        "id": "",
+        "display_name": _default_display_name(AIProviderType.OPENAI),
         "provider": AIProviderType.OPENAI.value,
         "model": DEFAULT_PROVIDER_MODELS[AIProviderType.OPENAI],
         "base_url": None,
         "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "temperature": 0.2,
+        "batch_size": 10,
         "is_enabled": False,
         "has_api_key": False,
         "masked_api_key": None,
@@ -61,11 +72,14 @@ def serialize_provider_settings(config: AIProviderSettings | None) -> dict[str, 
         return get_default_provider_config()
 
     return {
+        "id": config.id,
+        "display_name": config.display_name,
         "provider": config.provider.value,
         "model": config.model,
         "base_url": config.base_url,
         "system_prompt": config.system_prompt or DEFAULT_SYSTEM_PROMPT,
         "temperature": config.temperature,
+        "batch_size": config.batch_size,
         "is_enabled": config.is_enabled,
         "has_api_key": bool(config.api_key),
         "masked_api_key": _mask_api_key(config.api_key),
@@ -75,22 +89,33 @@ def serialize_provider_settings(config: AIProviderSettings | None) -> dict[str, 
     }
 
 
-async def get_provider_settings_record(db: AsyncSession) -> AIProviderSettings | None:
-    result = await db.execute(select(AIProviderSettings).where(AIProviderSettings.id == "default"))
+async def list_provider_settings(db: AsyncSession) -> list[AIProviderSettings]:
+    result = await db.execute(
+        select(AIProviderSettings)
+        .order_by(AIProviderSettings.created_at.asc(), AIProviderSettings.display_name.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_provider_settings_record(db: AsyncSession, config_id: str) -> AIProviderSettings | None:
+    result = await db.execute(select(AIProviderSettings).where(AIProviderSettings.id == config_id))
     return result.scalar_one_or_none()
 
 
-async def get_or_create_provider_settings(db: AsyncSession) -> AIProviderSettings:
-    config = await get_provider_settings_record(db)
-    if config:
-        return config
-
+async def create_provider_settings(
+    db: AsyncSession,
+    provider: AIProviderType = AIProviderType.OPENAI,
+    display_name: str | None = None,
+) -> AIProviderSettings:
+    existing_count = len(await list_provider_settings(db))
     config = AIProviderSettings(
-        id="default",
-        provider=AIProviderType.OPENAI,
-        model=DEFAULT_PROVIDER_MODELS[AIProviderType.OPENAI],
+        id=str(uuid4()),
+        display_name=(display_name or _default_display_name(provider, existing_count + 1)).strip(),
+        provider=provider,
+        model=DEFAULT_PROVIDER_MODELS[provider],
         system_prompt=DEFAULT_SYSTEM_PROMPT,
         temperature=0.2,
+        batch_size=10,
         is_enabled=False,
     )
     db.add(config)
@@ -98,8 +123,25 @@ async def get_or_create_provider_settings(db: AsyncSession) -> AIProviderSetting
     return config
 
 
+async def set_active_provider(db: AsyncSession, config: AIProviderSettings) -> AIProviderSettings:
+    await db.execute(
+        update(AIProviderSettings)
+        .where(AIProviderSettings.id != config.id)
+        .values(is_enabled=False, updated_at=datetime.utcnow())
+    )
+    config.is_enabled = True
+    config.updated_at = datetime.utcnow()
+    await db.flush()
+    return config
+
+
 async def get_enabled_provider_settings(db: AsyncSession) -> AIProviderSettings:
-    config = await get_provider_settings_record(db)
+    result = await db.execute(
+        select(AIProviderSettings)
+        .where(AIProviderSettings.is_enabled == True)
+        .order_by(AIProviderSettings.updated_at.desc(), AIProviderSettings.created_at.desc())
+    )
+    config = result.scalars().first()
     if not config or not config.is_enabled:
         raise AIProviderError("No active AI provider is configured")
     if not config.api_key:
@@ -359,8 +401,7 @@ async def generate_case_record_draft(
     }
 
 
-async def test_provider_connection(db: AsyncSession) -> dict[str, str]:
-    config = await get_or_create_provider_settings(db)
+async def test_provider_connection(config: AIProviderSettings) -> dict[str, str]:
     if not config.api_key:
         raise AIProviderError("Save an API key before testing the provider connection")
 

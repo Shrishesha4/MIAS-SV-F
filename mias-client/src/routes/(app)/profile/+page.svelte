@@ -16,6 +16,7 @@
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import type { FormDefinition } from '$lib/types/forms';
 	import { asOptionalString, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
+	import { formatPatientCategoryLabel, isHighlightedPatientCategory } from '$lib/utils/patient-category';
 	import {
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
@@ -570,7 +571,7 @@
 			<div class="pt-20 pb-4 px-4">
 				<div class="flex items-center gap-2">
 					<h2 class="text-xl font-bold text-gray-800">{patient.name}</h2>
-					{#if patient.category === 'ELITE'}
+					{#if isHighlightedPatientCategory(patient.category)}
 						<Crown class="w-5 h-5 text-yellow-500" />
 					{/if}
 				</div>
@@ -579,7 +580,7 @@
 					<StatusBadge variant="success">
 						<BadgeCheck class="w-3 h-3 mr-1" /> Verified
 					</StatusBadge>
-					<StatusBadge variant="info">{patient.category}</StatusBadge>
+					<StatusBadge variant="info">{formatPatientCategoryLabel(patient.category)}</StatusBadge>
 				</div>
 			</div>
 		</div>

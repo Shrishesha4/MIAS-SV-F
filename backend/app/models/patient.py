@@ -14,13 +14,6 @@ class Gender(str, enum.Enum):
     OTHER = "OTHER"
 
 
-class PatientCategory(str, enum.Enum):
-    GENERAL = "GENERAL"
-    ELITE = "ELITE"
-    VIP = "VIP"
-    STAFF = "STAFF"
-
-
 class Patient(Base):
     __tablename__ = "patients"
     __table_args__ = (
@@ -46,7 +39,7 @@ class Patient(Base):
     diagnosis_doctor = Column(String, nullable=True)
     diagnosis_date = Column(String, nullable=True)
     diagnosis_time = Column(String, nullable=True)
-    category = Column(SQLEnum(PatientCategory), default=PatientCategory.GENERAL)
+    category = Column(String, nullable=False, default="Classic")
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
         DateTime,

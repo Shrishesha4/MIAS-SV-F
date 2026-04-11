@@ -20,6 +20,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
 )
+from app.services.patient_categories import get_default_patient_category_name
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -119,6 +120,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         address=request.patient_data.address or "",
         aadhaar_id=request.patient_data.aadhaar_id,
         abha_id=request.patient_data.abha_id,
+        category=await get_default_patient_category_name(db),
     )
     db.add(patient)
 

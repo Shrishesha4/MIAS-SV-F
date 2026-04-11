@@ -1,8 +1,9 @@
 from app.models.user import User, UserRole, RefreshToken
 from app.models.patient import (
-    Patient, Gender, PatientCategory, EmergencyContact,
+    Patient, Gender, EmergencyContact,
     InsurancePolicy, Allergy, MedicalAlert, Appointment
 )
+from app.models.patient_category import PatientCategoryOption
 from app.models.student import (
     Student, StudentAttendance, DisciplinaryAction,
     StudentPatientAssignment, StudentNotification, ClinicSession,
