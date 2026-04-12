@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { authApi } from '$lib/api/auth';
+	import { adminApi } from '$lib/api/admin';
 	import { insuranceCategoriesApi, type PublicInsuranceCategory, type PublicClinicInfo } from '$lib/api/insuranceCategories';
 	import {
 		Phone, ShieldCheck, Fingerprint, BadgeCheck,
@@ -12,9 +13,9 @@
 	} from 'lucide-svelte';
 
 	// ─── Step control ──────────────────────────────────────
-	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=insurance, 7=hospital, 8=payment, 9=done
+	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=insurance, 7=category?, 8=clinic, 9=payment, 10=done
 	let step = $state(1);
-	const TOTAL_STEPS = 9;
+	const TOTAL_STEPS = 10;
 	const progressPct = $derived(Math.round((step / TOTAL_STEPS) * 100));
 
 	// ─── Shared state ──────────────────────────────────────
@@ -46,17 +47,26 @@
 	let patPassword = $state('');
 	let showPassword = $state(false);
 
-	// Step 6 – insurance (fetched from API)
+	// Step 6 – insurance category (fetched from API)
 	let insuranceOptions = $state<PublicInsuranceCategory[]>([]);
 	let selectedInsuranceId = $state('');
 	let insuranceLoading = $state(true);
 
-	// Step 7 – hospital/clinic (fetched based on insurance category)
+	// Step 7 – patient category (fetched from API, conditional)
+	let patientCategoryOptions = $state<{ id: string; name: string; description: string | null; registration_fee: number }[]>([]);
+	let selectedPatientCategoryId = $state('');
+	let patientCategoryLoading = $state(true);
+	let showPatientCategoryStep = $derived.by(() => {
+		return patientCategoryOptions.length > 2;
+	});
+
+	// Step 8 – hospital/clinic (fetched based on insurance category)
 	let availableClinics = $state<PublicClinicInfo[]>([]);
 	let selectedClinicConfigId = $state('');
+	let selectedPatientType = $state(''); // Patient type selected from clinic chips
 	let clinicsLoading = $state(false);
 
-	// Step 8 – payment (dynamic based on selected clinic)
+	// Step 9 – payment (dynamic based on selected clinic)
 	let paymentDone = $state(false);
 
 	// Derived registration fee from selected clinic
@@ -72,18 +82,17 @@
 			const categories = await insuranceCategoriesApi.listPublicCategories();
 			console.log('Loaded insurance categories:', categories);
 			insuranceOptions = categories;
-			// Select default category
-			const defaultCategory = categories.find(c => c.is_default) || categories[0];
-			if (defaultCategory) {
-				selectedInsuranceId = defaultCategory.id;
+			// Select first category by default
+			if (categories.length > 0) {
+				selectedInsuranceId = categories[0].id;
 			}
 		} catch (e) {
 			console.error('Failed to load insurance categories:', e);
 			// Fallback to static options
 			insuranceOptions = [
-				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, is_default: false },
-				{ id: 'PRIVATE', name: 'Private Insurance', description: null, is_default: false },
-				{ id: 'SELF_PAY', name: 'Self Pay', description: null, is_default: true },
+				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null },
+				{ id: 'PRIVATE', name: 'Private Insurance', description: null },
+				{ id: 'SELF_PAY', name: 'Self Pay', description: null },
 			];
 			selectedInsuranceId = 'SELF_PAY';
 		} finally {
@@ -91,67 +100,112 @@
 		}
 	});
 
-	// Load clinics when insurance selection changes
-	$effect(() => {
-		if (selectedInsuranceId && step >= 6) {
-			clinicsLoading = true;
-			insuranceCategoriesApi.getCategoryClinics(selectedInsuranceId)
-				.then(clinics => {
-					console.log('Loaded clinics for insurance category:', selectedInsuranceId, clinics);
-					availableClinics = clinics;
-					// Select first clinic by default
-					if (clinics.length > 0) {
-						selectedClinicConfigId = clinics[0].config_id;
-					}
-				})
-				.catch((e) => {
-					console.error('Failed to load clinics:', e);
-					// Fallback clinics
-					availableClinics = [
-						{ 
-							config_id: 'default-1', 
-							clinic_id: 'SMCH', 
-							clinic_name: 'Saveetha Medical College Hospital', 
-							clinic_type: 'OP',
-							department: 'General Medicine',
-							location: 'Main Building',
-							walk_in_type: 'WALKIN_CLASSIC',
-							walk_in_label: 'Walkin Classic',
-							registration_fee: 100 
-						},
-						{ 
-							config_id: 'default-2', 
-							clinic_id: 'SDCH', 
-							clinic_name: 'Saveetha Dental College Hospital', 
-							clinic_type: 'OP',
-							department: 'Dental',
-							location: 'Dental Block',
-							walk_in_type: 'WALKIN_CLASSIC',
-							walk_in_label: 'Walkin Classic',
-							registration_fee: 100 
-						},
-					];
-					selectedClinicConfigId = 'default-1';
-				})
-				.finally(() => {
-					clinicsLoading = false;
-				});
+	// Load patient categories when insurance selection changes
+	async function loadPatientCategories() {
+		if (!selectedInsuranceId) return;
+		patientCategoryLoading = true;
+		try {
+			// For now, load all patient categories
+			// In future, this should be filtered by insurance category
+			const categories = await adminApi.getPublicPatientCategories();
+			console.log('Loaded patient categories:', categories);
+			patientCategoryOptions = categories;
+			// Select first category by default
+			if (categories.length > 0) {
+				selectedPatientCategoryId = categories[0].id;
+			}
+		} catch (e) {
+			console.error('Failed to load patient categories:', e);
+			patientCategoryOptions = [
+				{ id: 'CLASSIC', name: 'Classic', description: 'Standard hospital pricing', registration_fee: 100 },
+				{ id: 'PRIME', name: 'Prime', description: 'Priority services', registration_fee: 200 },
+				{ id: 'ELITE', name: 'Elite', description: 'Premium services', registration_fee: 500 },
+				{ id: 'COMMUNITY', name: 'Community', description: 'Subsidized services', registration_fee: 50 },
+			];
+			selectedPatientCategoryId = 'CLASSIC';
+		} finally {
+			patientCategoryLoading = false;
 		}
+	}
+
+	$effect(() => {
+		loadPatientCategories();
 	});
 
-	// Step 9 – result
+	// Load clinics when insurance selection changes
+	async function loadClinics() {
+		if (!selectedInsuranceId || step < 8) return;
+		clinicsLoading = true;
+		try {
+			const clinics = await insuranceCategoriesApi.getCategoryClinics(selectedInsuranceId);
+			console.log('Loaded clinics for insurance category:', selectedInsuranceId, clinics);
+			availableClinics = clinics;
+			// Select first clinic by default
+			if (clinics.length > 0) {
+				selectedClinicConfigId = clinics[0].config_id;
+			}
+		} catch (e) {
+			console.error('Failed to load clinics:', e);
+			// Fallback clinics
+			availableClinics = [
+				{ 
+					config_id: 'default-1', 
+					clinic_id: 'SMCH', 
+					clinic_name: 'Saveetha Medical College Hospital', 
+					clinic_type: 'OP',
+					department: 'General Medicine',
+					location: 'Main Building',
+					walk_in_type: 'WALKIN_CLASSIC',
+					walk_in_label: 'Walkin Classic',
+					registration_fee: 100 
+				},
+				{ 
+					config_id: 'default-2', 
+					clinic_id: 'SDCH', 
+					clinic_name: 'Saveetha Dental College Hospital', 
+					clinic_type: 'OP',
+					department: 'Dental',
+					location: 'Dental Block',
+					walk_in_type: 'WALKIN_CLASSIC',
+					walk_in_label: 'Walkin Classic',
+					registration_fee: 100 
+				},
+			];
+			selectedClinicConfigId = 'default-1';
+		} finally {
+			clinicsLoading = false;
+		}
+	}
+
+	$effect(() => {
+		loadClinics();
+	});
+
+	// Step 8 – result
 	let createdPatientId = $state('');
 	let createdUserId = $state('');
+	let allocatedClinic = $state<{ name: string; location: string } | null>(null);
 
 	// ─── Navigation helpers ────────────────────────────────
 	function next() {
 		error = '';
-		step += 1;
+		// Skip patient category step if not needed (<=2 categories)
+		if (step === 6 && !showPatientCategoryStep) {
+			step += 2; // Skip from insurance (6) to clinic (8)
+		} else {
+			step += 1;
+		}
 	}
 	function back() {
 		error = '';
-		if (step > 1) step -= 1;
-		else goto('/login');
+		// Skip patient category step if not needed (<=2 categories)
+		if (step === 8 && !showPatientCategoryStep) {
+			step -= 2; // Skip from clinic (8) to insurance (6)
+		} else if (step > 1) {
+			step -= 1;
+		} else {
+			goto('/login');
+		}
 	}
 
 	// ─── Step 1: Send OTP ──────────────────────────────────
@@ -210,12 +264,14 @@
 		next();
 	}
 
-	// ─── Step 8: Pay & Register ───────────────────────────
+	// ─── Step 9: Pay & Register ───────────────────────────
 	async function handlePayAndRegister() {
 		loading = true;
 		error = '';
 		try {
 			const username = phone.replace(/\D/g, '');
+			// Use selected patient type from chips, or fallback to selected patient category
+			const patientCategory = selectedPatientType || (patientCategoryOptions.find(c => c.id === selectedPatientCategoryId)?.name || 'Classic');
 			const data = {
 				username,
 				password: patPassword,
@@ -230,6 +286,7 @@
 					email: patEmail.trim(),
 					address: patAddress.trim(),
 					abha_id: mockAbha,
+					category: patientCategory,
 				}
 			};
 			const result = await authApi.signup(data);
@@ -237,6 +294,19 @@
 			// generate mock patient display ID
 			createdPatientId = `SMC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 			paymentDone = true;
+
+			// Set allocated clinic from registration response
+			if (result.clinic_name) {
+				allocatedClinic = {
+					name: result.clinic_name,
+					location: 'Main Building'
+				};
+			}
+
+			// Auto-login after registration
+			const loginResult = await authApi.login(username, patPassword);
+			authStore.setTokens(loginResult.access_token, loginResult.refresh_token, loginResult.user_id, loginResult.role);
+
 			next();
 		} catch (err: any) {
 			error = err?.response?.data?.detail ?? 'Registration failed. Please try again.';
@@ -245,18 +315,11 @@
 		}
 	}
 
-	// ─── Step 9: Login & go to dashboard ──────────────────
+	// ─── Step 8: Go to dashboard with clinic allocation ──────────────────
 	async function goToDashboard() {
 		loading = true;
 		try {
-			const username = phone.replace(/\D/g, '');
-			const result = await authApi.login(username, patPassword);
-			authStore.setTokens(result.access_token, result.refresh_token, result.user_id, result.role);
-			if (result.role === 'STUDENT') {
-				goto('/patients');
-			} else {
-				goto('/dashboard');
-			}
+			goto('/dashboard');
 		} catch {
 			goto('/login');
 		} finally {
@@ -291,7 +354,7 @@
 		</button>
 		<div class="flex-1">
 			<p class="text-sm font-bold text-gray-800">New Patient Registration</p>
-			{#if step > 1 && step < 9}
+			{#if step > 1 && step < 10}
 				<div class="mt-1.5">
 					<div class="flex justify-between text-[10px] text-gray-500 mb-1">
 						<span>Registration Progress</span>
@@ -651,8 +714,8 @@
 		{:else if step === 6}
 			<div class="flex flex-col px-6 py-8 gap-5">
 				<div class="text-center">
-					<h2 class="text-lg font-bold text-gray-800">Insurance & Category</h2>
-					<p class="text-sm text-gray-500 mt-1">Select your insurance type to determine your patient category.</p>
+					<h2 class="text-lg font-bold text-gray-800">Insurance Type</h2>
+					<p class="text-sm text-gray-500 mt-1">Select your insurance type to determine eligible services.</p>
 				</div>
 
 				{#if error}<p class="text-xs text-red-500 text-center -mt-2">{error}</p>{/if}
@@ -688,12 +751,65 @@
 						   border: 1px solid rgba(0,0,0,0.1);"
 					onclick={next}
 				>
-					Continue to Select Clinic <ArrowRight class="w-4 h-4" />
+					Continue <ArrowRight class="w-4 h-4" />
 				</button>
 			</div>
 
-			<!-- ────────────────────── STEP 7: SELECT HOSPITAL ────────── -->
+		<!-- ────────────────────── STEP 7: PATIENT CATEGORY ─────── -->
 		{:else if step === 7}
+			<div class="flex flex-col px-6 py-8 gap-5">
+				<div class="text-center">
+					<h2 class="text-lg font-bold text-gray-800">Patient Category</h2>
+					<p class="text-sm text-gray-500 mt-1">Select your category to determine pricing and services.</p>
+				</div>
+
+				{#if error}<p class="text-xs text-red-500 text-center -mt-2">{error}</p>{/if}
+
+				{#if patientCategoryLoading}
+					<div class="flex items-center justify-center py-8">
+						<div class="h-6 w-6 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600"></div>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-3">
+						{#each patientCategoryOptions as opt}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="flex items-center justify-between px-4 py-3.5 rounded-xl cursor-pointer transition-all"
+								style="border: 2px solid {selectedPatientCategoryId === opt.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
+									   background: {selectedPatientCategoryId === opt.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
+								onclick={() => selectedPatientCategoryId = opt.id}
+							>
+								<div class="flex-1">
+									<span class="text-sm font-semibold {selectedPatientCategoryId === opt.id ? 'text-blue-700' : 'text-gray-600'}">{opt.name}</span>
+									{#if opt.description}
+										<p class="text-xs text-gray-500 mt-0.5">{opt.description}</p>
+									{/if}
+								</div>
+								<div class="text-right">
+									<span class="text-sm font-bold {selectedPatientCategoryId === opt.id ? 'text-blue-700' : 'text-gray-800'}">₹{opt.registration_fee}</span>
+									{#if selectedPatientCategoryId === opt.id}
+										<CheckCircle2 class="w-5 h-5 text-blue-600 mt-1 ml-2" />
+									{/if}
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<button
+					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
+					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
+						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
+						   border: 1px solid rgba(0,0,0,0.1);"
+					onclick={next}
+				>
+					Continue <ArrowRight class="w-4 h-4" />
+				</button>
+			</div>
+
+		<!-- ────────────────────── STEP 8: SELECT CLINIC ────────── -->
+		{:else if step === 8}
 			<div class="flex flex-col px-6 py-8 gap-5">
 				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Select Clinic</div>
 
@@ -704,31 +820,50 @@
 						<div class="h-6 w-6 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600"></div>
 					</div>
 				{:else}
-					<div class="flex flex-col gap-3">
+					<div class="flex flex-col gap-4">
 						{#each availableClinics as c}
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
-								class="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all"
+								class="p-4 rounded-xl cursor-pointer transition-all"
 								style="border: 2px solid {selectedClinicConfigId === c.config_id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
 									   background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
 								onclick={() => selectedClinicConfigId = c.config_id}
 							>
-								<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-									 style="background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
-									 		border: 1px solid rgba(0,0,0,0.08);">
-									<Building2 class="w-5 h-5 {selectedClinicConfigId === c.config_id ? 'text-white' : 'text-gray-500'}" />
-								</div>
-								<div class="flex-1 min-w-0">
-									<p class="text-sm font-semibold {selectedClinicConfigId === c.config_id ? 'text-blue-700' : 'text-gray-700'}">{c.clinic_name}</p>
-									<p class="text-xs text-gray-500 mt-0.5">{c.walk_in_label} • ₹{c.registration_fee}</p>
-									{#if c.department}
-										<p class="text-xs text-gray-400">{c.department}</p>
+								<div class="flex items-start gap-4">
+									<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1"
+										 style="background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
+										 		border: 1px solid rgba(0,0,0,0.08);">
+										<Building2 class="w-5 h-5 {selectedClinicConfigId === c.config_id ? 'text-white' : 'text-gray-500'}" />
+									</div>
+									<div class="flex-1 min-w-0">
+										<p class="text-sm font-semibold {selectedClinicConfigId === c.config_id ? 'text-blue-700' : 'text-gray-700'}">{c.clinic_name}</p>
+										<p class="text-xs text-gray-500 mt-0.5">{c.walk_in_label} • ₹{c.registration_fee}</p>
+										{#if c.department}
+											<p class="text-xs text-gray-400">{c.department}</p>
+										{/if}
+										{#if c.location}
+											<p class="text-xs text-gray-400">{c.location}</p>
+										{/if}
+									</div>
+									{#if selectedClinicConfigId === c.config_id}
+										<CheckCircle2 class="w-5 h-5 text-blue-600 shrink-0" />
 									{/if}
 								</div>
-								{#if selectedClinicConfigId === c.config_id}
-									<CheckCircle2 class="w-5 h-5 text-blue-600 shrink-0" />
-								{/if}
+								<!-- Patient type chips -->
+								<div class="flex flex-wrap gap-2 mt-3">
+									{#each ['Classic', 'Prime', 'Elite', 'Community'] as type}
+										<div
+											class="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
+											style="background: {selectedPatientType === type ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
+												   color: {selectedPatientType === type ? 'white' : '#64748b'};
+												   border: 1px solid {selectedPatientType === type ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'};"
+											onclick={() => selectedPatientType = type}
+										>
+											{type}
+										</div>
+									{/each}
+								</div>
 							</div>
 						{/each}
 					</div>
@@ -745,8 +880,8 @@
 				</button>
 			</div>
 
-		<!-- ────────────────────── STEP 8: PAYMENT ─────────────── -->
-		{:else if step === 8}
+		<!-- ────────────────────── STEP 9: PAYMENT ─────────────── -->
+		{:else if step === 9}
 			<div class="flex flex-col items-center px-6 py-8 gap-5">
 				<div class="w-16 h-16 rounded-full flex items-center justify-center"
 					 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
@@ -790,8 +925,8 @@
 				</button>
 			</div>
 
-		<!-- ────────────────────── STEP 9: COMPLETE ────────────── -->
-		{:else if step === 9}
+		<!-- ────────────────────── STEP 10: COMPLETE ────────────── -->
+		{:else if step === 10}
 			<div class="flex flex-col items-center px-6 py-10 gap-5">
 				<div class="w-20 h-20 rounded-full flex items-center justify-center"
 					 style="background: linear-gradient(to bottom, #e6f9ef, #c8f0da);">
@@ -800,7 +935,7 @@
 
 				<div class="text-center">
 					<h2 class="text-xl font-bold text-gray-800">Registration Complete!</h2>
-					<p class="text-sm text-gray-500 mt-1.5">Your hospital registration is successful. You can now access your patient dashboard.</p>
+					<p class="text-sm text-gray-500 mt-1.5">Your hospital registration is successful.</p>
 				</div>
 
 				<div class="w-full rounded-xl px-5 py-4 text-center"
@@ -822,12 +957,42 @@
 						<span class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin"></span>
 						Loading...
 					{:else}
-						Go to My Dashboard <ChevronRight class="w-4 h-4" />
+						Proceed to Dashboard <ChevronRight class="w-4 h-4" />
 					{/if}
 				</button>
 			</div>
 		{/if}
 	</div>
+
+	<!-- Fullscreen Clinic Allocation Notification -->
+	{#if allocatedClinic}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+			<div class="bg-white rounded-2xl p-8 max-w-md mx-4 text-center shadow-2xl">
+				<div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+					 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
+					<Building2 class="w-8 h-8 text-blue-600" />
+				</div>
+				<h2 class="text-2xl font-bold text-gray-800 mb-2">Clinic Allocated!</h2>
+				<p class="text-gray-600 mb-6">You have been assigned to the following clinic:</p>
+				<div class="rounded-xl p-4 mb-6"
+					 style="background: linear-gradient(to bottom, #eef4ff, #e0eaff);
+							border: 1.5px solid #93b8f5;">
+					<p class="text-lg font-bold text-blue-800">{allocatedClinic?.name || ''}</p>
+					<p class="text-sm text-gray-600 mt-1">{allocatedClinic?.location || ''}</p>
+				</div>
+				<p class="text-sm text-gray-500 mb-6">Please proceed to your allotted clinic for consultation.</p>
+				<button
+					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
+					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
+						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
+						   border: 1px solid rgba(0,0,0,0.1);"
+					onclick={() => allocatedClinic = null}
+				>
+					I Understand <CheckCircle2 class="w-4 h-4" />
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	<!-- Bottom hint for first step -->
 	{#if step === 1}

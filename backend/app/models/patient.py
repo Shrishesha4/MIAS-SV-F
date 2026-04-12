@@ -25,6 +25,7 @@ class Patient(Base):
     id = Column(String, primary_key=True)
     patient_id = Column(String, unique=True, nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=True, index=True)
     name = Column(String, nullable=False)
     date_of_birth = Column(Date, nullable=False)
     gender = Column(SQLEnum(Gender), nullable=False)

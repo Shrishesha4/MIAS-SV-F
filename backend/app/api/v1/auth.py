@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import datetime, date
 import uuid
 
@@ -9,6 +9,8 @@ from app.models.user import User, UserRole
 from app.models.patient import Patient, EmergencyContact, Gender
 from app.models.department import Department
 from app.models.programme import Programme
+from app.models.student import Clinic
+from app.models.insurance_category import InsuranceClinicConfig
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -59,6 +61,33 @@ def generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
+async def allocate_clinic_sequentially(db: AsyncSession, patient_category: str) -> str:
+    """Allocate a clinic to a patient sequentially based on current load."""
+    # Get all active clinics
+    clinics_result = await db.execute(
+        select(Clinic).where(Clinic.is_active == True)
+    )
+    clinics = clinics_result.scalars().all()
+    
+    if not clinics:
+        return None  # No clinics available
+    
+    # Count patients per clinic for the given category
+    clinic_counts = {}
+    for clinic in clinics:
+        count_result = await db.execute(
+            select(func.count(Patient.id))
+            .where(Patient.clinic_id == clinic.id)
+            .where(Patient.category == patient_category)
+        )
+        clinic_counts[clinic.id] = count_result.scalar() or 0
+    
+    # Allocate to clinic with fewest patients in this category
+    allocated_clinic_id = min(clinic_counts, key=clinic_counts.get)
+    
+    return allocated_clinic_id
+
+
 @router.post("/register", response_model=RegisterResponse)
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if request.role != request.role.PATIENT:
@@ -107,10 +136,17 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 
     patient_id = str(uuid.uuid4())
     dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
+    # Use provided category or default to first active category
+    patient_category = request.patient_data.category if request.patient_data.category else await get_default_patient_category_name(db)
+    
+    # Sequential clinic allocation based on patient category
+    allocated_clinic_id = await allocate_clinic_sequentially(db, patient_category)
+    
     patient = Patient(
         id=patient_id,
         patient_id=generate_patient_id(),
         user_id=user_id,
+        clinic_id=allocated_clinic_id,
         name=request.patient_data.name,
         date_of_birth=dob,
         gender=Gender(request.patient_data.gender),
@@ -120,7 +156,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         address=request.patient_data.address or "",
         aadhaar_id=request.patient_data.aadhaar_id,
         abha_id=request.patient_data.abha_id,
-        category=await get_default_patient_category_name(db),
+        category=patient_category,
     )
     db.add(patient)
 
@@ -137,9 +173,21 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     
     await db.commit()
     
+    # Get clinic name if allocated
+    clinic_name = None
+    if allocated_clinic_id:
+        clinic_result = await db.execute(
+            select(Clinic).where(Clinic.id == allocated_clinic_id)
+        )
+        clinic = clinic_result.scalar_one_or_none()
+        if clinic:
+            clinic_name = clinic.name
+    
     return RegisterResponse(
         message="Registration successful",
         user_id=user_id,
+        clinic_id=allocated_clinic_id,
+        clinic_name=clinic_name,
     )
 
 

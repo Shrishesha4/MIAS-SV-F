@@ -14,6 +14,7 @@ class PatientCategoryOption(Base):
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
+    registration_fee = Column(Integer, nullable=False, default=100)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
         DateTime,

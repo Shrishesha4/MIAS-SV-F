@@ -1035,8 +1035,9 @@ async def system_info(
 class PatientCategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    is_active: bool = True
+    is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    registration_fee: Optional[int] = None
 
 
 class PatientCategoryUpdate(BaseModel):
@@ -1044,6 +1045,7 @@ class PatientCategoryUpdate(BaseModel):
     description: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
+    registration_fee: Optional[int] = None
 
 
 def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[str, int]) -> dict:
@@ -1053,6 +1055,7 @@ def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[
         "description": item.description,
         "is_active": item.is_active,
         "sort_order": item.sort_order,
+        "registration_fee": item.registration_fee,
         "patient_count": usage_counts.get(item.name, 0),
         "created_at": item.created_at.isoformat() if item.created_at else None,
     }
@@ -1067,6 +1070,25 @@ async def list_patient_categories(
     await db.commit()
     usage_counts = await patient_category_usage_counts(db)
     return [_serialize_patient_category(item, usage_counts) for item in categories]
+
+
+@router.get("/patient-categories/public")
+async def list_public_patient_categories(
+    db: AsyncSession = Depends(get_db),
+):
+    """List active patient categories with pricing for public registration (no auth required)."""
+    categories = await ensure_patient_categories(db)
+    await db.commit()
+    return [
+        {
+            "id": cat.id,
+            "name": cat.name,
+            "description": cat.description,
+            "registration_fee": cat.registration_fee,
+        }
+        for cat in categories
+        if cat.is_active
+    ]
 
 
 @router.post("/patient-categories", status_code=201)
@@ -1094,6 +1116,7 @@ async def create_patient_category(
         description=(data.description or "").strip() or None,
         is_active=data.is_active,
         sort_order=data.sort_order if data.sort_order is not None else len(categories),
+        registration_fee=data.registration_fee if data.registration_fee is not None else 100,
     )
     db.add(item)
     await db.flush()
@@ -1148,6 +1171,8 @@ async def update_patient_category(
         item.is_active = data.is_active
     if data.sort_order is not None:
         item.sort_order = data.sort_order
+    if data.registration_fee is not None:
+        item.registration_fee = data.registration_fee
 
     await sync_charge_price_categories(db)
     await db.commit()

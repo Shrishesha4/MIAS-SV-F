@@ -91,6 +91,7 @@ export interface PatientCategoryConfig {
   description: string | null;
   is_active: boolean;
   sort_order: number;
+  registration_fee: number;
   patient_count: number;
   created_at: string | null;
 }
@@ -322,6 +323,11 @@ export const adminApi = {
 
   async getPatientCategories(): Promise<PatientCategoryConfig[]> {
     const r = await client.get('/admin/patient-categories');
+    return r.data;
+  },
+
+  async getPublicPatientCategories(): Promise<{ id: string; name: string; description: string | null; registration_fee: number }[]> {
+    const r = await client.get('/admin/patient-categories/public');
     return r.data;
   },
 

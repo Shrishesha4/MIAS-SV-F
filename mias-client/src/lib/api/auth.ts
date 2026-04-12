@@ -16,6 +16,7 @@ export interface RegisterData {
     address?: string;
     aadhaar_id?: string;
     abha_id?: string;
+    category?: string;
     emergency_contact?: {
       name: string;
       phone: string;
@@ -30,7 +31,7 @@ export const authApi = {
     return response.data;
   },
 
-  async signup(data: RegisterData): Promise<{ message: string; user_id: string }> {
+  async signup(data: RegisterData): Promise<{ message: string; user_id: string; clinic_id?: string; clinic_name?: string }> {
     const response = await client.post('/auth/register', data);
     return response.data;
   },

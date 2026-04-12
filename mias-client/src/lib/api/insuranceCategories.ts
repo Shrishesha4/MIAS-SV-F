@@ -57,7 +57,6 @@ export interface PublicInsuranceCategory {
   id: string;
   name: string;
   description: string | null;
-  is_default: boolean;
 }
 
 export interface PublicClinicInfo {
