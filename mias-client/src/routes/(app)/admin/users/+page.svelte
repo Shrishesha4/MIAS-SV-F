@@ -16,8 +16,9 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
 		Search, Shield, ShieldOff, Trash2,
-		ChevronRight, Plus, User
+		ChevronRight, Plus, User, Download, Upload, CheckCircle, XCircle
 	} from 'lucide-svelte';
+	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
 	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE';
@@ -107,6 +108,13 @@
 	let confirmMessage = $state('');
 	let actionLoading = $state(false);
 
+	// Bulk import
+	let bulkImportModal = $state(false);
+	let bulkImportFile = $state<File | null>(null);
+	let bulkImporting = $state(false);
+	let bulkImportResult = $state<BulkImportResponse | null>(null);
+	let bulkFileInput: HTMLInputElement | undefined = $state();
+
 	// Create user modal
 	let createUserModal = $state(false);
 	let newUserRole = $state<CreateUserRole>('NURSE');
@@ -153,6 +161,65 @@
 		const next = createEmptyUserData();
 		next.category = defaultPatientCategoryName();
 		newUserData = next;
+	}
+
+	function downloadSampleCSV() {
+		const headers = [
+			'role', 'name', 'username', 'email', 'password',
+			'date_of_birth', 'gender', 'blood_group', 'phone', 'address', 'category', 'aadhaar_id', 'abha_id', 'primary_diagnosis',
+			'year', 'semester', 'program', 'degree', 'gpa', 'academic_standing', 'academic_advisor',
+			'department', 'specialty', 'availability',
+			'hospital', 'ward', 'shift'
+		];
+		const examples = [
+			['NURSE', 'Jane Smith', 'jsmith', 'jane@example.com', 'Pass@1234', '', '', '', '9876543210', '', '', '', '', '', '', '', '', '', '', '', '', 'Cardiology', '', '', 'Main Hospital', 'Ward A', 'Morning'],
+			['PATIENT', 'Ravi Kumar', 'ravi_k', 'ravi@example.com', 'Pass@1234', '1995-06-15', 'MALE', 'O+', '9123456789', '12 MG Road', 'STAFF', '123456789012', '', 'Hypertension', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+			['STUDENT', 'Priya Nair', 'priya_n', 'priya@example.com', 'Pass@1234', '', '', '', '', '', '', '', '', '', '2', '3', 'MBBS', 'Bachelor of Medicine', '7.8', 'Good Standing', 'Dr. Mehta', '', '', '', '', '', ''],
+			['FACULTY', 'Dr. Arjun Rao', 'arjun_r', 'arjun@example.com', 'Pass@1234', '', '', '', '9988776655', '', '', '', '', '', '', '', '', '', '', '', '', 'Neurology', 'Neurologist', 'Mon-Fri 9-5', '', '', ''],
+		];
+		const csvContent = [headers, ...examples].map((r) => r.join(',')).join('\n');
+		const blob = new Blob([csvContent], { type: 'text/csv' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'bulk_users_sample.csv';
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
+	function openBulkImportModal() {
+		bulkImportFile = null;
+		bulkImportResult = null;
+		bulkImportModal = true;
+	}
+
+	function onBulkFileChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		bulkImportFile = input.files?.[0] ?? null;
+	}
+
+	async function runBulkImport() {
+		if (!bulkImportFile) {
+			toastStore.addToast('Please select a CSV or Excel file', 'error');
+			return;
+		}
+		bulkImporting = true;
+		bulkImportResult = null;
+		try {
+			const result = await adminApi.bulkImportUsers(bulkImportFile);
+			bulkImportResult = result;
+			if (result.created > 0) {
+				toastStore.addToast(`${result.created} user(s) imported successfully`, 'success');
+				await loadUsers();
+			}
+			if (result.failed > 0) {
+				toastStore.addToast(`${result.failed} row(s) failed — see results below`, 'error');
+			}
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Bulk import failed', 'error');
+		} finally {
+			bulkImporting = false;
+		}
 	}
 
 	function openCreateUserModal() {
@@ -383,34 +450,54 @@
 	}
 </script>
 
-	<div class="space-y-3">
-		<div class="flex items-center justify-between gap-2">
-			<div>
-				<h2 class="text-xs font-bold uppercase tracking-[0.16em] text-slate-600">User Management</h2>
-				<p class="mt-0.5 text-[11px] text-slate-500">{total} total users</p>
-			</div>
+<div class="space-y-3">
+	<div class="flex items-center justify-between gap-2">
+		<div>
+			<h2 class="text-xs font-bold uppercase tracking-[0.16em] text-slate-600">User Management</h2>
+			<p class="mt-0.5 text-[11px] text-slate-500">{total} total users</p>
+		</div>
+		<div class="flex gap-1.5">
+			<button
+				onclick={downloadSampleCSV}
+				title="Download sample CSV"
+				class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+			>
+				<Download class="w-3.5 h-3.5" />
+				Sample
+			</button>
+			<button
+				onclick={openBulkImportModal}
+				title="Bulk import users from CSV/Excel"
+				class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer shadow-sm text-white"
+				style="background: linear-gradient(to bottom, #10b981, #059669);"
+			>
+				<Upload class="w-3.5 h-3.5" />
+				Import
+			</button>
 			<button
 				onclick={openCreateUserModal}
-				class="px-3 py-1.5 rounded-xl text-xs font-semibold text-white cursor-pointer shadow-md"
+				class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-white cursor-pointer shadow-md"
 				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
 			>
+				<Plus class="w-3.5 h-3.5" />
 				Add New
 			</button>
 		</div>
+	</div>
 
-		<div class="relative">
-			<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-			<input
-				type="text"
-				placeholder="Search by username or email..."
-				bind:value={searchQuery}
-				onkeydown={(e) => e.key === 'Enter' && handleSearch()}
-				class="w-full pl-9 pr-3 py-2 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
-				style="background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
-			/>
-		</div>
+	<div class="relative">
+		<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+		<input
+			type="text"
+			placeholder="Search by username or email..."
+			bind:value={searchQuery}
+			onkeydown={(e) => e.key === 'Enter' && handleSearch()}
+			class="w-full pl-9 pr-3 py-2 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+			style="background: white; box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+		/>
+	</div>
 
-		<div class="flex gap-1.5 overflow-x-auto pb-1">
+	<div class="flex gap-1.5 overflow-x-auto pb-1">
 			{#each roleTabs as tab}
 				<button
 					class="shrink-0 px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap cursor-pointer transition-all"
@@ -764,6 +851,95 @@
 					onclick={createUser}
 				>
 					{creatingUser ? 'Creating...' : 'Create User'}
+				</AquaButton>
+			</div>
+		</div>
+	</AquaModal>
+{/if}
+
+<!-- Bulk Import Modal -->
+{#if bulkImportModal}
+	<AquaModal title="Bulk Import Users" onclose={() => { bulkImportModal = false; }}>
+		<div class="p-4 space-y-4">
+			<div class="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700 space-y-1">
+				<p class="font-semibold">Accepted formats: CSV (.csv) or Excel (.xlsx)</p>
+				<p>Required columns: <code class="font-mono bg-blue-100 px-1 rounded">role, name, username, email, password</code></p>
+				<p>Role-specific columns are also supported. Download the sample file for reference.</p>
+			</div>
+
+			<div
+				class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/30 transition-colors"
+				onclick={() => bulkFileInput?.click()}
+				onkeydown={(e) => e.key === 'Enter' && bulkFileInput?.click()}
+				role="button"
+				tabindex="0"
+			>
+				<Upload class="w-7 h-7 mx-auto mb-2 text-gray-400" />
+				{#if bulkImportFile}
+					<p class="text-sm font-semibold text-gray-700">{bulkImportFile.name}</p>
+					<p class="text-xs text-gray-400 mt-0.5">{(bulkImportFile.size / 1024).toFixed(1)} KB — click to change</p>
+				{:else}
+					<p class="text-sm text-gray-500">Click to select a CSV or Excel file</p>
+				{/if}
+				<input
+					bind:this={bulkFileInput}
+					type="file"
+					accept=".csv,.xlsx,.xls"
+					class="hidden"
+					onchange={onBulkFileChange}
+				/>
+			</div>
+
+			{#if bulkImportResult}
+				<div class="space-y-2">
+					<div class="flex gap-3">
+						<div class="flex-1 rounded-xl bg-green-50 border border-green-200 p-2.5 text-center">
+							<p class="text-lg font-bold text-green-700">{bulkImportResult.created}</p>
+							<p class="text-[10px] text-green-600 uppercase tracking-wide font-medium">Created</p>
+						</div>
+						<div class="flex-1 rounded-xl bg-red-50 border border-red-200 p-2.5 text-center">
+							<p class="text-lg font-bold text-red-700">{bulkImportResult.failed}</p>
+							<p class="text-[10px] text-red-600 uppercase tracking-wide font-medium">Failed</p>
+						</div>
+						<div class="flex-1 rounded-xl bg-gray-50 border border-gray-200 p-2.5 text-center">
+							<p class="text-lg font-bold text-gray-700">{bulkImportResult.total}</p>
+							<p class="text-[10px] text-gray-500 uppercase tracking-wide font-medium">Total</p>
+						</div>
+					</div>
+
+					{#if bulkImportResult.results.length > 0}
+						<div class="max-h-48 overflow-y-auto space-y-1 rounded-xl border border-gray-100 p-2">
+							{#each bulkImportResult.results as r}
+								<div class="flex items-start gap-2 text-xs py-1 border-b border-gray-50 last:border-0">
+									{#if r.status === 'created'}
+										<CheckCircle class="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
+									{:else}
+										<XCircle class="w-3.5 h-3.5 text-red-500 shrink-0 mt-0.5" />
+									{/if}
+									<div class="flex-1 min-w-0">
+										<span class="font-medium text-gray-700">Row {r.row} — {r.username}</span>
+										{#if r.error}
+											<span class="text-red-500 ml-1">({r.error})</span>
+										{/if}
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="flex gap-2 pt-1">
+				<AquaButton variant="secondary" fullWidth onclick={() => { bulkImportModal = false; }}>
+					Close
+				</AquaButton>
+				<AquaButton
+					variant="primary"
+					fullWidth
+					disabled={bulkImporting || !bulkImportFile}
+					onclick={runBulkImport}
+				>
+					{bulkImporting ? 'Importing...' : 'Import Users'}
 				</AquaButton>
 			</div>
 		</div>

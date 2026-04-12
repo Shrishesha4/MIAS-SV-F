@@ -153,6 +153,7 @@ class Clinic(Base):
     sessions = relationship("ClinicSession", back_populates="clinic")
     appointments = relationship("ClinicAppointment", back_populates="clinic")
     faculty_sessions = relationship("FacultyClinicSession", back_populates="clinic")
+    insurance_configs = relationship("InsuranceClinicConfig", back_populates="clinic", cascade="all, delete-orphan")
 
 
 class ClinicAppointment(Base):

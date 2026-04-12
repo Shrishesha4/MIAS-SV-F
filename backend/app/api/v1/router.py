@@ -21,6 +21,7 @@ from app.api.v1 import (
     labs,
     forms,
     staff,
+    insurance_categories,
 )
 
 api_router = APIRouter()
@@ -46,3 +47,4 @@ api_router.include_router(labs.router)
 api_router.include_router(labs.charge_router)
 api_router.include_router(forms.router)
 api_router.include_router(staff.router)
+api_router.include_router(insurance_categories.router)

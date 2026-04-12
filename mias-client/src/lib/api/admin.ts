@@ -189,6 +189,20 @@ export interface AdminCreateUserPayload {
 
 // ── API ──────────────────────────────────────────────────────────────
 
+export interface BulkImportRowResult {
+  row: number;
+  username: string;
+  status: 'created' | 'failed';
+  error?: string;
+}
+
+export interface BulkImportResponse {
+  created: number;
+  failed: number;
+  total: number;
+  results: BulkImportRowResult[];
+}
+
 export const adminApi = {
   // Dashboard
   async getDashboard(): Promise<AdminDashboard> {
@@ -225,6 +239,15 @@ export const adminApi = {
 
   async createUser(data: AdminCreateUserPayload) {
     const r = await client.post('/admin/users', data);
+    return r.data;
+  },
+
+  async bulkImportUsers(file: File): Promise<BulkImportResponse> {
+    const form = new FormData();
+    form.append('file', file);
+    const r = await client.post('/admin/users/bulk-import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return r.data;
   },
 

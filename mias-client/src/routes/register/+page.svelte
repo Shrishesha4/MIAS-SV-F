@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { authApi } from '$lib/api/auth';
+	import { insuranceCategoriesApi, type PublicInsuranceCategory, type PublicClinicInfo } from '$lib/api/insuranceCategories';
 	import {
 		Phone, ShieldCheck, Fingerprint, BadgeCheck,
 		User, Building2, Heart, CreditCard, CircleCheck,
@@ -10,7 +12,7 @@
 	} from 'lucide-svelte';
 
 	// ─── Step control ──────────────────────────────────────
-	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=hospital, 7=insurance, 8=payment, 9=done
+	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=insurance, 7=hospital, 8=payment, 9=done
 	let step = $state(1);
 	const TOTAL_STEPS = 9;
 	const progressPct = $derived(Math.round((step / TOTAL_STEPS) * 100));
@@ -44,24 +46,94 @@
 	let patPassword = $state('');
 	let showPassword = $state(false);
 
-	// Step 6 – hospital/clinic
-	const hospitals = [
-		{ id: 'SMCH', name: 'Saveetha Medical College Hospital', icon: 'hospital' },
-		{ id: 'SDCH', name: 'Saveetha Dental College Hospital', icon: 'tooth' },
-	];
-	let selectedHospital = $state('SMCH');
+	// Step 6 – insurance (fetched from API)
+	let insuranceOptions = $state<PublicInsuranceCategory[]>([]);
+	let selectedInsuranceId = $state('');
+	let insuranceLoading = $state(true);
 
-	// Step 7 – insurance
-	const insuranceOptions = [
-		{ id: 'CM_SCHEME', label: 'CM Scheme' },
-		{ id: 'PRIVATE', label: 'Private Insurance' },
-		{ id: 'SELF_PAY', label: 'Self Pay' },
-	];
-	let selectedInsurance = $state('SELF_PAY');
+	// Step 7 – hospital/clinic (fetched based on insurance category)
+	let availableClinics = $state<PublicClinicInfo[]>([]);
+	let selectedClinicConfigId = $state('');
+	let clinicsLoading = $state(false);
 
-	// Step 8 – payment
-	const regFee = 100;
+	// Step 8 – payment (dynamic based on selected clinic)
 	let paymentDone = $state(false);
+
+	// Derived registration fee from selected clinic
+	const regFee = $derived.by(() => {
+		const clinic = availableClinics.find(c => c.config_id === selectedClinicConfigId);
+		return clinic?.registration_fee ?? 100;
+	});
+
+	// Load insurance categories on mount
+	onMount(async () => {
+		try {
+			insuranceLoading = true;
+			const categories = await insuranceCategoriesApi.listPublicCategories();
+			insuranceOptions = categories;
+			// Select default category
+			const defaultCategory = categories.find(c => c.is_default) || categories[0];
+			if (defaultCategory) {
+				selectedInsuranceId = defaultCategory.id;
+			}
+		} catch (e) {
+			// Fallback to static options
+			insuranceOptions = [
+				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, is_default: false },
+				{ id: 'PRIVATE', name: 'Private Insurance', description: null, is_default: false },
+				{ id: 'SELF_PAY', name: 'Self Pay', description: null, is_default: true },
+			];
+			selectedInsuranceId = 'SELF_PAY';
+		} finally {
+			insuranceLoading = false;
+		}
+	});
+
+	// Load clinics when insurance selection changes
+	$effect(() => {
+		if (selectedInsuranceId && step >= 6) {
+			clinicsLoading = true;
+			insuranceCategoriesApi.getCategoryClinics(selectedInsuranceId)
+				.then(clinics => {
+					availableClinics = clinics;
+					// Select first clinic by default
+					if (clinics.length > 0) {
+						selectedClinicConfigId = clinics[0].config_id;
+					}
+				})
+				.catch(() => {
+					// Fallback clinics
+					availableClinics = [
+						{ 
+							config_id: 'default-1', 
+							clinic_id: 'SMCH', 
+							clinic_name: 'Saveetha Medical College Hospital', 
+							clinic_type: 'OP',
+							department: 'General Medicine',
+							location: 'Main Building',
+							walk_in_type: 'WALKIN_CLASSIC',
+							walk_in_label: 'Walkin Classic',
+							registration_fee: 100 
+						},
+						{ 
+							config_id: 'default-2', 
+							clinic_id: 'SDCH', 
+							clinic_name: 'Saveetha Dental College Hospital', 
+							clinic_type: 'OP',
+							department: 'Dental',
+							location: 'Dental Block',
+							walk_in_type: 'WALKIN_CLASSIC',
+							walk_in_label: 'Walkin Classic',
+							registration_fee: 100 
+						},
+					];
+					selectedClinicConfigId = 'default-1';
+				})
+				.finally(() => {
+					clinicsLoading = false;
+				});
+		}
+	});
 
 	// Step 9 – result
 	let createdPatientId = $state('');
@@ -567,57 +639,12 @@
 						   border: 1px solid rgba(0,0,0,0.1);"
 					onclick={saveDetails}
 				>
-					Save & Continue <ArrowRight class="w-4 h-4" />
+					Continue to Insurance <ArrowRight class="w-4 h-4" />
 				</button>
 			</div>
 
-		<!-- ────────────────────── STEP 6: SELECT HOSPITAL ──────── -->
+		<!-- ────────────────────── STEP 6: INSURANCE ─────────────── -->
 		{:else if step === 6}
-			<div class="flex flex-col px-6 py-8 gap-5">
-				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Select Clinic</div>
-
-				{#if error}<p class="text-xs text-red-500 -mt-2">{error}</p>{/if}
-
-				<div class="flex flex-col gap-3">
-					{#each hospitals as h}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all"
-							style="border: 2px solid {selectedHospital === h.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
-								   background: {selectedHospital === h.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
-							onclick={() => selectedHospital = h.id}
-						>
-							<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-								 style="background: {selectedHospital === h.id ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
-								 		border: 1px solid rgba(0,0,0,0.08);">
-								{#if h.icon === 'hospital'}
-									<Building2 class="w-5 h-5 {selectedHospital === h.id ? 'text-white' : 'text-gray-500'}" />
-								{:else}
-									<HeartPulse class="w-5 h-5 {selectedHospital === h.id ? 'text-white' : 'text-gray-500'}" />
-								{/if}
-							</div>
-							<span class="text-sm font-semibold {selectedHospital === h.id ? 'text-blue-700' : 'text-gray-700'} flex-1">{h.name}</span>
-							{#if selectedHospital === h.id}
-								<CheckCircle2 class="w-5 h-5 text-blue-600 shrink-0" />
-							{/if}
-						</div>
-					{/each}
-				</div>
-
-				<button
-					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
-					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
-						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
-						   border: 1px solid rgba(0,0,0,0.1);"
-					onclick={next}
-				>
-					Continue <ArrowRight class="w-4 h-4" />
-				</button>
-			</div>
-
-		<!-- ────────────────────── STEP 7: INSURANCE ────────────── -->
-		{:else if step === 7}
 			<div class="flex flex-col px-6 py-8 gap-5">
 				<div class="text-center">
 					<h2 class="text-lg font-bold text-gray-800">Insurance & Category</h2>
@@ -626,23 +653,82 @@
 
 				{#if error}<p class="text-xs text-red-500 text-center -mt-2">{error}</p>{/if}
 
-				<div class="flex flex-col gap-3">
-					{#each insuranceOptions as opt}
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class="flex items-center justify-between px-4 py-3.5 rounded-xl cursor-pointer transition-all"
-							style="border: 2px solid {selectedInsurance === opt.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
-								   background: {selectedInsurance === opt.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
-							onclick={() => selectedInsurance = opt.id}
-						>
-							<span class="text-sm font-semibold {selectedInsurance === opt.id ? 'text-blue-700' : 'text-gray-600'}">{opt.label}</span>
-							{#if selectedInsurance === opt.id}
-								<CheckCircle2 class="w-5 h-5 text-blue-600" />
-							{/if}
-						</div>
-					{/each}
-				</div>
+				{#if insuranceLoading}
+					<div class="flex items-center justify-center py-8">
+						<div class="h-6 w-6 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600"></div>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-3">
+						{#each insuranceOptions as opt}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="flex items-center justify-between px-4 py-3.5 rounded-xl cursor-pointer transition-all"
+								style="border: 2px solid {selectedInsuranceId === opt.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
+									   background: {selectedInsuranceId === opt.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
+								onclick={() => selectedInsuranceId = opt.id}
+							>
+								<span class="text-sm font-semibold {selectedInsuranceId === opt.id ? 'text-blue-700' : 'text-gray-600'}">{opt.name}</span>
+								{#if selectedInsuranceId === opt.id}
+									<CheckCircle2 class="w-5 h-5 text-blue-600" />
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
+
+				<button
+					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
+					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
+						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
+						   border: 1px solid rgba(0,0,0,0.1);"
+					onclick={next}
+				>
+					Continue to Select Clinic <ArrowRight class="w-4 h-4" />
+				</button>
+			</div>
+
+			<!-- ────────────────────── STEP 7: SELECT HOSPITAL ────────── -->
+		{:else if step === 7}
+			<div class="flex flex-col px-6 py-8 gap-5">
+				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Select Clinic</div>
+
+				{#if error}<p class="text-xs text-red-500 -mt-2">{error}</p>{/if}
+
+				{#if clinicsLoading}
+					<div class="flex items-center justify-center py-8">
+						<div class="h-6 w-6 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600"></div>
+					</div>
+				{:else}
+					<div class="flex flex-col gap-3">
+						{#each availableClinics as c}
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<div
+								class="flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all"
+								style="border: 2px solid {selectedClinicConfigId === c.config_id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
+									   background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
+								onclick={() => selectedClinicConfigId = c.config_id}
+							>
+								<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+									 style="background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
+									 		border: 1px solid rgba(0,0,0,0.08);">
+									<Building2 class="w-5 h-5 {selectedClinicConfigId === c.config_id ? 'text-white' : 'text-gray-500'}" />
+								</div>
+								<div class="flex-1 min-w-0">
+									<p class="text-sm font-semibold {selectedClinicConfigId === c.config_id ? 'text-blue-700' : 'text-gray-700'}">{c.clinic_name}</p>
+									<p class="text-xs text-gray-500 mt-0.5">{c.walk_in_label} • ₹{c.registration_fee}</p>
+									{#if c.department}
+										<p class="text-xs text-gray-400">{c.department}</p>
+									{/if}
+								</div>
+								{#if selectedClinicConfigId === c.config_id}
+									<CheckCircle2 class="w-5 h-5 text-blue-600 shrink-0" />
+								{/if}
+							</div>
+						{/each}
+					</div>
+				{/if}
 
 				<button
 					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"

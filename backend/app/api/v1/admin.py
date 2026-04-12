@@ -1,5 +1,5 @@
 """Admin panel API – dashboard, user management, departments, analytics."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, text, and_, distinct, extract
 from sqlalchemy.orm import selectinload
@@ -433,6 +433,194 @@ async def admin_create_user(
 
     await db.commit()
     return {"message": f"User {data.username} created successfully", "user_id": user_id}
+
+
+# ── Bulk Import Users ─────────────────────────────────────────────────
+
+
+@router.post("/users/bulk-import", status_code=200)
+async def bulk_import_users(
+    file: UploadFile = File(...),
+    admin: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Bulk import users from a CSV or Excel (.xlsx) file."""
+    import csv
+    import io
+    import openpyxl
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file uploaded")
+
+    filename_lower = file.filename.lower()
+    content = await file.read()
+
+    rows: list[dict] = []
+
+    if filename_lower.endswith(".csv"):
+        text = content.decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text))
+        for row in reader:
+            rows.append({k.strip().lower(): (v.strip() if v else "") for k, v in row.items()})
+    elif filename_lower.endswith(".xlsx") or filename_lower.endswith(".xls"):
+        wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        ws = wb.active
+        headers = None
+        for excel_row in ws.iter_rows(values_only=True):
+            if headers is None:
+                headers = [str(c).strip().lower() if c is not None else "" for c in excel_row]
+                continue
+            row_dict = {}
+            for h, v in zip(headers, excel_row):
+                row_dict[h] = str(v).strip() if v is not None else ""
+            rows.append(row_dict)
+        wb.close()
+    else:
+        raise HTTPException(status_code=400, detail="File must be .csv or .xlsx")
+
+    results = []
+    created = 0
+    failed = 0
+
+    for idx, row in enumerate(rows, start=2):
+        row_num = idx
+        username = row.get("username", "").strip()
+        email = row.get("email", "").strip()
+        password = row.get("password", "").strip()
+        role_str = row.get("role", "").strip().upper()
+        name = row.get("name", "").strip()
+
+        if not username or not email or not password or not role_str:
+            results.append({"row": row_num, "username": username or "(empty)", "status": "failed", "error": "username, email, password, role are required"})
+            failed += 1
+            continue
+
+        try:
+            role = UserRole(role_str)
+        except ValueError:
+            results.append({"row": row_num, "username": username, "status": "failed", "error": f"Invalid role: {role_str}"})
+            failed += 1
+            continue
+
+        if (await db.execute(select(User).where(User.username == username))).scalar_one_or_none():
+            results.append({"row": row_num, "username": username, "status": "failed", "error": "Username already exists"})
+            failed += 1
+            continue
+        if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
+            results.append({"row": row_num, "username": username, "status": "failed", "error": "Email already exists"})
+            failed += 1
+            continue
+
+        try:
+            user_id = str(uuid.uuid4())
+            new_user = User(
+                id=user_id,
+                username=username,
+                email=email,
+                password_hash=get_password_hash(password),
+                role=role,
+                is_active=True,
+            )
+            db.add(new_user)
+
+            display_name = name or username
+
+            if role == UserRole.PATIENT:
+                dob_str = row.get("date_of_birth", "").strip()
+                if not dob_str:
+                    raise ValueError("date_of_birth is required for patients")
+                try:
+                    dob = datetime.strptime(dob_str, "%Y-%m-%d").date()
+                except ValueError:
+                    raise ValueError("date_of_birth must be YYYY-MM-DD")
+                from app.models.patient import Gender
+                gender_str = row.get("gender", "OTHER").strip().upper()
+                try:
+                    gender = Gender(gender_str)
+                except ValueError:
+                    gender = Gender.OTHER
+                db.add(Patient(
+                    id=str(uuid.uuid4()),
+                    patient_id=_generate_patient_id(),
+                    user_id=user_id,
+                    name=display_name,
+                    date_of_birth=dob,
+                    gender=gender,
+                    blood_group=row.get("blood_group", "") or "Unknown",
+                    phone=row.get("phone", "") or "",
+                    email=email,
+                    address=row.get("address", "") or "",
+                    aadhaar_id=row.get("aadhaar_id") or None,
+                    abha_id=row.get("abha_id") or None,
+                    primary_diagnosis=row.get("primary_diagnosis") or None,
+                    category=normalize_patient_category_name(row.get("category", "")) or await get_default_patient_category_name(db),
+                ))
+            elif role == UserRole.STUDENT:
+                year_str = row.get("year", "").strip()
+                semester_str = row.get("semester", "").strip()
+                program = row.get("program", "").strip()
+                if not year_str or not semester_str or not program:
+                    raise ValueError("year, semester, program required for students")
+                db.add(Student(
+                    id=str(uuid.uuid4()),
+                    student_id=_generate_student_id(),
+                    user_id=user_id,
+                    name=display_name,
+                    year=int(year_str),
+                    semester=int(semester_str),
+                    program=program,
+                    degree=row.get("degree") or None,
+                    gpa=float(row.get("gpa") or 0),
+                    academic_standing=row.get("academic_standing") or "Good Standing",
+                    academic_advisor=row.get("academic_advisor") or None,
+                ))
+            elif role == UserRole.FACULTY:
+                department = row.get("department", "").strip()
+                if not department:
+                    raise ValueError("department is required for faculty")
+                db.add(Faculty(
+                    id=str(uuid.uuid4()),
+                    faculty_id=_generate_faculty_id(),
+                    user_id=user_id,
+                    name=display_name,
+                    department=department,
+                    specialty=row.get("specialty") or None,
+                    phone=row.get("phone") or None,
+                    email=email,
+                    availability=row.get("availability") or None,
+                ))
+            elif role == UserRole.NURSE:
+                db.add(Nurse(
+                    id=str(uuid.uuid4()),
+                    nurse_id=_generate_nurse_id(),
+                    user_id=user_id,
+                    name=display_name,
+                    phone=row.get("phone") or None,
+                    email=email,
+                    hospital=row.get("hospital") or None,
+                    ward=row.get("ward") or None,
+                    shift=row.get("shift") or None,
+                    department=row.get("department") or None,
+                    has_selected_station=0,
+                ))
+
+            await db.flush()
+            results.append({"row": row_num, "username": username, "status": "created"})
+            created += 1
+
+        except Exception as exc:
+            await db.rollback()
+            results.append({"row": row_num, "username": username, "status": "failed", "error": str(exc)})
+            failed += 1
+            continue
+
+    await db.commit()
+    return {
+        "created": created,
+        "failed": failed,
+        "total": len(rows),
+        "results": results,
+    }
 
 
 # ── Department Management ────────────────────────────────────────────
