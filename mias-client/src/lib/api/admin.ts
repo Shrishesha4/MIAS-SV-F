@@ -348,6 +348,7 @@ export const adminApi = {
     is_active: boolean;
     is_default: boolean;
     sort_order: number;
+    registration_fee: number;
   }>): Promise<PatientCategoryConfig> {
     const r = await client.patch(`/admin/patient-categories/${categoryId}`, data);
     return r.data;

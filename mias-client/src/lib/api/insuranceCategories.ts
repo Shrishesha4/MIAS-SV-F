@@ -57,6 +57,7 @@ export interface PublicInsuranceCategory {
   id: string;
   name: string;
   description: string | null;
+  patient_categories: PatientCategory[];
 }
 
 export interface PublicClinicInfo {
@@ -133,7 +134,7 @@ export const insuranceCategoriesApi = {
 
   // Public endpoints (no auth required)
   async listPublicCategories(): Promise<PublicInsuranceCategory[]> {
-    const response = await client.get('/insurance-categories/public/list');
+    const response = await client.get('/insurance-categories/public');
     return response.data;
   },
 

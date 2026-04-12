@@ -89,7 +89,6 @@ ALLOWED_FIELD_TYPES = {
     "textarea",
     "number",
     "select",
-    "diagnosis",
     "date",
     "file",
     "email",
@@ -119,6 +118,13 @@ def _safe_upload_context(value: Optional[str]) -> str:
     return cleaned or "general"
 
 
+def _normalize_field_type(raw_type: Optional[str]) -> str:
+    normalized = (raw_type or "").strip().lower()
+    if normalized == "diagnosis":
+        return "text"
+    return normalized
+
+
 def _normalize_field(field: FormFieldPayload | dict) -> dict:
     field_data = field.model_dump() if isinstance(field, FormFieldPayload) else dict(field)
     label = (field_data.get("label") or "").strip()
@@ -126,7 +132,7 @@ def _normalize_field(field: FormFieldPayload | dict) -> dict:
     return {
         "key": key,
         "label": label,
-        "type": field_data.get("type"),
+        "type": _normalize_field_type(field_data.get("type")),
         "required": bool(field_data.get("required", False)),
         "placeholder": field_data.get("placeholder"),
         "options": field_data.get("options") or [],
@@ -172,6 +178,7 @@ def _validate_payload(payload: FormDefinitionPayload, resolved_form_type: str, r
         normalized_field = _normalize_field(field)
         field.key = normalized_field["key"]
         field.label = field.label.strip()
+        field.type = normalized_field["type"]
         if not field.key or not field.label:
             raise HTTPException(status_code=400, detail="Each field requires a key and label")
         if field.key in seen_keys:
@@ -223,6 +230,36 @@ async def create_form_category(
     await db.flush()
     await db.refresh(category)
     return _serialize_form_category(category)
+
+
+@router.delete("/categories/{category_id}")
+async def delete_form_category(
+    category_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    category = (
+        await db.execute(
+            select(FormCategoryOption).where(FormCategoryOption.id == category_id)
+        )
+    ).scalar_one_or_none()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    if category.is_system:
+        raise HTTPException(status_code=400, detail="System categories cannot be deleted")
+
+    form_exists = (
+        await db.execute(
+            select(FormDefinition.id).where(FormDefinition.section == category.name).limit(1)
+        )
+    ).scalar_one_or_none()
+    if form_exists:
+        raise HTTPException(status_code=400, detail="Cannot delete category with existing form configurations")
+
+    await db.delete(category)
+    await db.flush()
+    return {"message": "Form category deleted"}
 
 
 @router.get("")

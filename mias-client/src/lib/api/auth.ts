@@ -17,6 +17,7 @@ export interface RegisterData {
     aadhaar_id?: string;
     abha_id?: string;
     category?: string;
+    insurance_category_id?: string;
     emergency_contact?: {
       name: string;
       phone: string;

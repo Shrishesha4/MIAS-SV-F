@@ -22,7 +22,6 @@ export type FormFieldType =
 	| 'textarea'
 	| 'number'
 	| 'select'
-	| 'diagnosis'
 	| 'date'
 	| 'file'
 	| 'email'

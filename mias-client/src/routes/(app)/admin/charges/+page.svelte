@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
+	import { insuranceCategoriesApi, type PublicInsuranceCategory } from '$lib/api/insuranceCategories';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -28,18 +29,34 @@
 	let error = $state('');
 	let charges: ChargeItem[] = $state([]);
 	let priceCategories = $state<PatientCategoryConfig[]>([]);
-	let activeCategory: ChargeCategory = $state('CLINICAL');
+	let insuranceCategories = $state<PublicInsuranceCategory[]>([]);
+	let activeCategory: ChargeCategory = $state('REGISTRATION');
+	
+	// Registration fees per insurance-patient combination
+	let registrationFees = $state<Record<string, number>>({});
+	let editingRegFee = $state<{ insuranceId: string; categoryId: string; value: string } | null>(null);
+	let savingRegFee = $state(false);
 
 	const categoryTabs = [
+		{ id: 'REGISTRATION', label: 'REGISTRATION' },
 		{ id: 'CLINICAL', label: 'CLINICAL' },
 		{ id: 'LABS', label: 'LABS' },
 		{ id: 'ADMIN', label: 'ADMIN' }
 	];
 
 	const pricingColumns = $derived.by(() => {
-		const columnNames = priceCategories.map((category) => category.name);
+		const columnNames: string[] = [];
+		
+		// Create insurance-patient type combinations
+		for (const insurance of insuranceCategories) {
+			for (const patientCategory of insurance.patient_categories || []) {
+				columnNames.push(`${insurance.name} - ${patientCategory.name}`);
+			}
+		}
+		
 		const seen = new Set(columnNames.map((name) => name.toLocaleLowerCase()));
 
+		// Also include any existing price keys that don't match the new format
 		for (const charge of charges) {
 			for (const priceName of Object.keys(charge.prices || {})) {
 				const normalizedName = priceName.trim();
@@ -121,16 +138,22 @@
 		loading = true;
 		error = '';
 		try {
-			const [chargeItems, categoryItems] = await Promise.all([
+			const [chargeItems, categoryItems, insuranceItems] = await Promise.all([
 				chargesApi.getAll(),
 				adminApi.getPatientCategories(),
+				insuranceCategoriesApi.listPublicCategories(),
 			]);
 			priceCategories = sortPatientCategories(categoryItems);
-			const columnNames = [
-				...priceCategories.map((category) => category.name),
-				...chargeItems.flatMap((charge) => Object.keys(charge.prices || {})),
-			].filter((value, index, values) => value && values.findIndex((item) => item.toLocaleLowerCase() === value.toLocaleLowerCase()) === index);
-			charges = chargeItems.map((charge) => mergeChargePrices(charge, columnNames));
+			insuranceCategories = insuranceItems;
+			
+			// Load registration fees from patient categories
+			const fees: Record<string, number> = {};
+			for (const category of categoryItems) {
+				fees[category.name] = category.registration_fee || 0;
+			}
+			registrationFees = fees;
+			
+			charges = chargeItems.map((charge) => mergeChargePrices(charge, pricingColumns));
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load charges';
 		} finally {
@@ -262,6 +285,34 @@
 		}
 	}
 
+	async function saveRegFee() {
+		if (!editingRegFee) return;
+
+		const nextPrice = Number(editingRegFee.value);
+		if (!Number.isFinite(nextPrice) || nextPrice < 0) {
+			toastStore.addToast('Fee must be a valid non-negative number', 'error');
+			return;
+		}
+
+		savingRegFee = true;
+		try {
+			// Update the patient category with the new registration fee
+			const category = priceCategories.find(c => c.id === editingRegFee!.categoryId);
+			if (category) {
+				await adminApi.updatePatientCategory(category.id, {
+					registration_fee: nextPrice
+				});
+				registrationFees[category.name] = nextPrice;
+				editingRegFee = null;
+				toastStore.addToast('Registration fee updated', 'success');
+			}
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update registration fee', 'error');
+		} finally {
+			savingRegFee = false;
+		}
+	}
+
 	function openCreateModal() {
 		editingCharge = null;
 		chargeData = {
@@ -328,29 +379,122 @@
 	{:else if error}
 		<div class="text-red-500 text-center py-4 text-sm">{error}</div>
 	{:else}
-		<div class="flex items-center justify-between mb-4">
-			<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Charge Master</p>
-			<button
-				onclick={openCreateModal}
-				class="px-4 py-2 text-sm font-semibold text-white rounded-full"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.3);"
+		<div class="mb-4 flex items-center justify-between gap-3">
+			<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Charge Master & Rates</p>
+			<div class="w-fit">
+				<TabBar
+					tabs={categoryTabs}
+					activeTab={activeCategory}
+					variant="jiggle"
+					stretch={false}
+					ariaLabel="Charge master categories"
+					onchange={(id) => activeCategory = id as ChargeCategory}
+				/>
+			</div>
+		</div>
+
+		{#if activeCategory !== 'REGISTRATION'}
+			<div class="mb-3 flex justify-end">
+				<button
+					onclick={openCreateModal}
+					class="px-4 py-2 text-sm font-semibold text-white rounded-full"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.3);"
+				>
+					Add New
+				</button>
+			</div>
+		{/if}
+
+		<!-- Registration Fee Table -->
+		{#if activeCategory === 'REGISTRATION'}
+			<div
+				class="overflow-x-auto rounded-2xl"
+				style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
 			>
-				Add New
-			</button>
-		</div>
-
-		<!-- Category Tabs -->
-		<div class="mb-4 max-w-[560px]">
-			<TabBar
-				tabs={categoryTabs}
-				activeTab={activeCategory}
-				variant="jiggle"
-				stretch={false}
-				ariaLabel="Charge master categories"
-				onchange={(id) => activeCategory = id as ChargeCategory}
-			/>
-		</div>
-
+				<table class="w-full min-w-max">
+					<thead>
+						<tr style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);">
+							<th class="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200">Insurance Type</th>
+							{#each priceCategories as category}
+								<th class="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200">{category.name}</th>
+							{/each}
+						</tr>
+					</thead>
+					<tbody>
+						{#if insuranceCategories.length === 0}
+							<tr>
+								<td colspan={priceCategories.length + 1} class="px-4 py-8 text-center text-slate-500 text-sm">
+									No insurance categories configured.
+								</td>
+							</tr>
+						{:else}
+							{#each insuranceCategories as insurance, i}
+								<tr class:border-t={i > 0} style="border-color: rgba(0,0,0,0.06);">
+									<td class="px-4 py-3 font-semibold text-slate-900 text-sm">{insurance.name}</td>
+									{#each priceCategories as category}
+									{@const isEditingThis = editingRegFee?.insuranceId === insurance.id && editingRegFee?.categoryId === category.id}
+									{@const isEligible = insurance.patient_categories?.some(pc => pc.id === category.id)}
+									<td class="px-4 py-3 text-center">
+										{#if !isEligible}
+											<span class="text-slate-400 text-sm">N/A</span>
+										{:else if isEditingThis}
+											<div class="flex items-center justify-center gap-1">
+												<span class="text-xs font-semibold text-slate-500">₹</span>
+												<input
+													type="number"
+													min="0"
+													step="1"
+													class="w-20 bg-white border border-slate-200 rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none text-center"
+													value={editingRegFee?.value ?? ''}
+													oninput={(event) => {
+														if (editingRegFee) {
+															editingRegFee.value = (event.currentTarget as HTMLInputElement).value;
+														}
+													}}
+													onkeydown={(event) => {
+														if (event.key === 'Enter') {
+															saveRegFee();
+														}
+														if (event.key === 'Escape') {
+															editingRegFee = null;
+														}
+													}}
+												/>
+												<button
+													onclick={saveRegFee}
+													class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+													style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+													disabled={savingRegFee}
+												>
+													<Check class="h-3.5 w-3.5" />
+												</button>
+												<button
+													onclick={() => editingRegFee = null}
+													class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+													style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
+													disabled={savingRegFee}
+												>
+													<X class="h-3.5 w-3.5" />
+												</button>
+											</div>
+										{:else}
+											<button
+												onclick={() => editingRegFee = { insuranceId: insurance.id, categoryId: category.id, value: String(registrationFees[category.name] ?? 0) }}
+												class="px-4 py-2 text-sm font-semibold text-slate-800 rounded-lg cursor-pointer transition-colors hover:bg-slate-100"
+												style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
+											>
+												₹{registrationFees[category.name] ?? 0}
+											</button>
+										{/if}
+									</td>
+								{/each}
+								</tr>
+							{/each}
+						{/if}
+					</tbody>
+				</table>
+			</div>
+		{:else}
 		<!-- Pricing Table -->
 		<div
 			class="overflow-x-auto overflow-y-hidden rounded-2xl"
@@ -510,6 +654,7 @@
 				{/if}
 			</div>
 		</div>
+		{/if}
 	{/if}
 
 {#if chargeModal}

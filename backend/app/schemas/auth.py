@@ -42,6 +42,7 @@ class PatientDataCreate(BaseModel):
     aadhaar_id: Optional[str] = None
     abha_id: Optional[str] = None
     category: Optional[str] = None
+    insurance_category_id: Optional[str] = None
     emergency_contact: Optional[EmergencyContactCreate] = None
 
 

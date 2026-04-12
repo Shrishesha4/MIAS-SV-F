@@ -39,6 +39,7 @@
 	// Shared state
 	let loading = $state(true);
 	let error = $state('');
+	let allocatedClinicNotice = $state<{ name: string; location: string } | null>(null);
 
 	// Patient state
 	let patient: any = $state(null);
@@ -284,6 +285,16 @@
 
 
 	onMount(async () => {
+		const noticeRaw = sessionStorage.getItem('allocatedClinicNotice');
+		if (noticeRaw) {
+			try {
+				allocatedClinicNotice = JSON.parse(noticeRaw);
+			} catch {
+				allocatedClinicNotice = null;
+			}
+			sessionStorage.removeItem('allocatedClinicNotice');
+		}
+
 		try {
 			if (role === 'PATIENT') {
 				patient = await patientApi.getCurrentPatient();
@@ -912,3 +923,29 @@
 		</AquaCard>
 	{/if}
 </div>
+
+{#if allocatedClinicNotice}
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+		<div class="bg-white rounded-2xl p-8 max-w-md mx-4 text-center shadow-2xl">
+			<div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+				 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
+				<Hospital class="w-8 h-8 text-blue-600" />
+			</div>
+			<h2 class="text-2xl font-bold text-gray-800 mb-2">Clinic Allocated!</h2>
+			<p class="text-gray-600 mb-6">Please proceed to your allotted clinic:</p>
+			<div class="rounded-xl p-4 mb-6"
+				 style="background: linear-gradient(to bottom, #eef4ff, #e0eaff); border: 1.5px solid #93b8f5;">
+				<p class="text-lg font-bold text-blue-800">{allocatedClinicNotice.name}</p>
+				<p class="text-sm text-gray-600 mt-1">{allocatedClinicNotice.location}</p>
+			</div>
+			<p class="text-sm text-gray-500 mb-6">Your registration is complete and you are now logged in.</p>
+			<button
+				class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90"
+				style="background: linear-gradient(to bottom, #4d90fe, #3b7aed); box-shadow: 0 2px 8px rgba(59,122,237,0.4); border: 1px solid rgba(0,0,0,0.1);"
+				onclick={() => (allocatedClinicNotice = null)}
+			>
+				I Understand <CheckCircle2 class="w-4 h-4" />
+			</button>
+		</div>
+	</div>
+{/if}

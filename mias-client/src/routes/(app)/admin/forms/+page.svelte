@@ -5,14 +5,13 @@
 	import { authStore } from '$lib/stores/auth';
 	import { formsApi, type FormDefinitionPayload } from '$lib/api/forms';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { FileText, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
-	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'diagnosis', 'date', 'file', 'email', 'password', 'tel'];
+	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'date', 'file', 'email', 'password', 'tel'];
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
 		ADMISSION: 'CLINICAL',
@@ -56,6 +55,7 @@
 	let categoryName = $state('');
 	let savingCategory = $state(false);
 	let categorySaveError = $state('');
+	let categoryMenu = $state<{ x: number; y: number; category: FormCategory } | null>(null);
 
 	const sectionTabs = $derived.by(() => {
 		const activeCategories = [...formCategories]
@@ -63,8 +63,6 @@
 			.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
 		return activeCategories.length > 0 ? activeCategories.map((category) => category.name) : defaultSections;
 	});
-
-	const tabItems = $derived.by(() => sectionTabs.map((section) => ({ id: section, label: section })));
 
 	const filteredForms = $derived.by(() => {
 		return formDefinitions.filter((form) => resolveFormSection(form) === activeSection);
@@ -77,6 +75,31 @@
 		}
 		loadFormStudio();
 	});
+
+	function openCategoryContextMenu(event: MouseEvent, section: FormSection) {
+		event.preventDefault();
+		const category = formCategories.find((item) => item.name === section);
+		if (!category || category.is_system) {
+			categoryMenu = null;
+			return;
+		}
+		categoryMenu = { x: event.clientX, y: event.clientY, category };
+	}
+
+	async function deleteCategoryFromMenu() {
+		if (!categoryMenu) return;
+		const target = categoryMenu.category;
+		categoryMenu = null;
+		try {
+			await formsApi.deleteFormCategory(target.id);
+			formCategories = sortFormCategories(formCategories.filter((item) => item.id !== target.id));
+			syncActiveSection(formCategories);
+			await loadFormStudio();
+			toastStore.addToast('Form category deleted', 'success');
+		} catch (error: any) {
+			toastStore.addToast(error?.response?.data?.detail || 'Failed to delete form category', 'error');
+		}
+	}
 
 	function resolveFormSection(form: Pick<FormDefinition, 'section' | 'form_type'>): FormSection {
 		const explicitSection = form.section?.toString().toUpperCase();
@@ -107,6 +130,14 @@
 			.trim()
 			.replace(/[^a-z0-9]+/g, '_')
 			.replace(/^_+|_+$/g, '');
+	}
+
+	function normalizeFieldType(type: string | undefined): FormFieldType {
+		const normalized = (type || '').toLowerCase();
+		if (normalized === 'diagnosis') {
+			return 'text';
+		}
+		return fieldTypes.includes(normalized as FormFieldType) ? (normalized as FormFieldType) : 'text';
 	}
 
 	async function loadFormStudio() {
@@ -171,7 +202,10 @@
 		formEditorProcedure = form.procedure_name || '';
 		formEditorSortOrder = form.sort_order || 0;
 		formEditorIsActive = form.is_active;
-		formEditorFields = form.fields.map((field) => ({ ...field }));
+		formEditorFields = form.fields.map((field) => ({
+			...field,
+			type: normalizeFieldType(field.type)
+		}));
 		activeSection = formEditorSection;
 		showFormEditor = true;
 	}
@@ -210,7 +244,7 @@
 
 	function updateFieldType(index: number, type: string) {
 		const field = formEditorFields[index];
-		const nextField: FormFieldDefinition = { ...field, type: type as FormFieldType };
+		const nextField: FormFieldDefinition = { ...field, type: normalizeFieldType(type) };
 		if (type !== 'select') {
 			nextField.options = [];
 		}
@@ -229,6 +263,7 @@
 	function serializeFields() {
 		return formEditorFields.map((field, index) => ({
 			...field,
+			type: normalizeFieldType(field.type),
 			key: field.key?.trim() || slugify(field.label) || `field_${index + 1}`,
 			label: field.label.trim(),
 			options: field.type === 'select' ? field.options ?? [] : field.options,
@@ -380,14 +415,24 @@
 
 	<div class="flex flex-wrap items-center gap-2">
 		<div class="form-tab-scroll form-tab-shell">
-			<TabBar
-				tabs={tabItems}
-				activeTab={activeSection}
-				onchange={(section) => activeSection = section}
-				variant="jiggle"
-				stretch={false}
-				ariaLabel="Form category navigation"
-			/>
+			<div class="form-tab-row" role="tablist" aria-label="Form category navigation">
+				{#each sectionTabs as section}
+					<button
+						type="button"
+						class="form-tab-btn"
+						class:is-active={activeSection === section}
+						role="tab"
+						aria-selected={activeSection === section}
+						onclick={() => {
+							activeSection = section;
+							categoryMenu = null;
+						}}
+						oncontextmenu={(event) => openCategoryContextMenu(event, section)}
+					>
+						{section}
+					</button>
+				{/each}
+			</div>
 		</div>
 		<button
 			type="button"
@@ -400,6 +445,28 @@
 			<Plus class="h-4 w-4" />
 		</button>
 	</div>
+
+	{#if categoryMenu}
+		<button
+			type="button"
+			class="fixed inset-0 z-40 cursor-default"
+			onclick={() => (categoryMenu = null)}
+			aria-label="Close category context menu"
+		></button>
+		<div
+			class="fixed z-50 rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+			style={`left: ${categoryMenu.x}px; top: ${categoryMenu.y}px;`}
+		>
+			<button
+				type="button"
+				onclick={deleteCategoryFromMenu}
+				class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer"
+			>
+				<Trash2 class="h-3.5 w-3.5" />
+				Delete Tab
+			</button>
+		</div>
+	{/if}
 
 	{#if loadingForms}
 		<div class="flex items-center justify-center py-20">
@@ -514,6 +581,47 @@
 		border-color: rgba(226, 232, 240, 0.9);
 		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+	}
+
+	.form-tab-row {
+		display: flex;
+		gap: 0.35rem;
+		width: max-content;
+		padding: 0.28rem;
+		border: 1px solid rgba(226, 232, 240, 0.9);
+		border-radius: 1.4rem;
+		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+	}
+
+	.form-tab-btn {
+		flex: 0 0 auto;
+		min-height: 2.7rem;
+		padding: 0.62rem 0.88rem;
+		border: 1px solid transparent;
+		border-radius: 1.1rem;
+		background: transparent;
+		font-size: 0.84rem;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+		color: #667085;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.form-tab-btn:hover {
+		color: #475467;
+		transform: translateY(-1px);
+	}
+
+	.form-tab-btn.is-active {
+		color: white;
+		border-color: rgba(29, 78, 216, 0.2);
+		background: linear-gradient(135deg, #3b82f6 0%, #2563eb 60%, #1d4ed8 100%);
+		box-shadow:
+			0 10px 22px rgba(37, 99, 235, 0.22),
+			inset 0 1px 0 rgba(255, 255, 255, 0.32),
+			inset 0 -1px 0 rgba(15, 23, 42, 0.12);
 	}
 
 	@media (min-width: 768px) {

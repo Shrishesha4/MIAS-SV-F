@@ -234,6 +234,8 @@ async def create_insurance_category(
     await db.commit()
     await db.refresh(category)
     
+    assigned_patient_category_ids: List[str] = []
+
     # Add patient categories if provided
     if data.patient_category_ids:
         for pc_id in data.patient_category_ids:
@@ -243,8 +245,8 @@ async def create_insurance_category(
             pc = patient_category.scalar_one_or_none()
             if pc:
                 category.patient_categories.append(pc)
+                assigned_patient_category_ids.append(pc.id)
         await db.commit()
-        await db.refresh(category)
     
     # Create default clinic configs
     await _create_default_clinic_configs(db, category.id)
@@ -256,7 +258,7 @@ async def create_insurance_category(
         "description": category.description,
         "is_active": category.is_active,
         "sort_order": category.sort_order,
-        "patient_category_ids": [pc.id for pc in category.patient_categories],
+        "patient_category_ids": assigned_patient_category_ids,
         "message": "Insurance category created successfully",
     }
 
@@ -295,10 +297,13 @@ async def update_insurance_category(
     if data.sort_order is not None:
         category.sort_order = data.sort_order
     
+    patient_category_ids: List[str] = [pc.id for pc in category.patient_categories]
+
     # Handle patient categories update
     if data.patient_category_ids is not None:
         # Clear existing patient categories
         category.patient_categories.clear()
+        patient_category_ids = []
         # Add new patient categories
         for pc_id in data.patient_category_ids:
             patient_category = await db.execute(
@@ -307,9 +312,9 @@ async def update_insurance_category(
             pc = patient_category.scalar_one_or_none()
             if pc:
                 category.patient_categories.append(pc)
+                patient_category_ids.append(pc.id)
     
     await db.commit()
-    await db.refresh(category)
     
     return {
         "id": category.id,
@@ -317,7 +322,7 @@ async def update_insurance_category(
         "description": category.description,
         "is_active": category.is_active,
         "sort_order": category.sort_order,
-        "patient_category_ids": [pc.id for pc in category.patient_categories],
+        "patient_category_ids": patient_category_ids,
         "message": "Insurance category updated successfully",
     }
 
@@ -410,9 +415,10 @@ async def update_clinic_config(
 async def list_public_insurance_categories(
     db: AsyncSession = Depends(get_db),
 ):
-    """List active insurance categories for public registration (no auth required)."""
+    """List active insurance categories with their patient categories for public registration (no auth required)."""
     result = await db.execute(
         select(InsuranceCategory)
+        .options(selectinload(InsuranceCategory.patient_categories))
         .where(InsuranceCategory.is_active == True)
         .order_by(InsuranceCategory.sort_order, InsuranceCategory.name)
     )
@@ -423,6 +429,14 @@ async def list_public_insurance_categories(
             "id": cat.id,
             "name": cat.name,
             "description": cat.description,
+            "patient_categories": [
+                {
+                    "id": pc.id,
+                    "name": pc.name,
+                    "description": pc.description,
+                }
+                for pc in cat.patient_categories
+            ]
         }
         for cat in categories
     ]

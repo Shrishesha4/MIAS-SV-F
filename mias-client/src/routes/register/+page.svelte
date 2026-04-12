@@ -90,9 +90,9 @@
 			console.error('Failed to load insurance categories:', e);
 			// Fallback to static options
 			insuranceOptions = [
-				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null },
-				{ id: 'PRIVATE', name: 'Private Insurance', description: null },
-				{ id: 'SELF_PAY', name: 'Self Pay', description: null },
+				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, patient_categories: [] },
+				{ id: 'PRIVATE', name: 'Private Insurance', description: null, patient_categories: [] },
+				{ id: 'SELF_PAY', name: 'Self Pay', description: null, patient_categories: [] },
 			];
 			selectedInsuranceId = 'SELF_PAY';
 		} finally {
@@ -105,14 +105,30 @@
 		if (!selectedInsuranceId) return;
 		patientCategoryLoading = true;
 		try {
-			// For now, load all patient categories
-			// In future, this should be filtered by insurance category
-			const categories = await adminApi.getPublicPatientCategories();
-			console.log('Loaded patient categories:', categories);
-			patientCategoryOptions = categories;
-			// Select first category by default
-			if (categories.length > 0) {
-				selectedPatientCategoryId = categories[0].id;
+			// Get patient categories from selected insurance category
+			const selectedInsurance = insuranceOptions.find(opt => opt.id === selectedInsuranceId);
+			if (selectedInsurance && selectedInsurance.patient_categories) {
+				// Load registration fees for each patient category
+				const categoriesWithFees = await adminApi.getPublicPatientCategories();
+				console.log('Loaded patient categories with fees:', categoriesWithFees);
+				
+				// Merge patient categories from insurance with registration fees
+				patientCategoryOptions = selectedInsurance.patient_categories.map(pc => {
+					const feeInfo = categoriesWithFees.find(f => f.id === pc.id);
+					return {
+						id: pc.id,
+						name: pc.name,
+						description: pc.description,
+						registration_fee: feeInfo?.registration_fee || 100
+					};
+				});
+				
+				// Select first category by default
+				if (patientCategoryOptions.length > 0) {
+					selectedPatientCategoryId = patientCategoryOptions[0].id;
+				}
+			} else {
+				patientCategoryOptions = [];
 			}
 		} catch (e) {
 			console.error('Failed to load patient categories:', e);
@@ -287,6 +303,7 @@
 					address: patAddress.trim(),
 					abha_id: mockAbha,
 					category: patientCategory,
+					insurance_category_id: selectedInsuranceId,
 				}
 			};
 			const result = await authApi.signup(data);
@@ -307,7 +324,19 @@
 			const loginResult = await authApi.login(username, patPassword);
 			authStore.setTokens(loginResult.access_token, loginResult.refresh_token, loginResult.user_id, loginResult.role);
 
-			next();
+			// Persist clinic allocation notice for dashboard fullscreen prompt
+			if (result.clinic_name) {
+				const selectedClinic = availableClinics.find((c) => c.config_id === selectedClinicConfigId);
+				sessionStorage.setItem(
+					'allocatedClinicNotice',
+					JSON.stringify({
+						name: result.clinic_name,
+						location: selectedClinic?.location || 'Main Building'
+					})
+				);
+			}
+
+			await goto('/dashboard');
 		} catch (err: any) {
 			error = err?.response?.data?.detail ?? 'Registration failed. Please try again.';
 		} finally {
@@ -852,15 +881,15 @@
 								</div>
 								<!-- Patient type chips -->
 								<div class="flex flex-wrap gap-2 mt-3">
-									{#each ['Classic', 'Prime', 'Elite', 'Community'] as type}
+									{#each patientCategoryOptions as category}
 										<div
 											class="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
-											style="background: {selectedPatientType === type ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
-												   color: {selectedPatientType === type ? 'white' : '#64748b'};
-												   border: 1px solid {selectedPatientType === type ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'};"
-											onclick={() => selectedPatientType = type}
+											style="background: {selectedPatientType === category.name ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
+												   color: {selectedPatientType === category.name ? 'white' : '#64748b'};
+												   border: 1px solid {selectedPatientType === category.name ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'};"
+											onclick={() => selectedPatientType = category.name}
 										>
-											{type}
+											{category.name}
 										</div>
 									{/each}
 								</div>

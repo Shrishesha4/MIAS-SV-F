@@ -61,13 +61,31 @@ def generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
-async def allocate_clinic_sequentially(db: AsyncSession, patient_category: str) -> str:
-    """Allocate a clinic to a patient sequentially based on current load."""
-    # Get all active clinics
-    clinics_result = await db.execute(
-        select(Clinic).where(Clinic.is_active == True)
-    )
-    clinics = clinics_result.scalars().all()
+async def allocate_clinic_sequentially(
+    db: AsyncSession,
+    patient_category: str,
+    insurance_category_id: str | None = None,
+) -> str:
+    """Allocate a clinic to a patient sequentially based on current load and selected scheme."""
+    clinics = []
+
+    # Prefer active clinics configured for the selected insurance category
+    if insurance_category_id:
+        configured_clinics_result = await db.execute(
+            select(Clinic)
+            .join(InsuranceClinicConfig, InsuranceClinicConfig.clinic_id == Clinic.id)
+            .where(InsuranceClinicConfig.insurance_category_id == insurance_category_id)
+            .where(InsuranceClinicConfig.is_enabled == True)
+            .where(Clinic.is_active == True)
+        )
+        clinics = configured_clinics_result.scalars().all()
+
+    # Fallback: all active clinics
+    if not clinics:
+        clinics_result = await db.execute(
+            select(Clinic).where(Clinic.is_active == True)
+        )
+        clinics = clinics_result.scalars().all()
     
     if not clinics:
         return None  # No clinics available
@@ -140,7 +158,11 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     patient_category = request.patient_data.category if request.patient_data.category else await get_default_patient_category_name(db)
     
     # Sequential clinic allocation based on patient category
-    allocated_clinic_id = await allocate_clinic_sequentially(db, patient_category)
+    allocated_clinic_id = await allocate_clinic_sequentially(
+        db,
+        patient_category,
+        request.patient_data.insurance_category_id,
+    )
     
     patient = Patient(
         id=patient_id,

@@ -94,7 +94,7 @@ export interface UpdateLabTestGroupRequest {
 }
 
 // Charge Master
-export type ChargeCategory = 'CLINICAL' | 'LABS' | 'ADMIN';
+export type ChargeCategory = 'REGISTRATION' | 'CLINICAL' | 'LABS' | 'ADMIN';
 export type ChargeTier = string;
 
 export interface ChargeItem {

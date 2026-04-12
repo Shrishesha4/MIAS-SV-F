@@ -60,6 +60,11 @@ export const formsApi = {
 		return response.data;
 	},
 
+	async deleteFormCategory(categoryId: string): Promise<{ message: string }> {
+		const response = await client.delete<{ message: string }>(`/forms/categories/${categoryId}`);
+		return response.data;
+	},
+
 	async getForms(params?: {
 		form_type?: string;
 		section?: string;
