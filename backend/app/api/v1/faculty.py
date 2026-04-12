@@ -1,25 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 from typing import Optional
 import uuid
 import os
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Allergy, MedicalAlert
-from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
+from app.models.faculty import Faculty, FacultyClinicSession, FacultyNotification, FacultySchedule
 from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseRecord
 from app.models.admission import Admission
 from app.models.prescription import Prescription
-from app.models.student import Student
+from app.models.student import Clinic, Student
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
 router = APIRouter(prefix="/faculty", tags=["Faculty"])
+
+
+class FacultyClinicCheckInRequest(BaseModel):
+    clinic_id: str
 
 CASE_RECORD_SCORE_TO_GRADE = {
     0: "F",
@@ -69,6 +74,118 @@ async def get_current_faculty(
         "signature_image": faculty.signature_image,
         "availability": faculty.availability,
         "availability_status": faculty.availability_status,
+    }
+
+
+@router.get("/{faculty_id}/clinic-sessions")
+async def get_faculty_clinic_sessions(
+    faculty_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FacultyClinicSession)
+        .where(FacultyClinicSession.faculty_id == faculty_id)
+        .order_by(FacultyClinicSession.date.desc())
+    )
+    sessions = result.scalars().all()
+    return [
+        {
+            "id": session.id,
+            "clinic_id": session.clinic_id,
+            "clinic_name": session.clinic_name,
+            "department": session.department,
+            "date": session.date.isoformat() if session.date else None,
+            "display_date": session.date.strftime("%B %d, %Y") if session.date else None,
+            "status": session.status,
+            "checked_in_at": session.checked_in_at.isoformat() if session.checked_in_at else None,
+            "checked_out_at": session.checked_out_at.isoformat() if session.checked_out_at else None,
+        }
+        for session in sessions
+    ]
+
+
+@router.post("/{faculty_id}/clinic-sessions/check-in")
+async def check_in_faculty_to_clinic(
+    faculty_id: str,
+    body: FacultyClinicCheckInRequest,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    active_session_result = await db.execute(
+        select(FacultyClinicSession).where(
+            and_(
+                FacultyClinicSession.faculty_id == faculty_id,
+                FacultyClinicSession.checked_out_at.is_(None),
+            )
+        )
+    )
+    active_session = active_session_result.scalar_one_or_none()
+    if active_session:
+        raise HTTPException(status_code=400, detail=f"Already checked in to {active_session.clinic_name}")
+
+    clinic_result = await db.execute(
+        select(Clinic).where(Clinic.id == body.clinic_id)
+    )
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    now = datetime.utcnow()
+    session = FacultyClinicSession(
+        id=str(uuid.uuid4()),
+        faculty_id=faculty_id,
+        clinic_id=clinic.id,
+        clinic_name=clinic.name,
+        department=clinic.department,
+        date=now,
+        status="Active",
+        checked_in_at=now,
+    )
+    db.add(session)
+    await db.commit()
+
+    return {
+        "status": "checked_in",
+        "session_id": session.id,
+        "checked_in_at": now.isoformat(),
+        "clinic_id": clinic.id,
+        "clinic_name": clinic.name,
+    }
+
+
+@router.post("/{faculty_id}/clinic-sessions/{session_id}/check-out")
+async def check_out_faculty_from_clinic(
+    faculty_id: str,
+    session_id: str,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(FacultyClinicSession).where(
+            and_(
+                FacultyClinicSession.id == session_id,
+                FacultyClinicSession.faculty_id == faculty_id,
+            )
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Clinic session not found")
+    if session.checked_out_at:
+        raise HTTPException(status_code=400, detail="Already checked out from this clinic")
+
+    now = datetime.utcnow()
+    session.checked_out_at = now
+    session.status = "Completed"
+    await db.commit()
+
+    return {
+        "status": "checked_out",
+        "session_id": session.id,
+        "checked_in_at": session.checked_in_at.isoformat() if session.checked_in_at else None,
+        "checked_out_at": now.isoformat(),
+        "clinic_name": session.clinic_name,
     }
 
 

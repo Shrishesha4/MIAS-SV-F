@@ -76,7 +76,7 @@
 </script>
 
 <nav
-  class="sticky top-0 z-40 px-3 py-2.5 flex items-center justify-between"
+  class="sticky top-0 z-40 px-3 py-2.5 flex flex-wrap items-center justify-between gap-y-2 md:flex-nowrap md:gap-y-0"
   style="background-image: linear-gradient(to bottom, #4a7cc9, #3568b2);
          box-shadow: 0 2px 6px rgba(0,0,0,0.25);
          border-bottom: 1px solid rgba(0,0,0,0.15);"
@@ -106,10 +106,10 @@
     </div>
   </div>
 
-  <!-- Patient Search (desktop only) -->
-  <div class="hidden md:block flex-1 max-w-sm mx-4 relative">
+  <!-- Patient Search -->
+  <div class="order-3 basis-full md:order-none md:basis-auto flex-1 max-w-none md:max-w-sm md:mx-4 relative">
     <div class="relative">
-      <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-white/50 pointer-events-none" />
+      <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
       <input
         bind:this={searchInputRef}
         type="text"
@@ -118,12 +118,13 @@
         oninput={handleSearchInput}
         onfocus={() => { if (searchResults.length) searchOpen = true; }}
         onblur={handleSearchBlur}
-        class="motion-control w-full pl-9 pr-8 py-1.5 text-sm rounded-lg outline-none text-white placeholder-white/50"
-        style="background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2);
-               backdrop-filter: blur(4px);"
+        class="motion-control w-full pl-9 pr-8 py-2 text-sm rounded-xl outline-none text-slate-700 placeholder-slate-400"
+        style="background: rgba(248,250,252,0.96); border: 1px solid rgba(255,255,255,0.85);
+               box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(15,23,42,0.12);
+               backdrop-filter: blur(6px);"
       />
       {#if searchQuery}
-        <button class="motion-control absolute right-2 top-1/2 -translate-y-1/2 text-white/50 hover:text-white cursor-pointer" onclick={clearSearch}>
+        <button class="motion-control absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer" onclick={clearSearch}>
           <X class="w-3.5 h-3.5" />
         </button>
       {/if}

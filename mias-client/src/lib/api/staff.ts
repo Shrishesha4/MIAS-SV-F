@@ -9,7 +9,21 @@ export interface PendingPatient {
 	email: string;
 	registered_at: string;
 	has_appointment: boolean;
+	has_student_assignment: boolean;
+	assigned_student_id: string | null;
+	assigned_student_name: string | null;
 	has_admission: boolean;
+}
+
+export interface ActiveClinicStudent {
+	id: string;
+	student_id: string;
+	name: string;
+	year: number;
+	semester: number;
+	checked_in_at: string | null;
+	session_id: string;
+	assigned_patient_count: number;
 }
 
 export interface AssignToClinicRequest {
@@ -27,6 +41,12 @@ export interface AssignToWardRequest {
 	notes?: string;
 }
 
+export interface AssignToStudentRequest {
+	patient_id: string;
+	student_id: string;
+	clinic_id?: string;
+}
+
 export const staffApi = {
 	async getPendingPatients(): Promise<PendingPatient[]> {
 		const response = await client.get('/staff/pending-patients');
@@ -35,6 +55,24 @@ export const staffApi = {
 
 	async assignToClinic(data: AssignToClinicRequest): Promise<{ id: string; appointment_id: string }> {
 		const response = await client.post('/staff/assign-to-clinic', data);
+		return response.data;
+	},
+
+	async getActiveStudents(clinicId: string): Promise<ActiveClinicStudent[]> {
+		const response = await client.get(`/staff/clinics/${clinicId}/active-students`);
+		return response.data;
+	},
+
+	async assignToStudent(data: AssignToStudentRequest): Promise<{
+		message: string;
+		assignment_id: string;
+		patient_id: string;
+		patient_name: string;
+		student_id: string;
+		student_name: string;
+		student_patient_count: number;
+	}> {
+		const response = await client.post('/staff/assign-to-student', data);
 		return response.data;
 	},
 

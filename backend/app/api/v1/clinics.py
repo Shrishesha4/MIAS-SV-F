@@ -230,18 +230,72 @@ async def get_clinic_patients_today(
     )
     appointments = result.scalars().all()
 
-    return [
-        {
-            "id": a.id,
-            "patient_id": a.patient.patient_id if a.patient else None,
-            "patient_db_id": a.patient.id if a.patient else None,
-            "patient_name": a.patient.name if a.patient else None,
-            "appointment_time": a.appointment_time,
-            "provider_name": a.provider_name,
-            "status": a.status,
-        }
-        for a in appointments
-    ]
+    clinic_patients = []
+    included_patient_ids: set[str] = set()
+    for appointment in appointments:
+        if appointment.patient:
+            included_patient_ids.add(appointment.patient.id)
+        clinic_patients.append({
+            "id": appointment.id,
+            "patient_id": appointment.patient.patient_id if appointment.patient else None,
+            "patient_db_id": appointment.patient.id if appointment.patient else None,
+            "patient_name": appointment.patient.name if appointment.patient else None,
+            "appointment_time": appointment.appointment_time,
+            "provider_name": appointment.provider_name,
+            "status": appointment.status,
+            "source": "appointment",
+            "assignment_id": None,
+            "assigned_student_name": None,
+        })
+
+    active_session_result = await db.execute(
+        select(ClinicSession)
+        .options(selectinload(ClinicSession.student))
+        .where(
+            and_(
+                ClinicSession.clinic_id == clinic_id,
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
+            )
+        )
+    )
+    active_sessions = active_session_result.scalars().all()
+    active_students = {session.student_id: session.student for session in active_sessions if session.student}
+    active_session_by_student = {session.student_id: session for session in active_sessions}
+
+    if active_students:
+        assignment_result = await db.execute(
+            select(StudentPatientAssignment)
+            .options(selectinload(StudentPatientAssignment.patient))
+            .where(
+                and_(
+                    StudentPatientAssignment.student_id.in_(list(active_students.keys())),
+                    StudentPatientAssignment.status == "Active",
+                )
+            )
+        )
+        assignments = assignment_result.scalars().all()
+        for assignment in assignments:
+            patient = assignment.patient
+            if not patient or patient.id in included_patient_ids:
+                continue
+            session = active_session_by_student.get(assignment.student_id)
+            student = active_students.get(assignment.student_id)
+            clinic_patients.append({
+                "id": assignment.id,
+                "patient_id": patient.patient_id,
+                "patient_db_id": patient.id,
+                "patient_name": patient.name,
+                "appointment_time": session.checked_in_at.strftime("%I:%M %p") if session and session.checked_in_at else "Now",
+                "provider_name": student.name if student else None,
+                "status": "Checked In",
+                "source": "assignment",
+                "assignment_id": assignment.id,
+                "assigned_student_name": student.name if student else None,
+            })
+            included_patient_ids.add(patient.id)
+
+    return clinic_patients
 
 
 @router.put("/{clinic_id}/appointments/{appointment_id}/status")

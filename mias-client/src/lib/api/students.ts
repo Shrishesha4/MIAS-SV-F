@@ -28,9 +28,30 @@ export interface ClinicPatient {
   patient_db_id: string | null;
   patient_name: string;
   appointment_time: string;
-  provider_name: string;
+  provider_name: string | null;
   status: 'Waiting' | 'In Progress' | 'Completed';
   is_assigned: boolean;
+  source: 'appointment' | 'assignment';
+}
+
+export interface ClinicSession {
+  id: string;
+  clinic_id: string | null;
+  clinic_name: string;
+  department: string;
+  date: string | null;
+  display_date: string | null;
+  session_date: string | null;
+  time_start: string | null;
+  time_end: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  status: string;
+  is_selected: boolean;
+  checked_in_at: string | null;
+  checked_out_at: string | null;
+  doctor_name: string | null;
+  location: string | null;
 }
 
 export interface AssignedPatient {
@@ -90,7 +111,7 @@ export const studentApi = {
     return response.data;
   },
 
-  async getClinicSessions(studentId: string) {
+  async getClinicSessions(studentId: string): Promise<ClinicSession[]> {
     const response = await client.get(`/students/${studentId}/clinic-sessions`);
     return response.data;
   },
@@ -120,8 +141,8 @@ export const studentApi = {
     return response.data;
   },
 
-  async checkInClinic(studentId: string, sessionId: string) {
-    const response = await client.post(`/students/${studentId}/clinic-sessions/${sessionId}/check-in`);
+  async checkInToClinic(studentId: string, clinicId: string) {
+    const response = await client.post(`/students/${studentId}/clinic-sessions/check-in`, { clinic_id: clinicId });
     return response.data;
   },
 

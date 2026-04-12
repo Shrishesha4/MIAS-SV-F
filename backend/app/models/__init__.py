@@ -13,7 +13,7 @@ from app.models.lab import (
     Lab, LabTest, LabTestGroup, lab_test_group_members,
     ChargeItem, ChargePrice, ChargeCategory
 )
-from app.models.faculty import Faculty, FacultyNotification, FacultySchedule
+from app.models.faculty import Faculty, FacultyClinicSession, FacultyNotification, FacultySchedule
 from app.models.nurse import Nurse, NurseNotification
 from app.models.nurse_order import NurseOrder
 from app.models.sbar_note import SBARNote

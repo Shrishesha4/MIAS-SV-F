@@ -19,8 +19,11 @@ export interface ClinicPatientInfo {
   patient_db_id: string;
   patient_name: string;
   appointment_time: string;
-  provider_name: string;
+  provider_name: string | null;
   status: 'Scheduled' | 'Checked In' | 'In Progress' | 'Completed';
+  source: 'appointment' | 'assignment';
+  assignment_id: string | null;
+  assigned_student_name: string | null;
 }
 
 export interface PatientAppointmentInfo {

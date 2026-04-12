@@ -152,6 +152,7 @@ class Clinic(Base):
     faculty = relationship("Faculty")
     sessions = relationship("ClinicSession", back_populates="clinic")
     appointments = relationship("ClinicAppointment", back_populates="clinic")
+    faculty_sessions = relationship("FacultyClinicSession", back_populates="clinic")
 
 
 class ClinicAppointment(Base):

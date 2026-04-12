@@ -33,6 +33,24 @@ class Faculty(Base):
     approvals = relationship("Approval", back_populates="faculty")
     notifications = relationship("FacultyNotification", back_populates="faculty")
     schedules = relationship("FacultySchedule", back_populates="faculty")
+    clinic_sessions = relationship("FacultyClinicSession", back_populates="faculty")
+
+
+class FacultyClinicSession(Base):
+    __tablename__ = "faculty_clinic_sessions"
+
+    id = Column(String, primary_key=True)
+    faculty_id = Column(String, ForeignKey("faculty.id"), nullable=False, index=True)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=False, index=True)
+    clinic_name = Column(String, nullable=False)
+    department = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False, index=True)
+    status = Column(String, default="Active")
+    checked_in_at = Column(DateTime, nullable=False)
+    checked_out_at = Column(DateTime, nullable=True)
+
+    faculty = relationship("Faculty", back_populates="clinic_sessions")
+    clinic = relationship("Clinic", back_populates="faculty_sessions")
 
 
 class FacultyNotification(Base):

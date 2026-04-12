@@ -48,17 +48,22 @@
 
 	// Faculty-specific
 	let faculty: any = $state(null);
+	let facultySessions: any[] = $state([]);
+	let facultyCheckingIn = $state(false);
+	let facultyCheckingOut = $state(false);
 
 	// Student-specific
 	let student: any = $state(null);
 	let studentSessions: any[] = $state([]);
-	let activeSession: any = $state(null);
 	let checkingIn = $state(false);
 	let checkingOut = $state(false);
 
 	// Get the active session the student is checked into
 	const currentCheckedInSession = $derived(
 		studentSessions.find(s => s.checked_in_at && !s.checked_out_at)
+	);
+	const currentFacultyCheckedInSession = $derived(
+		facultySessions.find(s => s.checked_in_at && !s.checked_out_at)
 	);
 
 	async function loadStudentSessions() {
@@ -71,13 +76,23 @@
 		}
 	}
 
-	async function handleStudentCheckIn(session: any) {
-		if (!student?.id) return;
+	async function loadFacultySessions() {
+		if (!faculty?.id) return;
+		try {
+			facultySessions = await facultyApi.getClinicSessions(faculty.id);
+		} catch (err) {
+			console.error('Failed to load faculty clinic sessions', err);
+		}
+	}
+
+	async function handleStudentCheckIn() {
+		if (!student?.id || !selectedClinic) return;
 		checkingIn = true;
 		try {
-			const result = await studentApi.checkInClinic(student.id, session.id);
+			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id);
 			toastStore.addToast(`Checked in to ${result.clinic_name}`, 'success');
 			await loadStudentSessions();
+			await selectClinic(selectedClinic);
 		} catch (err: any) {
 			toastStore.addToast(err?.response?.data?.detail || 'Failed to check in', 'error');
 		} finally {
@@ -90,14 +105,49 @@
 		checkingOut = true;
 		try {
 			const result = await studentApi.checkOutClinic(student.id, session.id);
-			const hours = Math.floor(result.duration_minutes / 60);
-			const mins = result.duration_minutes % 60;
+			const hours = result.duration_minutes ? Math.floor(result.duration_minutes / 60) : 0;
+			const mins = result.duration_minutes ? result.duration_minutes % 60 : 0;
 			toastStore.addToast(`Checked out. Duration: ${hours}h ${mins}m`, 'success');
 			await loadStudentSessions();
+			if (selectedClinic) {
+				await selectClinic(selectedClinic);
+			}
 		} catch (err: any) {
 			toastStore.addToast(err?.response?.data?.detail || 'Failed to check out', 'error');
 		} finally {
 			checkingOut = false;
+		}
+	}
+
+	async function handleFacultyCheckIn() {
+		if (!faculty?.id || !selectedClinic) return;
+		facultyCheckingIn = true;
+		try {
+			const result = await facultyApi.checkInToClinic(faculty.id, selectedClinic.id);
+			toastStore.addToast(`Checked in to ${result.clinic_name}`, 'success');
+			await loadFacultySessions();
+			await selectClinic(selectedClinic);
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to check in', 'error');
+		} finally {
+			facultyCheckingIn = false;
+		}
+	}
+
+	async function handleFacultyCheckOut(session: any) {
+		if (!faculty?.id) return;
+		facultyCheckingOut = true;
+		try {
+			await facultyApi.checkOutFromClinic(faculty.id, session.id);
+			toastStore.addToast(`Checked out from ${session.clinic_name}`, 'success');
+			await loadFacultySessions();
+			if (selectedClinic) {
+				await selectClinic(selectedClinic);
+			}
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Failed to check out', 'error');
+		} finally {
+			facultyCheckingOut = false;
 		}
 	}
 
@@ -205,14 +255,23 @@
 				student = await studentApi.getMe();
 				clinics = await clinicsApi.listClinics();
 				await loadStudentSessions();
-				if (clinics.length > 0) {
+				const activeStudentSession = studentSessions.find(session => session.checked_in_at && !session.checked_out_at);
+				const activeClinic = activeStudentSession ? clinics.find(c => c.id === activeStudentSession.clinic_id) : null;
+				if (activeClinic) {
+					await selectClinic(activeClinic);
+				} else if (clinics.length > 0) {
 					await selectClinic(clinics[0]);
 				}
 			} else if (role === 'FACULTY') {
 				faculty = await facultyApi.getMe();
 				clinics = await clinicsApi.listClinics();
+				await loadFacultySessions();
+				const activeFacultySession = facultySessions.find(session => session.checked_in_at && !session.checked_out_at);
+				const activeClinic = activeFacultySession ? clinics.find(c => c.id === activeFacultySession.clinic_id) : null;
 				const myClinic = clinics.find(c => c.faculty_id === faculty.id);
-				if (myClinic) {
+				if (activeClinic) {
+					await selectClinic(activeClinic);
+				} else if (myClinic) {
 					await selectClinic(myClinic);
 				} else if (clinics.length > 0) {
 					await selectClinic(clinics[0]);
@@ -308,7 +367,6 @@
 		</AquaCard>
 
 	{:else}
-		<!-- Student Attendance Check-in/out -->
 		{#if role === 'STUDENT'}
 			<AquaCard>
 				<div class="flex items-center gap-2 mb-4">
@@ -317,66 +375,92 @@
 				</div>
 
 				{#if currentCheckedInSession}
-					<!-- Currently checked in -->
 					<div class="p-4 rounded-xl" style="background: linear-gradient(to bottom, #dcfce7, #bbf7d0); border: 1px solid #86efac;">
 						<div class="flex items-center justify-between">
 							<div>
 								<p class="font-semibold text-green-800">Checked In</p>
 								<p class="text-sm text-green-700">{currentCheckedInSession.clinic_name}</p>
-								<p class="text-xs text-green-600 mt-1">
-									Since {formatTime(currentCheckedInSession.checked_in_at)}
-								</p>
+								<p class="text-xs text-green-600 mt-1">Since {formatTime(currentCheckedInSession.checked_in_at)}</p>
 							</div>
-							<AquaButton
-								variant="danger"
-								size="sm"
-								loading={checkingOut}
-								onclick={() => handleStudentCheckOut(currentCheckedInSession.id)}
-							>
+							<AquaButton variant="danger" size="sm" loading={checkingOut} onclick={() => handleStudentCheckOut(currentCheckedInSession)}>
 								Check Out
 							</AquaButton>
 						</div>
 					</div>
-				{:else if studentSessions.length > 0}
-					<!-- Sessions available to check into -->
-					<div class="space-y-2">
-						{#each studentSessions as session}
-							<div class="p-3 rounded-xl flex items-center justify-between" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
-								<div>
-									<p class="font-medium text-gray-800">{session.clinic_name}</p>
-									<p class="text-xs text-gray-500">
-										{new Date(session.session_date).toLocaleDateString()} · {session.start_time} - {session.end_time}
-									</p>
-									{#if session.checked_out_at}
-										<p class="text-xs text-gray-400 mt-1">
-											Attended: {formatTime(session.checked_in_at)} - {formatTime(session.checked_out_at)}
-										</p>
-									{/if}
-								</div>
-								{#if !session.checked_in_at}
-									<AquaButton
-										variant="primary"
-										size="sm"
-										loading={checkingIn}
-										onclick={() => handleStudentCheckIn(session.id)}
-									>
-										Check In
-									</AquaButton>
-								{:else if session.checked_out_at}
-									<span class="px-2 py-1 text-xs font-medium rounded-full" style="background: #dcfce7; color: #166534;">
-										Completed
-									</span>
+				{:else if selectedClinic}
+					<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+						<p class="font-semibold text-gray-800">Ready to start clinic duty</p>
+						<p class="mt-1 text-sm text-gray-600">Check in to {selectedClinic.name} to bring your assigned patients into this clinic.</p>
+						<div class="mt-3 flex items-center justify-between gap-3">
+							<div class="text-xs text-gray-500">
+								<div>{selectedClinic.department}</div>
+								<div>{selectedClinic.location}</div>
+							</div>
+							<AquaButton variant="primary" size="sm" loading={checkingIn} onclick={handleStudentCheckIn}>
+								Check In Here
+							</AquaButton>
+						</div>
+					</div>
+				{:else}
+					<p class="text-sm text-center text-gray-400 py-4">No clinics available for check-in</p>
+				{/if}
+
+				{#if studentSessions.length > 0}
+					<div class="mt-3 space-y-2">
+						{#each studentSessions.slice(0, 3) as session}
+							<div class="p-3 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+								<p class="font-medium text-gray-800">{session.clinic_name}</p>
+								<p class="text-xs text-gray-500">{session.display_date || (session.date ? new Date(session.date).toLocaleDateString() : 'Unknown date')}</p>
+								{#if session.checked_out_at}
+									<p class="mt-1 text-xs text-gray-400">Attended: {formatTime(session.checked_in_at)} - {formatTime(session.checked_out_at)}</p>
 								{/if}
 							</div>
 						{/each}
 					</div>
-				{:else}
-					<p class="text-sm text-center text-gray-400 py-4">No clinic sessions assigned today</p>
 				{/if}
 			</AquaCard>
 		{/if}
 
-		<!-- Student / Faculty / Admin Clinic View -->
+		{#if role === 'FACULTY'}
+			<AquaCard>
+				<div class="flex items-center gap-2 mb-4">
+					<Stethoscope class="w-5 h-5 text-blue-600" />
+					<h3 class="font-bold text-gray-800">My Clinic Presence</h3>
+				</div>
+
+				{#if currentFacultyCheckedInSession}
+					<div class="p-4 rounded-xl" style="background: linear-gradient(to bottom, #dbeafe, #bfdbfe); border: 1px solid #93c5fd;">
+						<div class="flex items-center justify-between">
+							<div>
+								<p class="font-semibold text-blue-800">Checked In</p>
+								<p class="text-sm text-blue-700">{currentFacultyCheckedInSession.clinic_name}</p>
+								<p class="text-xs text-blue-600 mt-1">Since {formatTime(currentFacultyCheckedInSession.checked_in_at)}</p>
+							</div>
+							<AquaButton variant="danger" size="sm" loading={facultyCheckingOut} onclick={() => handleFacultyCheckOut(currentFacultyCheckedInSession)}>
+								Check Out
+							</AquaButton>
+						</div>
+					</div>
+				{:else if selectedClinic}
+					<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+						<p class="font-semibold text-gray-800">Ready to supervise</p>
+						<p class="mt-1 text-sm text-gray-600">Check in to {selectedClinic.name} to mark yourself available in this clinic.</p>
+						<div class="mt-3 flex items-center justify-between gap-3">
+							<div class="text-xs text-gray-500">
+								<div>{selectedClinic.department}</div>
+								<div>{selectedClinic.location}</div>
+							</div>
+							<AquaButton variant="primary" size="sm" loading={facultyCheckingIn} onclick={handleFacultyCheckIn}>
+								Check In Here
+							</AquaButton>
+						</div>
+					</div>
+				{:else}
+					<p class="text-sm text-center text-gray-400 py-4">No clinics available for check-in</p>
+				{/if}
+			</AquaCard>
+		{/if}
+
 		<AquaCard padding={false}>
 			<div class="p-4">
 				<div class="flex items-center justify-between">
@@ -483,7 +567,7 @@
 									<p class="text-xs text-gray-500">{cp.patient_id}</p>
 									<div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
 										<span class="flex items-center gap-1"><Clock class="w-3 h-3" /> {cp.appointment_time}</span>
-										<span class="flex items-center gap-1"><User class="w-3 h-3" /> {cp.provider_name}</span>
+										<span class="flex items-center gap-1"><User class="w-3 h-3" /> {cp.assigned_student_name || cp.provider_name}</span>
 									</div>
 								</div>
 								<div class="flex flex-col items-end gap-1.5 shrink-0">
@@ -492,15 +576,19 @@
 									</span>
 									{#if role !== 'PATIENT'}
 										<div class="flex gap-1">
-											{#if cp.status === 'Scheduled' || cp.status === 'Checked In'}
+											{#if cp.source === 'appointment' && (cp.status === 'Scheduled' || cp.status === 'Checked In')}
 												<button class="px-2 py-0.5 text-[10px] font-medium rounded cursor-pointer"
 													style="background: rgba(59,130,246,0.1); color: #2563eb; border: 1px solid rgba(59,130,246,0.2);"
 													onclick={() => updateStatus(cp.id, 'In Progress')}>Start</button>
 											{/if}
-											{#if cp.status === 'In Progress'}
+											{#if cp.source === 'appointment' && cp.status === 'In Progress'}
 												<button class="px-2 py-0.5 text-[10px] font-medium rounded cursor-pointer"
 													style="background: rgba(34,197,94,0.1); color: #16a34a; border: 1px solid rgba(34,197,94,0.2);"
 													onclick={() => updateStatus(cp.id, 'Completed')}>Complete</button>
+											{/if}
+											{#if cp.source === 'assignment'}
+												<span class="px-2 py-0.5 text-[10px] font-medium rounded"
+													style="background: rgba(16,185,129,0.1); color: #047857; border: 1px solid rgba(16,185,129,0.2);">Assigned</span>
 											{/if}
 										</div>
 									{/if}

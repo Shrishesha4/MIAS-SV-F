@@ -4,6 +4,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
+from pydantic import BaseModel
 
 from app.database import AsyncSessionLocal, get_db
 from app.api.deps import get_current_user, require_role
@@ -24,6 +25,10 @@ from app.models.student import StudentNotification
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
 
 router = APIRouter(prefix="/students", tags=["Students"])
+
+
+class ClinicCheckInRequest(BaseModel):
+    clinic_id: str
 
 
 async def _complete_case_record_generation(
@@ -518,11 +523,17 @@ async def get_clinic_sessions(
             "clinic_id": s.clinic_id,
             "clinic_name": s.clinic_name,
             "department": s.department,
-            "date": s.date.strftime("%B %d, %Y") if s.date else None,
+            "date": s.date.isoformat() if s.date else None,
+            "display_date": s.date.strftime("%B %d, %Y") if s.date else None,
+            "session_date": s.date.isoformat() if s.date else None,
             "time_start": s.time_start,
             "time_end": s.time_end,
+            "start_time": s.time_start,
+            "end_time": s.time_end,
             "status": s.status,
             "is_selected": bool(s.is_selected),
+            "checked_in_at": s.checked_in_at.isoformat() if s.checked_in_at else None,
+            "checked_out_at": s.checked_out_at.isoformat() if s.checked_out_at else None,
             "doctor_name": s.clinic.faculty.name if s.clinic and s.clinic.faculty else None,
             "location": s.clinic.location if s.clinic else None,
         }
@@ -592,20 +603,130 @@ async def get_clinic_patients(
             )
         )
         assigned_patient_ids = {patient_id for (patient_id,) in assignment_result.all()}
-    
-    return [
-        {
-            "id": a.id,
-            "patient_id": a.patient.patient_id if a.patient else None,
-            "patient_db_id": a.patient.id if a.patient else None,
-            "patient_name": a.patient.name if a.patient else None,
-            "appointment_time": a.appointment_time,
-            "provider_name": a.provider_name,
-            "status": a.status,
-            "is_assigned": bool(a.patient and a.patient.id in assigned_patient_ids),
-        }
-        for a in appointments
-    ]
+
+    clinic_patients = []
+    included_patient_ids: set[str] = set()
+    for appointment in appointments:
+        if appointment.patient:
+            included_patient_ids.add(appointment.patient.id)
+        clinic_patients.append({
+            "id": appointment.id,
+            "patient_id": appointment.patient.patient_id if appointment.patient else None,
+            "patient_db_id": appointment.patient.id if appointment.patient else None,
+            "patient_name": appointment.patient.name if appointment.patient else None,
+            "appointment_time": appointment.appointment_time,
+            "provider_name": appointment.provider_name,
+            "status": appointment.status,
+            "source": "appointment",
+            "is_assigned": bool(appointment.patient and appointment.patient.id in assigned_patient_ids),
+        })
+
+    active_session_result = await db.execute(
+        select(ClinicSession)
+        .options(selectinload(ClinicSession.student))
+        .where(
+            and_(
+                ClinicSession.clinic_id == clinic_id,
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
+            )
+        )
+    )
+    active_sessions = active_session_result.scalars().all()
+    active_students = {session.student_id: session.student for session in active_sessions if session.student}
+    active_session_by_student = {session.student_id: session for session in active_sessions}
+    if active_students:
+        active_assignment_result = await db.execute(
+            select(StudentPatientAssignment)
+            .options(selectinload(StudentPatientAssignment.patient))
+            .where(
+                and_(
+                    StudentPatientAssignment.student_id.in_(list(active_students.keys())),
+                    StudentPatientAssignment.status == "Active",
+                )
+            )
+        )
+        active_assignments = active_assignment_result.scalars().all()
+        for assignment in active_assignments:
+            patient = assignment.patient
+            if not patient or patient.id in included_patient_ids:
+                continue
+            session = active_session_by_student.get(assignment.student_id)
+            clinic_patients.append({
+                "id": assignment.id,
+                "patient_id": patient.patient_id,
+                "patient_db_id": patient.id,
+                "patient_name": patient.name,
+                "appointment_time": session.checked_in_at.strftime("%I:%M %p") if session and session.checked_in_at else "Now",
+                "provider_name": active_students[assignment.student_id].name if active_students.get(assignment.student_id) else None,
+                "status": "Checked In",
+                "source": "assignment",
+                "is_assigned": assignment.student_id == student_id,
+            })
+            included_patient_ids.add(patient.id)
+
+    return clinic_patients
+
+
+@router.post("/{student_id}/clinic-sessions/check-in")
+async def check_in_to_clinic(
+    student_id: str,
+    body: ClinicCheckInRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a live clinic session for the student's current clinic check-in."""
+    active_session_result = await db.execute(
+        select(ClinicSession)
+        .where(
+            and_(
+                ClinicSession.student_id == student_id,
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
+            )
+        )
+    )
+    active_session = active_session_result.scalar_one_or_none()
+    if active_session:
+        raise HTTPException(status_code=400, detail=f"Already checked in to {active_session.clinic_name}")
+
+    clinic_result = await db.execute(
+        select(Clinic).where(Clinic.id == body.clinic_id)
+    )
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    current_sessions_result = await db.execute(
+        select(ClinicSession).where(ClinicSession.student_id == student_id)
+    )
+    for session in current_sessions_result.scalars().all():
+        session.is_selected = 0
+
+    now = datetime.utcnow()
+    session = ClinicSession(
+        id=str(uuid.uuid4()),
+        student_id=student_id,
+        clinic_id=clinic.id,
+        clinic_name=clinic.name,
+        department=clinic.department,
+        date=now,
+        time_start=now.strftime("%I:%M %p"),
+        time_end=None,
+        status="Active",
+        is_selected=1,
+        checked_in_at=now,
+    )
+    db.add(session)
+    await db.commit()
+
+    return {
+        "status": "checked_in",
+        "session_id": session.id,
+        "checked_in_at": now.isoformat(),
+        "clinic_id": clinic.id,
+        "clinic_name": clinic.name,
+    }
 
 
 @router.post("/{student_id}/clinic-sessions/{session_id}/select")
@@ -701,7 +822,9 @@ async def check_out_from_clinic_session(
     
     now = datetime.utcnow()
     session.checked_out_at = now
+    session.time_end = now.strftime("%I:%M %p")
     session.status = "Completed"
+    session.is_selected = 0
     
     # Calculate duration in minutes
     duration_minutes = int((now - session.checked_in_at).total_seconds() / 60)

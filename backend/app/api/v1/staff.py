@@ -42,6 +42,12 @@ class AssignToClinicRequest(BaseModel):
     notes: Optional[str] = None
 
 
+class AssignToStudentRequest(BaseModel):
+    patient_id: str
+    student_id: str
+    clinic_id: Optional[str] = None
+
+
 class AssignToWardRequest(BaseModel):
     patient_id: str
     ward: Optional[str] = None
@@ -112,6 +118,19 @@ async def get_pending_patients(
             .where(ClinicAppointment.patient_id == patient.id)
         )
         has_appointment = (appt_result.scalar() or 0) > 0 or (clinic_appt_result.scalar() or 0) > 0
+
+        assignment_result = await db.execute(
+            select(StudentPatientAssignment)
+            .options(selectinload(StudentPatientAssignment.student))
+            .where(
+                and_(
+                    StudentPatientAssignment.patient_id == patient.id,
+                    StudentPatientAssignment.status == "Active",
+                )
+            )
+        )
+        student_assignment = assignment_result.scalar_one_or_none()
+        has_student_assignment = student_assignment is not None
         
         # Check if patient has any admissions
         adm_result = await db.execute(
@@ -139,10 +158,152 @@ async def get_pending_patients(
             "blood_group": patient.blood_group,
             "registered_at": patient.created_at.isoformat(),
             "has_appointment": has_appointment,
+            "has_student_assignment": has_student_assignment,
+            "assigned_student_id": student_assignment.student_id if student_assignment else None,
+            "assigned_student_name": student_assignment.student.name if student_assignment and student_assignment.student else None,
             "has_admission": has_admission,
         })
     
     return pending_list
+
+
+@router.get("/clinics/{clinic_id}/active-students")
+async def get_active_students_for_clinic(
+    clinic_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List checked-in students currently present in a clinic."""
+    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    session_result = await db.execute(
+        select(ClinicSession)
+        .options(selectinload(ClinicSession.student))
+        .where(
+            and_(
+                ClinicSession.clinic_id == clinic_id,
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
+            )
+        )
+        .order_by(ClinicSession.checked_in_at.asc())
+    )
+    sessions = session_result.scalars().all()
+
+    active_students = []
+    for session in sessions:
+        if not session.student:
+            continue
+        assignment_count_result = await db.execute(
+            select(func.count(StudentPatientAssignment.id)).where(
+                and_(
+                    StudentPatientAssignment.student_id == session.student_id,
+                    StudentPatientAssignment.status == "Active",
+                )
+            )
+        )
+        active_students.append({
+            "id": session.student.id,
+            "student_id": session.student.student_id,
+            "name": session.student.name,
+            "year": session.student.year,
+            "semester": session.student.semester,
+            "checked_in_at": session.checked_in_at.isoformat() if session.checked_in_at else None,
+            "session_id": session.id,
+            "assigned_patient_count": assignment_count_result.scalar() or 0,
+        })
+
+    return active_students
+
+
+@router.post("/assign-to-student")
+async def assign_patient_to_student(
+    data: AssignToStudentRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign a patient directly to a checked-in student."""
+    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    patient_result = await db.execute(
+        select(Patient).where(Patient.id == data.patient_id)
+    )
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    student_result = await db.execute(
+        select(Student).where(Student.id == data.student_id)
+    )
+    student = student_result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    existing_assignment_result = await db.execute(
+        select(StudentPatientAssignment).where(
+            and_(
+                StudentPatientAssignment.patient_id == data.patient_id,
+                StudentPatientAssignment.status == "Active",
+            )
+        )
+    )
+    if existing_assignment_result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Patient is already assigned to a student")
+
+    if data.clinic_id:
+        active_session_result = await db.execute(
+            select(ClinicSession).where(
+                and_(
+                    ClinicSession.student_id == data.student_id,
+                    ClinicSession.clinic_id == data.clinic_id,
+                    ClinicSession.checked_in_at.is_not(None),
+                    ClinicSession.checked_out_at.is_(None),
+                )
+            )
+        )
+        if not active_session_result.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Student is not currently checked in to this clinic")
+
+    assignment = StudentPatientAssignment(
+        id=str(uuid.uuid4()),
+        student_id=data.student_id,
+        patient_id=data.patient_id,
+        status="Active",
+    )
+    db.add(assignment)
+
+    notification = StudentNotification(
+        id=str(uuid.uuid4()),
+        student_id=data.student_id,
+        title="New Patient Assigned",
+        message=f"Patient {patient.name} ({patient.patient_id}) has been assigned to you.",
+        type="ASSIGNMENT",
+        is_read=0,
+    )
+    db.add(notification)
+
+    await db.commit()
+
+    assignment_count_result = await db.execute(
+        select(func.count(StudentPatientAssignment.id)).where(
+            and_(
+                StudentPatientAssignment.student_id == data.student_id,
+                StudentPatientAssignment.status == "Active",
+            )
+        )
+    )
+
+    return {
+        "message": f"Patient {patient.name} assigned to {student.name}",
+        "assignment_id": assignment.id,
+        "patient_id": patient.id,
+        "patient_name": patient.name,
+        "student_id": student.id,
+        "student_name": student.name,
+        "student_patient_count": assignment_count_result.scalar() or 0,
+    }
 
 
 @router.post("/assign-to-clinic")
@@ -349,7 +510,8 @@ async def auto_assign_patient_to_student(
         .where(
             and_(
                 ClinicSession.clinic_id == data.clinic_id,
-                ClinicSession.status.in_(["Scheduled", "Active"])
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
             )
         )
     )

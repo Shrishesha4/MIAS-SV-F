@@ -30,6 +30,18 @@ export interface PatientAssignment {
   assigned_at: string;
 }
 
+export interface FacultyClinicSession {
+  id: string;
+  clinic_id: string;
+  clinic_name: string;
+  department: string;
+  date: string | null;
+  display_date: string | null;
+  status: string;
+  checked_in_at: string | null;
+  checked_out_at: string | null;
+}
+
 export const facultyApi = {
   async getMe() {
     const response = await client.get('/faculty/me');
@@ -108,6 +120,21 @@ export const facultyApi = {
 
   async getFacultyClinics(facultyId: string) {
     const response = await client.get(`/clinics/faculty/${facultyId}/clinics`);
+    return response.data;
+  },
+
+  async getClinicSessions(facultyId: string): Promise<FacultyClinicSession[]> {
+    const response = await client.get(`/faculty/${facultyId}/clinic-sessions`);
+    return response.data;
+  },
+
+  async checkInToClinic(facultyId: string, clinicId: string) {
+    const response = await client.post(`/faculty/${facultyId}/clinic-sessions/check-in`, { clinic_id: clinicId });
+    return response.data;
+  },
+
+  async checkOutFromClinic(facultyId: string, sessionId: string) {
+    const response = await client.post(`/faculty/${facultyId}/clinic-sessions/${sessionId}/check-out`);
     return response.data;
   },
 
