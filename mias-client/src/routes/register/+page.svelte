@@ -70,6 +70,7 @@
 		try {
 			insuranceLoading = true;
 			const categories = await insuranceCategoriesApi.listPublicCategories();
+			console.log('Loaded insurance categories:', categories);
 			insuranceOptions = categories;
 			// Select default category
 			const defaultCategory = categories.find(c => c.is_default) || categories[0];
@@ -77,6 +78,7 @@
 				selectedInsuranceId = defaultCategory.id;
 			}
 		} catch (e) {
+			console.error('Failed to load insurance categories:', e);
 			// Fallback to static options
 			insuranceOptions = [
 				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, is_default: false },
@@ -95,13 +97,15 @@
 			clinicsLoading = true;
 			insuranceCategoriesApi.getCategoryClinics(selectedInsuranceId)
 				.then(clinics => {
+					console.log('Loaded clinics for insurance category:', selectedInsuranceId, clinics);
 					availableClinics = clinics;
 					// Select first clinic by default
 					if (clinics.length > 0) {
 						selectedClinicConfigId = clinics[0].config_id;
 					}
 				})
-				.catch(() => {
+				.catch((e) => {
+					console.error('Failed to load clinics:', e);
 					// Fallback clinics
 					availableClinics = [
 						{ 

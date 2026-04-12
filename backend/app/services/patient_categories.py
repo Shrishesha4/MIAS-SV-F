@@ -13,25 +13,21 @@ DEFAULT_PATIENT_CATEGORIES: tuple[dict[str, object], ...] = (
     {
         "name": "Classic",
         "description": "Standard hospital pricing and registration category.",
-        "is_default": True,
         "sort_order": 0,
     },
     {
         "name": "Prime",
         "description": "Priority services with upgraded access and benefits.",
-        "is_default": False,
         "sort_order": 1,
     },
     {
         "name": "Elite",
         "description": "Premium category for high-touch service workflows.",
-        "is_default": False,
         "sort_order": 2,
     },
     {
         "name": "Community",
         "description": "Community or subsidized patient support category.",
-        "is_default": False,
         "sort_order": 3,
     },
 )
@@ -66,7 +62,6 @@ async def ensure_patient_categories(db: AsyncSession) -> list[PatientCategoryOpt
                 name=name,
                 description=str(item["description"]),
                 is_active=True,
-                is_default=bool(item["is_default"]),
                 sort_order=index,
             )
         )
@@ -86,7 +81,6 @@ async def ensure_patient_categories(db: AsyncSession) -> list[PatientCategoryOpt
                 name=normalized,
                 description="Imported from existing patient records.",
                 is_active=True,
-                is_default=False,
                 sort_order=next_sort,
             )
         )
@@ -97,15 +91,6 @@ async def ensure_patient_categories(db: AsyncSession) -> list[PatientCategoryOpt
         db.add_all(pending_records)
         await db.flush()
 
-    if not any(category.is_default for category in [*categories, *pending_records]):
-        all_categories = [*categories, *pending_records]
-        default_category = next(
-            (category for category in all_categories if category.name.casefold() == "classic"),
-            all_categories[0] if all_categories else None,
-        )
-        if default_category:
-            default_category.is_default = True
-
     refreshed = await db.execute(
         select(PatientCategoryOption).order_by(PatientCategoryOption.sort_order.asc(), PatientCategoryOption.created_at.asc())
     )
@@ -114,10 +99,6 @@ async def ensure_patient_categories(db: AsyncSession) -> list[PatientCategoryOpt
 
 async def get_default_patient_category_name(db: AsyncSession) -> str:
     categories = await ensure_patient_categories(db)
-    default_category = next((category for category in categories if category.is_default and category.is_active), None)
-    if default_category:
-        return default_category.name
-
     first_active = next((category for category in categories if category.is_active), None)
     return first_active.name if first_active else "Classic"
 

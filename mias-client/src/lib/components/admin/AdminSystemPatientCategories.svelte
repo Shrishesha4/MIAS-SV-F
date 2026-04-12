@@ -14,7 +14,6 @@
 		name: string;
 		description: string;
 		is_active: boolean;
-		is_default: boolean;
 		sort_order: number;
 	};
 
@@ -30,7 +29,6 @@
 		name: '',
 		description: '',
 		is_active: true,
-		is_default: false,
 		sort_order: 0,
 	});
 
@@ -74,7 +72,6 @@
 			name: '',
 			description: '',
 			is_active: true,
-			is_default: categories.length === 0,
 			sort_order: categories.length,
 		};
 		editorOpen = true;
@@ -86,7 +83,6 @@
 			name: category.name,
 			description: category.description || '',
 			is_active: category.is_active,
-			is_default: category.is_default,
 			sort_order: category.sort_order,
 		};
 		editorOpen = true;
@@ -105,7 +101,6 @@
 					name: form.name,
 					description: form.description,
 					is_active: form.is_active,
-					is_default: form.is_default,
 					sort_order: form.sort_order,
 				});
 				categories = categories.map((item) => item.id === updated.id ? updated : item);
@@ -115,7 +110,6 @@
 					name: form.name,
 					description: form.description,
 					is_active: form.is_active,
-					is_default: form.is_default,
 					sort_order: form.sort_order,
 				});
 				categories = [...categories, created];
@@ -128,19 +122,6 @@
 			toastStore.addToast(error?.response?.data?.detail || 'Failed to save patient category', 'error');
 		} finally {
 			saving = false;
-		}
-	}
-
-	async function setDefault(category: PatientCategoryConfig) {
-		try {
-			const updated = await adminApi.updatePatientCategory(category.id, { is_default: true });
-			categories = categories.map((item) => ({
-				...item,
-				is_default: item.id === updated.id,
-			}));
-			toastStore.addToast(`${updated.name} is now the default category`, 'success');
-		} catch (error: any) {
-			toastStore.addToast(error?.response?.data?.detail || 'Failed to update default category', 'error');
 		}
 	}
 
@@ -232,15 +213,11 @@
 								<td class="px-4 py-4">
 									<div class="flex items-center gap-2">
 										<p class="font-semibold text-slate-900">{category.name}</p>
-										{#if category.is_default}
-											<span class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-700"
-												style="background: rgba(251,191,36,0.18); border: 1px solid rgba(245,158,11,0.22);">
-												<Star class="h-3 w-3" /> Default
-											</span>
-										{/if}
 									</div>
+									{#if category.description}
+										<p class="text-xs text-slate-500 mt-1">{category.description}</p>
+									{/if}
 								</td>
-								<!-- <td class="px-4 py-4 text-slate-500">{category.description || 'No description set.'}</td> -->
 								<td class="px-4 py-4">
 									<span class="text-base font-semibold text-slate-900">{category.patient_count}</span>
 								</td>
@@ -257,11 +234,6 @@
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 cursor-pointer" style="background: rgba(148,163,184,0.12);" onclick={() => openEdit(category)}>
 											<PencilLine class="mr-1 inline h-3.5 w-3.5" /> Edit
 										</button>
-										{#if !category.is_default}
-											<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-blue-700 cursor-pointer" style="background: rgba(59,130,246,0.12);" onclick={() => setDefault(category)}>
-												<ShieldCheck class="mr-1 inline h-3.5 w-3.5" /> Default
-											</button>
-										{/if}
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60" style="background: rgba(248,113,113,0.12);" onclick={() => removeCategory(category)} disabled={deletingId === category.id}>
 											<Trash2 class="mr-1 inline h-3.5 w-3.5" /> {deletingId === category.id ? 'Removing...' : 'Delete'}
 										</button>
@@ -298,10 +270,6 @@
 					<label class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
 						<span class="text-sm font-medium text-slate-700">Active category</span>
 						<input type="checkbox" bind:checked={form.is_active} class="h-4 w-4" />
-					</label>
-					<label class="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
-						<span class="text-sm font-medium text-slate-700">Default category</span>
-						<input type="checkbox" bind:checked={form.is_default} class="h-4 w-4" />
 					</label>
 				</div>
 

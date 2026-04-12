@@ -13,7 +13,6 @@ class PatientCategoryOption(Base):
     name = Column(String, nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    is_default = Column(Boolean, nullable=False, default=False)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(

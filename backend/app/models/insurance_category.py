@@ -8,6 +8,15 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+# Association table for many-to-many relationship between insurance categories and patient categories
+insurance_patient_category_association = Table(
+    'insurance_patient_category_association',
+    Base.metadata,
+    Column('insurance_category_id', String, ForeignKey('insurance_categories.id', ondelete='CASCADE'), primary_key=True),
+    Column('patient_category_id', String, ForeignKey('patient_category_options.id', ondelete='CASCADE'), primary_key=True),
+)
+
+
 class InsuranceCategory(Base):
     """Insurance/payment categories that determine patient access and pricing."""
     __tablename__ = "insurance_categories"
@@ -16,7 +25,6 @@ class InsuranceCategory(Base):
     name = Column(String, nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
-    is_default = Column(Boolean, nullable=False, default=False)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
@@ -27,6 +35,9 @@ class InsuranceCategory(Base):
 
     # Relationship to clinic configurations
     clinic_configs = relationship("InsuranceClinicConfig", back_populates="insurance_category", cascade="all, delete-orphan")
+
+    # Relationship to patient categories
+    patient_categories = relationship("PatientCategoryOption", secondary=insurance_patient_category_association, backref="insurance_categories")
 
 
 class InsuranceClinicConfig(Base):

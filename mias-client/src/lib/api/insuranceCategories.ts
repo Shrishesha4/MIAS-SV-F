@@ -5,6 +5,12 @@ export interface WalkInType {
   label: string;
 }
 
+export interface PatientCategory {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 export interface ClinicConfig {
   id: string;
   clinic_id: string;
@@ -20,8 +26,8 @@ export interface InsuranceCategory {
   name: string;
   description: string | null;
   is_active: boolean;
-  is_default: boolean;
   sort_order: number;
+  patient_categories: PatientCategory[];
   clinic_configs: ClinicConfig[];
 }
 
@@ -29,16 +35,16 @@ export interface InsuranceCategoryCreate {
   name: string;
   description?: string;
   is_active?: boolean;
-  is_default?: boolean;
   sort_order?: number;
+  patient_category_ids?: string[];
 }
 
 export interface InsuranceCategoryUpdate {
   name?: string;
   description?: string;
   is_active?: boolean;
-  is_default?: boolean;
   sort_order?: number;
+  patient_category_ids?: string[];
 }
 
 export interface ClinicConfigUpdate {
@@ -94,13 +100,35 @@ export const insuranceCategoriesApi = {
     return response.data;
   },
 
-  // Clinic configuration
+  // Clinic configuration (by config ID)
   async updateClinicConfig(
-    categoryId: string, 
-    configId: string, 
+    categoryId: string,
+    configId: string,
     data: ClinicConfigUpdate
   ): Promise<ClinicConfig & { message: string }> {
     const response = await client.patch(`/insurance-categories/${categoryId}/clinics/${configId}`, data);
+    return response.data;
+  },
+
+  // Clinic configuration by category + clinic ID (for admin panel)
+  async getClinicConfigByClinic(
+    categoryId: string,
+    clinicId: string
+  ): Promise<ClinicConfig & { exists: boolean }> {
+    const response = await client.get('/insurance-categories/clinic-config', {
+      params: { category_id: categoryId, clinic_id: clinicId }
+    });
+    return response.data;
+  },
+
+  async saveClinicConfigByClinic(
+    categoryId: string,
+    clinicId: string,
+    data: ClinicConfigUpdate
+  ): Promise<ClinicConfig & { message: string }> {
+    const response = await client.patch('/insurance-categories/clinic-config', data, {
+      params: { category_id: categoryId, clinic_id: clinicId }
+    });
     return response.data;
   },
 

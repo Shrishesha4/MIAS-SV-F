@@ -1036,7 +1036,6 @@ class PatientCategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
     is_active: bool = True
-    is_default: bool = False
     sort_order: Optional[int] = None
 
 
@@ -1044,7 +1043,6 @@ class PatientCategoryUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
-    is_default: Optional[bool] = None
     sort_order: Optional[int] = None
 
 
@@ -1054,7 +1052,6 @@ def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[
         "name": item.name,
         "description": item.description,
         "is_active": item.is_active,
-        "is_default": item.is_default,
         "sort_order": item.sort_order,
         "patient_count": usage_counts.get(item.name, 0),
         "created_at": item.created_at.isoformat() if item.created_at else None,
@@ -1091,15 +1088,11 @@ async def create_patient_category(
     if existing:
         raise HTTPException(status_code=400, detail="Category name already exists")
 
-    if data.is_default:
-        await db.execute(text("UPDATE patient_category_options SET is_default = FALSE"))
-
     item = PatientCategoryOption(
         id=_uid(),
         name=normalized_name,
         description=(data.description or "").strip() or None,
         is_active=data.is_active,
-        is_default=data.is_default,
         sort_order=data.sort_order if data.sort_order is not None else len(categories),
     )
     db.add(item)
@@ -1155,22 +1148,6 @@ async def update_patient_category(
         item.is_active = data.is_active
     if data.sort_order is not None:
         item.sort_order = data.sort_order
-    if data.is_default is True:
-        await db.execute(text("UPDATE patient_category_options SET is_default = FALSE"))
-        item.is_default = True
-    elif data.is_default is False and item.is_default:
-        replacement = (
-            await db.execute(
-                select(PatientCategoryOption)
-                .where(PatientCategoryOption.id != item.id)
-                .where(PatientCategoryOption.is_active == True)
-                .order_by(PatientCategoryOption.sort_order.asc(), PatientCategoryOption.created_at.asc())
-            )
-        ).scalars().first()
-        if not replacement:
-            raise HTTPException(status_code=400, detail="At least one active default category is required")
-        replacement.is_default = True
-        item.is_default = False
 
     await sync_charge_price_categories(db)
     await db.commit()
@@ -1195,18 +1172,6 @@ async def delete_patient_category(
     ).scalar() or 0
     if usage_count:
         raise HTTPException(status_code=409, detail="Cannot delete a category that is already assigned to patients")
-
-    if item.is_default:
-        replacement = (
-            await db.execute(
-                select(PatientCategoryOption)
-                .where(PatientCategoryOption.id != item.id)
-                .where(PatientCategoryOption.is_active == True)
-                .order_by(PatientCategoryOption.sort_order.asc(), PatientCategoryOption.created_at.asc())
-            )
-        ).scalars().first()
-        if replacement:
-            replacement.is_default = True
 
     await db.execute(
         text("DELETE FROM charge_prices WHERE lower(tier) = :category_name"),

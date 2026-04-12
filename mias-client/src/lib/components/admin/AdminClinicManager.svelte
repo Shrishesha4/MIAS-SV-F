@@ -4,20 +4,16 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
+	import { insuranceCategoriesApi, type WalkInType } from '$lib/api/insuranceCategories';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import { Building2, PencilLine, Plus, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const clinicTypeOptions = ['IP', 'OP', 'ER'];
-	const clinicAccessModeOptions = [
-		{ value: 'WALK_IN', label: 'Walk-In Clinic' },
-		{ value: 'APPOINTMENT_ONLY', label: 'Appointment Only' }
-	] as const;
 
-	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
-		return clinicAccessModeOptions.find((option) => option.value === accessMode)?.label || 'Walk-In Clinic';
-	}
+	// Walk-in types - fetched dynamically
+	let walkInTypes = $state<WalkInType[]>([]);
 
 	let loading = $state(true);
 	let error = $state('');
@@ -34,11 +30,25 @@
 		block: '',
 		clinic_type: 'OP',
 		access_mode: 'WALK_IN' as ClinicInfo['access_mode'],
+		walk_in_type: 'NO_WALK_IN',
 		department: '',
 		location: '',
 		is_active: true
 	});
 	let savingClinic = $state(false);
+
+	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
+		if (accessMode === 'APPOINTMENT_ONLY') return 'Appointment Only';
+		return 'Walk-In Clinic';
+	}
+
+	async function loadWalkInTypes() {
+		try {
+			walkInTypes = await insuranceCategoriesApi.getWalkInTypes();
+		} catch (e) {
+			console.error('Failed to load walk-in types:', e);
+		}
+	}
 
 	const clinicCards = $derived.by(() =>
 		clinics.map((clinic) => ({
@@ -70,6 +80,7 @@
 		}
 
 		loadClinics();
+		loadWalkInTypes();
 	});
 
 	async function loadClinics() {
@@ -92,6 +103,7 @@
 			block: '',
 			clinic_type: 'OP',
 			access_mode: 'WALK_IN',
+			walk_in_type: 'NO_WALK_IN',
 			department: '',
 			location: '',
 			is_active: true
@@ -99,16 +111,17 @@
 		clinicModal = true;
 	}
 
-	function openEditModal(clinic: ClinicInfo) {
+	async function openEditModal(clinic: ClinicInfo) {
 		editingClinic = clinic;
 		clinicData = {
 			name: clinic.name,
 			block: clinic.block || '',
 			clinic_type: clinicTypeOptions.includes(clinic.clinic_type) ? clinic.clinic_type : 'OP',
 			access_mode: clinic.access_mode || 'WALK_IN',
+			walk_in_type: (clinic as any).walk_in_type || 'NO_WALK_IN',
 			department: clinic.department || '',
 			location: clinic.location || '',
-			is_active: clinic.is_active
+			is_active: clinic.is_active ?? true
 		};
 		clinicModal = true;
 	}
@@ -126,6 +139,7 @@
 				block: clinicData.block.trim() || undefined,
 				clinic_type: clinicData.clinic_type,
 				access_mode: clinicData.access_mode,
+				walk_in_type: clinicData.walk_in_type,
 				department: clinicData.department.trim() || undefined,
 				location: clinicData.location.trim() || undefined,
 				is_active: clinicData.is_active
@@ -135,13 +149,12 @@
 			if (editingClinic) {
 				savedClinic = await clinicsApi.updateClinic(editingClinic.id, payload);
 				upsertClinic(savedClinic);
-				toastStore.addToast('Clinic updated successfully', 'success');
 			} else {
 				savedClinic = await clinicsApi.createClinic(payload);
 				upsertClinic(savedClinic);
-				toastStore.addToast('Clinic created successfully', 'success');
 			}
 
+			toastStore.addToast(editingClinic ? 'Clinic updated successfully' : 'Clinic created successfully', 'success');
 			clinicModal = false;
 		} catch (e: any) {
 			toastStore.addToast(e.response?.data?.detail || 'Failed to save clinic', 'error');
@@ -348,21 +361,22 @@
 				</div>
 			</div>
 
-			<div>
-				<label for="clinic-access-mode" class="mb-1 block text-sm font-medium text-gray-700">Patient Access</label>
+			<!-- Walk-in Type -->
+			<div class="border-t border-gray-200 pt-4 mt-2">
+				<label for="walk-in-type" class="block text-sm font-medium text-gray-700 mb-2">Walk-in Type</label>
 				<select
-					id="clinic-access-mode"
-					bind:value={clinicData.access_mode}
-					class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
+					id="walk-in-type"
+					bind:value={clinicData.walk_in_type}
+					class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
 				>
-					{#each clinicAccessModeOptions as option}
-						<option value={option.value}>{option.label}</option>
+					{#each walkInTypes as type}
+						<option value={type.value}>{type.label}</option>
 					{/each}
 				</select>
-				<p class="mt-1 text-xs text-gray-500">Choose whether this clinic accepts direct walk-ins or requires scheduled appointments.</p>
+				<p class="mt-1 text-xs text-gray-500">The walk-in type for this clinic</p>
 			</div>
 
-			<label class="flex items-center gap-2 text-sm text-gray-700">
+			<label class="flex items-center gap-2 text-sm text-gray-700 mt-4">
 				<input
 					type="checkbox"
 					bind:checked={clinicData.is_active}

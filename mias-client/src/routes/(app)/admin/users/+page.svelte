@@ -153,7 +153,7 @@
 	}
 
 	function defaultPatientCategoryName(): string {
-		return patientCategories.find((category) => category.is_default)?.name || patientCategories[0]?.name || '';
+		return patientCategories[0]?.name || '';
 	}
 
 	function resetCreateUserForm(role: CreateUserRole = 'NURSE') {
@@ -173,7 +173,7 @@
 		];
 		const examples = [
 			['NURSE', 'Jane Smith', 'jsmith', 'jane@example.com', 'Pass@1234', '', '', '', '9876543210', '', '', '', '', '', '', '', '', '', '', '', '', 'Cardiology', '', '', 'Main Hospital', 'Ward A', 'Morning'],
-			['PATIENT', 'Ravi Kumar', 'ravi_k', 'ravi@example.com', 'Pass@1234', '1995-06-15', 'MALE', 'O+', '9123456789', '12 MG Road', 'STAFF', '123456789012', '', 'Hypertension', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+			// ['PATIENT', 'Ravi Kumar', 'ravi_k', 'ravi@example.com', 'Pass@1234', '1995-06-15', 'MALE', 'O+', '9123456789', '12 MG Road', 'STAFF', '123456789012', '', 'Hypertension', '', '', '', '', '', '', '', '', '', '', '', '', ''],
 			['STUDENT', 'Priya Nair', 'priya_n', 'priya@example.com', 'Pass@1234', '', '', '', '', '', '', '', '', '', '2', '3', 'MBBS', 'Bachelor of Medicine', '7.8', 'Good Standing', 'Dr. Mehta', '', '', '', '', '', ''],
 			['FACULTY', 'Dr. Arjun Rao', 'arjun_r', 'arjun@example.com', 'Pass@1234', '', '', '', '9988776655', '', '', '', '', '', '', '', '', '', '', '', '', 'Neurology', 'Neurologist', 'Mon-Fri 9-5', '', '', ''],
 		];
@@ -614,7 +614,7 @@
 					onchange={(event) => handleCreateRoleChange((event.currentTarget as HTMLSelectElement).value as CreateUserRole)}
 					class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 				>
-					<option value="PATIENT">Patient</option>
+					<!-- <option value="PATIENT">Patient</option> -->
 					<option value="NURSE">Nurse</option>
 					<option value="RECEPTION">Reception</option>
 					<option value="STUDENT">Student</option>
