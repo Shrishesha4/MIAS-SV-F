@@ -113,10 +113,11 @@ export const insuranceCategoriesApi = {
   // Clinic configuration by category + clinic ID (for admin panel)
   async getClinicConfigByClinic(
     categoryId: string,
-    clinicId: string
+    clinicId: string,
+    walkInType?: string
   ): Promise<ClinicConfig & { exists: boolean }> {
-    const response = await client.get('/insurance-categories/clinic-config', {
-      params: { category_id: categoryId, clinic_id: clinicId }
+    const response = await client.get('/insurance-categories/clinic-config/by-clinic', {
+      params: { category_id: categoryId, clinic_id: clinicId, walk_in_type: walkInType }
     });
     return response.data;
   },
@@ -124,10 +125,11 @@ export const insuranceCategoriesApi = {
   async saveClinicConfigByClinic(
     categoryId: string,
     clinicId: string,
-    data: ClinicConfigUpdate
+    data: ClinicConfigUpdate,
+    walkInType?: string
   ): Promise<ClinicConfig & { message: string }> {
-    const response = await client.patch('/insurance-categories/clinic-config', data, {
-      params: { category_id: categoryId, clinic_id: clinicId }
+    const response = await client.patch('/insurance-categories/clinic-config/by-clinic', data, {
+      params: { category_id: categoryId, clinic_id: clinicId, walk_in_type: walkInType }
     });
     return response.data;
   },

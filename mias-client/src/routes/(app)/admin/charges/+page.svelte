@@ -4,7 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
-	import { insuranceCategoriesApi, type PublicInsuranceCategory } from '$lib/api/insuranceCategories';
+	import { insuranceCategoriesApi, type InsuranceCategory } from '$lib/api/insuranceCategories';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -29,11 +29,13 @@
 	let error = $state('');
 	let charges: ChargeItem[] = $state([]);
 	let priceCategories = $state<PatientCategoryConfig[]>([]);
-	let insuranceCategories = $state<PublicInsuranceCategory[]>([]);
+	let insuranceCategories = $state<InsuranceCategory[]>([]);
 	let activeCategory: ChargeCategory = $state('REGISTRATION');
 	
-	// Registration fees per insurance-patient combination
+	// Registration fees keyed by "insuranceId::patientCategoryId" — per combo
 	let registrationFees = $state<Record<string, number>>({});
+	// Map "insuranceId::patientCategoryId" -> { clinicId, walkInType } for saving
+	let regFeeClinicMap = $state<Record<string, { clinicId: string; walkInType: string }>>({});
 	let editingRegFee = $state<{ insuranceId: string; categoryId: string; value: string } | null>(null);
 	let savingRegFee = $state(false);
 
@@ -141,17 +143,27 @@
 			const [chargeItems, categoryItems, insuranceItems] = await Promise.all([
 				chargesApi.getAll(),
 				adminApi.getPatientCategories(),
-				insuranceCategoriesApi.listPublicCategories(),
+				insuranceCategoriesApi.listCategories(),
 			]);
 			priceCategories = sortPatientCategories(categoryItems);
 			insuranceCategories = insuranceItems;
-			
-			// Load registration fees from patient categories
+
+			// Build per-combo fees from clinic_configs
 			const fees: Record<string, number> = {};
-			for (const category of categoryItems) {
-				fees[category.name] = category.registration_fee || 0;
+			const clinicMap: Record<string, { clinicId: string; walkInType: string }> = {};
+			for (const insurance of insuranceItems) {
+				for (const patientCat of insurance.patient_categories) {
+					const walkInType = `WALKIN_${patientCat.name.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
+					const config = insurance.clinic_configs.find(c => c.walk_in_type === walkInType);
+					const key = `${insurance.id}::${patientCat.id}`;
+					if (config) {
+						fees[key] = config.registration_fee;
+						clinicMap[key] = { clinicId: config.clinic_id, walkInType };
+					}
+				}
 			}
 			registrationFees = fees;
+			regFeeClinicMap = clinicMap;
 			
 			charges = chargeItems.map((charge) => mergeChargePrices(charge, pricingColumns));
 		} catch (e: any) {
@@ -294,18 +306,24 @@
 			return;
 		}
 
+		const key = `${editingRegFee.insuranceId}::${editingRegFee.categoryId}`;
+		const clinicRef = regFeeClinicMap[key];
+		if (!clinicRef) {
+			toastStore.addToast('No clinic config found for this combination', 'error');
+			return;
+		}
+
 		savingRegFee = true;
 		try {
-			// Update the patient category with the new registration fee
-			const category = priceCategories.find(c => c.id === editingRegFee!.categoryId);
-			if (category) {
-				await adminApi.updatePatientCategory(category.id, {
-					registration_fee: nextPrice
-				});
-				registrationFees[category.name] = nextPrice;
-				editingRegFee = null;
-				toastStore.addToast('Registration fee updated', 'success');
-			}
+			await insuranceCategoriesApi.saveClinicConfigByClinic(
+				editingRegFee.insuranceId,
+				clinicRef.clinicId,
+				{ registration_fee: nextPrice, walk_in_type: clinicRef.walkInType },
+				clinicRef.walkInType,
+			);
+			registrationFees[key] = nextPrice;
+			editingRegFee = null;
+			toastStore.addToast('Registration fee updated', 'success');
 		} catch (e: any) {
 			toastStore.addToast(e.response?.data?.detail || 'Failed to update registration fee', 'error');
 		} finally {
@@ -434,8 +452,10 @@
 									{#each priceCategories as category}
 									{@const isEditingThis = editingRegFee?.insuranceId === insurance.id && editingRegFee?.categoryId === category.id}
 									{@const isEligible = insurance.patient_categories?.some(pc => pc.id === category.id)}
-									<td class="px-4 py-3 text-center">
-										{#if !isEligible}
+								{@const comboKey = `${insurance.id}::${category.id}`}
+								{@const hasConfig = comboKey in registrationFees}
+								<td class="px-4 py-3 text-center">
+									{#if !isEligible || !hasConfig}
 											<span class="text-slate-400 text-sm">N/A</span>
 										{:else if isEditingThis}
 											<div class="flex items-center justify-center gap-1">
@@ -479,11 +499,11 @@
 											</div>
 										{:else}
 											<button
-												onclick={() => editingRegFee = { insuranceId: insurance.id, categoryId: category.id, value: String(registrationFees[category.name] ?? 0) }}
-												class="px-4 py-2 text-sm font-semibold text-slate-800 rounded-lg cursor-pointer transition-colors hover:bg-slate-100"
-												style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
-											>
-												₹{registrationFees[category.name] ?? 0}
+											onclick={() => editingRegFee = { insuranceId: insurance.id, categoryId: category.id, value: String(registrationFees[`${insurance.id}::${category.id}`] ?? 0) }}
+											class="px-4 py-2 text-sm font-semibold text-slate-800 rounded-lg cursor-pointer transition-colors hover:bg-slate-100"
+											style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
+										>
+											₹{registrationFees[`${insurance.id}::${category.id}`] ?? 0}
 											</button>
 										{/if}
 									</td>

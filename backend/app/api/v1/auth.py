@@ -61,24 +61,48 @@ def generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
+def patient_category_to_walk_in_type(patient_category: str | None) -> str | None:
+    if not patient_category:
+        return None
+    normalized = patient_category.strip().upper().replace(" ", "_").replace("-", "_")
+    if not normalized:
+        return None
+    if normalized.startswith("WALKIN_"):
+        return normalized
+    return f"WALKIN_{normalized}"
+
+
 async def allocate_clinic_sequentially(
     db: AsyncSession,
     patient_category: str,
     insurance_category_id: str | None = None,
 ) -> str:
-    """Allocate a clinic to a patient sequentially based on current load and selected scheme."""
+    """Allocate a clinic sequentially by patient type + scheme, then fallback safely."""
     clinics = []
+    walk_in_type = patient_category_to_walk_in_type(patient_category)
 
-    # Prefer active clinics configured for the selected insurance category
+    # Prefer active clinics configured for selected insurance + selected patient type
     if insurance_category_id:
         configured_clinics_result = await db.execute(
             select(Clinic)
             .join(InsuranceClinicConfig, InsuranceClinicConfig.clinic_id == Clinic.id)
             .where(InsuranceClinicConfig.insurance_category_id == insurance_category_id)
             .where(InsuranceClinicConfig.is_enabled == True)
+            .where(InsuranceClinicConfig.walk_in_type == walk_in_type)
             .where(Clinic.is_active == True)
         )
         clinics = configured_clinics_result.scalars().all()
+
+        # Fallback to any active clinics configured for the selected insurance
+        if not clinics:
+            configured_clinics_result = await db.execute(
+                select(Clinic)
+                .join(InsuranceClinicConfig, InsuranceClinicConfig.clinic_id == Clinic.id)
+                .where(InsuranceClinicConfig.insurance_category_id == insurance_category_id)
+                .where(InsuranceClinicConfig.is_enabled == True)
+                .where(Clinic.is_active == True)
+            )
+            clinics = configured_clinics_result.scalars().all()
 
     # Fallback: all active clinics
     if not clinics:

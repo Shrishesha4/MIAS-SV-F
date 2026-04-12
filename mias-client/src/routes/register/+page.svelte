@@ -57,22 +57,34 @@
 	let selectedPatientCategoryId = $state('');
 	let patientCategoryLoading = $state(true);
 	let showPatientCategoryStep = $derived.by(() => {
-		return patientCategoryOptions.length > 2;
+		return patientCategoryOptions.length > 1;
 	});
 
 	// Step 8 – hospital/clinic (fetched based on insurance category)
 	let availableClinics = $state<PublicClinicInfo[]>([]);
-	let selectedClinicConfigId = $state('');
-	let selectedPatientType = $state(''); // Patient type selected from clinic chips
 	let clinicsLoading = $state(false);
+	const selectedPatientCategoryName = $derived.by(() => {
+		return patientCategoryOptions.find((c) => c.id === selectedPatientCategoryId)?.name || '';
+	});
+
+	const selectedWalkInType = $derived.by(() => {
+		if (!selectedPatientCategoryName) return '';
+		return `WALKIN_${selectedPatientCategoryName.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
+	});
+
+	const eligibleClinics = $derived.by(() => {
+		if (!selectedWalkInType) return availableClinics;
+		const exact = availableClinics.filter((clinic) => clinic.walk_in_type === selectedWalkInType);
+		return exact.length > 0 ? exact : availableClinics;
+	});
 
 	// Step 9 – payment (dynamic based on selected clinic)
 	let paymentDone = $state(false);
 
-	// Derived registration fee from selected clinic
+	// Derived registration fee from selected patient category
 	const regFee = $derived.by(() => {
-		const clinic = availableClinics.find(c => c.config_id === selectedClinicConfigId);
-		return clinic?.registration_fee ?? 100;
+		const category = patientCategoryOptions.find((c) => c.id === selectedPatientCategoryId);
+		return category?.registration_fee ?? 100;
 	});
 
 	// Load insurance categories on mount
@@ -123,12 +135,16 @@
 					};
 				});
 				
-				// Select first category by default
-				if (patientCategoryOptions.length > 0) {
+				if (patientCategoryOptions.length === 1) {
 					selectedPatientCategoryId = patientCategoryOptions[0].id;
+				} else if (patientCategoryOptions.length > 1) {
+					selectedPatientCategoryId = patientCategoryOptions[0].id;
+				} else {
+					selectedPatientCategoryId = '';
 				}
 			} else {
 				patientCategoryOptions = [];
+				selectedPatientCategoryId = '';
 			}
 		} catch (e) {
 			console.error('Failed to load patient categories:', e);
@@ -156,10 +172,6 @@
 			const clinics = await insuranceCategoriesApi.getCategoryClinics(selectedInsuranceId);
 			console.log('Loaded clinics for insurance category:', selectedInsuranceId, clinics);
 			availableClinics = clinics;
-			// Select first clinic by default
-			if (clinics.length > 0) {
-				selectedClinicConfigId = clinics[0].config_id;
-			}
 		} catch (e) {
 			console.error('Failed to load clinics:', e);
 			// Fallback clinics
@@ -187,7 +199,6 @@
 					registration_fee: 100 
 				},
 			];
-			selectedClinicConfigId = 'default-1';
 		} finally {
 			clinicsLoading = false;
 		}
@@ -286,8 +297,9 @@
 		error = '';
 		try {
 			const username = phone.replace(/\D/g, '');
-			// Use selected patient type from chips, or fallback to selected patient category
-			const patientCategory = selectedPatientType || (patientCategoryOptions.find(c => c.id === selectedPatientCategoryId)?.name || 'Classic');
+			const patientCategory = patientCategoryOptions.find((c) => c.id === selectedPatientCategoryId)?.name
+				|| patientCategoryOptions[0]?.name
+				|| 'Classic';
 			const data = {
 				username,
 				password: patPassword,
@@ -326,12 +338,12 @@
 
 			// Persist clinic allocation notice for dashboard fullscreen prompt
 			if (result.clinic_name) {
-				const selectedClinic = availableClinics.find((c) => c.config_id === selectedClinicConfigId);
+				const matchedClinic = eligibleClinics.find((c) => c.clinic_name === result.clinic_name) || availableClinics.find((c) => c.clinic_name === result.clinic_name);
 				sessionStorage.setItem(
 					'allocatedClinicNotice',
 					JSON.stringify({
 						name: result.clinic_name,
-						location: selectedClinic?.location || 'Main Building'
+						location: matchedClinic?.location || 'Main Building'
 					})
 				);
 			}
@@ -840,7 +852,8 @@
 		<!-- ────────────────────── STEP 8: SELECT CLINIC ────────── -->
 		{:else if step === 8}
 			<div class="flex flex-col px-6 py-8 gap-5">
-				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Select Clinic</div>
+				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Clinic Allocation</div>
+				<p class="text-sm text-gray-500 -mt-2">You don’t need to choose a clinic. We will automatically allocate one based on your insurance and selected patient type.</p>
 
 				{#if error}<p class="text-xs text-red-500 -mt-2">{error}</p>{/if}
 
@@ -850,23 +863,18 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-4">
-						{#each availableClinics as c}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<!-- svelte-ignore a11y_no_static_element_interactions -->
+						{#each eligibleClinics as c}
 							<div
-								class="p-4 rounded-xl cursor-pointer transition-all"
-								style="border: 2px solid {selectedClinicConfigId === c.config_id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
-									   background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
-								onclick={() => selectedClinicConfigId = c.config_id}
+								class="p-4 rounded-xl transition-all"
+								style="border: 1px solid rgba(0,0,0,0.1); background: white;"
 							>
 								<div class="flex items-start gap-4">
 									<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1"
-										 style="background: {selectedClinicConfigId === c.config_id ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
-										 		border: 1px solid rgba(0,0,0,0.08);">
-										<Building2 class="w-5 h-5 {selectedClinicConfigId === c.config_id ? 'text-white' : 'text-gray-500'}" />
+										 style="background: #f0f4fa; border: 1px solid rgba(0,0,0,0.08);">
+										<Building2 class="w-5 h-5 text-gray-500" />
 									</div>
 									<div class="flex-1 min-w-0">
-										<p class="text-sm font-semibold {selectedClinicConfigId === c.config_id ? 'text-blue-700' : 'text-gray-700'}">{c.clinic_name}</p>
+										<p class="text-sm font-semibold text-gray-700">{c.clinic_name}</p>
 										<p class="text-xs text-gray-500 mt-0.5">{c.walk_in_label} • ₹{c.registration_fee}</p>
 										{#if c.department}
 											<p class="text-xs text-gray-400">{c.department}</p>
@@ -875,26 +883,12 @@
 											<p class="text-xs text-gray-400">{c.location}</p>
 										{/if}
 									</div>
-									{#if selectedClinicConfigId === c.config_id}
-										<CheckCircle2 class="w-5 h-5 text-blue-600 shrink-0" />
-									{/if}
-								</div>
-								<!-- Patient type chips -->
-								<div class="flex flex-wrap gap-2 mt-3">
-									{#each patientCategoryOptions as category}
-										<div
-											class="px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all"
-											style="background: {selectedPatientType === category.name ? 'linear-gradient(to bottom, #4d90fe, #3b7aed)' : '#f0f4fa'};
-												   color: {selectedPatientType === category.name ? 'white' : '#64748b'};
-												   border: 1px solid {selectedPatientType === category.name ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.08)'};"
-											onclick={() => selectedPatientType = category.name}
-										>
-											{category.name}
-										</div>
-									{/each}
 								</div>
 							</div>
 						{/each}
+						{#if eligibleClinics.length === 0}
+							<p class="text-sm text-gray-500 text-center py-4">No eligible clinics are configured for the selected insurance and patient type.</p>
+						{/if}
 					</div>
 				{/if}
 

@@ -35,10 +35,19 @@ async def get_walk_in_type_label(db: AsyncSession, walk_in_type: str) -> str:
     if walk_in_type == "NO_WALK_IN":
         return "No Walk In"
     
-    # Try to find matching insurance category
-    # Extract category name from walk_in_type (e.g., "WALKIN_CLASSIC" -> "Classic")
+    # Try to find matching patient category first
     if walk_in_type.startswith("WALKIN_"):
         category_part = walk_in_type[7:]  # Remove "WALKIN_" prefix
+        patient_result = await db.execute(
+            select(PatientCategoryOption).where(
+                func.lower(PatientCategoryOption.name) == category_part.lower().replace("_", " ")
+            )
+        )
+        patient_category = patient_result.scalar_one_or_none()
+        if patient_category:
+            return f"Walkin {patient_category.name}"
+
+        # Legacy fallback: match insurance category names
         result = await db.execute(
             select(InsuranceCategory).where(
                 func.lower(InsuranceCategory.name) == category_part.lower().replace("_", " ")
@@ -50,6 +59,29 @@ async def get_walk_in_type_label(db: AsyncSession, walk_in_type: str) -> str:
     
     # Fallback to the raw value
     return walk_in_type
+
+
+async def is_valid_walk_in_type(db: AsyncSession, walk_in_type: str) -> bool:
+    if walk_in_type == "NO_WALK_IN":
+        return True
+
+    if not walk_in_type or not walk_in_type.startswith("WALKIN_"):
+        return False
+
+    normalized_name = walk_in_type.replace("WALKIN_", "").replace("_", " ").strip().lower()
+    if not normalized_name:
+        return False
+
+    patient_category_result = await db.execute(
+        select(PatientCategoryOption).where(func.lower(PatientCategoryOption.name) == normalized_name)
+    )
+    if patient_category_result.scalar_one_or_none():
+        return True
+
+    insurance_category_result = await db.execute(
+        select(InsuranceCategory).where(func.lower(InsuranceCategory.name) == normalized_name)
+    )
+    return insurance_category_result.scalar_one_or_none() is not None
 
 
 def _uid() -> str:
@@ -118,12 +150,12 @@ async def list_walk_in_types(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all available walk-in types dynamically from insurance categories."""
-    # Get all active insurance categories
+    """List all available walk-in types dynamically from patient categories."""
+    # Get all active patient categories
     result = await db.execute(
-        select(InsuranceCategory)
-        .where(InsuranceCategory.is_active == True)
-        .order_by(InsuranceCategory.sort_order, InsuranceCategory.name)
+        select(PatientCategoryOption)
+        .where(PatientCategoryOption.is_active == True)
+        .order_by(PatientCategoryOption.sort_order, PatientCategoryOption.name)
     )
     categories = result.scalars().all()
     
@@ -133,7 +165,7 @@ async def list_walk_in_types(
     # Always include NO_WALK_IN option
     walk_in_types.append(WalkInTypeInfo(value="NO_WALK_IN", label="No Walk In"))
     
-    # Generate walk-in types from each insurance category
+    # Generate walk-in types from each patient category
     for cat in categories:
         value = generate_walk_in_type_value(cat.name)
         label = generate_walk_in_type_label(cat.name)
@@ -231,9 +263,8 @@ async def create_insurance_category(
         sort_order=data.sort_order or 0,
     )
     db.add(category)
-    await db.commit()
-    await db.refresh(category)
-    
+    await db.flush()  # get the ID without committing
+
     assigned_patient_category_ids: List[str] = []
 
     # Add patient categories if provided
@@ -244,10 +275,16 @@ async def create_insurance_category(
             )
             pc = patient_category.scalar_one_or_none()
             if pc:
-                category.patient_categories.append(pc)
+                # Use explicit association insert to avoid lazy-loading the relationship
+                from sqlalchemy import text as _text
+                await db.execute(
+                    _text("INSERT INTO insurance_patient_category_association (insurance_category_id, patient_category_id) VALUES (:iid, :pid) ON CONFLICT DO NOTHING"),
+                    {"iid": category.id, "pid": pc.id},
+                )
                 assigned_patient_category_ids.append(pc.id)
-        await db.commit()
     
+    await db.commit()
+
     # Create default clinic configs
     await _create_default_clinic_configs(db, category.id)
     await db.commit()
@@ -368,19 +405,9 @@ async def update_clinic_config(
         raise HTTPException(status_code=404, detail="Clinic configuration not found")
     
     if data.walk_in_type is not None:
-        # Validate walk-in type - must be NO_WALK_IN or match an insurance category
-        if data.walk_in_type == "NO_WALK_IN":
-            config.walk_in_type = data.walk_in_type
-        else:
-            # Check if it matches an existing insurance category
-            result = await db.execute(
-                select(InsuranceCategory).where(
-                    func.lower(InsuranceCategory.name) == data.walk_in_type.replace("WALKIN_", "").replace("_", " ").lower()
-                )
-            )
-            if not result.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail=f"Invalid walk-in type: {data.walk_in_type}")
-            config.walk_in_type = data.walk_in_type
+        if not await is_valid_walk_in_type(db, data.walk_in_type):
+            raise HTTPException(status_code=400, detail=f"Invalid walk-in type: {data.walk_in_type}")
+        config.walk_in_type = data.walk_in_type
     
     if data.registration_fee is not None:
         if data.registration_fee < 0:
@@ -442,19 +469,25 @@ async def list_public_insurance_categories(
     ]
 
 
+@router.get("/clinic-config/by-clinic")
 @router.get("/clinic-config")
 async def get_clinic_config_by_clinic(
     category_id: str = Query(...),
     clinic_id: str = Query(...),
+    walk_in_type: Optional[str] = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get clinic configuration by category ID and clinic ID (for admin panel)."""
-    result = await db.execute(
+    query = (
         select(InsuranceClinicConfig)
         .where(InsuranceClinicConfig.insurance_category_id == category_id)
         .where(InsuranceClinicConfig.clinic_id == clinic_id)
     )
+    if walk_in_type:
+        query = query.where(InsuranceClinicConfig.walk_in_type == walk_in_type)
+
+    result = await db.execute(query)
     config = result.scalar_one_or_none()
     
     if not config:
@@ -471,8 +504,8 @@ async def get_clinic_config_by_clinic(
             "insurance_category_id": category_id,
             "clinic_id": clinic_id,
             "clinic_name": clinic.name if clinic else "Unknown",
-            "walk_in_type": generate_walk_in_type_value(category.name) if category else "WALKIN_CLASSIC",
-            "walk_in_label": await get_walk_in_type_label(db, generate_walk_in_type_value(category.name) if category else "WALKIN_CLASSIC"),
+            "walk_in_type": walk_in_type or (generate_walk_in_type_value(category.name) if category else "WALKIN_CLASSIC"),
+            "walk_in_label": await get_walk_in_type_label(db, walk_in_type or (generate_walk_in_type_value(category.name) if category else "WALKIN_CLASSIC")),
             "registration_fee": 100,
             "is_enabled": True,
             "exists": False,
@@ -494,20 +527,27 @@ async def get_clinic_config_by_clinic(
     }
 
 
+@router.patch("/clinic-config/by-clinic")
 @router.patch("/clinic-config")
 async def update_clinic_config_by_clinic(
     data: ClinicConfigUpdate,
     category_id: str = Query(...),
     clinic_id: str = Query(...),
+    walk_in_type: Optional[str] = Query(None),
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
     """Update or create clinic configuration by category ID and clinic ID."""
-    result = await db.execute(
+    resolved_walk_in_type = walk_in_type or data.walk_in_type
+    query = (
         select(InsuranceClinicConfig)
         .where(InsuranceClinicConfig.insurance_category_id == category_id)
         .where(InsuranceClinicConfig.clinic_id == clinic_id)
     )
+    if resolved_walk_in_type:
+        query = query.where(InsuranceClinicConfig.walk_in_type == resolved_walk_in_type)
+
+    result = await db.execute(query)
     config = result.scalar_one_or_none()
     
     if not config:
@@ -516,7 +556,7 @@ async def update_clinic_config_by_clinic(
             id=_uid(),
             insurance_category_id=category_id,
             clinic_id=clinic_id,
-            walk_in_type=data.walk_in_type or "WALKIN_CLASSIC",
+            walk_in_type=resolved_walk_in_type or "WALKIN_CLASSIC",
             registration_fee=data.registration_fee if data.registration_fee is not None else 100,
             is_enabled=data.is_enabled if data.is_enabled is not None else True,
         )
@@ -524,17 +564,9 @@ async def update_clinic_config_by_clinic(
     else:
         # Update existing
         if data.walk_in_type is not None:
-            if data.walk_in_type == "NO_WALK_IN":
-                config.walk_in_type = data.walk_in_type
-            else:
-                result = await db.execute(
-                    select(InsuranceCategory).where(
-                        func.lower(InsuranceCategory.name) == data.walk_in_type.replace("WALKIN_", "").replace("_", " ").lower()
-                    )
-                )
-                if not result.scalar_one_or_none():
-                    raise HTTPException(status_code=400, detail=f"Invalid walk-in type: {data.walk_in_type}")
-                config.walk_in_type = data.walk_in_type
+            if not await is_valid_walk_in_type(db, data.walk_in_type):
+                raise HTTPException(status_code=400, detail=f"Invalid walk-in type: {data.walk_in_type}")
+            config.walk_in_type = data.walk_in_type
         
         if data.registration_fee is not None:
             if data.registration_fee < 0:
@@ -546,7 +578,7 @@ async def update_clinic_config_by_clinic(
     
     await db.commit()
     await db.refresh(config)
-    
+
     # Get clinic name for response
     clinic_result = await db.execute(select(Clinic).where(Clinic.id == clinic_id))
     clinic = clinic_result.scalar_one_or_none()
