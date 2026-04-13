@@ -80,6 +80,9 @@ def upgrade() -> None:
         bind.execute(sa.text("UPDATE ai_provider_settings SET batch_size = COALESCE(batch_size, 10)"))
 
     if 'patient_category_options' in _get_table_names(bind):
+        pco_columns = _get_column_names(bind, 'patient_category_options')
+        has_is_default_col = 'is_default' in pco_columns
+
         existing_names = {
             row[0].casefold(): row[0]
             for row in bind.execute(sa.text("SELECT name FROM patient_category_options")).fetchall()
@@ -95,23 +98,41 @@ def upgrade() -> None:
         for name, description, is_default, sort_order in defaults:
             if name.casefold() in existing_names:
                 continue
-            bind.execute(
-                sa.text(
-                    """
-                    INSERT INTO patient_category_options
-                        (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
-                    VALUES
-                        (:id, :name, :description, TRUE, :is_default, :sort_order, NOW(), NOW())
-                    """
-                ),
-                {
-                    'id': str(uuid4()),
-                    'name': name,
-                    'description': description,
-                    'is_default': is_default,
-                    'sort_order': sort_order,
-                },
-            )
+            if has_is_default_col:
+                bind.execute(
+                    sa.text(
+                        """
+                        INSERT INTO patient_category_options
+                            (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
+                        VALUES
+                            (:id, :name, :description, TRUE, :is_default, :sort_order, NOW(), NOW())
+                        """
+                    ),
+                    {
+                        'id': str(uuid4()),
+                        'name': name,
+                        'description': description,
+                        'is_default': is_default,
+                        'sort_order': sort_order,
+                    },
+                )
+            else:
+                bind.execute(
+                    sa.text(
+                        """
+                        INSERT INTO patient_category_options
+                            (id, name, description, is_active, sort_order, created_at, updated_at)
+                        VALUES
+                            (:id, :name, :description, TRUE, :sort_order, NOW(), NOW())
+                        """
+                    ),
+                    {
+                        'id': str(uuid4()),
+                        'name': name,
+                        'description': description,
+                        'sort_order': sort_order,
+                    },
+                )
             existing_names[name.casefold()] = name
 
         if 'patients' in _get_table_names(bind):
@@ -122,37 +143,56 @@ def upgrade() -> None:
                 if not name or name.casefold() in existing_names:
                     continue
                 next_sort += 1
-                bind.execute(
-                    sa.text(
-                        """
-                        INSERT INTO patient_category_options
-                            (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
-                        VALUES
-                            (:id, :name, :description, TRUE, FALSE, :sort_order, NOW(), NOW())
-                        """
-                    ),
-                    {
-                        'id': str(uuid4()),
-                        'name': name,
-                        'description': 'Imported from existing patient records.',
-                        'sort_order': next_sort,
-                    },
-                )
+                if has_is_default_col:
+                    bind.execute(
+                        sa.text(
+                            """
+                            INSERT INTO patient_category_options
+                                (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
+                            VALUES
+                                (:id, :name, :description, TRUE, FALSE, :sort_order, NOW(), NOW())
+                            """
+                        ),
+                        {
+                            'id': str(uuid4()),
+                            'name': name,
+                            'description': 'Imported from existing patient records.',
+                            'sort_order': next_sort,
+                        },
+                    )
+                else:
+                    bind.execute(
+                        sa.text(
+                            """
+                            INSERT INTO patient_category_options
+                                (id, name, description, is_active, sort_order, created_at, updated_at)
+                            VALUES
+                                (:id, :name, :description, TRUE, :sort_order, NOW(), NOW())
+                            """
+                        ),
+                        {
+                            'id': str(uuid4()),
+                            'name': name,
+                            'description': 'Imported from existing patient records.',
+                            'sort_order': next_sort,
+                        },
+                    )
                 existing_names[name.casefold()] = name
 
-        has_default = bind.execute(sa.text("SELECT 1 FROM patient_category_options WHERE is_default = TRUE LIMIT 1")).first()
-        if not has_default:
-            bind.execute(sa.text(
-                """
-                UPDATE patient_category_options
-                SET is_default = TRUE
-                WHERE id = (
-                    SELECT id FROM patient_category_options
-                    ORDER BY CASE WHEN lower(name) = 'classic' THEN 0 ELSE 1 END, sort_order ASC, created_at ASC
-                    LIMIT 1
-                )
-                """
-            ))
+        if has_is_default_col:
+            has_default = bind.execute(sa.text("SELECT 1 FROM patient_category_options WHERE is_default = TRUE LIMIT 1")).first()
+            if not has_default:
+                bind.execute(sa.text(
+                    """
+                    UPDATE patient_category_options
+                    SET is_default = TRUE
+                    WHERE id = (
+                        SELECT id FROM patient_category_options
+                        ORDER BY CASE WHEN lower(name) = 'classic' THEN 0 ELSE 1 END, sort_order ASC, created_at ASC
+                        LIMIT 1
+                    )
+                    """
+                ))
 
 
 def downgrade() -> None:
