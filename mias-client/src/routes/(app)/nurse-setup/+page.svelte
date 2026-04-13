@@ -5,21 +5,14 @@
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import { authStore } from '$lib/stores/auth';
-	import { nurseApi } from '$lib/api/nurse';
+	import { nurseApi, type NurseClinic } from '$lib/api/nurse';
 	import { toastStore } from '$lib/stores/toast';
 
-	let hospital = $state('');
-	let ward = $state('');
+	let clinicId = $state('');
 	let shift = $state('');
 	let loading = $state(false);
-	let wards = $state.raw<string[]>([]);
-	let wardsLoading = $state(false);
-
-	const HOSPITALS = [
-		'Saveetha Medical College Hospital',
-		'Saveetha Dental College Hospital',
-		'Saveetha General Hospital',
-	];
+	let clinics = $state<NurseClinic[]>([]);
+	let clinicsLoading = $state(false);
 
 	const SHIFTS = [
 		'Morning Shift (08:00-16:00)',
@@ -27,30 +20,31 @@
 		'Night Shift (00:00-08:00)',
 	];
 
-	async function loadAvailableWards() {
-		wardsLoading = true;
+	async function loadClinics() {
+		clinicsLoading = true;
 		try {
-			wards = await nurseApi.getAvailableWards();
+			clinics = await nurseApi.getClinics();
 		} catch (error: any) {
-			console.error('Error loading wards:', error);
-			toastStore.addToast(error.response?.data?.detail || 'Failed to load wards', 'error');
-			wards = [];
+			console.error('Error loading clinics:', error);
+			toastStore.addToast(error.response?.data?.detail || 'Failed to load clinics', 'error');
+			clinics = [];
 		} finally {
-			wardsLoading = false;
+			clinicsLoading = false;
 		}
 	}
 
 	async function handleSubmit() {
-		if (!hospital || !ward) {
-			toastStore.addToast('Please select hospital and ward', 'error');
+		if (!clinicId) {
+			toastStore.addToast('Please select a clinic', 'error');
 			return;
 		}
+
+		const selectedClinic = clinics.find(c => c.id === clinicId);
 
 		loading = true;
 		try {
 			await nurseApi.selectStation({
-				hospital,
-				ward,
+				hospital: selectedClinic?.name ?? clinicId,
 				shift: shift || undefined,
 			});
 
@@ -70,7 +64,7 @@
 			goto('/dashboard');
 			return;
 		}
-		void loadAvailableWards();
+		void loadClinics();
 	});
 </script>
 
@@ -97,46 +91,30 @@
 				</svg>
 			</div>
 			<h1 class="text-2xl font-bold text-gray-800 mb-2">Welcome, Nurse!</h1>
-			<p class="text-gray-600">Please select your hospital and station to get started</p>
+			<p class="text-gray-600">Please select your clinic to get started</p>
 		</div>
 
 		<AquaCard>
 			<form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
 				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<div class="space-y-4">
-					<!-- Hospital Selection -->
+					<!-- Clinic Selection -->
 					<div>
-						<label class="block text-sm font-semibold text-gray-700 mb-2">Hospital *</label>
+						<label class="block text-sm font-semibold text-gray-700 mb-2">Clinic *</label>
 						<select
-							bind:value={hospital}
+							bind:value={clinicId}
+							disabled={clinicsLoading}
 							class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:outline-none transition-colors"
 							style="background: linear-gradient(to bottom, #ffffff, #f9fafb);"
 							required
 						>
-							<option value="">Select a hospital</option>
-							{#each HOSPITALS as h}
-								<option value={h}>{h}</option>
+							<option value="">{clinicsLoading ? 'Loading clinics...' : (clinics.length === 0 ? 'No clinics available' : 'Select a clinic')}</option>
+							{#each clinics as c}
+								<option value={c.id}>{c.name}{c.location ? ` — ${c.location}` : ''}</option>
 							{/each}
 						</select>
-					</div>
-
-					<!-- Ward Selection -->
-					<div>
-						<label class="block text-sm font-semibold text-gray-700 mb-2">Ward / Station *</label>
-						<select
-							bind:value={ward}
-							disabled={wardsLoading || wards.length === 0}
-							class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:outline-none transition-colors"
-							style="background: linear-gradient(to bottom, #ffffff, #f9fafb);"
-							required
-						>
-							<option value="">{wardsLoading ? 'Loading wards...' : (wards.length === 0 ? 'No wards available' : 'Select a ward')}</option>
-							{#each wards as w}
-								<option value={w}>{w}</option>
-							{/each}
-						</select>
-						{#if !wardsLoading && wards.length === 0}
-							<p class="mt-2 text-xs text-gray-500">No created wards are available yet.</p>
+						{#if !clinicsLoading && clinics.length === 0}
+							<p class="mt-2 text-xs text-gray-500">No active clinics are available yet.</p>
 						{/if}
 					</div>
 

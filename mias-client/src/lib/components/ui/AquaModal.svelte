@@ -131,7 +131,6 @@
 <style>
   .motion-dialog {
     transition: box-shadow 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
-    overflow: hidden;
   }
 
   .motion-overlay {

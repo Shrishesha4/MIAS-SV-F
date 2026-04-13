@@ -3,11 +3,23 @@ import type { FormDefinition, FormFieldDefinition, UploadedFormFile } from '$lib
 
 const CASE_RECORD_STANDARD_KEYS = new Set(['findings', 'diagnosis', 'treatment', 'notes']);
 
+export function isCaseRecordLikeForm(
+	form: Pick<FormDefinition, 'form_type' | 'section' | 'is_active'>
+): boolean {
+	const normalizedType = (form.form_type || '').toUpperCase();
+	const normalizedSection = (form.section || '').toUpperCase();
+	return Boolean(form.is_active) && (
+		normalizedType === 'CASE_RECORD' ||
+		normalizedType === 'CLINICAL' ||
+		normalizedSection === 'CLINICAL'
+	);
+}
+
 export function buildCaseRecordProcedureMap(forms: FormDefinition[]): Record<string, string[]> {
 	const map: Record<string, string[]> = {};
 
 	for (const form of forms) {
-		if (form.form_type !== 'CASE_RECORD' || !form.is_active || !form.department || !form.procedure_name) {
+		if (!isCaseRecordLikeForm(form) || !form.department || !form.procedure_name) {
 			continue;
 		}
 		if (!map[form.department]) {
@@ -51,8 +63,7 @@ export function resolveCaseRecordFields(
 ): FormFieldDefinition[] | null {
 	const form = forms.find(
 		(item) =>
-			item.form_type === 'CASE_RECORD' &&
-			item.is_active &&
+			isCaseRecordLikeForm(item) &&
 			item.department === department &&
 			item.procedure_name === procedure
 	);

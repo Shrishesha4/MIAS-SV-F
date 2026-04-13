@@ -74,7 +74,6 @@
 				provider: 'OPENAI',
 				model: providerDefaults.OPENAI || 'gpt-4.1-mini',
 				temperature: 0.2,
-				batch_size: 10,
 				is_enabled: false,
 			});
 			rows = [...rows, toDraft(created)];
@@ -96,7 +95,6 @@
 				base_url: row.base_url || undefined,
 				system_prompt: row.system_prompt || undefined,
 				temperature: Number(row.temperature),
-				batch_size: Number(row.batch_size),
 				is_enabled: row.is_enabled,
 				api_key: row.apiKeyInput.trim() || undefined,
 			});
@@ -249,7 +247,7 @@
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Base URL</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Model</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">API Key</th>
-							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Batch</th>
+
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Status</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Actions</th>
 						</tr>
@@ -285,10 +283,6 @@
 										</button>
 									</div>
 									<p class="mt-2 text-xs text-slate-400">Masked key stays unchanged until you enter a new one.</p>
-								</td>
-								<td class="px-4 py-4">
-									<input type="number" min="1" max="500" bind:value={row.batch_size} class="w-24 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm" />
-									<p class="mt-2 text-xs text-slate-400">Saved for future batched drafting flows.</p>
 								</td>
 								<td class="px-4 py-4">
 									<span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {row.is_enabled ? 'text-emerald-700' : 'text-slate-500'}"

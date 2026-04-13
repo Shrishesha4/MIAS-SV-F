@@ -76,12 +76,12 @@
 </script>
 
 <nav
-  class="sticky top-0 z-40 px-3 py-2.5 flex flex-wrap items-center justify-between gap-y-2 md:flex-nowrap md:gap-y-0"
+  class="sticky top-0 z-40 px-3 py-2 flex items-center gap-2 md:gap-4"
   style="background-image: linear-gradient(to bottom, #4a7cc9, #3568b2);
          box-shadow: 0 2px 6px rgba(0,0,0,0.25);
          border-bottom: 1px solid rgba(0,0,0,0.15);"
 >
-  <div class="flex items-center gap-2.5 shrink-0">
+  <div class="flex items-center gap-2 shrink-0">
     <!-- {#if showBack}
       <button class="text-white/90 cursor-pointer hover:text-white transition-colors" onclick={goBack}>
         <ArrowLeft class="w-5 h-5" />
@@ -107,9 +107,9 @@
   </div>
 
   <!-- Patient Search -->
-  <div class="order-3 basis-full md:order-none md:basis-auto flex-1 max-w-none md:max-w-sm md:mx-4 relative">
-    <div class="relative">
-      <Search class="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+  <div class="flex-1 min-w-0 md:flex-1 md:flex md:justify-center relative">
+    <div class="relative w-full md:w-56">
+      <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style="color: #64748b;" />
       <input
         bind:this={searchInputRef}
         type="text"
@@ -118,53 +118,53 @@
         oninput={handleSearchInput}
         onfocus={() => { if (searchResults.length) searchOpen = true; }}
         onblur={handleSearchBlur}
-        class="motion-control w-full pl-9 pr-8 py-2 text-sm rounded-xl outline-none text-slate-700 placeholder-slate-400"
+        class="motion-control w-full pl-8 pr-7 py-1.5 text-xs rounded-lg outline-none text-slate-700 placeholder-slate-400"
         style="background: rgba(248,250,252,0.96); border: 1px solid rgba(255,255,255,0.85);
                box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 3px rgba(15,23,42,0.12);
                backdrop-filter: blur(6px);"
       />
       {#if searchQuery}
         <button class="motion-control absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer" onclick={clearSearch}>
-          <X class="w-3.5 h-3.5" />
+          <X class="w-3 h-3" />
         </button>
       {/if}
-    </div>
 
-    <!-- Search dropdown -->
-    {#if searchOpen && searchResults.length > 0}
-      <div
-        class="motion-surface absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto z-50"
-        style="background: white; border: 1px solid rgba(0,0,0,0.12);
-               box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
-      >
-        {#each searchResults as patient (patient.id)}
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="motion-list-item px-3 py-2 cursor-pointer hover:bg-blue-50 flex items-center gap-3 transition-colors"
-            style="border-bottom: 1px solid rgba(0,0,0,0.06);"
-            onclick={() => selectPatient(patient)}
-          >
-            <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                 style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);">
-              {patient.name?.charAt(0) ?? '?'}
+      <!-- Search dropdown -->
+      {#if searchOpen && searchResults.length > 0}
+        <div
+          class="motion-surface absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto z-50"
+          style="background: white; border: 1px solid rgba(0,0,0,0.12);
+                 box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+        >
+          {#each searchResults as patient (patient.id)}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="motion-list-item px-3 py-2 cursor-pointer hover:bg-blue-50 flex items-center gap-3 transition-colors"
+              style="border-bottom: 1px solid rgba(0,0,0,0.06);"
+              onclick={() => selectPatient(patient)}
+            >
+              <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                   style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);">
+                {patient.name?.charAt(0) ?? '?'}
+              </div>
+              <div class="min-w-0">
+                <p class="text-sm font-medium text-gray-800 truncate">{patient.name}</p>
+                <p class="text-xs text-gray-500">{patient.patient_id}{patient.gender ? ` · ${patient.gender}` : ''}{patient.blood_group ? ` · ${patient.blood_group}` : ''}</p>
+              </div>
             </div>
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-gray-800 truncate">{patient.name}</p>
-              <p class="text-xs text-gray-500">{patient.patient_id}{patient.gender ? ` · ${patient.gender}` : ''}{patient.blood_group ? ` · ${patient.blood_group}` : ''}</p>
-            </div>
-          </div>
-        {/each}
-      </div>
-    {:else if searchOpen && searchQuery.trim() && !searching}
-      <div
-        class="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden z-50 p-4 text-center text-sm text-gray-500"
-        style="background: white; border: 1px solid rgba(0,0,0,0.12);
-               box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
-      >
-        No patients found
-      </div>
-    {/if}
+          {/each}
+        </div>
+      {:else if searchOpen && searchQuery.trim() && !searching}
+        <div
+          class="absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden z-50 p-4 text-center text-sm text-gray-500"
+          style="background: white; border: 1px solid rgba(0,0,0,0.12);
+                 box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+        >
+          No patients found
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="flex items-center gap-2 shrink-0">

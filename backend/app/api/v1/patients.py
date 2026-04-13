@@ -49,7 +49,17 @@ async def get_current_patient(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    return patient
+    clinic_name = None
+    if patient.clinic_id:
+        from app.models.student import Clinic
+        clinic_result = await db.execute(select(Clinic).where(Clinic.id == patient.clinic_id))
+        clinic = clinic_result.scalar_one_or_none()
+        if clinic:
+            clinic_name = clinic.name
+
+    data = {k: v for k, v in vars(patient).items() if not k.startswith("_")}
+    data["clinic_name"] = clinic_name
+    return data
 
 
 @router.get("/{patient_id}", response_model=PatientDetailResponse)

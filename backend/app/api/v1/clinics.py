@@ -356,6 +356,16 @@ async def search_patient_for_checkin(
         .limit(10)
     )
     patients = result.scalars().all()
+    
+    # Batch-fetch clinic names
+    clinic_ids = list({p.clinic_id for p in patients if p.clinic_id})
+    clinic_map: dict = {}
+    if clinic_ids:
+        clinic_result = await db.execute(
+            select(Clinic.id, Clinic.name).where(Clinic.id.in_(clinic_ids))
+        )
+        clinic_map = {row.id: row.name for row in clinic_result.all()}
+    
     return [
         {
             "id": p.id,
@@ -364,6 +374,8 @@ async def search_patient_for_checkin(
             "gender": p.gender.value if p.gender else None,
             "blood_group": p.blood_group,
             "phone": p.phone,
+            "clinic_id": p.clinic_id,
+            "clinic_name": clinic_map.get(p.clinic_id) if p.clinic_id else None,
         }
         for p in patients
     ]

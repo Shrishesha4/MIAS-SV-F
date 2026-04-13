@@ -175,7 +175,6 @@
 					<FileText class="w-5 h-5 text-green-600" />
 					<h2 class="text-base font-bold text-gray-800">Newly Registered Patients</h2>
 				</div>
-				<p class="text-xs text-gray-500 mt-1">Recent registrations visible to all nurses</p>
 			{/snippet}
 
 			<div class="divide-y divide-gray-200">
@@ -216,7 +215,6 @@
 					<FileText class="w-5 h-5 text-blue-600" />
 					<h2 class="text-base font-bold text-gray-800">All Ward Patients — SBAR Notes</h2>
 				</div>
-				<p class="text-xs text-gray-500 mt-1">Active admissions across all wards. Click a patient to write SBAR notes</p>
 			{/snippet}
 
 			<div class="divide-y divide-gray-200">

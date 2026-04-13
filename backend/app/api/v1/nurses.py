@@ -14,11 +14,28 @@ from app.models.nurse_order import NurseOrder
 from app.models.sbar_note import SBARNote
 from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
-from app.models.student import ClinicAppointment
+from app.models.student import ClinicAppointment, Clinic
 from app.schemas.nurse import NurseResponse, NurseUpdate, NurseStationSelect, SBARNoteCreate
 
 
 router = APIRouter(prefix="/nurses", tags=["Nurses"])
+
+
+@router.get("/clinics")
+async def list_available_clinics(
+    user: User = Depends(require_role(UserRole.NURSE)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return active clinics for nurse station selection."""
+    result = await db.execute(
+        select(Clinic.id, Clinic.name, Clinic.location, Clinic.department)
+        .where(Clinic.is_active == True)
+        .order_by(Clinic.name.asc())
+    )
+    return [
+        {"id": row.id, "name": row.name, "location": row.location, "department": row.department}
+        for row in result.all()
+    ]
 
 
 @router.get("/wards", response_model=List[str])
@@ -147,8 +164,8 @@ async def get_ward_patients(
     if not nurse:
         raise HTTPException(status_code=404, detail="Nurse profile not found")
 
-    if not nurse.has_selected_station:
-        raise HTTPException(status_code=400, detail="Nurse has not selected a station yet")
+    if not nurse.hospital:
+        raise HTTPException(status_code=400, detail="Nurse has not selected a clinic yet")
 
     # All nurses can see all currently admitted ward patients.
     result = await db.execute(

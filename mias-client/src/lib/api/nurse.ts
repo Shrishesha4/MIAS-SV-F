@@ -42,9 +42,16 @@ export interface NewlyRegisteredPatient {
   has_admission: boolean;
 }
 
+export interface NurseClinic {
+  id: string;
+  name: string;
+  location: string | null;
+  department: string;
+}
+
 export interface StationSelection {
   hospital: string;
-  ward: string;
+  ward?: string;
   shift?: string;
   department?: string;
 }
@@ -76,6 +83,11 @@ export interface SBARNote {
 export const nurseApi = {
   async getMe(): Promise<Nurse> {
     const response = await client.get('/nurses/me');
+    return response.data;
+  },
+
+  async getClinics(): Promise<NurseClinic[]> {
+    const response = await client.get('/nurses/clinics');
     return response.data;
   },
 

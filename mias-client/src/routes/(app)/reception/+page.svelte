@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo, type ClinicPatientInfo } from '$lib/api/clinics';
@@ -37,13 +38,16 @@
 	let activeStudentsInClinic: ActiveClinicStudent[] = $state([]);
 	let loadingActiveStudents = $state(false);
 
-	// Assignment modal
-	let showAssignModal = $state(false);
-	let selectedPatientForAssign: PendingPatient | null = $state(null);
-	let selectedStudentId = $state('');
-	let assignDate = $state('');
-	let assignNotes = $state('');
-	let isAssigning = $state(false);
+	// Assignment state
+	let assigningPatientId = $state<string | null>(null);
+
+	// Reassign modal state
+	let showReassignModal = $state(false);
+	let reassignTarget = $state<PendingPatient | null>(null);
+	let reassignStudents = $state<ActiveClinicStudent[]>([]);
+	let reassignStudentId = $state('');
+	let loadingReassignStudents = $state(false);
+	let isReassigning = $state(false);
 
 	// Check-in state
 	let patientIdInput = $state('');
@@ -53,7 +57,12 @@
 	// Tabs & filtering
 	let activeTab = $state<'waiting' | 'inprogress' | 'completed'>('waiting');
 	let searchFilter = $state('');
-	let autoAssign = $state(false);
+	// Initialize from localStorage synchronously so $effect never overwrites a saved 'true'
+	let autoAssign = $state(browser ? localStorage.getItem('reception_autoAssign') === 'true' : false);
+
+	// Check-in two-step: search result preview
+	let searchedPatient = $state<{ id: string; name: string; patient_id: string; clinic_id: string | null; clinic_name: string | null } | null>(null);
+	let isCheckingIn = $state(false);
 
 	// Stats
 	const waitingCount = $derived(clinicPatients.filter(p => p.status === 'Scheduled' || p.status === 'Checked In').length);
@@ -61,7 +70,6 @@
 	const completedCount = $derived(clinicPatients.filter(p => p.status === 'Completed').length);
 	const totalCount = $derived(clinicPatients.length);
 	const selectedClinicAllowsWalkIn = $derived(clinicAllowsWalkIn(selectedClinic));
-	const selectedStudentForAssign = $derived(activeStudentsInClinic.find(student => student.id === selectedStudentId) ?? null);
 
 	const filteredPatients = $derived.by(() => {
 		let list = clinicPatients;
@@ -99,64 +107,75 @@
 	async function loadActiveStudents() {
 		if (!selectedClinic || !selectedClinicAllowsWalkIn) {
 			activeStudentsInClinic = [];
-			selectedStudentId = '';
 			return;
 		}
 		loadingActiveStudents = true;
 		try {
 			activeStudentsInClinic = await staffApi.getActiveStudents(selectedClinic.id);
-			selectedStudentId = activeStudentsInClinic[0]?.id || '';
 		} catch (err) {
 			console.error('Failed to load active students', err);
 			activeStudentsInClinic = [];
-			selectedStudentId = '';
 		} finally {
 			loadingActiveStudents = false;
 		}
 	}
 
-	async function openAssignModal(patient: PendingPatient) {
-		selectedPatientForAssign = patient;
-		assignDate = new Date().toISOString().split('T')[0];
-		assignNotes = '';
-		await loadActiveStudents();
-		showAssignModal = true;
+	async function handleAutoAssignPendingPatient(patient: PendingPatient) {
+		if (!patient.clinic_id) {
+			toastStore.addToast('Patient has no allocated clinic — cannot auto-assign', 'error');
+			return;
+		}
+		assigningPatientId = patient.id;
+		try {
+			const result = await staffApi.autoAssignPatient(patient.id, patient.clinic_id);
+			toastStore.addToast(`${patient.name} assigned to ${result.student_name}`, 'success');
+			await loadPendingPatients();
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'No checked-in students available in the allotted clinic', 'error');
+		} finally {
+			assigningPatientId = null;
+		}
 	}
 
-	async function handleAssignPatient() {
-		if (!selectedPatientForAssign || !selectedClinic) return;
-		isAssigning = true;
+	async function openAssignModal(_patient: PendingPatient) {}
+
+	async function handleAssignPatient() {}
+
+	async function openReassignModal(patient: PendingPatient) {
+		if (!patient.clinic_id) {
+			toastStore.addToast('Patient has no allocated clinic — cannot reassign', 'error');
+			return;
+		}
+		reassignTarget = patient;
+		reassignStudentId = patient.assigned_student_id || '';
+		reassignStudents = [];
+		showReassignModal = true;
+		loadingReassignStudents = true;
 		try {
-			if (selectedClinic.access_mode === 'APPOINTMENT_ONLY') {
-				if (!assignDate) return;
-				await staffApi.assignToClinic({
-					patient_id: selectedPatientForAssign.id,
-					clinic_id: selectedClinic.id,
-					scheduled_date: assignDate,
-					notes: assignNotes || undefined
-				});
-				toastStore.addToast(`${selectedPatientForAssign.name} scheduled in ${selectedClinic.name}`, 'success');
-			} else {
-				if (!selectedStudentId) {
-					toastStore.addToast('No checked-in students are available in this clinic', 'warning');
-					return;
-				}
-				const result = await staffApi.assignToStudent({
-					patient_id: selectedPatientForAssign.id,
-					student_id: selectedStudentId,
-					clinic_id: selectedClinic.id,
-				});
-				toastStore.addToast(`${selectedPatientForAssign.name} assigned to ${result.student_name}`, 'success');
+			reassignStudents = await staffApi.getActiveStudents(patient.clinic_id);
+			if (!reassignStudentId && reassignStudents.length > 0) {
+				reassignStudentId = reassignStudents[0].id;
 			}
-			showAssignModal = false;
-			await loadPendingPatients();
-			await loadClinicPatients();
-			await loadActiveStudents();
-		} catch (err: any) {
-			console.error('Failed to assign patient', err);
-			toastStore.addToast(err?.response?.data?.detail || 'Failed to assign patient', 'error');
+		} catch (err) {
+			toastStore.addToast('Could not load active students for this clinic', 'error');
 		} finally {
-			isAssigning = false;
+			loadingReassignStudents = false;
+		}
+	}
+
+	async function handleReassign() {
+		if (!reassignTarget || !reassignStudentId) return;
+		isReassigning = true;
+		try {
+			const result = await staffApi.reassignPatient(reassignTarget.id, reassignStudentId);
+			toastStore.addToast(`${reassignTarget.name} reassigned to ${result.student_name}`, 'success');
+			showReassignModal = false;
+			reassignTarget = null;
+			await loadPendingPatients();
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Reassignment failed', 'error');
+		} finally {
+			isReassigning = false;
 		}
 	}
 
@@ -172,39 +191,47 @@
 		}
 	}
 
-	async function handleCheckIn() {
-		if (!selectedClinic || !patientIdInput.trim()) return;
-		if (selectedClinic.access_mode === 'APPOINTMENT_ONLY') {
-			lookupError = 'This clinic accepts appointments only.';
-			toastStore.addToast(lookupError, 'warning');
-			return;
-		}
+	async function handleSearch() {
+		if (!patientIdInput.trim()) return;
+		if (clinics.length === 0) { lookupError = 'No clinics available.'; return; }
 		isSearching = true;
 		lookupError = '';
+		searchedPatient = null;
 		try {
-			const results = await clinicsApi.searchPatient(selectedClinic.id, patientIdInput.trim());
+			const results = await clinicsApi.searchPatient(clinics[0].id, patientIdInput.trim());
 			if (results.length === 0) {
 				lookupError = 'No patient found with that ID or name.';
-				isSearching = false;
-				return;
-			}
-			const patient = results[0];
-			const result = await clinicsApi.checkInPatient(selectedClinic.id, { patient_id: patient.id });
-			toastStore.addToast(result.message || `${patient.name} checked in successfully`, 'success');
-			
-			// Auto-assign to student if toggle is enabled
-			if (autoAssign) {
-				try {
-					const assignResult = await staffApi.autoAssignPatient(patient.id, selectedClinic.id);
-					toastStore.addToast(`Assigned to ${assignResult.student_name}`, 'success');
-				} catch (assignErr: any) {
-					// Don't fail the check-in, just warn about auto-assign failure
-					const detail = assignErr?.response?.data?.detail || 'Auto-assign failed';
-					toastStore.addToast(detail, 'warning');
+			} else {
+				const p = results[0];
+				if (!p.clinic_id) {
+					lookupError = 'Patient has no allocated clinic. Please assign one first.';
+				} else {
+					searchedPatient = p;
 				}
 			}
-			
+		} catch (err: any) {
+			lookupError = err?.response?.data?.detail || 'Search failed.';
+		} finally {
+			isSearching = false;
+		}
+	}
+
+	async function handleCheckIn() {
+		if (!searchedPatient) return;
+		isCheckingIn = true;
+		try {
+			const result = await clinicsApi.checkInPatient(searchedPatient.clinic_id!, { patient_id: searchedPatient.id });
+			toastStore.addToast(result.message || `${searchedPatient.name} checked in to ${searchedPatient.clinic_name || 'their clinic'}`, 'success');
+			if (autoAssign) {
+				try {
+					const assignResult = await staffApi.autoAssignPatient(searchedPatient.id, searchedPatient.clinic_id!);
+					toastStore.addToast(`Assigned to ${assignResult.student_name}`, 'success');
+				} catch (assignErr: any) {
+					toastStore.addToast(assignErr?.response?.data?.detail || 'Auto-assign failed', 'warning');
+				}
+			}
 			patientIdInput = '';
+			searchedPatient = null;
 			lookupError = '';
 			await loadClinicPatients();
 			await loadPendingPatients();
@@ -213,7 +240,7 @@
 			lookupError = err?.response?.data?.detail || 'Failed to check in patient.';
 			toastStore.addToast(lookupError, 'error');
 		} finally {
-			isSearching = false;
+			isCheckingIn = false;
 		}
 	}
 
@@ -237,6 +264,11 @@
 		}
 	});
 
+	// Persist autoAssign to localStorage
+	$effect(() => {
+		localStorage.setItem('reception_autoAssign', String(autoAssign));
+	});
+
 	// Auto-refresh every 15s
 	$effect(() => {
 		if (loading || !selectedClinic) return;
@@ -248,11 +280,8 @@
 		return () => clearInterval(interval);
 	});
 
-	$effect(() => {
-		if (selectedClinic?.access_mode === 'APPOINTMENT_ONLY' && autoAssign) {
-			autoAssign = false;
-		}
-	});
+	// Note: autoAssign now uses patient's allocated clinic, not selected chip,
+	// so we don't disable it based on selectedClinic.access_mode anymore
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6 space-y-4">
@@ -313,29 +342,10 @@
 			</div>
 		</div>
 
-		<!-- Clinic Selector (if multiple) -->
-		{#if clinics.length > 1}
-			<div class="flex gap-2 overflow-x-auto pb-1">
-				{#each clinics as clinic}
-					<button
-						class="shrink-0 px-4 py-2 rounded-full text-xs font-medium cursor-pointer transition-all"
-						style="background: {selectedClinic?.id === clinic.id ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'linear-gradient(to bottom, #f8fafc, #f1f5f9)'};
-							   color: {selectedClinic?.id === clinic.id ? 'white' : '#475569'};
-							   border: 1px solid {selectedClinic?.id === clinic.id ? '#2563eb' : '#e2e8f0'};
-							   box-shadow: {selectedClinic?.id === clinic.id ? '0 2px 4px rgba(37,99,235,0.3)' : 'none'};"
-						onclick={async () => { selectedClinic = clinic; await loadClinicPatients(); await loadActiveStudents(); }}
-					>
-						<div class="flex flex-col items-start gap-0.5">
-							<span>{clinic.name}</span>
-							<span class="text-[9px] uppercase tracking-[0.14em] opacity-80">{clinicAccessModeLabel(clinic.access_mode)}</span>
-						</div>
-					</button>
-				{/each}
-			</div>
-		{/if}
-
 		<!-- Pending Patients Section -->
 		{#if pendingPatients.length > 0}
+			{@const unassigned = pendingPatients.filter(p => !p.has_student_assignment && !p.has_appointment && !p.has_admission)}
+			{@const assigned = pendingPatients.filter(p => p.has_student_assignment)}
 			<div class="overflow-hidden"
 				style="background-color: white; border-radius: 10px;
 					   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
@@ -362,12 +372,16 @@
 
 				{#if showPendingSection}
 					<div class="p-3 space-y-2">
-						{#each pendingPatients as patient}
+						{#if unassigned.length === 0 && assigned.length === 0}
+							<p class="text-xs text-gray-400 text-center py-2">No pending patients</p>
+						{/if}
+
+						{#each unassigned as patient}
 							<div class="overflow-hidden"
-								style="background-color: {patient.has_appointment || patient.has_student_assignment || patient.has_admission ? '#f0fdf4' : 'white'};
+								style="background-color: white;
 									   border-radius: 8px;
 									   box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
-									   border: 1px solid {patient.has_appointment || patient.has_student_assignment || patient.has_admission ? '#86efac' : 'rgba(0,0,0,0.07)'};">
+									   border: 1px solid rgba(0,0,0,0.07);">
 								<div class="px-3 py-2.5">
 									<div class="flex items-center gap-2">
 										<Avatar name={patient.name} size="sm" />
@@ -375,53 +389,83 @@
 											<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
 											<p class="text-[10px] text-gray-400 truncate">
 												ID: {patient.patient_id}
-												{#if patient.age}
-													· Age: {patient.age}
-												{/if}
+												{#if patient.age} · Age: {patient.age}{/if}
 											</p>
 											<p class="text-[9px] text-gray-400">
 												Registered: {new Date(patient.registered_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
 											</p>
+											{#if patient.clinic_name}
+												<p class="text-[9px] font-medium" style="color: #2563eb;">{patient.clinic_name}</p>
+											{/if}
 										</div>
-										{#if patient.has_student_assignment}
-											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
-												style="background: rgba(16,185,129,0.1); color: #047857;">
-												{patient.assigned_student_name ? `Assigned to ${patient.assigned_student_name}` : '✓ Student'}
-											</span>
-										{:else if patient.has_appointment}
-											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
-												style="background: rgba(34,197,94,0.1); color: #16a34a;">
-												✓ Clinic
-											</span>
-										{:else if patient.has_admission}
-											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
-												style="background: rgba(59,130,246,0.1); color: #2563eb;">
-												✓ Ward
-											</span>
-										{:else}
-											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
-												style="background: rgba(251,191,36,0.1); color: #d97706;">
-												Unassigned
-											</span>
-										{/if}
+										<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
+											style="background: rgba(251,191,36,0.1); color: #d97706;">
+											Unassigned
+										</span>
 									</div>
 								</div>
-								{#if !patient.has_appointment && !patient.has_student_assignment && !patient.has_admission}
-									<div class="px-3 py-1.5"
-										style="border-top: 1px solid rgba(0,0,0,0.05); background-color: #fafbfc;">
-										<button
-											class="w-full py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
-												   box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3);
-												   border: 1px solid rgba(0,0,0,0.12);"
-											onclick={() => openAssignModal(patient)}
-										>
-											<Building class="w-2.5 h-2.5 mr-1" /> {selectedClinicAllowsWalkIn ? 'Assign to Student' : 'Assign to Clinic'}
-										</button>
-									</div>
-								{/if}
+								<div class="px-3 py-1.5"
+									style="border-top: 1px solid rgba(0,0,0,0.05); background-color: #fafbfc;">
+									<button
+										disabled={assigningPatientId === patient.id}
+										class="w-full py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-pointer disabled:opacity-60"
+										style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+											   box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3);
+											   border: 1px solid rgba(0,0,0,0.12);"
+										onclick={() => handleAutoAssignPendingPatient(patient)}
+									>
+										{#if assigningPatientId === patient.id}
+											<Loader2 class="w-2.5 h-2.5 mr-1 animate-spin" /> Assigning…
+										{:else}
+											<Zap class="w-2.5 h-2.5 mr-1" /> Auto Assign
+										{/if}
+									</button>
+								</div>
 							</div>
 						{/each}
+
+						{#if assigned.length > 0}
+							<p class="text-[10px] font-semibold text-gray-500 px-1 pt-1">Assigned</p>
+							{#each assigned as patient}
+								<div class="overflow-hidden"
+									style="background-color: #f0fdf4;
+										   border-radius: 8px;
+										   box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+										   border: 1px solid #86efac;">
+									<div class="px-3 py-2.5">
+										<div class="flex items-center gap-2">
+											<Avatar name={patient.name} size="sm" />
+											<div class="min-w-0 flex-1">
+												<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
+												<p class="text-[10px] text-gray-400 truncate">
+													ID: {patient.patient_id}
+													{#if patient.age} · Age: {patient.age}{/if}
+												</p>
+												{#if patient.clinic_name}
+													<p class="text-[9px] font-medium" style="color: #2563eb;">{patient.clinic_name}</p>
+												{/if}
+											</div>
+											<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
+												style="background: rgba(16,185,129,0.1); color: #047857;">
+												{patient.assigned_student_name ? `→ ${patient.assigned_student_name}` : '✓ Assigned'}
+											</span>
+										</div>
+									</div>
+									<div class="px-3 py-1.5"
+										style="border-top: 1px solid rgba(0,0,0,0.05); background-color: #f0fdf4;">
+										<button
+											class="w-full py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium cursor-pointer"
+											style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+												   box-shadow: 0 1px 2px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8);
+												   border: 1px solid rgba(0,0,0,0.1); color: #475569;"
+											onclick={() => openReassignModal(patient)}
+										>
+											<UserPlus class="w-2.5 h-2.5 mr-1" /> Reassign
+										</button>
+									</div>
+								</div>
+							{/each}
+						{/if}
 					</div>
 				{/if}
 			</div>
@@ -429,24 +473,22 @@
 
 		<!-- Auto-Assign Toggle -->
 		<div class="px-4 py-3 flex items-center justify-between"
-			style="background-color: {autoAssign ? '#f0fdf4' : selectedClinicAllowsWalkIn ? 'white' : '#f8fafc'};
+			style="background-color: {autoAssign ? '#f0fdf4' : 'white'};
 				   border-radius: 10px;
-				   border: 1px solid {autoAssign ? '#86efac' : selectedClinicAllowsWalkIn ? 'rgba(0,0,0,0.1)' : '#cbd5e1'};
+				   border: 1px solid {autoAssign ? '#86efac' : 'rgba(0,0,0,0.1)'};
 				   box-shadow: 0 1px 3px rgba(0,0,0,0.08);
 				   transition: all 0.2s ease;">
 			<div class="flex items-center">
 				<div class="w-8 h-8 rounded-full flex items-center justify-center mr-3"
-					style="background: {autoAssign ? 'linear-gradient(to bottom, #10b981, #059669)' : selectedClinicAllowsWalkIn ? 'linear-gradient(to bottom, #e5e7eb, #d1d5db)' : 'linear-gradient(to bottom, #e2e8f0, #cbd5e1)'};
+					style="background: {autoAssign ? 'linear-gradient(to bottom, #10b981, #059669)' : 'linear-gradient(to bottom, #e5e7eb, #d1d5db)'};
 						   box-shadow: 0 1px 2px rgba(0,0,0,0.15); transition: all 0.2s ease;">
 					<Zap class="w-3.5 h-3.5 {autoAssign ? 'text-white' : 'text-gray-500'}" />
 				</div>
 				<div>
 					<p class="text-xs font-semibold text-gray-800">Auto-Assign on Check-In</p>
 					<p class="text-[10px] text-gray-500">
-						{#if !selectedClinicAllowsWalkIn}
-							Unavailable for appointment-only clinics
-						{:else if autoAssign}
-							New patients will be auto-assigned
+						{#if autoAssign}
+							Patients will be auto-assigned to their clinic's students
 						{:else}
 							Manual assignment required
 						{/if}
@@ -456,9 +498,8 @@
 			<button
 				aria-label="Toggle auto-assign"
 				class="relative w-11 h-6 rounded-full transition-all duration-200 cursor-pointer"
-				style="background: {autoAssign ? 'linear-gradient(to right, #10b981, #059669)' : selectedClinicAllowsWalkIn ? '#d1d5db' : '#cbd5e1'};
+				style="background: {autoAssign ? 'linear-gradient(to right, #10b981, #059669)' : '#d1d5db'};
 					   box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);"
-				disabled={!selectedClinicAllowsWalkIn}
 				onclick={() => autoAssign = !autoAssign}
 			>
 				<div class="absolute top-0.5 w-5 h-5 rounded-full transition-all duration-200"
@@ -485,68 +526,95 @@
 					</h3>
 				</div>
 				{#if autoAssign}
-					<span class="text-[9px] font-bold px-2 py-0.5 rounded-full text-green-700"
+					<span class="text-[9px] font-bold px-2 py-0.5 rounded-full text-green-700 flex items-center gap-0.5"
 						style="background-color: #dcfce7; border: 1px solid #86efac;">
-						<Zap class="w-2 h-2 inline mr-0.5" /> AUTO
+						<Zap class="w-2 h-2" /> AUTO-ASSIGN ON
 					</span>
 				{/if}
 			</div>
-			<div class="p-4">
-				{#if selectedClinicAllowsWalkIn}
-					<label for="patient-id-input" class="block text-xs font-medium text-gray-600 mb-1.5">Patient ID</label>
-					<div class="flex gap-2">
-						<div class="flex-1 flex items-center px-3 py-2.5"
-							style="border: 1px solid rgba(0,0,0,0.2); border-radius: 8px;
-								   background-color: rgba(255,255,255,0.8);
-								   box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);">
-							<Search class="w-3.5 h-3.5 text-gray-400 mr-2" />
-							<input type="text"
-								id="patient-id-input"
-								placeholder="Enter Patient ID (e.g. PAT-001)"
-								class="flex-1 outline-none text-sm text-gray-700 bg-transparent"
-								bind:value={patientIdInput}
-								onkeydown={(e) => { if (e.key === 'Enter') handleCheckIn(); }}
-							/>
-							{#if patientIdInput}
-								<button class="cursor-pointer" onclick={() => { patientIdInput = ''; lookupError = ''; }}>
-									<X class="w-3.5 h-3.5 text-gray-400" />
-								</button>
-							{/if}
-						</div>
-						<button
-							class="px-4 py-2.5 rounded-lg flex items-center justify-center text-xs font-medium text-white cursor-pointer"
-							style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
-								   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
-								   border: 1px solid rgba(0,0,0,0.15);"
-							disabled={!patientIdInput.trim() || isSearching}
-							onclick={handleCheckIn}
-						>
-							{#if isSearching}
-								<Loader2 class="w-3.5 h-3.5 animate-spin" />
-							{:else}
-								<Search class="w-3.5 h-3.5" />
-							{/if}
-						</button>
+			<div class="p-4 space-y-3">
+				<!-- Step 1: Search -->
+				<div class="flex gap-2">
+					<div class="flex-1 flex items-center px-3 py-2.5"
+						style="border: 1px solid rgba(0,0,0,0.2); border-radius: 8px;
+							   background-color: rgba(255,255,255,0.8);
+							   box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);">
+						<Search class="w-3.5 h-3.5 text-gray-400 mr-2 shrink-0" />
+						<input type="text"
+							id="patient-id-input"
+							placeholder="Patient ID or name (e.g. PT20260413…)"
+							class="flex-1 outline-none text-sm text-gray-700 bg-transparent"
+							bind:value={patientIdInput}
+							oninput={() => { searchedPatient = null; lookupError = ''; }}
+							onkeydown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+						/>
+						{#if patientIdInput}
+							<button class="cursor-pointer ml-1" onclick={() => { patientIdInput = ''; searchedPatient = null; lookupError = ''; }}>
+								<X class="w-3.5 h-3.5 text-gray-400" />
+							</button>
+						{/if}
 					</div>
-				{:else}
-					<div class="flex items-start gap-3 rounded-lg px-3 py-3"
-						style="background-color: #eff6ff; border: 1px solid #bfdbfe;">
-						<Calendar class="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
-						<div>
-							<p class="text-xs font-semibold text-blue-900">This clinic accepts appointments only.</p>
-							<p class="mt-1 text-[11px] text-blue-700">Walk-in check-in is disabled here. Schedule or assign an appointment instead.</p>
-						</div>
-					</div>
-				{/if}
+					<button
+						class="px-4 py-2.5 rounded-lg flex items-center justify-center text-xs font-semibold text-white cursor-pointer disabled:opacity-50"
+						style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
+							   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);
+							   border: 1px solid rgba(0,0,0,0.15); min-width: 44px;"
+						disabled={!patientIdInput.trim() || isSearching}
+						onclick={handleSearch}
+					>
+						{#if isSearching}
+							<Loader2 class="w-3.5 h-3.5 animate-spin" />
+						{:else}
+							<Search class="w-3.5 h-3.5" />
+						{/if}
+					</button>
+				</div>
+
+				<!-- Error -->
 				{#if lookupError}
-					<div class="flex items-center px-3 py-2.5 rounded-lg mt-3"
+					<div class="flex items-center px-3 py-2.5 rounded-lg"
 						style="background-color: #fef2f2; border: 1px solid #fecaca;">
 						<AlertCircle class="w-3.5 h-3.5 text-red-500 mr-2 shrink-0" />
 						<p class="text-xs text-red-700">{lookupError}</p>
 					</div>
 				{/if}
-				{#if !lookupError && !isSearching}
-					<p class="text-xs text-gray-400 text-center mt-2">{selectedClinicAllowsWalkIn ? 'Enter a registered patient ID to check them in.' : 'Use the clinic assignment flow for appointment-only clinics.'}</p>
+
+				<!-- Step 2: Patient preview card + Check In button -->
+				{#if searchedPatient}
+					<div class="rounded-xl overflow-hidden"
+						style="border: 1.5px solid #bfdbfe; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);">
+						<div class="px-4 py-3 flex items-center gap-3">
+							<Avatar name={searchedPatient.name} size="sm" />
+							<div class="flex-1 min-w-0">
+								<p class="text-sm font-bold text-gray-900 truncate">{searchedPatient.name}</p>
+								<p class="text-[11px] text-gray-500 truncate">{searchedPatient.patient_id}</p>
+								{#if searchedPatient.clinic_name}
+									<p class="text-[11px] font-semibold mt-0.5" style="color: #2563eb;">
+										<Building class="w-2.5 h-2.5 inline mr-0.5" />{searchedPatient.clinic_name}
+									</p>
+								{/if}
+							</div>
+							<CheckCircle class="w-5 h-5 text-blue-400 shrink-0" />
+						</div>
+						<div class="px-4 pb-3">
+							<button
+								class="w-full py-2.5 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
+								style="background: linear-gradient(to bottom, #10b981, #059669);
+									   box-shadow: 0 2px 6px rgba(5,150,105,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+									   border: 1px solid rgba(0,0,0,0.12);"
+								disabled={isCheckingIn}
+								onclick={handleCheckIn}
+							>
+								{#if isCheckingIn}
+									<Loader2 class="w-4 h-4 animate-spin" /> Checking in…
+								{:else}
+									<UserCheck class="w-4 h-4" /> Check In{autoAssign ? ' & Auto-Assign' : ''}
+								{/if}
+							</button>
+						</div>
+					</div>
+				{:else if !isSearching && !lookupError}
+					<p class="text-xs text-gray-400 text-center">Search by patient ID or name, then confirm check-in.</p>
 				{/if}
 			</div>
 		</div>
@@ -667,101 +735,51 @@
 	{/if}
 </div>
 
-<!-- Assign Patient Modal -->
-{#if showAssignModal && selectedPatientForAssign}
-	<AquaModal title={selectedClinicAllowsWalkIn ? 'Assign Patient to Student' : 'Assign Patient to Clinic'} onclose={() => showAssignModal = false}>
-		<div class="space-y-4">
+<!-- Reassign Patient Modal -->
+{#if showReassignModal && reassignTarget}
+	<AquaModal title="Reassign Patient" onclose={() => { showReassignModal = false; reassignTarget = null; }}>
+		<div class="space-y-3 px-1">
 			<div>
-				<p class="text-sm font-semibold text-gray-800 mb-1">{selectedPatientForAssign.name}</p>
-				<p class="text-xs text-gray-500">ID: {selectedPatientForAssign.patient_id}</p>
+				<p class="text-xs font-semibold text-gray-800">{reassignTarget.name}</p>
+				<p class="text-[10px] text-gray-500">{reassignTarget.patient_id} · {reassignTarget.clinic_name || 'Unknown Clinic'}</p>
+				{#if reassignTarget.assigned_student_name}
+					<p class="text-[10px] text-gray-500 mt-0.5">Currently: <span class="font-medium text-green-700">{reassignTarget.assigned_student_name}</span></p>
+				{/if}
 			</div>
 
-			<div>
-				<p class="block text-xs font-medium text-gray-600 mb-1.5">Clinic</p>
-				<div class="rounded-lg px-3 py-2 text-sm text-gray-700"
-					style="border: 1px solid rgba(0,0,0,0.12); background: #f8fafc;">
-					{selectedClinic?.name || 'No clinic selected'}
+			{#if loadingReassignStudents}
+				<div class="flex items-center justify-center py-4">
+					<div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
 				</div>
-			</div>
-
-			{#if selectedClinicAllowsWalkIn}
-				<div>
-					<label for="assign-student" class="block text-xs font-medium text-gray-600 mb-1.5">Checked-In Student</label>
-					{#if loadingActiveStudents}
-						<div class="rounded-lg px-3 py-2 text-sm text-gray-500"
-							style="border: 1px solid rgba(0,0,0,0.12); background: #f8fafc;">
-							Loading active students...
-						</div>
-					{:else if activeStudentsInClinic.length === 0}
-						<div class="rounded-lg px-3 py-2 text-sm text-amber-700"
-							style="border: 1px solid rgba(245,158,11,0.25); background: rgba(254,243,199,0.75);">
-							No students are checked in to this clinic right now. A doctor can assign the patient manually if needed.
-						</div>
-					{:else}
-						<select
-							id="assign-student"
-							class="w-full px-3 py-2 text-sm outline-none border rounded-lg bg-white"
-							style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
-							bind:value={selectedStudentId}
-						>
-							{#each activeStudentsInClinic as student}
-								<option value={student.id}>{student.name} ({student.student_id}) · {student.assigned_patient_count} patients</option>
-							{/each}
-						</select>
-					{/if}
-				</div>
+			{:else if reassignStudents.length === 0}
+				<p class="text-xs text-red-500 text-center py-2">No students currently checked in to {reassignTarget.clinic_name || 'this clinic'}.</p>
 			{:else}
 				<div>
-					<label for="assign-date" class="block text-xs font-medium text-gray-600 mb-1.5">Appointment Date</label>
-					<input
-						id="assign-date"
-						type="date"
-						class="w-full px-3 py-2 text-sm outline-none border rounded-lg"
-						style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
-						bind:value={assignDate}
-					/>
+					<p class="text-[10px] font-medium text-gray-600 mb-1">Select Student</p>
+					<select
+						bind:value={reassignStudentId}
+						class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white"
+						style="box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);"
+					>
+						{#each reassignStudents as s}
+							<option value={s.id}>{s.name} ({s.assigned_patient_count} patients)</option>
+						{/each}
+					</select>
 				</div>
-			{/if}
-
-			<div>
-				<label for="assign-notes" class="block text-xs font-medium text-gray-600 mb-1.5">Notes (optional)</label>
-				<textarea
-					id="assign-notes"
-					rows="3"
-					class="w-full px-3 py-2 text-sm outline-none border rounded-lg resize-none"
-					style="border: 1px solid rgba(0,0,0,0.2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);"
-					placeholder="Add any notes about the appointment..."
-					bind:value={assignNotes}
-				></textarea>
-			</div>
-
-			<div class="flex gap-2">
 				<button
-					class="flex-1 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
-					style="background: linear-gradient(to bottom, #f3f4f6, #e5e7eb);
-						   color: #4b5563; border: 1px solid rgba(0,0,0,0.1);
-						   box-shadow: 0 1px 2px rgba(0,0,0,0.1);"
-					onclick={() => showAssignModal = false}
-					disabled={isAssigning}
-				>
-					Cancel
-				</button>
-				<button
-					class="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white cursor-pointer flex items-center justify-center"
+					disabled={isReassigning || !reassignStudentId}
+					onclick={handleReassign}
+					class="w-full py-2 rounded-lg text-xs font-semibold text-white cursor-pointer disabled:opacity-60"
 					style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
-						   border: 1px solid rgba(0,0,0,0.12);
-						   box-shadow: 0 1px 3px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.3);"
-					disabled={(selectedClinicAllowsWalkIn ? !selectedStudentId : !assignDate) || isAssigning}
-					onclick={handleAssignPatient}
+						   box-shadow: 0 1px 3px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.25);"
 				>
-					{#if isAssigning}
-						<Loader2 class="w-3.5 h-3.5 animate-spin mr-1" />
-						Assigning...
+					{#if isReassigning}
+						<Loader2 class="w-3 h-3 inline mr-1 animate-spin" /> Reassigning…
 					{:else}
-						{selectedClinicAllowsWalkIn ? 'Assign to Student' : 'Assign to Clinic'}
+						Confirm Reassignment
 					{/if}
 				</button>
-			</div>
+			{/if}
 		</div>
 	</AquaModal>
 {/if}

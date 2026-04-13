@@ -106,6 +106,15 @@ async def get_pending_patients(
     )
     patients = result.scalars().all()
     
+    # Batch-fetch clinic names for all patients
+    clinic_ids = list({p.clinic_id for p in patients if p.clinic_id})
+    clinic_name_map: dict = {}
+    if clinic_ids:
+        clinic_result = await db.execute(
+            select(Clinic.id, Clinic.name).where(Clinic.id.in_(clinic_ids))
+        )
+        clinic_name_map = {row.id: row.name for row in clinic_result.all()}
+    
     pending_list = []
     for patient in patients:
         # Check if patient has any appointments
@@ -162,6 +171,8 @@ async def get_pending_patients(
             "assigned_student_id": student_assignment.student_id if student_assignment else None,
             "assigned_student_name": student_assignment.student.name if student_assignment and student_assignment.student else None,
             "has_admission": has_admission,
+            "clinic_id": patient.clinic_id,
+            "clinic_name": clinic_name_map.get(patient.clinic_id) if patient.clinic_id else None,
         })
     
     return pending_list
@@ -173,10 +184,13 @@ async def get_active_students_for_clinic(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List checked-in students currently present in a clinic."""
+    """List checked-in students currently present in a clinic TODAY."""
     if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    # Only sessions checked in today
+    today_start = datetime.combine(date.today(), dt_time.min)
+    today_end = datetime.combine(date.today(), dt_time.max)
     session_result = await db.execute(
         select(ClinicSession)
         .options(selectinload(ClinicSession.student))
@@ -184,6 +198,8 @@ async def get_active_students_for_clinic(
             and_(
                 ClinicSession.clinic_id == clinic_id,
                 ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_in_at >= today_start,
+                ClinicSession.checked_in_at <= today_end,
                 ClinicSession.checked_out_at.is_(None),
             )
         )
@@ -503,7 +519,9 @@ async def auto_assign_patient_to_student(
     if existing_assignment.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Patient is already assigned to a student")
     
-    # Get students who have active ClinicSessions for this clinic
+    # Get students who have active ClinicSessions for this clinic TODAY
+    today_start = datetime.combine(date.today(), dt_time.min)
+    today_end = datetime.combine(date.today(), dt_time.max)
     clinic_sessions_result = await db.execute(
         select(ClinicSession)
         .options(selectinload(ClinicSession.student))
@@ -511,6 +529,8 @@ async def auto_assign_patient_to_student(
             and_(
                 ClinicSession.clinic_id == data.clinic_id,
                 ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_in_at >= today_start,
+                ClinicSession.checked_in_at <= today_end,
                 ClinicSession.checked_out_at.is_(None),
             )
         )
@@ -520,7 +540,7 @@ async def auto_assign_patient_to_student(
     if not clinic_sessions:
         raise HTTPException(
             status_code=400, 
-            detail="No students are assigned to this clinic. Please assign a student manually."
+            detail="No students are currently checked in to this clinic. Cannot auto-assign."
         )
     
     # Get unique students from clinic sessions
@@ -580,4 +600,75 @@ async def auto_assign_patient_to_student(
         "student_id": selected_student_id,
         "student_name": selected_student.name,
         "student_patient_count": assignment_count + 1,
+    }
+
+
+class ReassignRequest(BaseModel):
+    patient_id: str
+    student_id: str
+
+
+@router.post("/reassign")
+async def reassign_patient_to_student(
+    data: ReassignRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate an existing student assignment and create a new one for a specific student."""
+    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Verify patient exists
+    patient_result = await db.execute(select(Patient).where(Patient.id == data.patient_id))
+    patient = patient_result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Verify target student exists
+    student_result = await db.execute(select(Student).where(Student.id == data.student_id))
+    student = student_result.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    # Deactivate any existing active assignment
+    existing_result = await db.execute(
+        select(StudentPatientAssignment).where(
+            and_(
+                StudentPatientAssignment.patient_id == data.patient_id,
+                StudentPatientAssignment.status == "Active",
+            )
+        )
+    )
+    for old in existing_result.scalars().all():
+        old.status = "Reassigned"
+
+    # Create new assignment
+    assignment = StudentPatientAssignment(
+        id=str(uuid.uuid4()),
+        student_id=data.student_id,
+        patient_id=data.patient_id,
+        status="Active",
+    )
+    db.add(assignment)
+
+    # Notify new student
+    notification = StudentNotification(
+        id=str(uuid.uuid4()),
+        student_id=data.student_id,
+        title="Patient Reassigned",
+        message=f"Patient {patient.name} ({patient.patient_id}) has been reassigned to you.",
+        type="ASSIGNMENT",
+        is_read=0,
+    )
+    db.add(notification)
+
+    await db.commit()
+
+    return {
+        "message": f"Patient {patient.name} reassigned to {student.name}",
+        "assignment_id": assignment.id,
+        "patient_id": patient.id,
+        "patient_name": patient.name,
+        "student_id": data.student_id,
+        "student_name": student.name,
     }

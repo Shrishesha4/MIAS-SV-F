@@ -158,6 +158,17 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             detail="Email already exists",
         )
     
+    # Check if phone number already has a patient account
+    if request.patient_data and request.patient_data.phone:
+        phone_result = await db.execute(
+            select(Patient).where(Patient.phone == request.patient_data.phone)
+        )
+        if phone_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A patient account with this phone number already exists. Please log in instead.",
+            )
+    
     # Create user
     user_id = str(uuid.uuid4())
     user = User(

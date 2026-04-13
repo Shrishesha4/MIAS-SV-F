@@ -23,7 +23,7 @@
 		Award, BarChart3, RefreshCw, ArrowRight, Building,
 		Phone, Mail, MessageSquare, CheckCircle2, Clock, CircleDot,
 		PhoneCall, Hospital, ClipboardList, FileCheck, Save,
-		Eye, X
+		Eye, X, LogIn, LogOut
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -61,6 +61,12 @@
 	let showAllPatients = $state(false);
 	let previousPatients: any[] = $state([]);
 	let previousPatientsLoading = $state(false);
+	let checkingIn = $state(false);
+	let checkingOut = $state(false);
+
+	const activeClinicSession = $derived(
+		clinicSessions.find((s) => s.checked_in_at && !s.checked_out_at) ?? null
+	);
 
 	// Faculty state
 	let faculty: any = $state(null);
@@ -227,6 +233,34 @@
 		clinicPatients = [];
 	}
 
+	async function handleCheckIn() {
+		if (!student || !selectedClinic) return;
+		checkingIn = true;
+		try {
+			await studentApi.checkInToClinic(student.id, selectedClinic.id);
+			clinicSessions = await studentApi.getClinicSessions(student.id);
+			toastStore.addToast(`Checked in to ${selectedClinic.name}`, 'success');
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Check-in failed', 'error');
+		} finally {
+			checkingIn = false;
+		}
+	}
+
+	async function handleCheckOut() {
+		if (!student || !activeClinicSession) return;
+		checkingOut = true;
+		try {
+			await studentApi.checkOutClinic(student.id, activeClinicSession.id);
+			clinicSessions = await studentApi.getClinicSessions(student.id);
+			toastStore.addToast('Checked out successfully', 'success');
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Check-out failed', 'error');
+		} finally {
+			checkingOut = false;
+		}
+	}
+
 	function openStudentPatient(selection: StudentPatientSelection | null) {
 		if (!selection) {
 			toastStore.addToast('Patient details are not available for this clinic appointment', 'error');
@@ -305,7 +339,11 @@
 				clinicSessions = await studentApi.getClinicSessions(student.id);
 				emergencyContacts = await studentApi.getEmergencyContacts();
 				clinics = await studentApi.getClinics();
-				if (clinics.length > 0) {
+				const active = clinicSessions.find((s: any) => s.checked_in_at && !s.checked_out_at);
+				if (active && active.clinic_id) {
+					const activeClinic = clinics.find((c) => c.id === active.clinic_id) ?? null;
+					await loadStudentClinicPatients(activeClinic ?? (clinics[0] || null));
+				} else if (clinics.length > 0) {
 					await loadStudentClinicPatients(clinics[0]);
 				}
 			} else if (role === 'FACULTY') {
@@ -388,6 +426,11 @@
 								<span class="mx-1">·</span> Last visit: {formatDate(dashboard.last_visit)}
 							{/if}
 						</p>
+						{#if patient.clinic_name}
+							<p class="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
+								<Building class="w-3 h-3" /> {patient.clinic_name}
+							</p>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -622,7 +665,7 @@
 					{:else if studentTab === 'clinic'}
 						<!-- Clinic Selector -->
 						{#if clinics.length > 0}
-							<div class="p-3 border-b border-gray-100">
+							<div class="p-3 border-b border-gray-100 space-y-2">
 								<Autocomplete
 									items={filteredClinicOptions}
 									labelKey="name"
@@ -635,7 +678,53 @@
 									onClear={clearClinicSelection}
 								/>
 								{#if selectedClinic}
-									<p class="mt-2 text-xs text-gray-500">{selectedClinic.department} · {selectedClinic.location}</p>
+									<p class="text-xs text-gray-500">{selectedClinic.department} · {selectedClinic.location}</p>
+								{/if}
+								{#if activeClinicSession && activeClinicSession.clinic_id === selectedClinic?.id}
+									<!-- Checked In Banner -->
+									<div class="flex items-center justify-between px-3 py-2 rounded-lg" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25);">
+										<div class="flex items-center gap-2">
+											<CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
+											<div>
+												<p class="text-xs font-semibold text-emerald-700">Checked In</p>
+												<p class="text-[11px] text-emerald-600">Since {new Date(activeClinicSession.checked_in_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
+											</div>
+										</div>
+										<button
+											class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60"
+											style="background: linear-gradient(to bottom, #ef4444, #dc2626); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+											disabled={checkingOut}
+											onclick={handleCheckOut}
+										>
+											{#if checkingOut}
+												<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+											{:else}
+												<LogOut class="w-3 h-3" />
+											{/if}
+											Check Out
+										</button>
+									</div>
+								{:else if selectedClinic && (!activeClinicSession)}
+									<!-- Check In Button -->
+									<button
+										class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
+										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+										disabled={checkingIn}
+										onclick={handleCheckIn}
+									>
+										{#if checkingIn}
+											<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+										{:else}
+											<LogIn class="w-4 h-4" />
+										{/if}
+										Check In to {selectedClinic.name}
+									</button>
+								{:else if selectedClinic && activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
+									<!-- Already checked in elsewhere notice -->
+									<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
+										<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
+										<p class="text-xs text-amber-700">Already checked in to <span class="font-semibold">{activeClinicSession.clinic_name}</span>. Check out first.</p>
+									</div>
 								{/if}
 							</div>
 						{/if}

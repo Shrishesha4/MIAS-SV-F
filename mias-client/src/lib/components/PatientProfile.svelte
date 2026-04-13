@@ -29,6 +29,7 @@
 		buildSupplementalFormDescription,
 		mergeFieldOptions,
 		mergeProcedureMaps,
+		isCaseRecordLikeForm,
 		persistFormFiles,
 		resolveCaseRecordFields,
 		resolveFormFieldsByType,
@@ -104,6 +105,7 @@
 
 	// Modals
 	let showAddRecordModal = $state(false);
+	let loadingCrForms = $state(false);
 	let showAddVitalModal = $state(false);
 	let showAddPrescriptionModal = $state(false);
 	let showRequestPrescriptionModal = $state(false);
@@ -193,11 +195,13 @@
 	);
 
 	const selectedCrForm = $derived(
-		caseRecordForms.find(f => f.id === selectedCrFormId) || null
+		caseRecordForms.filter(isCaseRecordLikeForm).find(f => f.id === selectedCrFormId) || null
 	);
 
 	const searchableCrForms = $derived.by(() =>
-		caseRecordForms.map((form) => ({
+		caseRecordForms
+			.filter(isCaseRecordLikeForm)
+			.map((form) => ({
 			...form,
 			meta: [form.department, form.procedure_name, form.description].filter(Boolean).join(' · '),
 			badge: form.department || '',
@@ -847,6 +851,25 @@
 		selectedCrFormId = ''; crFormSearch = ''; crFacultyId = '';
 		crFormData = {}; crDiagnosisSuggestions = [];
 		crIcdCode = ''; crIcdDescription = '';
+	}
+
+	async function openAddCaseRecordModal() {
+		if (loadingCrForms) return;
+		loadingCrForms = true;
+		try {
+			const forms = await formsApi.getForms();
+			const caseForms = forms.filter(isCaseRecordLikeForm);
+			caseRecordForms = forms;
+			if (caseForms.length === 0) {
+				toastStore.addToast('No active case record forms are available. Ask admin to activate at least one clinical form.', 'warning');
+			}
+			showAddRecordModal = true;
+		} catch (err) {
+			toastStore.addToast('Failed to load case record forms', 'error');
+			showAddRecordModal = true;
+		} finally {
+			loadingCrForms = false;
+		}
 	}
 
 	async function submitCaseRecord() {
@@ -1726,7 +1749,7 @@
 					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 						style="background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white;
 						       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);"
-						onclick={() => showAddRecordModal = true}>
+						onclick={openAddCaseRecordModal}>
 						<Plus class="w-3 h-3" /> Add Entry
 					</button>
 				{/if}
@@ -2313,6 +2336,9 @@
 				onSelect={handleCrFormSelect}
 				onClear={handleCrFormClear}
 			/>
+			{#if !loadingCrForms && searchableCrForms.length === 0}
+				<p class="mt-1.5 text-xs text-amber-600">No active case record forms found. Please create and activate clinical forms in Admin.</p>
+			{/if}
 		</div>
 
 		<!-- Dynamic procedure-specific fields -->

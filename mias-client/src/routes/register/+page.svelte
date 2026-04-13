@@ -13,9 +13,9 @@
 	} from 'lucide-svelte';
 
 	// ─── Step control ──────────────────────────────────────
-	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=insurance, 7=category?, 8=clinic, 9=payment, 10=done
+	// Steps: 1=phone, 2=otp, 3=aadhaar-otp, 4=abha, 5=details, 6=insurance, 7=category?, 8=payment, 9=done
 	let step = $state(1);
-	const TOTAL_STEPS = 10;
+	const TOTAL_STEPS = 9;
 	const progressPct = $derived(Math.round((step / TOTAL_STEPS) * 100));
 
 	// ─── Shared state ──────────────────────────────────────
@@ -216,18 +216,18 @@
 	// ─── Navigation helpers ────────────────────────────────
 	function next() {
 		error = '';
-		// Skip patient category step if not needed (<=2 categories)
+		// Skip patient category step if not needed (only 1 category)
 		if (step === 6 && !showPatientCategoryStep) {
-			step += 2; // Skip from insurance (6) to clinic (8)
+			step += 2; // Skip from insurance (6) to payment (8)
 		} else {
 			step += 1;
 		}
 	}
 	function back() {
 		error = '';
-		// Skip patient category step if not needed (<=2 categories)
+		// Skip patient category step if not needed (only 1 category)
 		if (step === 8 && !showPatientCategoryStep) {
-			step -= 2; // Skip from clinic (8) to insurance (6)
+			step -= 2; // Skip from payment (8) to insurance (6)
 		} else if (step > 1) {
 			step -= 1;
 		} else {
@@ -296,7 +296,10 @@
 		loading = true;
 		error = '';
 		try {
-			const username = phone.replace(/\D/g, '');
+			// Generate unique username from phone + random suffix to prevent collisions
+			const phoneDigits = phone.replace(/\D/g, '');
+			const randomSuffix = Math.random().toString(36).substring(2, 8); // 6-char random string
+			const username = `${phoneDigits}${randomSuffix}`;
 			const patientCategory = patientCategoryOptions.find((c) => c.id === selectedPatientCategoryId)?.name
 				|| patientCategoryOptions[0]?.name
 				|| 'Classic';
@@ -348,7 +351,7 @@
 				);
 			}
 
-			await goto('/dashboard');
+			step = 9; // show completion screen
 		} catch (err: any) {
 			error = err?.response?.data?.detail ?? 'Registration failed. Please try again.';
 		} finally {
@@ -827,12 +830,12 @@
 										<p class="text-xs text-gray-500 mt-0.5">{opt.description}</p>
 									{/if}
 								</div>
-								<div class="text-right">
+								<!-- <div class="text-right">
 									<span class="text-sm font-bold {selectedPatientCategoryId === opt.id ? 'text-blue-700' : 'text-gray-800'}">₹{opt.registration_fee}</span>
 									{#if selectedPatientCategoryId === opt.id}
 										<CheckCircle2 class="w-5 h-5 text-blue-600 mt-1 ml-2" />
 									{/if}
-								</div>
+								</div> -->
 							</div>
 						{/each}
 					</div>
@@ -849,62 +852,7 @@
 				</button>
 			</div>
 
-		<!-- ────────────────────── STEP 8: SELECT CLINIC ────────── -->
 		{:else if step === 8}
-			<div class="flex flex-col px-6 py-8 gap-5">
-				<div class="text-xs font-semibold uppercase tracking-widest text-gray-500">Clinic Allocation</div>
-				<p class="text-sm text-gray-500 -mt-2">You don’t need to choose a clinic. We will automatically allocate one based on your insurance and selected patient type.</p>
-
-				{#if error}<p class="text-xs text-red-500 -mt-2">{error}</p>{/if}
-
-				{#if clinicsLoading}
-					<div class="flex items-center justify-center py-8">
-						<div class="h-6 w-6 animate-spin rounded-full border-3 border-blue-200 border-t-blue-600"></div>
-					</div>
-				{:else}
-					<div class="flex flex-col gap-4">
-						{#each eligibleClinics as c}
-							<div
-								class="p-4 rounded-xl transition-all"
-								style="border: 1px solid rgba(0,0,0,0.1); background: white;"
-							>
-								<div class="flex items-start gap-4">
-									<div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-1"
-										 style="background: #f0f4fa; border: 1px solid rgba(0,0,0,0.08);">
-										<Building2 class="w-5 h-5 text-gray-500" />
-									</div>
-									<div class="flex-1 min-w-0">
-										<p class="text-sm font-semibold text-gray-700">{c.clinic_name}</p>
-										<p class="text-xs text-gray-500 mt-0.5">{c.walk_in_label} • ₹{c.registration_fee}</p>
-										{#if c.department}
-											<p class="text-xs text-gray-400">{c.department}</p>
-										{/if}
-										{#if c.location}
-											<p class="text-xs text-gray-400">{c.location}</p>
-										{/if}
-									</div>
-								</div>
-							</div>
-						{/each}
-						{#if eligibleClinics.length === 0}
-							<p class="text-sm text-gray-500 text-center py-4">No eligible clinics are configured for the selected insurance and patient type.</p>
-						{/if}
-					</div>
-				{/if}
-
-				<button
-					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
-					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
-						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
-						   border: 1px solid rgba(0,0,0,0.1);"
-					onclick={next}
-				>
-					Continue to Payment <ArrowRight class="w-4 h-4" />
-				</button>
-			</div>
-
-		<!-- ────────────────────── STEP 9: PAYMENT ─────────────── -->
-		{:else if step === 9}
 			<div class="flex flex-col items-center px-6 py-8 gap-5">
 				<div class="w-16 h-16 rounded-full flex items-center justify-center"
 					 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
@@ -948,8 +896,8 @@
 				</button>
 			</div>
 
-		<!-- ────────────────────── STEP 10: COMPLETE ────────────── -->
-		{:else if step === 10}
+		<!-- ────────────────────── STEP 9: COMPLETE ─────────────── -->
+		{:else if step === 9}
 			<div class="flex flex-col items-center px-6 py-10 gap-5">
 				<div class="w-20 h-20 rounded-full flex items-center justify-center"
 					 style="background: linear-gradient(to bottom, #e6f9ef, #c8f0da);">
@@ -986,36 +934,6 @@
 			</div>
 		{/if}
 	</div>
-
-	<!-- Fullscreen Clinic Allocation Notification -->
-	{#if allocatedClinic}
-		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-			<div class="bg-white rounded-2xl p-8 max-w-md mx-4 text-center shadow-2xl">
-				<div class="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-					 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
-					<Building2 class="w-8 h-8 text-blue-600" />
-				</div>
-				<h2 class="text-2xl font-bold text-gray-800 mb-2">Clinic Allocated!</h2>
-				<p class="text-gray-600 mb-6">You have been assigned to the following clinic:</p>
-				<div class="rounded-xl p-4 mb-6"
-					 style="background: linear-gradient(to bottom, #eef4ff, #e0eaff);
-							border: 1.5px solid #93b8f5;">
-					<p class="text-lg font-bold text-blue-800">{allocatedClinic?.name || ''}</p>
-					<p class="text-sm text-gray-600 mt-1">{allocatedClinic?.location || ''}</p>
-				</div>
-				<p class="text-sm text-gray-500 mb-6">Please proceed to your allotted clinic for consultation.</p>
-				<button
-					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
-					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
-						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
-						   border: 1px solid rgba(0,0,0,0.1);"
-					onclick={() => allocatedClinic = null}
-				>
-					I Understand <CheckCircle2 class="w-4 h-4" />
-				</button>
-			</div>
-		</div>
-	{/if}
 
 	<!-- Bottom hint for first step -->
 	{#if step === 1}

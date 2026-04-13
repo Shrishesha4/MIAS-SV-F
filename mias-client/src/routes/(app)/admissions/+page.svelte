@@ -1143,7 +1143,7 @@
 						/>
 					</div>
 					{#if searchResults.length > 0}
-						<div class="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
+						<div class="mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
 							{#each searchResults as p}
 								<button
 									class="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 text-sm"

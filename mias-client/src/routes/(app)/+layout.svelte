@@ -121,7 +121,7 @@
 				userIdDisplay = nurse.nurse_id;
 				// Redirect to station selection if not yet selected (but not if already on setup or station pages)
 				const currentPath = window.location.pathname;
-				if (!nurse.has_selected_station && currentPath !== '/nurse-setup' && currentPath !== '/nurse-station') {
+				if (!nurse.has_selected_station && currentPath !== '/nurse-setup') {
 					goto('/nurse-setup');
 					return;
 				}

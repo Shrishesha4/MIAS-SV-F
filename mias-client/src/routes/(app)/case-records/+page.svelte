@@ -6,7 +6,7 @@
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
-	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
+	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, isCaseRecordLikeForm, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
@@ -215,13 +215,17 @@
 			studentApi.getDepartments(),
 			studentApi.getProcedures(),
 			studentApi.getFacultyApprovers(),
-			formsApi.getForms({ form_type: 'CASE_RECORD' }).catch(() => []),
+			formsApi.getForms().catch(() => []),
 		]);
-		const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(forms));
+		const caseForms = forms.filter(isCaseRecordLikeForm);
+		const merged = mergeProcedureMaps(procs, buildCaseRecordProcedureMap(caseForms));
 		departments = Array.from(new Set([...depts, ...Object.keys(merged)])).sort();
 		procedures = merged;
-		caseRecordForms = forms;
+		caseRecordForms = caseForms;
 		facultyApprovers = approvers;
+		if (caseForms.length === 0) {
+			toastStore.addToast('No active case record forms are available. Ask admin to activate at least one clinical form.', 'warning');
+		}
 		// Reset form
 		selectedFormId = '';
 		selectedDepartment = '';

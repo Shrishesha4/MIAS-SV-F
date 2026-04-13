@@ -28,7 +28,7 @@ class NurseUpdate(BaseModel):
 
 class NurseStationSelect(BaseModel):
     hospital: str
-    ward: str
+    ward: Optional[str] = None
     shift: Optional[str] = None
     department: Optional[str] = None
 

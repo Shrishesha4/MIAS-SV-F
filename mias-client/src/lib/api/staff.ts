@@ -13,6 +13,8 @@ export interface PendingPatient {
 	assigned_student_id: string | null;
 	assigned_student_name: string | null;
 	has_admission: boolean;
+	clinic_id: string | null;
+	clinic_name: string | null;
 }
 
 export interface ActiveClinicStudent {
@@ -93,6 +95,21 @@ export const staffApi = {
 		const response = await client.post('/staff/auto-assign', {
 			patient_id: patientId,
 			clinic_id: clinicId,
+		});
+		return response.data;
+	},
+
+	async reassignPatient(patientId: string, studentId: string): Promise<{
+		message: string;
+		assignment_id: string;
+		patient_id: string;
+		patient_name: string;
+		student_id: string;
+		student_name: string;
+	}> {
+		const response = await client.post('/staff/reassign', {
+			patient_id: patientId,
+			student_id: studentId,
 		});
 		return response.data;
 	}

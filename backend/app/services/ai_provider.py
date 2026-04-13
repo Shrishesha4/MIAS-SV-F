@@ -205,6 +205,7 @@ async def _call_openai_compatible(
     payload = {
         "model": config.model,
         "temperature": config.temperature,
+        "max_tokens": 800,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},

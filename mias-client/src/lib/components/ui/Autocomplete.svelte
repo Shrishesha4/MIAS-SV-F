@@ -146,6 +146,17 @@
 		return item[badgeKey] || '';
 	}
 
+	// Portal action: moves the dropdown node to document.body so it escapes
+	// any CSS transform context (e.g. Svelte fly transitions on modals).
+	function portalDropdown(node: HTMLElement) {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				node.remove();
+			}
+		};
+	}
+
 	onMount(() => {
 		const syncPosition = () => {
 			if (showDropdown) {
@@ -206,6 +217,7 @@
 
 	{#if showDropdown}
 		<div
+			use:portalDropdown
 			bind:this={dropdownEl}
 			class="fixed z-[260] max-h-60 overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg"
 			style={dropdownStyle}

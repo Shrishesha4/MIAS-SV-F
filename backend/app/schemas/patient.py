@@ -71,6 +71,7 @@ class PatientResponse(BaseModel):
 
 class PatientDetailResponse(PatientResponse):
     address: str
+    clinic_name: Optional[str] = None
     aadhaar_id: Optional[str] = None
     abha_id: Optional[str] = None
     primary_diagnosis: Optional[str] = None
