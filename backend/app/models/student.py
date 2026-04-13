@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Index, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Index, Boolean, ARRAY
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
@@ -139,6 +139,7 @@ class Clinic(Base):
     clinic_type = Column(String, nullable=False, default="General")  # e.g., "General", "Specialty"
     access_mode = Column(String, nullable=False, default="WALK_IN")  # WALK_IN or APPOINTMENT_ONLY
     walk_in_type = Column(String, nullable=False, default="NO_WALK_IN")  # patient-type walk-in key
+    walk_in_types = Column(ARRAY(String), nullable=True)  # multiple walk-in types for ER clinics
     department = Column(String, nullable=False)
     location = Column(String, nullable=True)  # e.g., "Outpatient Wing, 2nd Floor"
     faculty_id = Column(String, ForeignKey("faculty.id"), nullable=True)  # Supervising doctor

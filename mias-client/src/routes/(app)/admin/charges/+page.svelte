@@ -411,7 +411,7 @@
 			</div>
 		</div>
 
-		{#if activeCategory !== 'REGISTRATION'}
+		<!-- {#if activeCategory !== 'REGISTRATION'}
 			<div class="mb-3 flex justify-end">
 				<button
 					onclick={openCreateModal}
@@ -421,7 +421,7 @@
 					Add New
 				</button>
 			</div>
-		{/if}
+		{/if} -->
 
 		<!-- Registration Fee Table -->
 		{#if activeCategory === 'REGISTRATION'}
@@ -532,7 +532,7 @@
 				<!-- Table Body -->
 				{#if filteredCharges.length === 0}
 					<div class="px-4 py-8 text-center text-slate-500 text-sm">
-						No charges in this category. Click "Add New" to create one.
+						No charges in this category.
 					</div>
 				{:else}
 					{#each filteredCharges as charge, i (charge.id)}

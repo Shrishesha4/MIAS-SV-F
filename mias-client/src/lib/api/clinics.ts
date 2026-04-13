@@ -7,6 +7,7 @@ export interface ClinicInfo {
   clinic_type: string;
   access_mode: 'WALK_IN' | 'APPOINTMENT_ONLY';
   walk_in_type: string;
+  walk_in_types: string[];
   department: string;
   location?: string;
   faculty_id?: string;
@@ -92,6 +93,7 @@ export const clinicsApi = {
     clinic_type?: string;
     access_mode?: 'WALK_IN' | 'APPOINTMENT_ONLY';
     walk_in_type?: string;
+    walk_in_types?: string[];
     department?: string;
     location?: string;
     faculty_id?: string;
@@ -107,6 +109,7 @@ export const clinicsApi = {
     clinic_type?: string;
     access_mode?: 'WALK_IN' | 'APPOINTMENT_ONLY';
     walk_in_type?: string;
+    walk_in_types?: string[];
     department?: string;
     location?: string;
     faculty_id?: string;

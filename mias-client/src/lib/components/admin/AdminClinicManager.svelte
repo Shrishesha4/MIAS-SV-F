@@ -47,6 +47,8 @@
 		is_active: true
 	});
 	let savingClinic = $state(false);
+	// For ER type: multi-selected walk-in types
+	let erWalkInTypes = $state<string[]>([]);
 
 	// When a ghost card triggers clinic creation, remember which insurance mapping to auto-create.
 	let pendingInsuranceConfig = $state<{
@@ -121,8 +123,9 @@
 		for (const category of insuranceCategories) {
 			for (const patientType of category.patient_categories) {
 				const walkInType = patientTypeToWalkInType(patientType.name);
-				// Find the clinic that was created specifically for this walk-in type.
-				const matchedClinic = activeClinics.find((c) => (c as any).walk_in_type === walkInType) ?? null;
+				const matchedClinic = activeClinics.find((c) =>
+					c.walk_in_type === walkInType || (c.walk_in_types?.includes(walkInType) ?? false)
+				) ?? null;
 
 				const key = matchedClinic
 					? `${category.id}::${matchedClinic.id}::${walkInType}`
@@ -270,6 +273,7 @@
 			location: '',
 			is_active: true
 		};
+		erWalkInTypes = [];
 		clinicModal = true;
 	}
 
@@ -285,6 +289,7 @@
 			location: clinic.location || '',
 			is_active: clinic.is_active ?? true
 		};
+		erWalkInTypes = clinic.walk_in_types?.length ? [...clinic.walk_in_types] : [];
 		clinicModal = true;
 	}
 
@@ -296,12 +301,14 @@
 
 		savingClinic = true;
 		try {
-			const payload = {
-				name: clinicData.name.trim(),
-				block: clinicData.block.trim() || undefined,
-				clinic_type: clinicData.clinic_type,
-				access_mode: clinicData.access_mode,
-				walk_in_type: clinicData.walk_in_type,
+		const isER = clinicData.clinic_type === 'ER';
+		const payload = {
+			name: clinicData.name.trim(),
+			block: clinicData.block.trim() || undefined,
+			clinic_type: clinicData.clinic_type,
+			access_mode: clinicData.access_mode,
+			walk_in_type: isER ? (erWalkInTypes[0] || 'NO_WALK_IN') : clinicData.walk_in_type,
+			walk_in_types: isER ? erWalkInTypes : undefined,
 				department: clinicData.department.trim() || undefined,
 				location: clinicData.location.trim() || undefined,
 				is_active: clinicData.is_active
@@ -453,6 +460,7 @@
 			location: '',
 			is_active: true
 		};
+		erWalkInTypes = [];
 		clinicModal = true;
 	}
 
@@ -521,9 +529,14 @@
 
 						<div class="min-w-0 flex-1">
 							<h3 class="truncate text-[15px] font-bold text-slate-900">{item.clinic.name}</h3>
-							<div class="mt-1 flex items-center gap-2">
+							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
 								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{item.accessModeLabel}</span>
+								{#if item.clinic.clinic_type === 'ER' && item.clinic.walk_in_types?.length}
+									{#each item.clinic.walk_in_types as wt}
+										<span class="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{walkInTypeToLabel(wt)}</span>
+									{/each}
+								{/if}
 								{#if !item.clinic.is_active}
 									<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
 								{/if}
@@ -688,17 +701,48 @@
 
 			<!-- Walk-in Type -->
 			<div class="border-t border-gray-200 pt-4 mt-2">
-				<label for="walk-in-type" class="block text-sm font-medium text-gray-700 mb-2">Walk-in Type</label>
-				<select
-					id="walk-in-type"
-					bind:value={clinicData.walk_in_type}
-					class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-				>
-					{#each clinicFormWalkInTypes as type}
-						<option value={type.value}>{type.label}</option>
-					{/each}
-				</select>
-				<p class="mt-1 text-xs text-gray-500">The walk-in type for this clinic</p>
+				{#if clinicData.clinic_type === 'ER'}
+					<p class="block text-sm font-medium text-gray-700 mb-2">Walk-in Types <span class="text-xs text-gray-500">(select one or more)</span></p>
+					<div class="space-y-2 rounded-lg border border-gray-200 p-3 max-h-48 overflow-y-auto">
+						{#each clinicFormWalkInTypes.filter(t => t.value !== 'NO_WALK_IN') as type}
+							<label class="flex items-center gap-2.5 cursor-pointer">
+								<input
+									type="checkbox"
+									class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+									checked={erWalkInTypes.includes(type.value)}
+									onchange={(e) => {
+										if ((e.target as HTMLInputElement).checked) {
+											erWalkInTypes = [...erWalkInTypes, type.value];
+										} else {
+											erWalkInTypes = erWalkInTypes.filter(v => v !== type.value);
+										}
+									}}
+								/>
+								<span class="text-sm text-gray-700">{type.label}</span>
+							</label>
+						{/each}
+						{#if clinicFormWalkInTypes.filter(t => t.value !== 'NO_WALK_IN').length === 0}
+							<p class="text-xs text-gray-400 italic">No walk-in types configured. Add patient categories first.</p>
+						{/if}
+					</div>
+					{#if erWalkInTypes.length > 0}
+						<p class="mt-1.5 text-xs text-blue-600 font-medium">{erWalkInTypes.length} type{erWalkInTypes.length !== 1 ? 's' : ''} selected</p>
+					{:else}
+						<p class="mt-1 text-xs text-amber-500">No types selected — ER clinic will accept all walk-in types</p>
+					{/if}
+				{:else}
+					<label for="walk-in-type" class="block text-sm font-medium text-gray-700 mb-2">Walk-in Type</label>
+					<select
+						id="walk-in-type"
+						bind:value={clinicData.walk_in_type}
+						class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+					>
+						{#each clinicFormWalkInTypes as type}
+							<option value={type.value}>{type.label}</option>
+						{/each}
+					</select>
+					<p class="mt-1 text-xs text-gray-500">The walk-in type for this clinic</p>
+				{/if}
 			</div>
 
 			<label class="flex items-center gap-2 text-sm text-gray-700 mt-4">

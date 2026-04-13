@@ -6,7 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
-from typing import Optional
+from typing import Optional, List
 
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
@@ -50,6 +50,7 @@ async def list_clinics(
             "clinic_type": c.clinic_type,
             "access_mode": c.access_mode,
             "walk_in_type": c.walk_in_type,
+            "walk_in_types": c.walk_in_types or [],
             "department": c.department,
             "location": c.location,
             "faculty_id": c.faculty_id,
@@ -66,6 +67,7 @@ class CreateClinicRequest(BaseModel):
     clinic_type: str = "OP"
     access_mode: str = "WALK_IN"
     walk_in_type: str = "NO_WALK_IN"
+    walk_in_types: Optional[List[str]] = None
     department: Optional[str] = None
     location: Optional[str] = None
     faculty_id: Optional[str] = None
@@ -86,6 +88,7 @@ async def create_clinic(
         clinic_type=request.clinic_type.strip(),
         access_mode=normalize_clinic_access_mode(request.access_mode),
         walk_in_type=request.walk_in_type.strip() if request.walk_in_type else "NO_WALK_IN",
+        walk_in_types=[t.strip() for t in request.walk_in_types if t.strip()] if request.walk_in_types else None,
         department=request.department.strip() if request.department else "",
         location=request.location.strip() if request.location else None,
         faculty_id=request.faculty_id,
@@ -100,6 +103,7 @@ async def create_clinic(
         "clinic_type": clinic.clinic_type,
         "access_mode": clinic.access_mode,
         "walk_in_type": clinic.walk_in_type,
+        "walk_in_types": clinic.walk_in_types or [],
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
@@ -129,6 +133,7 @@ async def get_clinic(
         "clinic_type": clinic.clinic_type,
         "access_mode": clinic.access_mode,
         "walk_in_type": clinic.walk_in_type,
+        "walk_in_types": clinic.walk_in_types or [],
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,
@@ -143,6 +148,7 @@ class UpdateClinicRequest(BaseModel):
     clinic_type: Optional[str] = None
     access_mode: Optional[str] = None
     walk_in_type: Optional[str] = None
+    walk_in_types: Optional[List[str]] = None
     department: Optional[str] = None
     location: Optional[str] = None
     faculty_id: Optional[str] = None
@@ -172,6 +178,8 @@ async def update_clinic(
         clinic.access_mode = normalize_clinic_access_mode(request.access_mode, default=clinic.access_mode or "WALK_IN")
     if request.walk_in_type is not None:
         clinic.walk_in_type = request.walk_in_type.strip() if request.walk_in_type else "NO_WALK_IN"
+    if request.walk_in_types is not None:
+        clinic.walk_in_types = [t.strip() for t in request.walk_in_types if t.strip()] or None
     if request.department is not None:
         clinic.department = request.department.strip() if request.department else ""
     if request.location is not None:
@@ -191,6 +199,7 @@ async def update_clinic(
         "clinic_type": clinic.clinic_type,
         "access_mode": clinic.access_mode,
         "walk_in_type": clinic.walk_in_type,
+        "walk_in_types": clinic.walk_in_types or [],
         "department": clinic.department,
         "location": clinic.location,
         "faculty_id": clinic.faculty_id,

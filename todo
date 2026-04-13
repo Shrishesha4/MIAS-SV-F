@@ -1,9 +1,15 @@
-admin screen 
-    walk in status toggle
+need 
 
-patient registration
+departments must be shown in labs
+    dropdown selector
 
+add student not working 
 
+remove charge master add new button
 
+need conditional forms 
 
-no walk in / walk in suffix clinic type = no walk in / walkin prime / walkin classic / walkin camp / walk in elite 
+need to set and show insurance types for all patient in their profile badge itself
+
+make the default formfield as "textarea"
+
