@@ -82,6 +82,7 @@ def upgrade() -> None:
     if 'patient_category_options' in _get_table_names(bind):
         pco_columns = _get_column_names(bind, 'patient_category_options')
         has_is_default_col = 'is_default' in pco_columns
+        has_registration_fee_col = 'registration_fee' in pco_columns
 
         existing_names = {
             row[0].casefold(): row[0]
@@ -95,44 +96,26 @@ def upgrade() -> None:
             ('Community', 'Community or subsidized patient support category.', False, 3),
         ]
 
+        def _build_insert(is_default_val: bool, sort_val: int, name_val: str, desc_val: str) -> tuple[str, dict]:
+            cols = ['id', 'name', 'description', 'is_active', 'sort_order', 'created_at', 'updated_at']
+            vals = [':id', ':name', ':description', 'TRUE', ':sort_order', 'NOW()', 'NOW()']
+            params = {'id': str(uuid4()), 'name': name_val, 'description': desc_val, 'sort_order': sort_val}
+            if has_is_default_col:
+                cols.insert(4, 'is_default')
+                vals.insert(4, ':is_default')
+                params['is_default'] = is_default_val
+            if has_registration_fee_col:
+                cols.insert(5 if has_is_default_col else 4, 'registration_fee')
+                vals.insert(5 if has_is_default_col else 4, ':registration_fee')
+                params['registration_fee'] = 0
+            sql = f"INSERT INTO patient_category_options ({', '.join(cols)}) VALUES ({', '.join(vals)})"
+            return sql, params
+
         for name, description, is_default, sort_order in defaults:
             if name.casefold() in existing_names:
                 continue
-            if has_is_default_col:
-                bind.execute(
-                    sa.text(
-                        """
-                        INSERT INTO patient_category_options
-                            (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
-                        VALUES
-                            (:id, :name, :description, TRUE, :is_default, :sort_order, NOW(), NOW())
-                        """
-                    ),
-                    {
-                        'id': str(uuid4()),
-                        'name': name,
-                        'description': description,
-                        'is_default': is_default,
-                        'sort_order': sort_order,
-                    },
-                )
-            else:
-                bind.execute(
-                    sa.text(
-                        """
-                        INSERT INTO patient_category_options
-                            (id, name, description, is_active, sort_order, created_at, updated_at)
-                        VALUES
-                            (:id, :name, :description, TRUE, :sort_order, NOW(), NOW())
-                        """
-                    ),
-                    {
-                        'id': str(uuid4()),
-                        'name': name,
-                        'description': description,
-                        'sort_order': sort_order,
-                    },
-                )
+            sql, params = _build_insert(is_default, sort_order, name, description)
+            bind.execute(sa.text(sql), params)
             existing_names[name.casefold()] = name
 
         if 'patients' in _get_table_names(bind):
@@ -143,40 +126,8 @@ def upgrade() -> None:
                 if not name or name.casefold() in existing_names:
                     continue
                 next_sort += 1
-                if has_is_default_col:
-                    bind.execute(
-                        sa.text(
-                            """
-                            INSERT INTO patient_category_options
-                                (id, name, description, is_active, is_default, sort_order, created_at, updated_at)
-                            VALUES
-                                (:id, :name, :description, TRUE, FALSE, :sort_order, NOW(), NOW())
-                            """
-                        ),
-                        {
-                            'id': str(uuid4()),
-                            'name': name,
-                            'description': 'Imported from existing patient records.',
-                            'sort_order': next_sort,
-                        },
-                    )
-                else:
-                    bind.execute(
-                        sa.text(
-                            """
-                            INSERT INTO patient_category_options
-                                (id, name, description, is_active, sort_order, created_at, updated_at)
-                            VALUES
-                                (:id, :name, :description, TRUE, :sort_order, NOW(), NOW())
-                            """
-                        ),
-                        {
-                            'id': str(uuid4()),
-                            'name': name,
-                            'description': 'Imported from existing patient records.',
-                            'sort_order': next_sort,
-                        },
-                    )
+                sql, params = _build_insert(False, next_sort, name, 'Imported from existing patient records.')
+                bind.execute(sa.text(sql), params)
                 existing_names[name.casefold()] = name
 
         if has_is_default_col:
