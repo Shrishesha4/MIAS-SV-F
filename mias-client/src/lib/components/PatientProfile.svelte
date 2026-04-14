@@ -1426,6 +1426,18 @@
 						<p class="mt-1.5 text-[11px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
 						<p class="mt-2 text-[13px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
 						<p class="mt-1.5 text-[13px] text-slate-600">{patient.phone || '—'}</p>
+						{#if patient.insurance_policies?.length}
+							<div class="flex flex-wrap gap-1.5 mt-2">
+								{#each patient.insurance_policies as policy (policy.id)}
+									{#if policy.coverage_type}
+										<span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full"
+											style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #1d4ed8; border: 1px solid rgba(59,130,246,0.15);">
+											<Shield class="w-2.5 h-2.5" /> {policy.coverage_type}
+										</span>
+									{/if}
+								{/each}
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>

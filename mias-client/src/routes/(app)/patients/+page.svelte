@@ -4,26 +4,24 @@
 	import { goto } from '$app/navigation';
 	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
-	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
+	import { patientApi, type PatientDashboard } from '$lib/api/patients';
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
-	import { autocompleteApi } from '$lib/api/autocomplete';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
-	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import PatientProfile from '$lib/components/PatientProfile.svelte';
 	import { isHighlightedPatientCategory } from '$lib/utils/patient-category';
 	import {
-		HeartPulse, FileText, Pill, Activity, TestTube, Wallet,
-		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight,
-		GraduationCap, Users, CheckCircle, Clipboard, User,
-		Award, BarChart3, RefreshCw, ArrowRight, Building,
-		Phone, Mail, MessageSquare, CheckCircle2, Clock, CircleDot,
-		PhoneCall, Hospital, ClipboardList, FileCheck, Save,
-		Eye, X, LogIn, LogOut
+		HeartPulse, FileText, Pill, TestTube, Wallet,
+		Bed, Calendar, Crown, AlertTriangle, ChevronRight,
+		GraduationCap, Users, User,
+		Building,
+		CheckCircle2, Clock,
+		ClipboardList, FileCheck, Save,
+		Eye, X, LogIn, LogOut, Shield
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -367,6 +365,23 @@
 								<span class="mx-1">·</span> Last visit: {formatDate(dashboard.last_visit)}
 							{/if}
 						</p>
+						{#if patient.clinic_name}
+							<p class="text-xs text-blue-600 flex items-center gap-1 mt-0.5">
+								<Building class="w-3 h-3" /> {patient.clinic_name}
+							</p>
+						{/if}
+						{#if patient.insurance_policies?.length}
+							<div class="flex flex-wrap gap-1.5 mt-1.5">
+								{#each patient.insurance_policies as policy (policy.id)}
+									{#if policy.coverage_type}
+										<span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full"
+											style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #1d4ed8; border: 1px solid rgba(59,130,246,0.15);">
+											<Shield class="w-2.5 h-2.5" /> {policy.coverage_type}
+										</span>
+									{/if}
+								{/each}
+							</div>
+						{/if}
 					</div>
 				</div>
 			</div>

@@ -61,7 +61,6 @@
 			name: '',
 			description: '',
 			is_active: true,
-			is_default: false,
 			sort_order: categories.length,
 		};
 	}

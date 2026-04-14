@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { labsApi, type LabInfo, type LabTest, type LabTestGroup } from '$lib/api/labs';
+	import { adminApi } from '$lib/api/admin';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
@@ -53,6 +54,7 @@
 	let editingLab: LabInfo | null = $state(null);
 	let labData = $state(createEmptyLabData());
 	let savingLab = $state(false);
+	let departments: string[] = $state([]);
 	let availableLabTypes = $derived.by(() => {
 		const suggestedTypes = [...COMMON_LAB_TYPES, ...labs.map((lab) => lab.lab_type), labData.lab_type]
 			.map((value) => value.trim())
@@ -92,9 +94,15 @@
 		{ id: 'groups', label: 'GROUPS' }
 	];
 
-	onMount(() => {
+	onMount(async () => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
 		loadLabs();
+		try {
+			const deptList = await adminApi.getDepartments();
+			departments = deptList.filter((d: any) => d.is_active !== false).map((d: any) => d.name);
+		} catch (e: any) {
+			// non-critical, departments list is optional
+		}
 	});
 
 	async function loadLabs() {
@@ -477,7 +485,16 @@
 			</div>
 			<div>
 				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Department *</label>
-				<input type="text" placeholder="e.g., Diagnostics" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={labData.department} />
+				<select
+					class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl cursor-pointer"
+					style="background: linear-gradient(to bottom, #ffffff, #fafafa);"
+					bind:value={labData.department}
+				>
+					<option value="" disabled selected>Select a department</option>
+					{#each departments as dept (dept)}
+						<option value={dept}>{dept}</option>
+					{/each}
+				</select>
 			</div>
 			<div>
 				<label class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Block</label>
