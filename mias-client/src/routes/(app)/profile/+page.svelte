@@ -13,6 +13,8 @@
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import type { FormDefinition } from '$lib/types/forms';
 	import { asOptionalString, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
@@ -555,17 +557,15 @@
 					style="background: linear-gradient(to bottom, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.15) 30%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0) 51%, rgba(0,0,0,0.05) 100%);"></div>
 				<!-- Avatar positioned at bottom-left -->
 				<div class="absolute -bottom-16 left-4">
-					<div class="h-28 w-28 rounded-xl overflow-hidden shadow-lg"
-						style="border: 3px solid white;">
-						{#if patient.photo}
-							<img src="{API_BASE}{patient.photo}" alt={patient.name} class="h-full w-full object-cover" />
-						{:else}
-							<div class="h-full w-full flex items-center justify-center text-3xl font-bold text-white"
-								style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
-								{patient.name?.charAt(0) ?? '?'}
-							</div>
-						{/if}
-					</div>
+					<PatientInsuranceAvatar
+						name={patient.name}
+						src={patient.photo ? `${API_BASE}${patient.photo}` : null}
+						size="xl"
+						insurancePolicies={patient.insurance_policies}
+						patientCategory={patient.category}
+						patientCategoryColorPrimary={patient.category_color_primary}
+						patientCategoryColorSecondary={patient.category_color_secondary}
+					/>
 				</div>
 			</div>
 			<div class="pt-20 pb-4 px-4">
@@ -582,6 +582,7 @@
 					</StatusBadge>
 					<StatusBadge variant="info">{formatPatientCategoryLabel(patient.category)}</StatusBadge>
 				</div>
+				<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} />
 			</div>
 		</div>
 

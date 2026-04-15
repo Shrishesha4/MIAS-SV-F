@@ -89,6 +89,8 @@ export interface PatientCategoryConfig {
   id: string;
   name: string;
   description: string | null;
+  color_primary: string;
+  color_secondary: string;
   is_active: boolean;
   sort_order: number;
   registration_fee: number;
@@ -326,7 +328,7 @@ export const adminApi = {
     return r.data;
   },
 
-  async getPublicPatientCategories(): Promise<{ id: string; name: string; description: string | null; registration_fee: number }[]> {
+  async getPublicPatientCategories(): Promise<{ id: string; name: string; description: string | null; color_primary: string; color_secondary: string; registration_fee: number }[]> {
     const r = await client.get('/admin/patient-categories/public');
     return r.data;
   },
@@ -334,9 +336,12 @@ export const adminApi = {
   async createPatientCategory(data: {
     name: string;
     description?: string;
+    color_primary?: string;
+    color_secondary?: string;
     is_active?: boolean;
     is_default?: boolean;
     sort_order?: number;
+    registration_fee?: number;
   }): Promise<PatientCategoryConfig> {
     const r = await client.post('/admin/patient-categories', data);
     return r.data;
@@ -345,6 +350,8 @@ export const adminApi = {
   async updatePatientCategory(categoryId: string, data: Partial<{
     name: string;
     description: string;
+    color_primary: string;
+    color_secondary: string;
     is_active: boolean;
     is_default: boolean;
     sort_order: number;

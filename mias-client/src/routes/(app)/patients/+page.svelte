@@ -10,6 +10,8 @@
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import PatientProfile from '$lib/components/PatientProfile.svelte';
@@ -344,21 +346,14 @@
 		<AquaCard padding={false}>
 			<div class="p-4">
 				<div class="flex items-center gap-3">
-					<div class="relative">
-						{#if patient.photo}
-							<img src={patient.photo} alt={patient.name} class="w-14 h-14 rounded-full object-cover border-2 border-white shadow-md" />
-						{:else}
-							<Avatar name={patient.name} size="lg" />
-						{/if}
-						{#if isHighlightedPatientCategory(patient.category)}
-							<div class="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center"
-								style="background: linear-gradient(to bottom, #fbbf24, #f59e0b); border: 2px solid white;">
-								<Crown class="w-2.5 h-2.5 text-white" />
-							</div>
-						{/if}
-					</div>
+					<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="lg" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 					<div class="flex-1 min-w-0">
-						<h2 class="text-lg font-bold text-gray-800">Welcome, {patient.name}</h2>
+						<div class="flex items-center gap-2">
+							<h2 class="text-lg font-bold text-gray-800">Welcome, {patient.name}</h2>
+							{#if isHighlightedPatientCategory(patient.category)}
+								<Crown class="w-4 h-4 text-yellow-500 shrink-0" />
+							{/if}
+						</div>
 						<p class="text-sm text-gray-500">
 							ID: {patient.patient_id}
 							{#if dashboard?.last_visit}
@@ -370,18 +365,7 @@
 								<Building class="w-3 h-3" /> {patient.clinic_name}
 							</p>
 						{/if}
-						{#if patient.insurance_policies?.length}
-							<div class="flex flex-wrap gap-1.5 mt-1.5">
-								{#each patient.insurance_policies as policy (policy.id)}
-									{#if policy.coverage_type}
-										<span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full"
-											style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #1d4ed8; border: 1px solid rgba(59,130,246,0.15);">
-											<Shield class="w-2.5 h-2.5" /> {policy.coverage_type}
-										</span>
-									{/if}
-								{/each}
-							</div>
-						{/if}
+						<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact />
 					</div>
 				</div>
 			</div>
@@ -591,17 +575,15 @@
 					{#if studentTab === 'today'}
 						{#each assignedPatients as ap}
 							<button
-								class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
+								class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-200 hover:bg-gray-50"
 								class:bg-blue-50={selectedPatient?.id === ap.id}
 								onclick={() => openStudentPatient(toAssignedSelection(ap))}
 							>
-								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
-									<User class="w-5 h-5 text-white" />
-								</div>
+								<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
 									<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
+									<InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
 								</div>
 								<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
 							</button>
@@ -685,13 +667,11 @@
 								class:bg-blue-50={selectedPatient?.id === cp.patient_db_id}
 								onclick={() => openStudentPatient(toClinicSelection(cp))}
 							>
-								<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-									style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
-									<User class="w-5 h-5 text-white" />
-								</div>
+								<PatientInsuranceAvatar name={cp.patient_name} src={cp.photo} size="sm" insurancePolicies={cp.insurance_policies} patientCategory={cp.category} patientCategoryColorPrimary={cp.category_color_primary} patientCategoryColorSecondary={cp.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<p class="font-semibold text-gray-800 text-sm">{cp.patient_name}</p>
 									<p class="text-xs text-gray-500 truncate">{cp.appointment_time} · {cp.provider_name}</p>
+									<InsuranceTypeBadges insurancePolicies={cp.insurance_policies} compact maxVisible={2} />
 									<p class="mt-1 text-[11px] font-medium {cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'text-emerald-600' : 'text-amber-600'}">
 										{cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'Assigned to you · edit enabled' : 'View only · not assigned to you'}
 									</p>
@@ -727,13 +707,11 @@
 									class:bg-blue-50={selectedPatient?.id === ap.id}
 									onclick={() => openStudentPatient(toAssignedSelection(ap))}
 								>
-									<div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-										style="background: linear-gradient(to bottom, #60a5fa, #3b82f6);">
-										<User class="w-5 h-5 text-white" />
-									</div>
+									<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
 									<div class="flex-1 min-w-0">
 										<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
 										<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
+										<InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
 									</div>
 									<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
 								</button>

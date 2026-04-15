@@ -27,6 +27,11 @@ class InsurancePolicyResponse(BaseModel):
     policy_number: str
     valid_until: Optional[date] = None
     coverage_type: Optional[str] = None
+    insurance_category_id: Optional[str] = None
+    icon_key: Optional[str] = None
+    custom_badge_symbol: Optional[str] = None
+    color_primary: Optional[str] = None
+    color_secondary: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -65,6 +70,8 @@ class PatientResponse(BaseModel):
     email: Optional[str] = None
     photo: Optional[str] = None
     category: str
+    category_color_primary: Optional[str] = None
+    category_color_secondary: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

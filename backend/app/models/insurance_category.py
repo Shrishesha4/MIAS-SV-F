@@ -8,6 +8,20 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+VALID_INSURANCE_ICON_KEYS = (
+    "shield",
+    "landmark",
+    "briefcase",
+    "building",
+    "wallet",
+    "heart",
+    "off",
+)
+DEFAULT_INSURANCE_ICON_KEY = "shield"
+DEFAULT_INSURANCE_COLOR_PRIMARY = "#60A5FA"
+DEFAULT_INSURANCE_COLOR_SECONDARY = "#1D4ED8"
+
+
 # Association table for many-to-many relationship between insurance categories and patient categories
 insurance_patient_category_association = Table(
     'insurance_patient_category_association',
@@ -24,6 +38,10 @@ class InsuranceCategory(Base):
     id = Column(String, primary_key=True, default=lambda: str(uuid4()))
     name = Column(String, nullable=False, unique=True, index=True)
     description = Column(Text, nullable=True)
+    icon_key = Column(String, nullable=False, default=DEFAULT_INSURANCE_ICON_KEY)
+    custom_badge_symbol = Column(String, nullable=True)
+    color_primary = Column(String, nullable=False, default=DEFAULT_INSURANCE_COLOR_PRIMARY)
+    color_secondary = Column(String, nullable=False, default=DEFAULT_INSURANCE_COLOR_SECONDARY)
     is_active = Column(Boolean, nullable=False, default=True)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())

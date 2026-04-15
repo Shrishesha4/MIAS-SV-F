@@ -41,6 +41,8 @@ class Patient(Base):
     diagnosis_date = Column(String, nullable=True)
     diagnosis_time = Column(String, nullable=True)
     category = Column(String, nullable=False, default="Classic")
+    category_color_primary = Column(String, nullable=False, default="#60A5FA")
+    category_color_secondary = Column(String, nullable=False, default="#1D4ED8")
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
         DateTime,
@@ -92,10 +94,15 @@ class InsurancePolicy(Base):
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False)
+    insurance_category_id = Column(String, nullable=True, index=True)
     provider = Column(String, nullable=False)
     policy_number = Column(String, nullable=False)
     valid_until = Column(Date, nullable=True)
     coverage_type = Column(String, nullable=True)
+    icon_key = Column(String, nullable=True)
+    custom_badge_symbol = Column(String, nullable=True)
+    color_primary = Column(String, nullable=True)
+    color_secondary = Column(String, nullable=True)
 
     patient = relationship("Patient", back_populates="insurance_policies")
 

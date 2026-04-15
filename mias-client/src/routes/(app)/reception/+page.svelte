@@ -4,11 +4,13 @@
 	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
-	import { clinicsApi, type ClinicInfo, type ClinicPatientInfo } from '$lib/api/clinics';
+	import { clinicsApi, type ClinicInfo, type ClinicPatientInfo, type ClinicPatientSearchResult } from '$lib/api/clinics';
 	import { staffApi, type ActiveClinicStudent, type PendingPatient } from '$lib/api/staff';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import { toastStore } from '$lib/stores/toast';
 	import {
 		Users, UserCheck, Clock, Calendar, Building, Search, X,
@@ -40,6 +42,13 @@
 
 	// Assignment state
 	let assigningPatientId = $state<string | null>(null);
+	let showAssignModal = $state(false);
+	let assignTarget = $state<PendingPatient | null>(null);
+	let assignClinicId = $state('');
+	let assignStudents = $state<ActiveClinicStudent[]>([]);
+	let assignStudentId = $state('');
+	let loadingAssignStudents = $state(false);
+	let isAssigning = $state(false);
 
 	// Reassign modal state
 	let showReassignModal = $state(false);
@@ -61,7 +70,7 @@
 	let autoAssign = $state(browser ? localStorage.getItem('reception_autoAssign') === 'true' : false);
 
 	// Check-in two-step: search result preview
-	let searchedPatient = $state<{ id: string; name: string; patient_id: string; clinic_id: string | null; clinic_name: string | null } | null>(null);
+	let searchedPatient = $state<ClinicPatientSearchResult | null>(null);
 	let isCheckingIn = $state(false);
 
 	// Stats
@@ -122,7 +131,8 @@
 
 	async function handleAutoAssignPendingPatient(patient: PendingPatient) {
 		if (!patient.clinic_id) {
-			toastStore.addToast('Patient has no allocated clinic — cannot auto-assign', 'error');
+			toastStore.addToast('Patient has no allocated clinic. Choose a clinic and student manually.', 'warning');
+			await openAssignModal(patient);
 			return;
 		}
 		assigningPatientId = patient.id;
@@ -131,15 +141,68 @@
 			toastStore.addToast(`${patient.name} assigned to ${result.student_name}`, 'success');
 			await loadPendingPatients();
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail || 'No checked-in students available in the allotted clinic', 'error');
+			toastStore.addToast(err?.response?.data?.detail || 'No checked-in students available in the allotted clinic. Choose one manually.', 'warning');
+			await openAssignModal(patient);
 		} finally {
 			assigningPatientId = null;
 		}
 	}
 
-	async function openAssignModal(_patient: PendingPatient) {}
+	async function loadAssignStudentsForClinic(clinicId: string) {
+		if (!clinicId) {
+			assignStudents = [];
+			assignStudentId = '';
+			return;
+		}
+		loadingAssignStudents = true;
+		try {
+			assignStudents = await staffApi.getActiveStudents(clinicId);
+			assignStudentId = assignStudents[0]?.id || '';
+		} catch (err) {
+			assignStudents = [];
+			assignStudentId = '';
+			toastStore.addToast('Could not load active students for the selected clinic', 'error');
+		} finally {
+			loadingAssignStudents = false;
+		}
+	}
 
-	async function handleAssignPatient() {}
+	async function openAssignModal(patient: PendingPatient) {
+		assignTarget = patient;
+		assignClinicId = patient.clinic_id || selectedClinic?.id || clinics[0]?.id || '';
+		assignStudents = [];
+		assignStudentId = '';
+		showAssignModal = true;
+		if (!assignClinicId) {
+			toastStore.addToast('No clinic is available for assignment', 'error');
+			return;
+		}
+		await loadAssignStudentsForClinic(assignClinicId);
+	}
+
+	async function handleAssignPatient() {
+		if (!assignTarget || !assignClinicId || !assignStudentId) {
+			return;
+		}
+		isAssigning = true;
+		try {
+			const result = await staffApi.assignToStudent({
+				patient_id: assignTarget.id,
+				student_id: assignStudentId,
+				clinic_id: assignClinicId,
+			});
+			toastStore.addToast(`${assignTarget.name} assigned to ${result.student_name}`, 'success');
+			showAssignModal = false;
+			assignTarget = null;
+			await loadPendingPatients();
+			await loadClinicPatients();
+			await loadActiveStudents();
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail || 'Assignment failed', 'error');
+		} finally {
+			isAssigning = false;
+		}
+	}
 
 	async function openReassignModal(patient: PendingPatient) {
 		if (!patient.clinic_id) {
@@ -384,18 +447,21 @@
 									   border: 1px solid rgba(0,0,0,0.07);">
 								<div class="px-3 py-2.5">
 									<div class="flex items-center gap-2">
-										<Avatar name={patient.name} size="sm" />
+										<PatientInsuranceAvatar name={patient.name} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 										<div class="min-w-0 flex-1">
 											<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
 											<p class="text-[10px] text-gray-400 truncate">
 												ID: {patient.patient_id}
 												{#if patient.age} · Age: {patient.age}{/if}
 											</p>
+											<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 											<p class="text-[9px] text-gray-400">
 												Registered: {new Date(patient.registered_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
 											</p>
 											{#if patient.clinic_name}
 												<p class="text-[9px] font-medium" style="color: #2563eb;">{patient.clinic_name}</p>
+											{:else}
+												<p class="text-[9px] font-medium text-amber-600">No clinic allocated yet</p>
 											{/if}
 										</div>
 										<span class="px-2 py-0.5 text-[9px] font-bold rounded-full shrink-0"
@@ -406,20 +472,31 @@
 								</div>
 								<div class="px-3 py-1.5"
 									style="border-top: 1px solid rgba(0,0,0,0.05); background-color: #fafbfc;">
-									<button
-										disabled={assigningPatientId === patient.id}
-										class="w-full py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-pointer disabled:opacity-60"
-										style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
-											   box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3);
-											   border: 1px solid rgba(0,0,0,0.12);"
-										onclick={() => handleAutoAssignPendingPatient(patient)}
-									>
-										{#if assigningPatientId === patient.id}
-											<Loader2 class="w-2.5 h-2.5 mr-1 animate-spin" /> Assigning…
-										{:else}
-											<Zap class="w-2.5 h-2.5 mr-1" /> Auto Assign
-										{/if}
-									</button>
+									<div class="flex gap-2">
+										<button
+											disabled={assigningPatientId === patient.id}
+											class="flex-1 py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium text-white cursor-pointer disabled:opacity-60"
+											style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+												   box-shadow: 0 1px 2px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.3);
+												   border: 1px solid rgba(0,0,0,0.12);"
+											onclick={() => handleAutoAssignPendingPatient(patient)}
+										>
+											{#if assigningPatientId === patient.id}
+												<Loader2 class="w-2.5 h-2.5 mr-1 animate-spin" /> Assigning…
+											{:else}
+												<Zap class="w-2.5 h-2.5 mr-1" /> Auto Assign
+											{/if}
+										</button>
+										<button
+											class="flex-1 py-1.5 rounded-md flex items-center justify-center text-[10px] font-medium cursor-pointer"
+											style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9);
+												   box-shadow: 0 1px 2px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.8);
+												   border: 1px solid rgba(0,0,0,0.1); color: #475569;"
+											onclick={() => openAssignModal(patient)}
+										>
+											<UserPlus class="w-2.5 h-2.5 mr-1" /> Assign Manually
+										</button>
+									</div>
 								</div>
 							</div>
 						{/each}
@@ -434,13 +511,14 @@
 										   border: 1px solid #86efac;">
 									<div class="px-3 py-2.5">
 										<div class="flex items-center gap-2">
-											<Avatar name={patient.name} size="sm" />
+											<PatientInsuranceAvatar name={patient.name} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 											<div class="min-w-0 flex-1">
 												<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
 												<p class="text-[10px] text-gray-400 truncate">
 													ID: {patient.patient_id}
 													{#if patient.age} · Age: {patient.age}{/if}
 												</p>
+												<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 												{#if patient.clinic_name}
 													<p class="text-[9px] font-medium" style="color: #2563eb;">{patient.clinic_name}</p>
 												{/if}
@@ -584,10 +662,11 @@
 					<div class="rounded-xl overflow-hidden"
 						style="border: 1.5px solid #bfdbfe; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);">
 						<div class="px-4 py-3 flex items-center gap-3">
-							<Avatar name={searchedPatient.name} size="sm" />
+							<PatientInsuranceAvatar name={searchedPatient.name} size="sm" insurancePolicies={searchedPatient.insurance_policies} patientCategory={searchedPatient.category} patientCategoryColorPrimary={searchedPatient.category_color_primary} patientCategoryColorSecondary={searchedPatient.category_color_secondary} />
 							<div class="flex-1 min-w-0">
 								<p class="text-sm font-bold text-gray-900 truncate">{searchedPatient.name}</p>
 								<p class="text-[11px] text-gray-500 truncate">{searchedPatient.patient_id}</p>
+								<InsuranceTypeBadges insurancePolicies={searchedPatient.insurance_policies} compact maxVisible={2} />
 								{#if searchedPatient.clinic_name}
 									<p class="text-[11px] font-semibold mt-0.5" style="color: #2563eb;">
 										<Building class="w-2.5 h-2.5 inline mr-0.5" />{searchedPatient.clinic_name}
@@ -665,12 +744,13 @@
 						   border: 1px solid rgba(0,0,0,0.07);">
 					<div class="px-3 py-2.5">
 						<div class="flex items-center gap-2 mb-1">
-							<Avatar name={patient.patient_name} size="sm" />
+							<PatientInsuranceAvatar name={patient.patient_name} src={patient.photo} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 							<div class="min-w-0 flex-1">
 								<p class="text-xs font-semibold text-gray-900 truncate">{patient.patient_name}</p>
 								<p class="text-[10px] text-gray-400 truncate">
 									ID: {patient.patient_id} · {patient.appointment_time}
 								</p>
+								<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 							</div>
 							<span class="px-2 py-0.5 text-[10px] font-bold rounded-full shrink-0"
 								style="background: {patient.status === 'Completed' ? 'rgba(34,197,94,0.1)' : patient.status === 'In Progress' ? 'rgba(59,130,246,0.1)' : 'rgba(251,191,36,0.1)'};
@@ -777,6 +857,65 @@
 						<Loader2 class="w-3 h-3 inline mr-1 animate-spin" /> Reassigning…
 					{:else}
 						Confirm Reassignment
+					{/if}
+				</button>
+			{/if}
+		</div>
+	</AquaModal>
+{/if}
+
+{#if showAssignModal && assignTarget}
+	<AquaModal title="Assign Patient" onclose={() => { showAssignModal = false; assignTarget = null; }}>
+		<div class="space-y-3 px-1">
+			<div>
+				<p class="text-xs font-semibold text-gray-800">{assignTarget.name}</p>
+				<p class="text-[10px] text-gray-500">{assignTarget.patient_id}</p>
+			</div>
+
+			<div>
+				<p class="text-[10px] font-medium text-gray-600 mb-1">Clinic</p>
+				<select
+					bind:value={assignClinicId}
+					onchange={(event) => loadAssignStudentsForClinic((event.currentTarget as HTMLSelectElement).value)}
+					class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white"
+					style="box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);"
+				>
+					{#each clinics as clinic}
+						<option value={clinic.id}>{clinic.name}</option>
+					{/each}
+				</select>
+			</div>
+
+			{#if loadingAssignStudents}
+				<div class="flex items-center justify-center py-4">
+					<div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+				</div>
+			{:else if assignStudents.length === 0}
+				<p class="text-xs text-red-500 text-center py-2">No students are currently checked in to the selected clinic.</p>
+			{:else}
+				<div>
+					<p class="text-[10px] font-medium text-gray-600 mb-1">Student</p>
+					<select
+						bind:value={assignStudentId}
+						class="w-full text-xs px-3 py-2 rounded-lg border border-gray-200 bg-white"
+						style="box-shadow: inset 0 1px 2px rgba(0,0,0,0.06);"
+					>
+						{#each assignStudents as student}
+							<option value={student.id}>{student.name} ({student.assigned_patient_count} patients)</option>
+						{/each}
+					</select>
+				</div>
+				<button
+					disabled={isAssigning || !assignStudentId}
+					onclick={handleAssignPatient}
+					class="w-full py-2 rounded-lg text-xs font-semibold text-white cursor-pointer disabled:opacity-60"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb);
+						   box-shadow: 0 1px 3px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.25);"
+				>
+					{#if isAssigning}
+						<Loader2 class="w-3 h-3 inline mr-1 animate-spin" /> Assigning…
+					{:else}
+						Confirm Assignment
 					{/if}
 				</button>
 			{/if}

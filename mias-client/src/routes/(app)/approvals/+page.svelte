@@ -8,6 +8,8 @@
     import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
     import AquaCard from '$lib/components/ui/AquaCard.svelte';
     import Avatar from '$lib/components/ui/Avatar.svelte';
+    import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+    import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
     import {
         CheckCircle, XCircle, Clock, ClipboardList, AlertTriangle,
         FileText, Eye, Calendar, Stethoscope, ChevronLeft, X,
@@ -244,16 +246,20 @@
                             <div class="flex items-start justify-between gap-4">
                                 <div class="flex min-w-0 items-start gap-4">
                                     <div class="shrink-0">
-                                        {#if approval.patient?.photo}
-                                            <img src={approval.patient.photo} alt={approval.patient?.name || 'Patient'}
-                                                class="h-16 w-16 rounded-full object-cover border-2 border-white shadow-md" />
-                                        {:else}
-                                            <Avatar name={approval.patient?.name || 'Patient'} size="lg" />
-                                        {/if}
+                                        <PatientInsuranceAvatar
+                                            name={approval.patient?.name || 'Patient'}
+                                            src={approval.patient?.photo || null}
+                                            size="lg"
+                                            insurancePolicies={approval.patient?.insurance_policies}
+                                            patientCategory={approval.patient?.category}
+                                            patientCategoryColorPrimary={approval.patient?.category_color_primary}
+                                            patientCategoryColorSecondary={approval.patient?.category_color_secondary}
+                                        />
                                     </div>
                                     <div class="min-w-0">
                                         <h3 class="text-2xl font-bold text-slate-900">{approval.patient?.name || 'Unknown Patient'}</h3>
                                         <p class="mt-1 text-sm font-semibold text-slate-400">{approval.patient?.patient_id || 'N/A'}</p>
+                                        <InsuranceTypeBadges insurancePolicies={approval.patient?.insurance_policies} compact maxVisible={2} />
                                         <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                                             <span>{approval.patient?.age || '—'}{approval.patient?.age ? ' yrs' : ''}</span>
                                             <span>{approval.patient?.gender || '—'}</span>
@@ -521,16 +527,20 @@
                 <!-- Patient Header -->
                 <div class="flex items-start gap-3">
                     <div class="relative shrink-0">
-                        {#if approval.patient?.photo}
-                            <img src={approval.patient.photo} alt={approval.patient?.name || 'Patient'}
-                                class="w-16 h-16 rounded-full object-cover border-2 border-white shadow" />
-                        {:else}
-                            <Avatar name={approval.patient?.name || 'Patient'} size="lg" />
-                        {/if}
+                        <PatientInsuranceAvatar
+                            name={approval.patient?.name || 'Patient'}
+                            src={approval.patient?.photo || null}
+                            size="lg"
+                            insurancePolicies={approval.patient?.insurance_policies}
+                            patientCategory={approval.patient?.category}
+                            patientCategoryColorPrimary={approval.patient?.category_color_primary}
+                            patientCategoryColorSecondary={approval.patient?.category_color_secondary}
+                        />
                     </div>
                     <div class="flex-1">
                         <h3 class="text-lg font-bold text-gray-800">{approval.patient?.name || 'Unknown'}</h3>
                         <p class="text-xs text-gray-500">ID: {approval.patient?.patient_id || 'N/A'}</p>
+                        <InsuranceTypeBadges insurancePolicies={approval.patient?.insurance_policies} compact maxVisible={2} />
                         <div class="flex flex-wrap gap-1.5 mt-2">
                             <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full"
                                 style="background: rgba(59, 130, 246, 0.1); color: #2563eb;">

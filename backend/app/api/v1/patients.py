@@ -1788,10 +1788,15 @@ async def add_insurance_policy(
     policy = InsurancePolicy(
         id=str(uuid.uuid4()),
         patient_id=patient_id,
+        insurance_category_id=data.get("insurance_category_id"),
         provider=data["provider"],
         policy_number=data["policy_number"],
         valid_until=valid_until,
         coverage_type=data.get("coverage_type"),
+        icon_key=data.get("icon_key"),
+        custom_badge_symbol=data.get("custom_badge_symbol"),
+        color_primary=data.get("color_primary"),
+        color_secondary=data.get("color_secondary"),
     )
     db.add(policy)
     await db.commit()
@@ -1801,6 +1806,11 @@ async def add_insurance_policy(
         "policy_number": policy.policy_number,
         "valid_until": policy.valid_until.isoformat() if policy.valid_until else None,
         "coverage_type": policy.coverage_type,
+        "insurance_category_id": policy.insurance_category_id,
+        "icon_key": policy.icon_key,
+        "custom_badge_symbol": policy.custom_badge_symbol,
+        "color_primary": policy.color_primary,
+        "color_secondary": policy.color_secondary,
     }
 
 

@@ -12,6 +12,8 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import {
 		Building, MapPin, ChevronRight, Users,
 		Clock, RefreshCw, User, ArrowRight, Calendar,
@@ -561,10 +563,11 @@
 						{#each clinicPatients as cp}
 							{@const sc = statusColor(cp.status)}
 							<div class="flex items-center gap-3 p-3 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
-								<Avatar name={cp.patient_name || 'Patient'} size="md" />
+								<PatientInsuranceAvatar name={cp.patient_name || 'Patient'} src={cp.photo} size="md" insurancePolicies={cp.insurance_policies} patientCategory={cp.category} patientCategoryColorPrimary={cp.category_color_primary} patientCategoryColorSecondary={cp.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<p class="text-sm font-semibold text-gray-800 truncate">{cp.patient_name}</p>
 									<p class="text-xs text-gray-500">{cp.patient_id}</p>
+									<InsuranceTypeBadges insurancePolicies={cp.insurance_policies} compact maxVisible={2} />
 									<div class="flex items-center gap-3 mt-1 text-xs text-gray-500">
 										<span class="flex items-center gap-1"><Clock class="w-3 h-3" /> {cp.appointment_time}</span>
 										<span class="flex items-center gap-1"><User class="w-3 h-3" /> {cp.assigned_student_name || cp.provider_name}</span>

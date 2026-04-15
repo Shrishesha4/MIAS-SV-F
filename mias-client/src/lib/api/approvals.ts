@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface ApprovalItem {
   id: string;
@@ -17,6 +18,10 @@ export interface ApprovalItem {
     gender: string;
     blood_group: string;
     photo?: string;
+    category?: string | null;
+    category_color_primary?: string | null;
+    category_color_secondary?: string | null;
+    insurance_policies?: InsurancePolicy[];
     allergies?: { allergen: string; severity: string }[];
     primary_diagnosis?: string;
     medical_alerts?: {

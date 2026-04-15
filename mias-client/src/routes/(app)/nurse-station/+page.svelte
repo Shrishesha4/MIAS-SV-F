@@ -7,6 +7,8 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { ChevronRight, ChevronDown, Stethoscope, ClipboardList, FileText } from 'lucide-svelte';
 
@@ -186,7 +188,7 @@
 					{#each newlyRegisteredPatients as patient (patient.id)}
 						<div class="px-4 py-3 hover:bg-gray-50 transition-colors">
 							<div class="flex items-start gap-3">
-								<Avatar name={patient.name} size="md" />
+								<PatientInsuranceAvatar name={patient.name} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<div class="flex items-center gap-2 flex-wrap">
 										<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>
@@ -197,6 +199,7 @@
 									<p class="text-xs text-gray-600">
 										{formatAge(patient.age)} • {formatGender(patient.gender)}
 									</p>
+									<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 									<p class="text-xs text-gray-500 mt-1">
 										{patient.patient_id} • {patient.phone || 'No phone'} • Registered {formatRegisteredAt(patient.registered_at)}
 									</p>
@@ -233,7 +236,7 @@
 								onclick={() => togglePatient(patient)}
 							>
 								<div class="flex items-center gap-3">
-									<Avatar name={patient.name} size="md" />
+									<PatientInsuranceAvatar name={patient.name} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-2">
 											<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>
@@ -250,6 +253,7 @@
 										<p class="text-xs text-gray-600">
 											{formatAge(patient.age)} • {formatGender(patient.gender)} • {patient.pending_tasks} pending
 										</p>
+										<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 									</div>
 									<div class="flex items-center gap-2">
 										{#if patient.pending_tasks > 0}

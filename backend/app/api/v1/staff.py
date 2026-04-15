@@ -14,6 +14,7 @@ from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
 from app.models.student import Clinic, ClinicAppointment, ClinicSession, Student, StudentPatientAssignment, StudentNotification
 from app.models.nurse import Nurse
+from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
 
@@ -100,6 +101,7 @@ async def get_pending_patients(
     
     result = await db.execute(
         select(Patient)
+        .options(selectinload(Patient.insurance_policies))
         .where(Patient.created_at >= recent_cutoff)
         .order_by(Patient.created_at.desc())
         .limit(limit)
@@ -173,6 +175,8 @@ async def get_pending_patients(
             "has_admission": has_admission,
             "clinic_id": patient.clinic_id,
             "clinic_name": clinic_name_map.get(patient.clinic_id) if patient.clinic_id else None,
+            **serialize_patient_badge_context(patient),
+            "insurance_policies": serialize_patient_insurance(patient),
         })
     
     return pending_list
@@ -281,6 +285,7 @@ async def assign_patient_to_student(
         )
         if not active_session_result.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Student is not currently checked in to this clinic")
+        patient.clinic_id = data.clinic_id
 
     assignment = StudentPatientAssignment(
         id=str(uuid.uuid4()),
@@ -381,6 +386,7 @@ async def assign_patient_to_clinic(
         provider_name=provider_name,
         status="Scheduled",
     )
+    patient.clinic_id = clinic.id
 
     appointment = Appointment(
         id=str(uuid.uuid4()),
@@ -569,6 +575,7 @@ async def auto_assign_patient_to_student(
     # Sort by count (ascending) to find student with fewest patients
     student_counts.sort(key=lambda x: x[2])
     selected_student_id, selected_student, assignment_count = student_counts[0]
+    patient.clinic_id = data.clinic_id
     
     # Create the assignment
     assignment = StudentPatientAssignment(

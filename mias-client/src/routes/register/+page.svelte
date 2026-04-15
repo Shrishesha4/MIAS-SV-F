@@ -9,7 +9,7 @@
 		Phone, ShieldCheck, Fingerprint, BadgeCheck,
 		User, Building2, Heart, CreditCard, CircleCheck,
 		ArrowLeft, ArrowRight, HeartPulse, Eye, EyeOff,
-		CheckCircle2, ChevronRight
+		CheckCircle2, ChevronRight, Landmark, Briefcase, Wallet, CircleOff
 	} from 'lucide-svelte';
 
 	// ─── Step control ──────────────────────────────────────
@@ -51,9 +51,19 @@
 	let insuranceOptions = $state<PublicInsuranceCategory[]>([]);
 	let selectedInsuranceId = $state('');
 	let insuranceLoading = $state(true);
+	const insuranceIcons = {
+		shield: ShieldCheck,
+		landmark: Landmark,
+		briefcase: Briefcase,
+		building: Building2,
+		wallet: Wallet,
+		heart: HeartPulse,
+		off: CircleOff,
+	} as const;
+	const selectedInsurance = $derived.by(() => insuranceOptions.find((option) => option.id === selectedInsuranceId) || null);
 
 	// Step 7 – patient category (fetched from API, conditional)
-	let patientCategoryOptions = $state<{ id: string; name: string; description: string | null; registration_fee: number }[]>([]);
+	let patientCategoryOptions = $state<{ id: string; name: string; description: string | null; color_primary: string; color_secondary: string; registration_fee: number }[]>([]);
 	let selectedPatientCategoryId = $state('');
 	let patientCategoryLoading = $state(true);
 	let showPatientCategoryStep = $derived.by(() => {
@@ -102,9 +112,9 @@
 			console.error('Failed to load insurance categories:', e);
 			// Fallback to static options
 			insuranceOptions = [
-				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, patient_categories: [] },
-				{ id: 'PRIVATE', name: 'Private Insurance', description: null, patient_categories: [] },
-				{ id: 'SELF_PAY', name: 'Self Pay', description: null, patient_categories: [] },
+				{ id: 'CM_SCHEME', name: 'CM Scheme', description: null, icon_key: 'landmark', custom_badge_symbol: null, color_primary: '#34D399', color_secondary: '#0F766E', patient_categories: [] },
+				{ id: 'PRIVATE', name: 'Private Insurance', description: null, icon_key: 'shield', custom_badge_symbol: null, color_primary: '#60A5FA', color_secondary: '#1D4ED8', patient_categories: [] },
+				{ id: 'SELF_PAY', name: 'Self Pay', description: null, icon_key: 'wallet', custom_badge_symbol: null, color_primary: '#FB7185', color_secondary: '#E11D48', patient_categories: [] },
 			];
 			selectedInsuranceId = 'SELF_PAY';
 		} finally {
@@ -131,6 +141,8 @@
 						id: pc.id,
 						name: pc.name,
 						description: pc.description,
+						color_primary: feeInfo?.color_primary || pc.color_primary || '#60A5FA',
+						color_secondary: feeInfo?.color_secondary || pc.color_secondary || '#1D4ED8',
 						registration_fee: feeInfo?.registration_fee || 100
 					};
 				});
@@ -149,10 +161,10 @@
 		} catch (e) {
 			console.error('Failed to load patient categories:', e);
 			patientCategoryOptions = [
-				{ id: 'CLASSIC', name: 'Classic', description: 'Standard hospital pricing', registration_fee: 100 },
-				{ id: 'PRIME', name: 'Prime', description: 'Priority services', registration_fee: 200 },
-				{ id: 'ELITE', name: 'Elite', description: 'Premium services', registration_fee: 500 },
-				{ id: 'COMMUNITY', name: 'Community', description: 'Subsidized services', registration_fee: 50 },
+				{ id: 'CLASSIC', name: 'Classic', description: 'Standard hospital pricing', color_primary: '#60A5FA', color_secondary: '#1D4ED8', registration_fee: 100 },
+				{ id: 'PRIME', name: 'Prime', description: 'Priority services', color_primary: '#A78BFA', color_secondary: '#6D28D9', registration_fee: 200 },
+				{ id: 'ELITE', name: 'Elite', description: 'Premium services', color_primary: '#FBBF24', color_secondary: '#D97706', registration_fee: 500 },
+				{ id: 'COMMUNITY', name: 'Community', description: 'Subsidized services', color_primary: '#34D399', color_secondary: '#047857', registration_fee: 50 },
 			];
 			selectedPatientCategoryId = 'CLASSIC';
 		} finally {
@@ -211,7 +223,6 @@
 	// Step 8 – result
 	let createdPatientId = $state('');
 	let createdUserId = $state('');
-	let allocatedClinic = $state<{ name: string; location: string } | null>(null);
 
 	// ─── Navigation helpers ────────────────────────────────
 	function next() {
@@ -318,6 +329,7 @@
 					address: patAddress.trim(),
 					abha_id: mockAbha,
 					category: patientCategory,
+					patient_category_id: selectedPatientCategoryId,
 					insurance_category_id: selectedInsuranceId,
 				}
 			};
@@ -327,29 +339,12 @@
 			createdPatientId = `SMC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 			paymentDone = true;
 
-			// Set allocated clinic from registration response
-			if (result.clinic_name) {
-				allocatedClinic = {
-					name: result.clinic_name,
-					location: 'Main Building'
-				};
-			}
 
 			// Auto-login after registration
 			const loginResult = await authApi.login(username, patPassword);
 			authStore.setTokens(loginResult.access_token, loginResult.refresh_token, loginResult.user_id, loginResult.role);
 
 			// Persist clinic allocation notice for dashboard fullscreen prompt
-			if (result.clinic_name) {
-				const matchedClinic = eligibleClinics.find((c) => c.clinic_name === result.clinic_name) || availableClinics.find((c) => c.clinic_name === result.clinic_name);
-				sessionStorage.setItem(
-					'allocatedClinicNotice',
-					JSON.stringify({
-						name: result.clinic_name,
-						location: matchedClinic?.location || 'Main Building'
-					})
-				);
-			}
 
 			step = 9; // show completion screen
 		} catch (err: any) {
@@ -771,20 +766,44 @@
 				{:else}
 					<div class="flex flex-col gap-3">
 						{#each insuranceOptions as opt}
+							{@const InsuranceIcon = insuranceIcons[opt.icon_key]}
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class="flex items-center justify-between px-4 py-3.5 rounded-xl cursor-pointer transition-all"
-								style="border: 2px solid {selectedInsuranceId === opt.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
-									   background: {selectedInsuranceId === opt.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
+								style={`border: 2px solid ${selectedInsuranceId === opt.id ? opt.color_secondary : 'rgba(0,0,0,0.1)'};
+									background: ${selectedInsuranceId === opt.id ? `linear-gradient(135deg, ${opt.color_primary}18, ${opt.color_secondary}22)` : 'white'};
+									box-shadow: ${selectedInsuranceId === opt.id ? `0 10px 20px ${opt.color_secondary}22` : 'none'};`}
 								onclick={() => selectedInsuranceId = opt.id}
 							>
-								<span class="text-sm font-semibold {selectedInsuranceId === opt.id ? 'text-blue-700' : 'text-gray-600'}">{opt.name}</span>
+								<div class="flex items-center gap-3 min-w-0">
+									<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
+										style={`background: linear-gradient(135deg, ${opt.color_primary}, ${opt.color_secondary}); box-shadow: 0 8px 16px ${opt.color_secondary}22;`}>
+										{#if opt.custom_badge_symbol}
+											<span class="text-xs font-black leading-none tracking-tight">{opt.custom_badge_symbol}</span>
+										{:else}
+											<InsuranceIcon class="w-4 h-4" />
+										{/if}
+									</div>
+									<div class="min-w-0">
+										<span class="block text-sm font-semibold {selectedInsuranceId === opt.id ? 'text-slate-900' : 'text-gray-600'}">{opt.name}</span>
+										{#if opt.description}
+											<p class="mt-0.5 text-xs text-slate-500">{opt.description}</p>
+										{/if}
+									</div>
+								</div>
 								{#if selectedInsuranceId === opt.id}
-									<CheckCircle2 class="w-5 h-5 text-blue-600" />
+									<CheckCircle2 class="w-5 h-5 shrink-0" style={`color: ${opt.color_secondary};`} />
 								{/if}
 							</div>
 						{/each}
+					</div>
+				{/if}
+
+				{#if selectedInsurance}
+					<div class="rounded-2xl px-4 py-3 text-sm text-slate-600"
+						style={`background: linear-gradient(135deg, ${selectedInsurance.color_primary}14, ${selectedInsurance.color_secondary}1F); border: 1px solid ${selectedInsurance.color_primary}44;`}>
+						This insurance selection sets the badge symbol shown on the patient avatar. Patient type controls the glow color in the next step.
 					</div>
 				{/if}
 
@@ -820,22 +839,26 @@
 							<!-- svelte-ignore a11y_no_static_element_interactions -->
 							<div
 								class="flex items-center justify-between px-4 py-3.5 rounded-xl cursor-pointer transition-all"
-								style="border: 2px solid {selectedPatientCategoryId === opt.id ? '#4d90fe' : 'rgba(0,0,0,0.1)'};
-									   background: {selectedPatientCategoryId === opt.id ? 'linear-gradient(to right, #eef4ff, #e0eaff)' : 'white'};"
+								style={`border: 2px solid ${selectedPatientCategoryId === opt.id ? opt.color_secondary : 'rgba(0,0,0,0.1)'};
+									   background: ${selectedPatientCategoryId === opt.id ? `linear-gradient(135deg, ${opt.color_primary}14, ${opt.color_secondary}1E)` : 'white'};
+									   box-shadow: ${selectedPatientCategoryId === opt.id ? `0 10px 20px ${opt.color_secondary}20` : 'none'};`}
 								onclick={() => selectedPatientCategoryId = opt.id}
 							>
-								<div class="flex-1">
+								<div class="flex items-center gap-3 flex-1">
+									<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white"
+										style={`background: linear-gradient(135deg, ${opt.color_primary}, ${opt.color_secondary}); box-shadow: 0 8px 16px ${opt.color_secondary}22;`}>
+										<Building2 class="w-4 h-4" />
+									</div>
+									<div class="flex-1">
 									<span class="text-sm font-semibold {selectedPatientCategoryId === opt.id ? 'text-blue-700' : 'text-gray-600'}">{opt.name}</span>
 									{#if opt.description}
 										<p class="text-xs text-gray-500 mt-0.5">{opt.description}</p>
 									{/if}
+									</div>
 								</div>
-								<!-- <div class="text-right">
-									<span class="text-sm font-bold {selectedPatientCategoryId === opt.id ? 'text-blue-700' : 'text-gray-800'}">₹{opt.registration_fee}</span>
-									{#if selectedPatientCategoryId === opt.id}
-										<CheckCircle2 class="w-5 h-5 text-blue-600 mt-1 ml-2" />
-									{/if}
-								</div> -->
+								{#if selectedPatientCategoryId === opt.id}
+									<CheckCircle2 class="w-5 h-5 shrink-0" style={`color: ${opt.color_secondary};`} />
+								{/if}
 							</div>
 						{/each}
 					</div>

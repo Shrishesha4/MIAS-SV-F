@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface Nurse {
   id: string;
@@ -28,6 +29,10 @@ export interface WardPatient {
   primary_diagnosis: string | null;
   pending_tasks: number;
   admission_status: string;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface NewlyRegisteredPatient {
@@ -40,6 +45,10 @@ export interface NewlyRegisteredPatient {
   registered_at: string;
   has_appointment: boolean;
   has_admission: boolean;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface NurseClinic {

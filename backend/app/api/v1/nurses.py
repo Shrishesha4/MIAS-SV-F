@@ -16,6 +16,7 @@ from app.models.patient import Patient, Appointment
 from app.models.admission import Admission
 from app.models.student import ClinicAppointment, Clinic
 from app.schemas.nurse import NurseResponse, NurseUpdate, NurseStationSelect, SBARNoteCreate
+from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 
 router = APIRouter(prefix="/nurses", tags=["Nurses"])
@@ -170,7 +171,7 @@ async def get_ward_patients(
     # All nurses can see all currently admitted ward patients.
     result = await db.execute(
         select(Admission)
-        .options(selectinload(Admission.patient))
+        .options(selectinload(Admission.patient).selectinload(Patient.insurance_policies))
         .where(Admission.status == "Active")
         .order_by(Admission.admission_date.desc())
     )
@@ -199,11 +200,14 @@ async def get_ward_patients(
                 "primary_diagnosis": admission.diagnosis,
                 "pending_tasks": pending_count,
                 "admission_status": admission.status,
+                **serialize_patient_badge_context(patient),
+                "insurance_policies": serialize_patient_insurance(patient),
             })
 
     recent_cutoff = datetime.utcnow() - timedelta(days=7)
     recent_patients_result = await db.execute(
         select(Patient)
+        .options(selectinload(Patient.insurance_policies))
         .where(Patient.created_at >= recent_cutoff)
         .order_by(Patient.created_at.desc())
         .limit(50)
@@ -239,6 +243,8 @@ async def get_ward_patients(
             "registered_at": patient.created_at.isoformat(),
             "has_appointment": has_appointment,
             "has_admission": has_admission,
+            **serialize_patient_badge_context(patient),
+            "insurance_policies": serialize_patient_insurance(patient),
         })
 
     return {

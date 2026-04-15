@@ -10,6 +10,8 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import {
 		ArrowLeft, Activity, Droplet, Wind, Thermometer, Scale, HeartPulse,
 		Plus, Trash2, Edit, ChevronDown, ChevronUp, Monitor, Cpu, X, Wifi,
@@ -438,10 +440,11 @@
 		style="background: rgba(255,255,255,0.1);">
 		<ArrowLeft class="w-4 h-4 text-white" />
 	</button>
-	<Avatar name={patient.name} size="sm" />
+	<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 	<div class="flex-1 min-w-0">
 		<p class="text-sm font-bold text-white truncate">{patient.name}</p>
 		<p class="text-[10px] text-blue-200">{patient.patient_id} · {admission.department} · Bed {admission.bed_number || '—'}</p>
+		<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 	</div>
 	<div class="flex flex-col items-end">
 		<span class="text-[9px] font-bold px-2 py-0.5 rounded-full"

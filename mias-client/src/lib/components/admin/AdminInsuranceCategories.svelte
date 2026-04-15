@@ -8,7 +8,7 @@
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
-	import { Loader2, PencilLine, Plus, ShieldCheck, Star, Trash2 } from 'lucide-svelte';
+	import { Briefcase, Building2, CircleOff, HeartPulse, Landmark, Loader2, PencilLine, Plus, ShieldCheck, Trash2, Wallet } from 'lucide-svelte';
 
 	const auth = get(authStore);
 
@@ -23,10 +23,35 @@
 	// Form state
 	let formName = $state('');
 	let formDescription = $state('');
+	let formIconKey = $state<InsuranceCategory['icon_key']>('shield');
+	let formCustomBadgeSymbol = $state('');
+	let formColorPrimary = $state('#60A5FA');
+	let formColorSecondary = $state('#1D4ED8');
 	let formIsActive = $state(true);
 	let formSortOrder = $state(0);
 	let formPatientCategoryIds = $state<string[]>([]);
 	let editingId = $state<string | null>(null);
+
+	const insuranceIcons = {
+		shield: ShieldCheck,
+		landmark: Landmark,
+		briefcase: Briefcase,
+		building: Building2,
+		wallet: Wallet,
+		heart: HeartPulse,
+		off: CircleOff,
+	} as const;
+
+	const iconOptions: Array<{ value: InsuranceCategory['icon_key']; label: string }> = [
+		{ value: 'shield', label: 'Shield' },
+		{ value: 'landmark', label: 'Government' },
+		{ value: 'briefcase', label: 'Corporate' },
+		{ value: 'building', label: 'Institution' },
+		{ value: 'wallet', label: 'Self pay' },
+		{ value: 'heart', label: 'Health plan' },
+		{ value: 'off', label: 'Uninsured' },
+	];
+	const PreviewIcon = $derived(insuranceIcons[formIconKey]);
 
 	// Derived values
 	const activeCategoryCount = $derived.by(() => categories.filter((item) => item.is_active).length);
@@ -59,6 +84,10 @@
 		editingId = null;
 		formName = '';
 		formDescription = '';
+		formIconKey = 'shield';
+		formCustomBadgeSymbol = '';
+		formColorPrimary = '#60A5FA';
+		formColorSecondary = '#1D4ED8';
 		formIsActive = true;
 		formSortOrder = categories.length;
 		formPatientCategoryIds = [];
@@ -69,6 +98,10 @@
 		editingId = category.id;
 		formName = category.name;
 		formDescription = category.description || '';
+		formIconKey = category.icon_key;
+		formCustomBadgeSymbol = category.custom_badge_symbol || '';
+		formColorPrimary = category.color_primary;
+		formColorSecondary = category.color_secondary;
 		formIsActive = category.is_active;
 		formSortOrder = category.sort_order;
 		formPatientCategoryIds = category.patient_categories.map(pc => pc.id);
@@ -92,6 +125,10 @@
 				await insuranceCategoriesApi.updateCategory(editingId, {
 					name: formName,
 					description: formDescription,
+					icon_key: formIconKey,
+					custom_badge_symbol: formCustomBadgeSymbol.trim() || null,
+					color_primary: formColorPrimary,
+					color_secondary: formColorSecondary,
 					is_active: formIsActive,
 					sort_order: formSortOrder,
 					patient_category_ids: formPatientCategoryIds,
@@ -101,6 +138,10 @@
 				await insuranceCategoriesApi.createCategory({
 					name: formName,
 					description: formDescription,
+					icon_key: formIconKey,
+					custom_badge_symbol: formCustomBadgeSymbol.trim() || null,
+					color_primary: formColorPrimary,
+					color_secondary: formColorSecondary,
 					is_active: formIsActive,
 					sort_order: formSortOrder,
 					patient_category_ids: formPatientCategoryIds,
@@ -151,6 +192,10 @@
 
 	<div class="rounded-[24px] border border-slate-200 p-4"
 		style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 14px 30px rgba(15,23,42,0.06);">
+		<div class="mb-4 rounded-[18px] border border-sky-200/80 px-4 py-3 text-sm text-slate-600"
+			style="background: linear-gradient(135deg, rgba(239,246,255,0.95), rgba(224,242,254,0.92));">
+			Insurance settings control the badge symbol itself. Patient-type glow colors are configured separately in the Patients tab.
+		</div>
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<button
 				type="button"
@@ -172,6 +217,7 @@
 				<table class="min-w-full text-left text-sm">
 					<thead style="background: linear-gradient(to bottom, rgba(241,245,249,0.98), rgba(248,250,252,0.98));">
 						<tr class="text-slate-500">
+							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Preview</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Name</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Patient Categories</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Status</th>
@@ -180,7 +226,19 @@
 					</thead>
 					<tbody>
 						{#each categories as category (category.id)}
+							{@const CategoryIcon = insuranceIcons[category.icon_key]}
 							<tr class="border-t border-slate-200 align-top">
+								<td class="px-4 py-4">
+									<div class="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold"
+										style={`background: linear-gradient(135deg, ${category.color_primary}, ${category.color_secondary}); color: white; box-shadow: 0 10px 20px rgba(15,23,42,0.12);`}>
+										{#if category.custom_badge_symbol}
+											<span class="text-[10px] font-black leading-none tracking-tight">{category.custom_badge_symbol}</span>
+										{:else}
+											<CategoryIcon class="h-3.5 w-3.5" />
+										{/if}
+										<span>Live</span>
+									</div>
+								</td>
 								<td class="px-4 py-4">
 									<div class="flex items-center gap-2">
 										<p class="font-semibold text-slate-900">{category.name}</p>
@@ -233,6 +291,23 @@
 {#if editorOpen}
 	<AquaModal title={editingId ? 'Edit Insurance Category' : 'Add Insurance Category'} onclose={closeEditor} panelClass="sm:max-w-[560px]">
 		<div class="space-y-4">
+			<div class="rounded-[18px] border border-slate-200 p-4"
+				style={`background: linear-gradient(135deg, ${formColorPrimary}, ${formColorSecondary}); box-shadow: 0 12px 24px rgba(15,23,42,0.08);`}>
+				<div class="flex items-center gap-3 text-white">
+					<div class="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/15">
+						{#if formCustomBadgeSymbol.trim()}
+							<span class="text-sm font-black leading-none tracking-tight">{formCustomBadgeSymbol.trim().slice(0, 3).toUpperCase()}</span>
+						{:else}
+							<PreviewIcon class="h-5 w-5" />
+						{/if}
+					</div>
+					<div>
+						<p class="text-xs font-semibold uppercase tracking-[0.18em] text-white/75">Insurance Badge Preview</p>
+						<p class="text-sm font-bold">{formName || 'Insurance category'}</p>
+					</div>
+				</div>
+			</div>
+
 			<div class="grid gap-4 md:grid-cols-2">
 				<div>
 					<label for="insurance-category-name" class="mb-1 block text-sm font-medium text-slate-700">Name *</label>
@@ -247,6 +322,30 @@
 			<div>
 				<label for="insurance-category-description" class="mb-1 block text-sm font-medium text-slate-700">Description</label>
 				<textarea id="insurance-category-description" rows="3" bind:value={formDescription} placeholder="Brief description of this insurance category" class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"></textarea>
+			</div>
+
+			<div class="grid gap-4 md:grid-cols-3">
+				<div>
+					<label for="insurance-category-icon" class="mb-1 block text-sm font-medium text-slate-700">Symbol</label>
+					<select id="insurance-category-icon" bind:value={formIconKey} class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+						{#each iconOptions as option}
+							<option value={option.value}>{option.label}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<label for="insurance-category-custom-symbol" class="mb-1 block text-sm font-medium text-slate-700">Custom Badge</label>
+					<input id="insurance-category-custom-symbol" type="text" bind:value={formCustomBadgeSymbol} maxlength="3" placeholder="e.g. TP" class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm uppercase focus:outline-none focus:ring-2 focus:ring-blue-300" />
+					<p class="mt-1 text-xs text-slate-500">Optional. If set, this overrides the icon in the patient badge.</p>
+				</div>
+				<div>
+					<label for="insurance-category-primary-color" class="mb-1 block text-sm font-medium text-slate-700">Primary Color</label>
+					<input id="insurance-category-primary-color" type="color" bind:value={formColorPrimary} class="h-12 w-full rounded-2xl border border-slate-200 px-2 py-2" />
+				</div>
+				<div>
+					<label for="insurance-category-secondary-color" class="mb-1 block text-sm font-medium text-slate-700">Secondary Color</label>
+					<input id="insurance-category-secondary-color" type="color" bind:value={formColorSecondary} class="h-12 w-full rounded-2xl border border-slate-200 px-2 py-2" />
+				</div>
 			</div>
 
 			<div>

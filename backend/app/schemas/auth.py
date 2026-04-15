@@ -42,6 +42,7 @@ class PatientDataCreate(BaseModel):
     aadhaar_id: Optional[str] = None
     abha_id: Optional[str] = None
     category: Optional[str] = None
+    patient_category_id: Optional[str] = None
     insurance_category_id: Optional[str] = None
     emergency_contact: Optional[EmergencyContactCreate] = None
 
@@ -74,5 +75,3 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     message: str
     user_id: str
-    clinic_id: Optional[str] = None
-    clinic_name: Optional[str] = None

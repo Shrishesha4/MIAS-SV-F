@@ -12,6 +12,7 @@ from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.admission import Admission
 from app.models.patient import Patient
+from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 router = APIRouter(prefix="/admissions", tags=["Admissions"])
 
@@ -37,11 +38,17 @@ async def list_all_admissions(
     patient_names = {}
     if patient_ids:
         pat_result = await db.execute(
-            select(Patient.id, Patient.name, Patient.patient_id)
+            select(Patient)
+            .options(selectinload(Patient.insurance_policies))
             .where(Patient.id.in_(patient_ids))
         )
-        for pid, pname, ppid in pat_result.all():
-            patient_names[pid] = {"name": pname, "patient_id": ppid}
+        for patient in pat_result.scalars().all():
+            patient_names[patient.id] = {
+                "name": patient.name,
+                "patient_id": patient.patient_id,
+                **serialize_patient_badge_context(patient),
+                "insurance_policies": serialize_patient_insurance(patient),
+            }
 
     return [
         {
@@ -49,6 +56,9 @@ async def list_all_admissions(
             "patient_id": a.patient_id,
             "patient_name": patient_names.get(a.patient_id, {}).get("name", "Unknown"),
             "patient_display_id": patient_names.get(a.patient_id, {}).get("patient_id", ""),
+            "category": patient_names.get(a.patient_id, {}).get("category"),
+            "category_color_primary": patient_names.get(a.patient_id, {}).get("category_color_primary"),
+            "category_color_secondary": patient_names.get(a.patient_id, {}).get("category_color_secondary"),
             "admission_date": a.admission_date.isoformat() if a.admission_date else None,
             "discharge_date": a.discharge_date.isoformat() if a.discharge_date else None,
             "department": a.department,
@@ -59,6 +69,7 @@ async def list_all_admissions(
             "diagnosis": a.diagnosis,
             "status": a.status,
             "notes": a.notes,
+            "insurance_policies": patient_names.get(a.patient_id, {}).get("insurance_policies", []),
             "program_duration_days": a.program_duration_days,
             "related_admission_id": a.related_admission_id,
             "transferred_from_department": a.transferred_from_department,

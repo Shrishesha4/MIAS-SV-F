@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface StudentForAssignment {
   id: string;
@@ -19,6 +20,10 @@ export interface UnassignedPatient {
   blood_group: string;
   photo: string;
   primary_diagnosis: string;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface PatientAssignment {

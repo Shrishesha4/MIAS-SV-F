@@ -11,7 +11,15 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.insurance_category import InsuranceCategory, InsuranceClinicConfig
+from app.models.insurance_category import (
+    DEFAULT_INSURANCE_COLOR_PRIMARY,
+    DEFAULT_INSURANCE_COLOR_SECONDARY,
+    DEFAULT_INSURANCE_ICON_KEY,
+    VALID_INSURANCE_ICON_KEYS,
+    InsuranceCategory,
+    InsuranceClinicConfig,
+)
+from app.models.patient import InsurancePolicy
 from app.models.patient_category import PatientCategoryOption
 from app.models.student import Clinic
 
@@ -88,6 +96,31 @@ def _uid() -> str:
     return str(uuid4())
 
 
+def _normalize_hex_color(value: Optional[str], default: str) -> str:
+    normalized = str(value or default).strip().upper()
+    if not normalized.startswith("#"):
+        normalized = f"#{normalized}"
+    if len(normalized) != 7 or any(ch not in "#0123456789ABCDEF" for ch in normalized):
+        raise HTTPException(status_code=400, detail=f"Invalid hex color: {value}")
+    return normalized
+
+
+def _normalize_icon_key(value: Optional[str]) -> str:
+    icon_key = str(value or DEFAULT_INSURANCE_ICON_KEY).strip().lower()
+    if icon_key not in VALID_INSURANCE_ICON_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unsupported insurance icon: {value}")
+    return icon_key
+
+
+def _normalize_custom_badge_symbol(value: Optional[str]) -> Optional[str]:
+    normalized = str(value or "").strip().upper()
+    if not normalized:
+        return None
+    if len(normalized) > 3:
+        raise HTTPException(status_code=400, detail="Custom badge symbol must be 1-3 characters")
+    return normalized
+
+
 # ── Pydantic Schemas ────────────────────────────────────────────────
 
 class WalkInTypeInfo(BaseModel):
@@ -115,6 +148,10 @@ class InsuranceCategoryResponse(BaseModel):
     id: str
     name: str
     description: Optional[str]
+    icon_key: str
+    custom_badge_symbol: Optional[str]
+    color_primary: str
+    color_secondary: str
     is_active: bool
     sort_order: int
     patient_categories: List[PatientCategoryResponse]
@@ -124,6 +161,10 @@ class InsuranceCategoryResponse(BaseModel):
 class InsuranceCategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    icon_key: Optional[str] = DEFAULT_INSURANCE_ICON_KEY
+    custom_badge_symbol: Optional[str] = None
+    color_primary: Optional[str] = DEFAULT_INSURANCE_COLOR_PRIMARY
+    color_secondary: Optional[str] = DEFAULT_INSURANCE_COLOR_SECONDARY
     is_active: bool = True
     sort_order: Optional[int] = None
     patient_category_ids: Optional[List[str]] = None
@@ -132,6 +173,10 @@ class InsuranceCategoryCreate(BaseModel):
 class InsuranceCategoryUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    icon_key: Optional[str] = None
+    custom_badge_symbol: Optional[str] = None
+    color_primary: Optional[str] = None
+    color_secondary: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
     patient_category_ids: Optional[List[str]] = None
@@ -232,6 +277,10 @@ async def list_insurance_categories(
             id=cat.id,
             name=cat.name,
             description=cat.description,
+            icon_key=cat.icon_key,
+            custom_badge_symbol=cat.custom_badge_symbol,
+            color_primary=cat.color_primary,
+            color_secondary=cat.color_secondary,
             is_active=cat.is_active,
             sort_order=cat.sort_order,
             patient_categories=patient_categories,
@@ -259,6 +308,10 @@ async def create_insurance_category(
         id=_uid(),
         name=data.name,
         description=data.description,
+        icon_key=_normalize_icon_key(data.icon_key),
+        custom_badge_symbol=_normalize_custom_badge_symbol(data.custom_badge_symbol),
+        color_primary=_normalize_hex_color(data.color_primary, DEFAULT_INSURANCE_COLOR_PRIMARY),
+        color_secondary=_normalize_hex_color(data.color_secondary, DEFAULT_INSURANCE_COLOR_SECONDARY),
         is_active=data.is_active,
         sort_order=data.sort_order or 0,
     )
@@ -293,6 +346,10 @@ async def create_insurance_category(
         "id": category.id,
         "name": category.name,
         "description": category.description,
+        "icon_key": category.icon_key,
+        "custom_badge_symbol": category.custom_badge_symbol,
+        "color_primary": category.color_primary,
+        "color_secondary": category.color_secondary,
         "is_active": category.is_active,
         "sort_order": category.sort_order,
         "patient_category_ids": assigned_patient_category_ids,
@@ -329,6 +386,14 @@ async def update_insurance_category(
     
     if data.description is not None:
         category.description = data.description
+    if data.icon_key is not None:
+        category.icon_key = _normalize_icon_key(data.icon_key)
+    if data.custom_badge_symbol is not None:
+        category.custom_badge_symbol = _normalize_custom_badge_symbol(data.custom_badge_symbol)
+    if data.color_primary is not None:
+        category.color_primary = _normalize_hex_color(data.color_primary, DEFAULT_INSURANCE_COLOR_PRIMARY)
+    if data.color_secondary is not None:
+        category.color_secondary = _normalize_hex_color(data.color_secondary, DEFAULT_INSURANCE_COLOR_SECONDARY)
     if data.is_active is not None:
         category.is_active = data.is_active
     if data.sort_order is not None:
@@ -350,6 +415,19 @@ async def update_insurance_category(
             if pc:
                 category.patient_categories.append(pc)
                 patient_category_ids.append(pc.id)
+
+    await db.execute(
+        update(InsurancePolicy)
+        .where(InsurancePolicy.insurance_category_id == category_id)
+        .values(
+            provider=category.name,
+            coverage_type=category.name,
+            icon_key=category.icon_key,
+            custom_badge_symbol=category.custom_badge_symbol,
+            color_primary=category.color_primary,
+            color_secondary=category.color_secondary,
+        )
+    )
     
     await db.commit()
     
@@ -357,6 +435,10 @@ async def update_insurance_category(
         "id": category.id,
         "name": category.name,
         "description": category.description,
+        "icon_key": category.icon_key,
+        "custom_badge_symbol": category.custom_badge_symbol,
+        "color_primary": category.color_primary,
+        "color_secondary": category.color_secondary,
         "is_active": category.is_active,
         "sort_order": category.sort_order,
         "patient_category_ids": patient_category_ids,
@@ -456,6 +538,10 @@ async def list_public_insurance_categories(
             "id": cat.id,
             "name": cat.name,
             "description": cat.description,
+            "icon_key": cat.icon_key,
+            "custom_badge_symbol": cat.custom_badge_symbol,
+            "color_primary": cat.color_primary,
+            "color_secondary": cat.color_secondary,
             "patient_categories": [
                 {
                     "id": pc.id,

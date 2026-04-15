@@ -23,6 +23,7 @@ from app.models.prescription import Prescription, PrescriptionMedication, Prescr
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
+from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -278,7 +279,7 @@ async def get_clinic_patients_static(
 
     result = await db.execute(
         select(ClinicAppointment)
-        .options(selectinload(ClinicAppointment.patient))
+        .options(selectinload(ClinicAppointment.patient).selectinload(Patient.insurance_policies))
         .where(
             and_(
                 ClinicAppointment.clinic_id == clinic_id,
@@ -296,9 +297,12 @@ async def get_clinic_patients_static(
             "patient_id": a.patient.patient_id if a.patient else None,
             "patient_db_id": a.patient.id if a.patient else None,
             "patient_name": a.patient.name if a.patient else None,
+            "photo": a.patient.photo if a.patient else None,
             "appointment_time": a.appointment_time,
             "provider_name": a.provider_name,
             "status": a.status,
+            **serialize_patient_badge_context(a.patient),
+            "insurance_policies": serialize_patient_insurance(a.patient),
         }
         for a in appointments
     ]
@@ -346,7 +350,9 @@ async def get_assigned_patients(
         select(StudentPatientAssignment)
         .options(
             selectinload(StudentPatientAssignment.patient)
-            .selectinload(Patient.allergies)
+            .selectinload(Patient.allergies),
+            selectinload(StudentPatientAssignment.patient)
+            .selectinload(Patient.insurance_policies),
         )
         .where(StudentPatientAssignment.student_id == student_id)
     )
@@ -387,6 +393,8 @@ async def get_assigned_patients(
             "primary_diagnosis": primary_diagnosis,
             "status": a.status,
             "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
+            **serialize_patient_badge_context(a.patient),
+            "insurance_policies": serialize_patient_insurance(a.patient),
         })
     
     return patients
@@ -578,7 +586,7 @@ async def get_clinic_patients(
     
     result = await db.execute(
         select(ClinicAppointment)
-        .options(selectinload(ClinicAppointment.patient))
+        .options(selectinload(ClinicAppointment.patient).selectinload(Patient.insurance_policies))
         .where(
             and_(
                 ClinicAppointment.clinic_id == clinic_id,
@@ -614,11 +622,14 @@ async def get_clinic_patients(
             "patient_id": appointment.patient.patient_id if appointment.patient else None,
             "patient_db_id": appointment.patient.id if appointment.patient else None,
             "patient_name": appointment.patient.name if appointment.patient else None,
+            "photo": appointment.patient.photo if appointment.patient else None,
             "appointment_time": appointment.appointment_time,
             "provider_name": appointment.provider_name,
             "status": appointment.status,
             "source": "appointment",
             "is_assigned": bool(appointment.patient and appointment.patient.id in assigned_patient_ids),
+            **serialize_patient_badge_context(appointment.patient),
+            "insurance_policies": serialize_patient_insurance(appointment.patient),
         })
 
     active_session_result = await db.execute(
@@ -638,7 +649,7 @@ async def get_clinic_patients(
     if active_students:
         active_assignment_result = await db.execute(
             select(StudentPatientAssignment)
-            .options(selectinload(StudentPatientAssignment.patient))
+            .options(selectinload(StudentPatientAssignment.patient).selectinload(Patient.insurance_policies))
             .where(
                 and_(
                     StudentPatientAssignment.student_id.in_(list(active_students.keys())),
@@ -657,11 +668,14 @@ async def get_clinic_patients(
                 "patient_id": patient.patient_id,
                 "patient_db_id": patient.id,
                 "patient_name": patient.name,
+                "photo": patient.photo,
                 "appointment_time": session.checked_in_at.strftime("%I:%M %p") if session and session.checked_in_at else "Now",
                 "provider_name": active_students[assignment.student_id].name if active_students.get(assignment.student_id) else None,
                 "status": "Checked In",
                 "source": "assignment",
                 "is_assigned": assignment.student_id == student_id,
+                **serialize_patient_badge_context(patient),
+                "insurance_policies": serialize_patient_insurance(patient),
             })
             included_patient_ids.add(patient.id)
 
@@ -957,6 +971,7 @@ async def get_previous_patients(
         select(StudentPatientAssignment)
         .options(
             selectinload(StudentPatientAssignment.patient)
+            .selectinload(Patient.insurance_policies)
         )
         .where(
             StudentPatientAssignment.student_id == student_id,
@@ -984,6 +999,8 @@ async def get_previous_patients(
             "photo": a.patient.photo,
             "status": a.status,
             "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
+            **serialize_patient_badge_context(a.patient),
+            "insurance_policies": serialize_patient_insurance(a.patient),
         })
     return patients
 

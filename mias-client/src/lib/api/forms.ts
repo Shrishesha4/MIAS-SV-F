@@ -1,5 +1,5 @@
 import client from './client';
-import type { FormCategory, FormDefinition, FormFieldDefinition, FormSection, FormType, UploadedFormFile } from '$lib/types/forms';
+import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormType, UploadedFormFile } from '$lib/types/forms';
 
 type ApiFormFieldDefinition = FormFieldDefinition & {
 	id?: string;
@@ -21,6 +21,7 @@ function normalizeFormField(field: ApiFormFieldDefinition): FormFieldDefinition 
 		accept: field.accept,
 		multiple: field.multiple,
 		help_text: field.help_text,
+		condition: field.condition,
 	};
 }
 
@@ -39,6 +40,7 @@ export interface FormDefinitionPayload {
 	department?: string;
 	procedure_name?: string;
 	fields: FormFieldDefinition[];
+	rules?: FormRule[];
 	sort_order?: number;
 	is_active?: boolean;
 }

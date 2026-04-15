@@ -2,7 +2,7 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
@@ -35,6 +35,7 @@ class FormFieldPayload(BaseModel):
     accept: Optional[str] = None
     multiple: bool = False
     help_text: Optional[str] = None
+    condition: Optional[dict[str, Any]] = None
 
 
 class FormDefinitionPayload(BaseModel):
@@ -64,6 +65,18 @@ def _serialize_form_category(category: FormCategoryOption) -> dict:
         "is_system": category.is_system,
         "created_at": category.created_at.isoformat() if category.created_at else None,
     }
+
+ALLOWED_CONDITION_OPERATORS = {
+    "eq",
+    "ne",
+    "contains",
+    "gt",
+    "lt",
+    "gte",
+    "lte",
+    "empty",
+    "not_empty",
+}
 
 
 def _resolve_section(payload: FormDefinitionPayload, existing_section: Optional[str] = None) -> str:
@@ -125,6 +138,24 @@ def _normalize_field_type(raw_type: Optional[str]) -> str:
     return normalized
 
 
+def _normalize_condition(raw_condition: Any) -> Optional[dict[str, Any]]:
+    if not isinstance(raw_condition, dict):
+        return None
+
+    field = str(raw_condition.get("field") or "").strip()
+    operator = str(raw_condition.get("operator") or "").strip().lower()
+    if not field or not operator:
+        return None
+
+    condition: dict[str, Any] = {
+        "field": field,
+        "operator": operator,
+    }
+    if "value" in raw_condition:
+        condition["value"] = raw_condition.get("value")
+    return condition
+
+
 def _normalize_field(field: FormFieldPayload | dict) -> dict:
     field_data = field.model_dump() if isinstance(field, FormFieldPayload) else dict(field)
     label = (field_data.get("label") or "").strip()
@@ -140,6 +171,7 @@ def _normalize_field(field: FormFieldPayload | dict) -> dict:
         "accept": field_data.get("accept"),
         "multiple": bool(field_data.get("multiple", False)),
         "help_text": field_data.get("help_text"),
+        "condition": _normalize_condition(field_data.get("condition")),
     }
 
 
@@ -174,11 +206,14 @@ def _validate_payload(payload: FormDefinitionPayload, resolved_form_type: str, r
         raise HTTPException(status_code=400, detail="At least one field is required")
 
     seen_keys: set[str] = set()
+    normalized_fields: list[dict[str, Any]] = []
     for field in payload.fields:
         normalized_field = _normalize_field(field)
+        normalized_fields.append(normalized_field)
         field.key = normalized_field["key"]
         field.label = field.label.strip()
         field.type = normalized_field["type"]
+        field.condition = normalized_field.get("condition")
         if not field.key or not field.label:
             raise HTTPException(status_code=400, detail="Each field requires a key and label")
         if field.key in seen_keys:
@@ -188,6 +223,18 @@ def _validate_payload(payload: FormDefinitionPayload, resolved_form_type: str, r
             raise HTTPException(status_code=400, detail=f"Unsupported field type: {field.type}")
         if field.type == "select" and not field.options:
             raise HTTPException(status_code=400, detail=f"Select field '{field.label}' requires options")
+
+    for normalized_field in normalized_fields:
+        condition = normalized_field.get("condition")
+        if not condition:
+            continue
+
+        condition_field = str(condition.get("field") or "").strip()
+        condition_operator = str(condition.get("operator") or "").strip().lower()
+        if condition_field not in seen_keys:
+            raise HTTPException(status_code=400, detail=f"Invalid condition field reference: {condition_field}")
+        if condition_operator not in ALLOWED_CONDITION_OPERATORS:
+            raise HTTPException(status_code=400, detail=f"Unsupported condition operator: {condition_operator}")
 
 
 @router.get("/categories")

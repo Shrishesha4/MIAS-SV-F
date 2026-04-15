@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface ClinicInfo {
   id: string;
@@ -20,12 +21,32 @@ export interface ClinicPatientInfo {
   patient_id: string;
   patient_db_id: string;
   patient_name: string;
+  photo?: string | null;
   appointment_time: string;
   provider_name: string | null;
   status: 'Scheduled' | 'Checked In' | 'In Progress' | 'Completed';
   source: 'appointment' | 'assignment';
   assignment_id: string | null;
   assigned_student_name: string | null;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
+}
+
+export interface ClinicPatientSearchResult {
+  id: string;
+  patient_id: string;
+  name: string;
+  gender: string | null;
+  blood_group: string | null;
+  phone: string | null;
+  clinic_id: string | null;
+  clinic_name: string | null;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface PatientAppointmentInfo {
@@ -71,7 +92,7 @@ export const clinicsApi = {
     return response.data;
   },
 
-  async searchPatient(clinicId: string, query: string) {
+  async searchPatient(clinicId: string, query: string): Promise<ClinicPatientSearchResult[]> {
     const response = await client.get(`/clinics/${clinicId}/search-patient`, { params: { q: query } });
     return response.data;
   },

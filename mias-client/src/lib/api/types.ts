@@ -22,6 +22,8 @@ export interface Patient {
   aadhaar_id?: string;
   abha_id?: string;
   category: string;
+  category_color_primary?: string;
+  category_color_secondary?: string;
   emergency_contact?: EmergencyContact;
   allergies: Allergy[];
   medical_alerts: MedicalAlert[];
@@ -43,6 +45,11 @@ export interface InsurancePolicy {
   policy_number: string;
   valid_until?: string;
   coverage_type?: string;
+  insurance_category_id?: string;
+  icon_key?: 'shield' | 'landmark' | 'briefcase' | 'building' | 'wallet' | 'heart' | 'off';
+  custom_badge_symbol?: string | null;
+  color_primary?: string;
+  color_secondary?: string;
 }
 
 export interface Allergy {

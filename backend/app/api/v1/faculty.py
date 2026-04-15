@@ -17,6 +17,7 @@ from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseR
 from app.models.admission import Admission
 from app.models.prescription import Prescription
 from app.models.student import Clinic, Student
+from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
@@ -357,6 +358,7 @@ async def get_pending_approvals(
             selectinload(Approval.case_record),
             selectinload(Approval.patient).selectinload(Patient.allergies),
             selectinload(Approval.patient).selectinload(Patient.medical_alerts),
+            selectinload(Approval.patient).selectinload(Patient.insurance_policies),
             selectinload(Approval.admission),
             selectinload(Approval.prescription).selectinload(Prescription.medications),
             selectinload(Approval.student),
@@ -408,11 +410,13 @@ async def get_pending_approvals(
                 "gender": a.patient.gender.value if a.patient.gender else None,
                 "blood_group": a.patient.blood_group,
                 "photo": a.patient.photo if hasattr(a.patient, 'photo') else None,
+                **serialize_patient_badge_context(a.patient),
                 "allergies": [
                     {"allergen": allergy.allergen, "severity": allergy.severity}
                     for allergy in (a.patient.allergies or [])
                 ],
                 "primary_diagnosis": a.patient.primary_diagnosis,
+                "insurance_policies": serialize_patient_insurance(a.patient),
                 "medical_alerts": [
                     {
                         "id": alert.id,
@@ -495,7 +499,7 @@ async def get_approval_history(
         select(Approval)
         .options(
             selectinload(Approval.case_record),
-            selectinload(Approval.patient),
+            selectinload(Approval.patient).selectinload(Patient.insurance_policies),
             selectinload(Approval.admission),
             selectinload(Approval.prescription).selectinload(Prescription.medications),
         )
@@ -519,6 +523,9 @@ async def get_approval_history(
                 "id": a.patient.id,
                 "patient_id": a.patient.patient_id,
                 "name": a.patient.name,
+                "photo": a.patient.photo if hasattr(a.patient, 'photo') else None,
+                **serialize_patient_badge_context(a.patient),
+                "insurance_policies": serialize_patient_insurance(a.patient),
             } if a.patient else None,
             "case_record": {
                 "id": a.case_record.id,
@@ -891,7 +898,9 @@ async def get_unassigned_patients(
     if assigned_ids:
         query = query.where(~Patient.id.in_(assigned_ids))
     
-    result = await db.execute(query.order_by(Patient.name))
+    result = await db.execute(
+        query.options(selectinload(Patient.insurance_policies)).order_by(Patient.name)
+    )
     patients = result.scalars().all()
     
     # Get latest diagnosis for each patient
@@ -916,7 +925,9 @@ async def get_unassigned_patients(
             "gender": p.gender.value if p.gender else None,
             "blood_group": p.blood_group,
             "photo": p.photo,
+            **serialize_patient_badge_context(p),
             "primary_diagnosis": patient_diagnoses.get(p.id),
+            "insurance_policies": serialize_patient_insurance(p),
         }
         for p in patients
     ]

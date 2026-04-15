@@ -5,6 +5,8 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { GraduationCap, Search, BookOpen, Users, UserCheck, Link } from 'lucide-svelte';
@@ -232,17 +234,12 @@
 					<div class="space-y-2 max-h-80 overflow-y-auto">
 						{#each filteredUnassignedPatients as patient}
 							<div class="flex items-center gap-3 p-3 rounded-lg border border-gray-100 bg-gradient-to-b from-white to-gray-50/50">
-								<div class="relative shrink-0">
-									{#if patient.photo}
-										<img src={patient.photo} alt={patient.name} class="w-10 h-10 rounded-full object-cover border border-gray-200" />
-									{:else}
-										<Avatar name={patient.name} size="sm" />
-									{/if}
-								</div>
+								<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<p class="text-sm font-semibold text-gray-800">{patient.name}</p>
 									<p class="text-xs text-gray-500">{patient.age} yrs · {patient.gender} · {patient.blood_group}</p>
 									<p class="text-xs text-gray-400 truncate">{patient.primary_diagnosis || 'No diagnosis'}</p>
+									<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact maxVisible={2} />
 								</div>
 								<button
 									class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"

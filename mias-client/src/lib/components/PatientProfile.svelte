@@ -40,6 +40,8 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
+	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
@@ -1413,31 +1415,13 @@
 		<div class="grid grid-cols-1 border-b border-slate-200/80 md:grid-cols-[1.05fr_1fr_1fr]">
 			<div class="p-4 md:p-5" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
 				<div class="flex items-center gap-3">
-					{#if patient.photo}
-						<img src={patient.photo} alt={patient.name} class="h-14 w-14 rounded-full object-cover border-4 border-white shadow-md shrink-0" />
-					{:else}
-						<div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl font-bold text-white"
-							style="background: linear-gradient(135deg, #60a5fa, #2563eb); border: 4px solid white; box-shadow: 0 8px 18px rgba(37,99,235,0.24);">
-							{patient.name?.charAt(0) || 'P'}
-						</div>
-					{/if}
+					<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="lg" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 					<div class="min-w-0 flex-1">
 						<h2 class="text-2xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
 						<p class="mt-1.5 text-[11px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
 						<p class="mt-2 text-[13px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
 						<p class="mt-1.5 text-[13px] text-slate-600">{patient.phone || '—'}</p>
-						{#if patient.insurance_policies?.length}
-							<div class="flex flex-wrap gap-1.5 mt-2">
-								{#each patient.insurance_policies as policy (policy.id)}
-									{#if policy.coverage_type}
-										<span class="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold rounded-full"
-											style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #1d4ed8; border: 1px solid rgba(59,130,246,0.15);">
-											<Shield class="w-2.5 h-2.5" /> {policy.coverage_type}
-										</span>
-									{/if}
-								{/each}
-							</div>
-						{/if}
+						<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact />
 					</div>
 				</div>
 			</div>

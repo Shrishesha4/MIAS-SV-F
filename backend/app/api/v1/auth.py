@@ -1,16 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
 
 from app.database import get_db
+from app.models.insurance_category import InsuranceCategory
 from app.models.user import User, UserRole
-from app.models.patient import Patient, EmergencyContact, Gender
+from app.models.patient import Patient, EmergencyContact, Gender, InsurancePolicy
 from app.models.department import Department
+from app.models.patient_category import PatientCategoryOption, get_default_patient_category_colors
 from app.models.programme import Programme
-from app.models.student import Clinic
-from app.models.insurance_category import InsuranceClinicConfig
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -22,7 +23,6 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
 )
-from app.services.patient_categories import get_default_patient_category_name
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -61,75 +61,6 @@ def generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
-def patient_category_to_walk_in_type(patient_category: str | None) -> str | None:
-    if not patient_category:
-        return None
-    normalized = patient_category.strip().upper().replace(" ", "_").replace("-", "_")
-    if not normalized:
-        return None
-    if normalized.startswith("WALKIN_"):
-        return normalized
-    return f"WALKIN_{normalized}"
-
-
-async def allocate_clinic_sequentially(
-    db: AsyncSession,
-    patient_category: str,
-    insurance_category_id: str | None = None,
-) -> str:
-    """Allocate a clinic sequentially by patient type + scheme, then fallback safely."""
-    clinics = []
-    walk_in_type = patient_category_to_walk_in_type(patient_category)
-
-    # Prefer active clinics configured for selected insurance + selected patient type
-    if insurance_category_id:
-        configured_clinics_result = await db.execute(
-            select(Clinic)
-            .join(InsuranceClinicConfig, InsuranceClinicConfig.clinic_id == Clinic.id)
-            .where(InsuranceClinicConfig.insurance_category_id == insurance_category_id)
-            .where(InsuranceClinicConfig.is_enabled == True)
-            .where(InsuranceClinicConfig.walk_in_type == walk_in_type)
-            .where(Clinic.is_active == True)
-        )
-        clinics = configured_clinics_result.scalars().all()
-
-        # Fallback to any active clinics configured for the selected insurance
-        if not clinics:
-            configured_clinics_result = await db.execute(
-                select(Clinic)
-                .join(InsuranceClinicConfig, InsuranceClinicConfig.clinic_id == Clinic.id)
-                .where(InsuranceClinicConfig.insurance_category_id == insurance_category_id)
-                .where(InsuranceClinicConfig.is_enabled == True)
-                .where(Clinic.is_active == True)
-            )
-            clinics = configured_clinics_result.scalars().all()
-
-    # Fallback: all active clinics
-    if not clinics:
-        clinics_result = await db.execute(
-            select(Clinic).where(Clinic.is_active == True)
-        )
-        clinics = clinics_result.scalars().all()
-    
-    if not clinics:
-        return None  # No clinics available
-    
-    # Count patients per clinic for the given category
-    clinic_counts = {}
-    for clinic in clinics:
-        count_result = await db.execute(
-            select(func.count(Patient.id))
-            .where(Patient.clinic_id == clinic.id)
-            .where(Patient.category == patient_category)
-        )
-        clinic_counts[clinic.id] = count_result.scalar() or 0
-    
-    # Allocate to clinic with fewest patients in this category
-    allocated_clinic_id = min(clinic_counts, key=clinic_counts.get)
-    
-    return allocated_clinic_id
-
-
 @router.post("/register", response_model=RegisterResponse)
 async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if request.role != request.role.PATIENT:
@@ -158,17 +89,6 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             detail="Email already exists",
         )
     
-    # Check if phone number already has a patient account
-    if request.patient_data and request.patient_data.phone:
-        phone_result = await db.execute(
-            select(Patient).where(Patient.phone == request.patient_data.phone)
-        )
-        if phone_result.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A patient account with this phone number already exists. Please log in instead.",
-            )
-    
     # Create user
     user_id = str(uuid.uuid4())
     user = User(
@@ -189,21 +109,60 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 
     patient_id = str(uuid.uuid4())
     dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
-    # Use provided category or default to first active category
-    patient_category = request.patient_data.category if request.patient_data.category else await get_default_patient_category_name(db)
-    
-    # Sequential clinic allocation based on patient category
-    allocated_clinic_id = await allocate_clinic_sequentially(
-        db,
-        patient_category,
-        request.patient_data.insurance_category_id,
+    display_patient_id = generate_patient_id()
+
+    insurance_category = None
+    if request.patient_data.insurance_category_id:
+        insurance_category = (
+            await db.execute(
+                select(InsuranceCategory)
+                .options(selectinload(InsuranceCategory.patient_categories))
+                .where(InsuranceCategory.id == request.patient_data.insurance_category_id)
+            )
+        ).scalar_one_or_none()
+        if not insurance_category or not insurance_category.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected insurance category is invalid",
+            )
+
+    resolved_patient_category = None
+    if request.patient_data.patient_category_id:
+        resolved_patient_category = (
+            await db.execute(
+                select(PatientCategoryOption).where(PatientCategoryOption.id == request.patient_data.patient_category_id)
+            )
+        ).scalar_one_or_none()
+        if not resolved_patient_category or not resolved_patient_category.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Selected patient category is invalid",
+            )
+        if insurance_category and insurance_category.patient_categories:
+            allowed_ids = {category.id for category in insurance_category.patient_categories}
+            if resolved_patient_category.id not in allowed_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected patient category is not allowed for this insurance category",
+                )
+    elif insurance_category and insurance_category.patient_categories:
+        resolved_patient_category = insurance_category.patient_categories[0]
+
+    resolved_category_name = (
+        resolved_patient_category.name
+        if resolved_patient_category
+        else (request.patient_data.category or "Classic")
     )
-    
+    category_color_primary, category_color_secondary = (
+        (resolved_patient_category.color_primary, resolved_patient_category.color_secondary)
+        if resolved_patient_category
+        else get_default_patient_category_colors(resolved_category_name)
+    )
+
     patient = Patient(
         id=patient_id,
-        patient_id=generate_patient_id(),
+        patient_id=display_patient_id,
         user_id=user_id,
-        clinic_id=allocated_clinic_id,
         name=request.patient_data.name,
         date_of_birth=dob,
         gender=Gender(request.patient_data.gender),
@@ -213,9 +172,27 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         address=request.patient_data.address or "",
         aadhaar_id=request.patient_data.aadhaar_id,
         abha_id=request.patient_data.abha_id,
-        category=patient_category,
+        category=resolved_category_name,
+        category_color_primary=category_color_primary,
+        category_color_secondary=category_color_secondary,
     )
     db.add(patient)
+
+    if insurance_category:
+        db.add(
+            InsurancePolicy(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                insurance_category_id=insurance_category.id,
+                provider=insurance_category.name,
+                policy_number=f"REG-{display_patient_id}",
+                coverage_type=insurance_category.name,
+                icon_key=insurance_category.icon_key,
+                custom_badge_symbol=insurance_category.custom_badge_symbol,
+                color_primary=insurance_category.color_primary,
+                color_secondary=insurance_category.color_secondary,
+            )
+        )
 
     if request.patient_data.emergency_contact:
         ec = request.patient_data.emergency_contact
@@ -230,21 +207,9 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     
     await db.commit()
     
-    # Get clinic name if allocated
-    clinic_name = None
-    if allocated_clinic_id:
-        clinic_result = await db.execute(
-            select(Clinic).where(Clinic.id == allocated_clinic_id)
-        )
-        clinic = clinic_result.scalar_one_or_none()
-        if clinic:
-            clinic_name = clinic.name
-    
     return RegisterResponse(
         message="Registration successful",
         user_id=user_id,
-        clinic_id=allocated_clinic_id,
-        clinic_name=clinic_name,
     )
 
 

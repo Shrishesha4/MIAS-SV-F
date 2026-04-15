@@ -9,6 +9,8 @@ export interface PatientCategory {
   id: string;
   name: string;
   description: string | null;
+  color_primary?: string;
+  color_secondary?: string;
 }
 
 export interface ClinicConfig {
@@ -25,6 +27,10 @@ export interface InsuranceCategory {
   id: string;
   name: string;
   description: string | null;
+  icon_key: 'shield' | 'landmark' | 'briefcase' | 'building' | 'wallet' | 'heart' | 'off';
+  custom_badge_symbol?: string | null;
+  color_primary: string;
+  color_secondary: string;
   is_active: boolean;
   sort_order: number;
   patient_categories: PatientCategory[];
@@ -34,6 +40,10 @@ export interface InsuranceCategory {
 export interface InsuranceCategoryCreate {
   name: string;
   description?: string;
+  icon_key?: 'shield' | 'landmark' | 'briefcase' | 'building' | 'wallet' | 'heart' | 'off';
+  custom_badge_symbol?: string | null;
+  color_primary?: string;
+  color_secondary?: string;
   is_active?: boolean;
   sort_order?: number;
   patient_category_ids?: string[];
@@ -42,6 +52,10 @@ export interface InsuranceCategoryCreate {
 export interface InsuranceCategoryUpdate {
   name?: string;
   description?: string;
+  icon_key?: 'shield' | 'landmark' | 'briefcase' | 'building' | 'wallet' | 'heart' | 'off';
+  custom_badge_symbol?: string | null;
+  color_primary?: string;
+  color_secondary?: string;
   is_active?: boolean;
   sort_order?: number;
   patient_category_ids?: string[];
@@ -57,6 +71,10 @@ export interface PublicInsuranceCategory {
   id: string;
   name: string;
   description: string | null;
+  icon_key: 'shield' | 'landmark' | 'briefcase' | 'building' | 'wallet' | 'heart' | 'off';
+  custom_badge_symbol?: string | null;
+  color_primary: string;
+  color_secondary: string;
   patient_categories: PatientCategory[];
 }
 

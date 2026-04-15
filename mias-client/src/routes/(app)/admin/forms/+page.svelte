@@ -5,13 +5,13 @@
 	import { authStore } from '$lib/stores/auth';
 	import { formsApi, type FormDefinitionPayload } from '$lib/api/forms';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import type { FormCategory, FormDefinition, FormFieldDefinition, FormSection, FormFieldType } from '$lib/types/forms';
+	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { FileText, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
-	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'date', 'file', 'email', 'password', 'tel'];
+	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis'];
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
 		ADMISSION: 'CLINICAL',
@@ -49,6 +49,7 @@
 	let formEditorSortOrder = $state(0);
 	let formEditorIsActive = $state(true);
 	let formEditorFields: FormFieldDefinition[] = $state([]);
+	let formEditorRules: FormRule[] = $state([]);
 	let savingForm = $state(false);
 	let formSaveError = $state('');
 	let showCategoryEditor = $state(false);
@@ -169,6 +170,7 @@
 		formEditorSortOrder = 0;
 		formEditorIsActive = true;
 		formEditorFields = [];
+		formEditorRules = [];
 		formSaveError = '';
 	}
 
@@ -206,6 +208,7 @@
 			...field,
 			type: normalizeFieldType(field.type)
 		}));
+		formEditorRules = form.rules ? [...form.rules] : [];
 		activeSection = formEditorSection;
 		showFormEditor = true;
 	}
@@ -260,20 +263,82 @@
 		patchField(index, { ...formEditorFields[index], options });
 	}
 
-	function serializeFields() {
-		return formEditorFields.map((field, index) => ({
-			...field,
-			type: normalizeFieldType(field.type),
-			key: field.key?.trim() || slugify(field.label) || `field_${index + 1}`,
-			label: field.label.trim(),
-			options: field.type === 'select' ? field.options ?? [] : field.options,
-			placeholder: field.placeholder || undefined,
-			help_text: field.help_text || undefined,
-			accept: field.accept || undefined,
-			rows: field.rows || undefined,
-			multiple: field.multiple || false,
-			required: field.required || false
+	function updateFieldCondition(index: number, condition: FormFieldDefinition['condition']) {
+		patchField(index, { ...formEditorFields[index], condition });
+	}
+
+	function getEffectiveKey(field: FormFieldDefinition, idx: number): string {
+		return field.key?.trim() || slugify(field.label) || `field_${idx + 1}`;
+	}
+
+	function getAvailableConditionFields(currentIndex: number) {
+		return formEditorFields.slice(0, currentIndex).map((f, idx) => ({
+			key: f.key || getEffectiveKey(f, idx),
+			label: f.label || f.key || `Field ${idx + 1}`,
+			type: f.type,
+			options: f.type === 'select' ? (f.options ?? []) : []
 		}));
+	}
+
+	function updateFieldConditionField(index: number, fieldKey: string) {
+		const field = formEditorFields[index];
+		updateFieldCondition(index, { field: fieldKey, operator: field.condition?.operator || 'not_empty' });
+	}
+
+	function updateFieldConditionOperator(index: number, operator: FieldCondition['operator']) {
+		const field = formEditorFields[index];
+		const next: FieldCondition = { field: field.condition?.field || '', operator };
+		if (operator !== 'empty' && operator !== 'not_empty') next.value = field.condition?.value ?? '';
+		updateFieldCondition(index, next);
+	}
+
+	function updateFieldConditionValue(index: number, value: string) {
+		const field = formEditorFields[index];
+		updateFieldCondition(index, { ...field.condition, field: field.condition?.field || '', operator: field.condition?.operator || 'not_empty', value });
+	}
+
+	function clearFieldCondition(index: number) {
+		const nextField = { ...formEditorFields[index] };
+		delete nextField.condition;
+		patchField(index, nextField);
+	}
+
+	function serializeFields() {
+		const finalKeys = formEditorFields.map((field, index) => field.key?.trim() || slugify(field.label) || `field_${index + 1}`);
+
+		const keyMap = new Map<string, string>();
+		formEditorFields.forEach((field, index) => {
+			const finalKey = finalKeys[index];
+			const rawKey = field.key?.trim();
+			const autoKey = slugify(field.label || '');
+			if (rawKey) keyMap.set(rawKey, finalKey);
+			if (autoKey) keyMap.set(autoKey, finalKey);
+			keyMap.set(`field_${index + 1}`, finalKey);
+		});
+
+		return formEditorFields.map((field, index) => {
+			const condition = field.condition
+				? {
+					...field.condition,
+					field: keyMap.get(field.condition.field) ?? field.condition.field,
+				  }
+				: undefined;
+
+			return {
+				...field,
+				type: normalizeFieldType(field.type),
+				key: finalKeys[index],
+				label: field.label.trim(),
+				options: field.type === 'select' ? field.options ?? [] : field.options,
+				placeholder: field.placeholder || undefined,
+				help_text: field.help_text || undefined,
+				accept: field.accept || undefined,
+				rows: field.rows || undefined,
+				multiple: field.multiple || false,
+				required: field.required || false,
+				condition,
+			};
+		});
 	}
 
 	async function saveFormDefinition() {
@@ -299,6 +364,7 @@
 			description: formEditorDescription || undefined,
 			section: formEditorSection,
 			fields: nextFields,
+			rules: formEditorRules.length > 0 ? formEditorRules : undefined,
 			sort_order: formEditorSortOrder,
 			is_active: formEditorIsActive,
 		};
@@ -663,22 +729,22 @@
 						{/if} -->
 					</div>
 
-					<div class="rounded-[16px] border border-slate-300 p-2 md:p-2.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6);">
-						<div class="space-y-2">
+					<div class="rounded-lg border border-slate-300 p-1.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
+						<div class="space-y-1">
 							{#each formEditorFields as field, index (index)}
-								<div class="rounded-[12px] border border-slate-200 p-2" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 3px 10px rgba(15,23,42,0.04);">
-									<div class="grid gap-2 lg:grid-cols-[minmax(0,1fr)_100px_118px_32px] lg:items-center">
+								{@const availableFields = getAvailableConditionFields(index)}
+								<div class="rounded border border-slate-200 p-1.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
+									<!-- Compact field row -->
+									<div class="grid gap-1.5 items-center" style="grid-template-columns: minmax(0, 1fr) 90px 76px 28px;">
 										<input
 											type="text"
-											placeholder="Field Label"
-											class="w-full rounded-[10px] border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #fafcff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
+											placeholder="Label"
+											class="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-medium text-slate-700 outline-none"
 											value={field.label}
 											oninput={(event) => updateFieldLabel(index, (event.currentTarget as HTMLInputElement).value)}
 										/>
 										<select
-											class="w-full rounded-[10px] border border-slate-300 px-2.5 py-2 text-[11px] font-bold text-blue-700 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #f5f9ff); box-shadow: inset 0 1px 3px rgba(15,23,42,0.03);"
+											class="w-full rounded border border-slate-300 px-1.5 py-1.5 text-[10px] font-bold text-blue-700 outline-none cursor-pointer"
 											value={field.type}
 											onchange={(event) => updateFieldType(index, (event.currentTarget as HTMLSelectElement).value)}
 										>
@@ -686,52 +752,104 @@
 												<option value={fieldType}>{fieldType.toUpperCase()}</option>
 											{/each}
 										</select>
-										<div class="flex items-center justify-between gap-2 rounded-[10px] border border-slate-300 px-2 py-1.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-											<span class="text-[9px] font-bold text-slate-500">MANDATORY</span>
-											<button
-												type="button"
-												class="relative flex h-6 w-[42px] items-center rounded-full p-[3px] cursor-pointer transition-colors"
-												style="background: {field.required ? 'linear-gradient(to right, #3b82f6, #1453c4)' : 'linear-gradient(to bottom, #e2e8f0, #cbd5e1)'}; box-shadow: inset 0 1px 3px rgba(15,23,42,0.12);"
-												onclick={() => updateFieldRequired(index, !field.required)}
-												aria-label="Toggle mandatory"
-											>
-												<span
-													class="h-4.5 w-4.5 rounded-full bg-white shadow-sm transition-transform"
-													style="transform: translateX({field.required ? '7px' : '0'}); box-shadow: 0 3px 8px rgba(15,23,42,0.18);"
-												></span>
-											</button>
-										</div>
 										<button
 											type="button"
-											class="flex h-7 w-7 items-center justify-center rounded-full text-red-500 cursor-pointer"
-											style="background: linear-gradient(to bottom, #fff5f5, #ffe4e6); border: 1px solid rgba(248,113,113,0.26);"
+											class="flex items-center justify-center rounded border px-1.5 py-1 text-[9px] font-bold transition-colors cursor-pointer"
+											style="border-color: {field.required ? '#3b82f6' : '#d1d5db'}; background: {field.required ? '#eff6ff' : '#f9fafb'}; color: {field.required ? '#1d4ed8' : '#6b7280'};"
+											onclick={() => updateFieldRequired(index, !field.required)}
+										>
+											{field.required ? 'REQ' : 'OPT'}
+										</button>
+										<button
+											type="button"
+											class="flex h-7 w-7 items-center justify-center rounded text-red-500 cursor-pointer hover:bg-red-50"
 											onclick={() => removeFormField(index)}
 											aria-label="Delete field"
 										>
-											<Trash2 class="h-3.5 w-3.5" />
+											<Trash2 class="h-3 w-3" />
 										</button>
 									</div>
 
+									<!-- Select options -->
 									{#if field.type === 'select'}
 										<input
 											type="text"
-											placeholder="Options separated by commas"
-											class="mt-2 w-full rounded-[10px] border border-slate-300 px-3 py-2 text-xs text-slate-700 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #fafcff);"
+											placeholder="Options: a,b,c"
+											class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-[11px] text-slate-700 outline-none"
 											value={field.options?.join(', ') ?? ''}
 											oninput={(event) => updateFormFieldOptions(index, (event.currentTarget as HTMLInputElement).value)}
 										/>
+									{/if}
+
+									<!-- Conditional logic controls -->
+									{#if availableFields.length > 0}
+										<div class="mt-1.5 pt-1.5 border-t border-slate-100">
+											<div class="flex items-center gap-1.5 flex-wrap">
+												<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Show when</span>
+												<select
+													class="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none cursor-pointer"
+													value={field.condition?.field ?? ''}
+													onchange={(e) => {
+														const val = (e.currentTarget as HTMLSelectElement).value;
+														if (!val) clearFieldCondition(index);
+														else updateFieldConditionField(index, val);
+													}}
+												>
+													<option value="">— always show —</option>
+													{#each availableFields as f}
+														<option value={f.key}>{f.label}</option>
+													{/each}
+												</select>
+
+												{#if field.condition?.field}
+													{@const ctrlField = availableFields.find(f => f.key === field.condition?.field)}
+													<select
+														class="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none cursor-pointer"
+														value={field.condition.operator}
+														onchange={(e) => updateFieldConditionOperator(index, (e.currentTarget as HTMLSelectElement).value as FieldCondition['operator'])}
+													>
+														<option value="not_empty">is filled</option>
+														<option value="empty">is empty</option>
+														<option value="eq">equals</option>
+														<option value="ne">not equals</option>
+													</select>
+
+													{#if field.condition.operator === 'eq' || field.condition.operator === 'ne'}
+														{#if ctrlField && ctrlField.options.length > 0}
+															<select
+																class="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none cursor-pointer"
+																value={String(field.condition.value ?? '')}
+																onchange={(e) => updateFieldConditionValue(index, (e.currentTarget as HTMLSelectElement).value)}
+															>
+																<option value="">pick…</option>
+																{#each ctrlField.options as opt}
+																	<option value={opt}>{opt}</option>
+																{/each}
+															</select>
+														{:else}
+															<input
+																type="text"
+																placeholder="value…"
+																class="w-20 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 outline-none"
+																value={String(field.condition.value ?? '')}
+																oninput={(e) => updateFieldConditionValue(index, (e.currentTarget as HTMLInputElement).value)}
+															/>
+														{/if}
+													{/if}
+												{/if}
+											</div>
+										</div>
 									{/if}
 								</div>
 							{/each}
 
 							<button
 								onclick={addFormField}
-								class="w-full rounded-[14px] border border-dashed border-slate-300 px-4 py-3 text-sm font-semibold text-slate-400 cursor-pointer"
-								style="background: linear-gradient(to bottom, rgba(255,255,255,0.7), rgba(248,250,252,0.95));"
+								class="w-full rounded border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-400 cursor-pointer hover:border-slate-400 hover:text-slate-500"
+								style="background: rgba(255,255,255,0.5);"
 							>
-								<Plus class="mr-2 inline-block h-4 w-4" />
-								Add New Field
+								<Plus class="mr-1.5 inline-block h-3.5 w-3.5" />
+								Add Field
 							</button>
 						</div>
 					</div>

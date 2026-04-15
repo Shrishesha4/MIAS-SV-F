@@ -1,15 +1,28 @@
 need 
 
-departments must be shown in labs
-    dropdown selector
+#   departments must be shown in labs as dropdown selector
 
-add student not working 
+    add student not working 
 
-remove charge master add new button
+    remove charge master add new button
 
-need conditional forms 
+    need conditional forms 
+    
+    need to show insurance types for all patient in their profile badge itself with color based on patinets
 
-need to show insurance types for all patient in their profile badge itself
+rearrange formfields
 
 make the default formfield as "textarea"
+
+small edit icon near patient profile header to edit blood group.
+
+ask for blood group in registration form.
+
+ask insurance type again when requesting admission
+
+form disabling capability to certain patient types
+
+only make form visible after entering price in chargemaster
+
+
 

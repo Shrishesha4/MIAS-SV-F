@@ -13,6 +13,8 @@
 		id: string | null;
 		name: string;
 		description: string;
+		color_primary: string;
+		color_secondary: string;
 		is_active: boolean;
 		sort_order: number;
 	};
@@ -28,6 +30,8 @@
 		id: null,
 		name: '',
 		description: '',
+		color_primary: '#60A5FA',
+		color_secondary: '#1D4ED8',
 		is_active: true,
 		sort_order: 0,
 	});
@@ -60,6 +64,8 @@
 			id: null,
 			name: '',
 			description: '',
+			color_primary: '#60A5FA',
+			color_secondary: '#1D4ED8',
 			is_active: true,
 			sort_order: categories.length,
 		};
@@ -70,6 +76,8 @@
 			id: null,
 			name: '',
 			description: '',
+			color_primary: '#60A5FA',
+			color_secondary: '#1D4ED8',
 			is_active: true,
 			sort_order: categories.length,
 		};
@@ -81,6 +89,8 @@
 			id: category.id,
 			name: category.name,
 			description: category.description || '',
+			color_primary: category.color_primary,
+			color_secondary: category.color_secondary,
 			is_active: category.is_active,
 			sort_order: category.sort_order,
 		};
@@ -99,6 +109,8 @@
 				const updated = await adminApi.updatePatientCategory(form.id, {
 					name: form.name,
 					description: form.description,
+					color_primary: form.color_primary,
+					color_secondary: form.color_secondary,
 					is_active: form.is_active,
 					sort_order: form.sort_order,
 				});
@@ -108,6 +120,8 @@
 				const created = await adminApi.createPatientCategory({
 					name: form.name,
 					description: form.description,
+					color_primary: form.color_primary,
+					color_secondary: form.color_secondary,
 					is_active: form.is_active,
 					sort_order: form.sort_order,
 				});
@@ -178,6 +192,10 @@
 
 	<div class="rounded-[24px] border border-slate-200 p-4"
 		style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 14px 30px rgba(15,23,42,0.06);">
+		<div class="mb-4 rounded-[18px] border border-sky-200/80 px-4 py-3 text-sm text-slate-600"
+			style="background: linear-gradient(135deg, rgba(239,246,255,0.95), rgba(224,242,254,0.92));">
+			Patient category colors control the glow ring around patient avatars throughout the app.
+		</div>
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<button
 				type="button"
@@ -199,6 +217,7 @@
 				<table class="min-w-full text-left text-sm">
 					<thead style="background: linear-gradient(to bottom, rgba(241,245,249,0.98), rgba(248,250,252,0.98));">
 						<tr class="text-slate-500">
+							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Preview</th>
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Category</th>
 							<!-- <th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Description</th> -->
 							<th class="px-4 py-3 font-bold uppercase tracking-[0.14em]">Patients</th>
@@ -209,6 +228,13 @@
 					<tbody>
 						{#each categories as category (category.id)}
 							<tr class="border-t border-slate-200 align-top">
+								<td class="px-4 py-4">
+									<div class="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-white"
+										style={`background: linear-gradient(135deg, ${category.color_primary}, ${category.color_secondary}); box-shadow: 0 10px 20px rgba(15,23,42,0.12);`}>
+										<ShieldCheck class="h-3.5 w-3.5" />
+										<span>Glow</span>
+									</div>
+								</td>
 								<td class="px-4 py-4">
 									<div class="flex items-center gap-2">
 										<p class="font-semibold text-slate-900">{category.name}</p>
@@ -249,6 +275,19 @@
 	{#if editorOpen}
 		<AquaModal title={form.id ? 'Edit Patient Category' : 'Add Patient Category'} onclose={resetEditor} panelClass="sm:max-w-[560px]">
 			<div class="space-y-4">
+				<div class="rounded-[18px] border border-slate-200 p-4"
+					style={`background: linear-gradient(135deg, ${form.color_primary}, ${form.color_secondary}); box-shadow: 0 12px 24px rgba(15,23,42,0.08);`}>
+					<div class="flex items-center gap-3 text-white">
+						<div class="flex h-10 w-10 items-center justify-center rounded-full border border-white/40 bg-white/15">
+							<UsersRound class="h-5 w-5" />
+						</div>
+						<div>
+							<p class="text-xs font-semibold uppercase tracking-[0.18em] text-white/75">Glow Preview</p>
+							<p class="text-sm font-bold">{form.name || 'Patient category'}</p>
+						</div>
+					</div>
+				</div>
+
 				<div class="grid gap-4 md:grid-cols-2">
 					<div>
 						<label for="patient-category-name" class="mb-1 block text-sm font-medium text-slate-700">Name</label>
@@ -263,6 +302,17 @@
 				<div>
 					<label for="patient-category-description" class="mb-1 block text-sm font-medium text-slate-700">Description</label>
 					<textarea id="patient-category-description" rows="4" bind:value={form.description} class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300"></textarea>
+				</div>
+
+				<div class="grid gap-4 md:grid-cols-2">
+					<div>
+						<label for="patient-category-primary-color" class="mb-1 block text-sm font-medium text-slate-700">Glow Primary Color</label>
+						<input id="patient-category-primary-color" type="color" bind:value={form.color_primary} class="h-12 w-full rounded-2xl border border-slate-200 px-2 py-2" />
+					</div>
+					<div>
+						<label for="patient-category-secondary-color" class="mb-1 block text-sm font-medium text-slate-700">Glow Secondary Color</label>
+						<input id="patient-category-secondary-color" type="color" bind:value={form.color_secondary} class="h-12 w-full rounded-2xl border border-slate-200 px-2 py-2" />
+					</div>
 				</div>
 
 				<div class="grid gap-3 md:grid-cols-2">

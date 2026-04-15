@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface PendingPatient {
 	id: string;
@@ -15,6 +16,10 @@ export interface PendingPatient {
 	has_admission: boolean;
 	clinic_id: string | null;
 	clinic_name: string | null;
+	category?: string | null;
+	category_color_primary?: string | null;
+	category_color_secondary?: string | null;
+	insurance_policies?: InsurancePolicy[];
 }
 
 export interface ActiveClinicStudent {

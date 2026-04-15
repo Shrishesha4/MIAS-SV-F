@@ -13,6 +13,11 @@ from app.api.deps import require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient
 from app.models.patient_category import PatientCategoryOption
+from app.models.patient_category import (
+    DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY,
+    DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY,
+    get_default_patient_category_colors,
+)
 from app.models.student import Student
 from app.models.faculty import Faculty
 from app.models.department import Department
@@ -41,6 +46,15 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 
 def _uid() -> str:
     return str(uuid.uuid4())
+
+
+def _normalize_hex_color(value: Optional[str], default: str) -> str:
+    normalized = str(value or default).strip().upper()
+    if not normalized.startswith("#"):
+        normalized = f"#{normalized}"
+    if len(normalized) != 7 or any(ch not in "#0123456789ABCDEF" for ch in normalized):
+        raise HTTPException(status_code=400, detail=f"Invalid hex color: {value}")
+    return normalized
 
 
 # ── Dashboard Overview ───────────────────────────────────────────────
@@ -1035,6 +1049,8 @@ async def system_info(
 class PatientCategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
+    color_primary: Optional[str] = None
+    color_secondary: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
     registration_fee: Optional[int] = None
@@ -1043,6 +1059,8 @@ class PatientCategoryCreate(BaseModel):
 class PatientCategoryUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    color_primary: Optional[str] = None
+    color_secondary: Optional[str] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
     registration_fee: Optional[int] = None
@@ -1053,6 +1071,8 @@ def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[
         "id": item.id,
         "name": item.name,
         "description": item.description,
+        "color_primary": item.color_primary,
+        "color_secondary": item.color_secondary,
         "is_active": item.is_active,
         "sort_order": item.sort_order,
         "registration_fee": item.registration_fee,
@@ -1084,6 +1104,8 @@ async def list_public_patient_categories(
             "id": cat.id,
             "name": cat.name,
             "description": cat.description,
+            "color_primary": cat.color_primary,
+            "color_secondary": cat.color_secondary,
             "registration_fee": cat.registration_fee,
         }
         for cat in categories
@@ -1114,6 +1136,14 @@ async def create_patient_category(
         id=_uid(),
         name=normalized_name,
         description=(data.description or "").strip() or None,
+        color_primary=_normalize_hex_color(
+            data.color_primary,
+            get_default_patient_category_colors(normalized_name)[0],
+        ),
+        color_secondary=_normalize_hex_color(
+            data.color_secondary,
+            get_default_patient_category_colors(normalized_name)[1],
+        ),
         is_active=data.is_active,
         sort_order=data.sort_order if data.sort_order is not None else len(categories),
         registration_fee=data.registration_fee if data.registration_fee is not None else 100,
@@ -1167,12 +1197,27 @@ async def update_patient_category(
 
     if data.description is not None:
         item.description = data.description.strip() or None
+    if data.color_primary is not None:
+        item.color_primary = _normalize_hex_color(data.color_primary, DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY)
+    if data.color_secondary is not None:
+        item.color_secondary = _normalize_hex_color(data.color_secondary, DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY)
     if data.is_active is not None:
         item.is_active = data.is_active
     if data.sort_order is not None:
         item.sort_order = data.sort_order
     if data.registration_fee is not None:
         item.registration_fee = data.registration_fee
+
+    await db.execute(
+        text(
+            "UPDATE patients SET category_color_primary = :color_primary, category_color_secondary = :color_secondary WHERE category = :category_name"
+        ),
+        {
+            "category_name": item.name,
+            "color_primary": item.color_primary,
+            "color_secondary": item.color_secondary,
+        },
+    )
 
     await sync_charge_price_categories(db)
     await db.commit()

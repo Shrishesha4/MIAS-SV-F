@@ -1,10 +1,12 @@
 <script lang="ts">
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import type { DiagnosisSuggestion } from '$lib/api/autocomplete';
-	import type { FormFieldDefinition } from '$lib/types/forms';
+	import type { FormFieldDefinition, FormRule } from '$lib/types/forms';
+	import { createFormEngine } from '$lib/utils/formEngine';
 
 	interface Props {
 		fields: FormFieldDefinition[];
+		rules?: FormRule[];
 		values?: Record<string, any>;
 		idPrefix?: string;
 		diagnosisSuggestions?: DiagnosisSuggestion[];
@@ -16,6 +18,7 @@
 
 	let {
 		fields,
+		rules = [],
 		values = $bindable({}),
 		idPrefix = 'dynamic',
 		diagnosisSuggestions = [],
@@ -24,6 +27,18 @@
 		onDiagnosisSelect,
 		onDiagnosisClear,
 	}: Props = $props();
+
+	// Engine is recreated only when rules change
+	const engine = $derived(createFormEngine(rules));
+
+	// Snapshot all field values individually so $derived tracks per-property changes
+	const formState = $derived.by(() => {
+		const snapshot: Record<string, any> = {};
+		for (const f of fields) {
+			snapshot[f.key] = values[f.key];
+		}
+		return engine.evaluate(fields, snapshot);
+	});
 
 	function inputId(key: string) {
 		return `${idPrefix}-${key}`;
@@ -38,18 +53,22 @@
 	}
 
 	function fileNames(value: any): string {
-		if (!value) {
-			return '';
-		}
-		if (Array.isArray(value)) {
-			return value.map((file) => file?.name ?? '').filter(Boolean).join(', ');
-		}
+		if (!value) return '';
+		if (Array.isArray(value)) return value.map((f) => f?.name ?? '').filter(Boolean).join(', ');
 		return value.name ?? '';
 	}
+
+	function fieldOptions(field: FormFieldDefinition): string[] {
+		return formState.options[field.key] ?? field.options ?? [];
+	}
+
+	const visibleFields = $derived(fields.filter((f) => formState.visibility[f.key] !== false));
 </script>
 
-{#each fields as field (field.key)}
-	<div>
+{#each visibleFields as field (field.key)}
+	{@const isDisabled = formState.enabled[field.key] === false}
+	<div style={isDisabled ? 'opacity: 0.45; pointer-events: none;' : ''}>
+
 		{#if field.type === 'diagnosis'}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block text-sm font-medium text-gray-700 mb-1">
@@ -59,14 +78,10 @@
 				placeholder={field.placeholder ?? 'Search diagnosis...'}
 				bind:value={values[field.key]}
 				items={diagnosisSuggestions}
-				labelKey="text"
-				sublabelKey="icd_description"
-				badgeKey="icd_code"
+				loading={diagnosisLoading}
 				onInput={onDiagnosisInput}
 				onSelect={onDiagnosisSelect}
 				onClear={onDiagnosisClear}
-				loading={diagnosisLoading}
-				minChars={2}
 			/>
 		{:else if field.type === 'select'}
 			<label for={inputId(field.key)} class="block text-sm font-medium text-gray-700 mb-1">
@@ -75,11 +90,12 @@
 			<select
 				id={inputId(field.key)}
 				bind:value={values[field.key]}
+				disabled={isDisabled}
 				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
 				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 			>
 				<option value="">Select {field.label}</option>
-				{#each field.options ?? [] as option}
+				{#each fieldOptions(field) as option}
 					<option value={option}>{option}</option>
 				{/each}
 			</select>
@@ -91,6 +107,7 @@
 				id={inputId(field.key)}
 				bind:value={values[field.key]}
 				rows={field.rows ?? 3}
+				disabled={isDisabled}
 				class="block w-full px-3 py-2 rounded-md text-sm resize-y"
 				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 				placeholder={field.placeholder ?? ''}
@@ -104,6 +121,7 @@
 				type="file"
 				accept={field.accept ?? undefined}
 				multiple={field.multiple ?? false}
+				disabled={isDisabled}
 				class="block w-full px-3 py-2 rounded-md text-sm"
 				style="border: 1px solid #d1d5db; background-color: rgba(255,255,255,0.9);"
 				onchange={(event) => setFileValue(field.key, event.currentTarget.files, field.multiple)}
@@ -119,6 +137,7 @@
 				id={inputId(field.key)}
 				type={field.type}
 				bind:value={values[field.key]}
+				disabled={isDisabled}
 				class="block w-full px-3 py-2 rounded-md text-sm"
 				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 				placeholder={field.placeholder ?? ''}

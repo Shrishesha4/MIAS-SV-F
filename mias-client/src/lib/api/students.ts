@@ -1,4 +1,5 @@
 import client from './client';
+import type { InsurancePolicy } from './types';
 
 export interface EmergencyContact {
   id: string;
@@ -27,11 +28,16 @@ export interface ClinicPatient {
   patient_id: string;
   patient_db_id: string | null;
   patient_name: string;
+  photo?: string | null;
   appointment_time: string;
   provider_name: string | null;
   status: 'Waiting' | 'In Progress' | 'Completed';
   is_assigned: boolean;
   source: 'appointment' | 'assignment';
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface ClinicSession {
@@ -64,6 +70,10 @@ export interface AssignedPatient {
   photo: string;
   primary_diagnosis: string;
   status: string;
+  category?: string | null;
+  category_color_primary?: string | null;
+  category_color_secondary?: string | null;
+  insurance_policies?: InsurancePolicy[];
 }
 
 export interface AttendanceCalendarSession {
