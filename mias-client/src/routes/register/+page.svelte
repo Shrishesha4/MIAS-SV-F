@@ -42,10 +42,12 @@
 	let patName = $state('');
 	let patDob = $state('');
 	let patGender = $state('MALE');
+	let patBloodGroup = $state('');
 	let patAddress = $state('');
 	let patEmail = $state('');
 	let patPassword = $state('');
 	let showPassword = $state(false);
+	const bloodGroupOptions = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 	// Step 6 – insurance category (fetched from API)
 	let insuranceOptions = $state<PublicInsuranceCategory[]>([]);
@@ -297,6 +299,7 @@
 	function saveDetails() {
 		if (!patName.trim()) { error = 'Full name is required'; return; }
 		if (!patDob) { error = 'Date of birth is required'; return; }
+		if (!patBloodGroup) { error = 'Blood group is required'; return; }
 		if (!patEmail.trim()) { error = 'Email is required'; return; }
 		if (!patPassword || patPassword.length < 6) { error = 'Password must be at least 6 characters'; return; }
 		next();
@@ -323,7 +326,7 @@
 					name: patName.trim(),
 					date_of_birth: patDob,
 					gender: patGender,
-					blood_group: '',
+					blood_group: patBloodGroup,
 					phone: phone.replace(/\D/g, ''),
 					email: patEmail.trim(),
 					address: patAddress.trim(),
@@ -693,6 +696,20 @@
 							<option>OTHER</option>
 						</select>
 					</div>
+				</div>
+
+				<div>
+					<label for="pat-blood-group" class="text-xs font-medium text-gray-600 mb-1 block">Blood Group</label>
+					<select
+						id="pat-blood-group" bind:value={patBloodGroup}
+						class="w-full px-3 py-2.5 rounded-lg text-sm outline-none"
+						style="background: #f7f9fd; border: 1px solid rgba(0,0,0,0.14);"
+					>
+						<option value="">Select blood group</option>
+						{#each bloodGroupOptions as bloodGroup}
+							<option value={bloodGroup}>{bloodGroup}</option>
+						{/each}
+					</select>
 				</div>
 
 				<div>

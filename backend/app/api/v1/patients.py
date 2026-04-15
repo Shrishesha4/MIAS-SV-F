@@ -25,6 +25,7 @@ from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
+from app.services.patient_insurance import sync_patient_insurance_category
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 
@@ -663,6 +664,13 @@ async def create_admission(
     patient = (await db.execute(select(Patient).where(Patient.id == patient_id))).scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    await sync_patient_insurance_category(
+        db,
+        patient,
+        body.get("insurance_category_id"),
+        policy_prefix="ADM",
+    )
 
     is_student = user.role == UserRole.STUDENT
     is_faculty = user.role == UserRole.FACULTY

@@ -94,7 +94,9 @@ async def search_patients_for_admission(
         query = query.where(
             (Patient.name.ilike(f"%{q}%")) | (Patient.patient_id.ilike(f"%{q}%"))
         )
-    result = await db.execute(query.limit(50))
+    result = await db.execute(
+        query.options(selectinload(Patient.insurance_policies)).limit(50)
+    )
     patients = result.scalars().all()
     return [
         {
@@ -103,6 +105,7 @@ async def search_patients_for_admission(
             "name": p.name,
             "gender": p.gender.value if p.gender else None,
             "blood_group": p.blood_group,
+            "insurance_policies": serialize_patient_insurance(p),
         }
         for p in patients
     ]

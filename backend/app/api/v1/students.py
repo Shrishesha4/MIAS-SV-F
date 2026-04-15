@@ -23,6 +23,7 @@ from app.models.prescription import Prescription, PrescriptionMedication, Prescr
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
+from app.services.patient_insurance import sync_patient_insurance_category
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 router = APIRouter(prefix="/students", tags=["Students"])
@@ -1126,6 +1127,13 @@ async def submit_admission_request(
     patient = patient_result.scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    await sync_patient_insurance_category(
+        db,
+        patient,
+        body.get("insurance_category_id"),
+        policy_prefix="ADM",
+    )
 
     # Validate faculty exists
     faculty_result = await db.execute(select(Faculty).where(Faculty.id == faculty_id))

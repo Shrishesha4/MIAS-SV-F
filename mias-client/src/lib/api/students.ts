@@ -203,6 +203,7 @@ export const studentApi = {
   async submitAdmissionRequest(studentId: string, data: {
     patient_id: string;
     faculty_id: string;
+    insurance_category_id?: string;
     department?: string;
     ward?: string;
     bed_number?: string;

@@ -7,6 +7,7 @@
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { authApi } from '$lib/api/auth';
+	import { insuranceCategoriesApi, type PublicInsuranceCategory } from '$lib/api/insuranceCategories';
 	import {
 		defaultAdmissionDischargeFields,
 		defaultAdmissionIntakeFields,
@@ -59,6 +60,10 @@
 	let admitFormData: Record<string, any> = $state({});
 	let dischargeFormData: Record<string, any> = $state({});
 	let transferFormData: Record<string, any> = $state({});
+	let insuranceOptions: PublicInsuranceCategory[] = $state([]);
+	let insuranceLoading = $state(false);
+	let admitInsuranceCategoryId = $state('');
+	let reqInsuranceCategoryId = $state('');
 
 	// Admit form fields
 	let searchQuery = $state('');
@@ -214,6 +219,7 @@
 		selectedPatient = p;
 		searchQuery = p.name;
 		searchResults = [];
+		admitInsuranceCategoryId = getCurrentInsuranceCategoryId(p);
 	}
 
 	function openAdmitModal() {
@@ -221,12 +227,14 @@
 		searchQuery = '';
 		searchResults = [];
 		admitFormData = {};
+		admitInsuranceCategoryId = '';
 		actionError = '';
 		showAdmitModal = true;
 	}
 
 	async function submitAdmit() {
 		if (!selectedPatient) { actionError = 'Please select a patient'; return; }
+		if (insuranceOptions.length > 0 && !admitInsuranceCategoryId) { actionError = 'Please select the insurance type for this admission'; return; }
 		if (!admitFormData.department) { actionError = 'Please select a department'; return; }
 		if (!admitFormData.ward) { actionError = 'Ward is required'; return; }
 		if (!admitFormData.bed_number) { actionError = 'Bed number is required'; return; }
@@ -248,6 +256,7 @@
 				)
 			);
 			await patientApi.createAdmission(selectedPatient.id, {
+				insurance_category_id: admitInsuranceCategoryId || undefined,
 				department: asOptionalString(submittedValues.department) || '',
 				ward: asOptionalString(submittedValues.ward) || '',
 				bed_number: asOptionalString(submittedValues.bed_number) || '',
@@ -376,6 +385,7 @@
 	function openRequestModal() {
 		reqPatient = null;
 		reqFaculty = '';
+		reqInsuranceCategoryId = '';
 		requestFormData = {};
 		reqError = '';
 		showRequestModal = true;
@@ -384,6 +394,7 @@
 	async function submitAdmissionRequest() {
 		if (!reqPatient) { reqError = 'Please select a patient'; return; }
 		if (!reqFaculty) { reqError = 'Please select approving faculty'; return; }
+		if (insuranceOptions.length > 0 && !reqInsuranceCategoryId) { reqError = 'Please select the insurance type for this admission'; return; }
 		if (!requestFormData.reason) { reqError = 'Reason for admission is required'; return; }
 		reqSubmitting = true;
 		reqError = '';
@@ -405,6 +416,7 @@
 			await studentApi.submitAdmissionRequest(studentId, {
 				patient_id: reqPatient.id,
 				faculty_id: reqFaculty,
+				insurance_category_id: reqInsuranceCategoryId || undefined,
 				department: asOptionalString(submittedValues.department),
 				ward: asOptionalString(submittedValues.ward),
 				bed_number: asOptionalString(submittedValues.bed_number),
@@ -426,6 +438,14 @@
 		try {
 			admissionFormDefinitions = await formsApi.getForms();
 		} catch {}
+		try {
+			insuranceLoading = true;
+			insuranceOptions = await insuranceCategoriesApi.listPublicCategories();
+		} catch {
+			insuranceOptions = [];
+		} finally {
+			insuranceLoading = false;
+		}
 		if (isFacultyOrAdmin) {
 			try {
 				const depts = await authApi.getDepartments();
@@ -444,6 +464,14 @@
 		}
 		await loadAdmissions();
 	});
+
+	function getCurrentInsuranceCategoryId(patient: any): string {
+		return patient?.insurance_policies?.find((policy: any) => policy.insurance_category_id)?.insurance_category_id || '';
+	}
+
+	function getInsuranceName(categoryId: string): string {
+		return insuranceOptions.find((option) => option.id === categoryId)?.name || '';
+	}
 </script>
 
 <div class="px-4 py-4 md:px-6 md:py-6 space-y-2">
@@ -595,6 +623,24 @@
 							<option value={f.id}>{f.name} – {f.department}</option>
 						{/each}
 					</select>
+				</div>
+
+				<div>
+					<label for="request-insurance" class="text-xs font-semibold text-gray-600 mb-1 block">Insurance Type At Admission *</label>
+					<select
+						id="request-insurance"
+						class="w-full px-3 py-2.5 rounded-lg text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
+						bind:value={reqInsuranceCategoryId}
+						disabled={insuranceLoading || insuranceOptions.length === 0}
+					>
+						<option value="">{insuranceLoading ? 'Loading insurance types...' : 'Select insurance type...'}</option>
+						{#each insuranceOptions as insurance}
+							<option value={insurance.id}>{insurance.name}</option>
+						{/each}
+					</select>
+					{#if reqPatient && reqInsuranceCategoryId}
+						<p class="mt-1 text-[11px] text-gray-500">Submitting this request with {getInsuranceName(reqInsuranceCategoryId)}.</p>
+					{/if}
 				</div>
 
 
@@ -1164,6 +1210,24 @@
 						<CheckCircle class="w-4 h-4" />
 						<span>{selectedPatient.name} ({selectedPatient.patient_id})</span>
 					</div>
+				{/if}
+			</div>
+
+			<div>
+				<label for="admit-insurance" class="text-xs text-gray-500 mb-1 block">Insurance Type At Admission</label>
+				<select
+					id="admit-insurance"
+					class="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-700 disabled:opacity-60"
+					bind:value={admitInsuranceCategoryId}
+					disabled={insuranceLoading || insuranceOptions.length === 0}
+				>
+					<option value="">{insuranceLoading ? 'Loading insurance types...' : 'Select insurance type...'}</option>
+					{#each insuranceOptions as insurance}
+						<option value={insurance.id}>{insurance.name}</option>
+					{/each}
+				</select>
+				{#if selectedPatient && admitInsuranceCategoryId}
+					<p class="mt-1 text-[11px] text-gray-500">This admission will use {getInsuranceName(admitInsuranceCategoryId)} for the patient’s insurance selection.</p>
 				{/if}
 			</div>
 
