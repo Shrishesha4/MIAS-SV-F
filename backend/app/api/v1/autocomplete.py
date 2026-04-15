@@ -1,18 +1,53 @@
 """Autocomplete endpoints for ICD-10 codes, medicines, and other reference data."""
 from fastapi import APIRouter, Query, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, case, or_
 from typing import Optional
 
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
+from app.models.icd_code import ICDCode
+from app.models.case_record import CaseRecord
+from app.models.patient import Patient
 from app.models.prescription import PrescriptionMedication
 from app.utils.reference_data import (
-    search_icd10, search_medicines, FREQUENCIES, DURATIONS, DOSAGE_FORMS,
+    search_medicines, FREQUENCIES, DURATIONS, DOSAGE_FORMS,
 )
 
 router = APIRouter(prefix="/autocomplete", tags=["Autocomplete"])
+
+
+async def _search_icd_catalog(db: AsyncSession, query: str, limit: int = 20) -> list[ICDCode]:
+    cleaned_query = query.strip()
+    statement = select(ICDCode).where(ICDCode.is_active == True)
+
+    if not cleaned_query:
+        statement = statement.order_by(ICDCode.code).limit(limit)
+    else:
+        like = f"%{cleaned_query}%"
+        prefix = f"{cleaned_query}%"
+        statement = (
+            statement.where(
+                or_(
+                    ICDCode.code.ilike(like),
+                    ICDCode.description.ilike(like),
+                    ICDCode.category.ilike(like),
+                )
+            )
+            .order_by(
+                case(
+                    (ICDCode.code.ilike(prefix), 0),
+                    (ICDCode.description.ilike(prefix), 1),
+                    (ICDCode.category.ilike(prefix), 2),
+                    else_=3,
+                ),
+                ICDCode.code,
+            )
+            .limit(limit)
+        )
+
+    return (await db.execute(statement)).scalars().all()
 
 
 @router.get("/icd10")
@@ -20,10 +55,18 @@ async def autocomplete_icd10(
     q: str = Query("", description="Search query for ICD-10 codes"),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Search ICD-10 codes by code or description."""
-    results = search_icd10(q, limit)
-    return results
+    results = await _search_icd_catalog(db, q, limit)
+    return [
+        {
+            "code": item.code,
+            "description": item.description,
+            "category": item.category,
+        }
+        for item in results
+    ]
 
 
 @router.get("/medicines")
@@ -129,31 +172,36 @@ async def autocomplete_diagnoses(
 ):
     """Search for diagnoses from previously entered data + ICD-10."""
     results = []
-    
-    # ICD-10 results
-    icd_results = search_icd10(q, limit)
+
+    icd_results = await _search_icd_catalog(db, q, limit)
     for icd in icd_results:
         results.append({
-            "text": f"{icd['code']} - {icd['description']}",
-            "icd_code": icd["code"],
-            "icd_description": icd["description"],
-            "category": icd["category"],
+            "text": f"{icd.code} - {icd.description}",
+            "icd_code": icd.code,
+            "icd_description": icd.description,
+            "category": icd.category,
         })
-    
-    # Also search from previously entered diagnoses in case records
+
     if q and len(q) >= 2:
-        from app.models.case_record import CaseRecord
-        existing = await db.execute(
+        existing_case_records = await db.execute(
             select(CaseRecord.diagnosis)
             .where(CaseRecord.diagnosis.ilike(f"%{q}%"))
             .where(CaseRecord.diagnosis.isnot(None))
             .group_by(CaseRecord.diagnosis)
             .limit(10)
         )
-        existing_diagnoses = [row[0] for row in existing.all()]
+        existing_patient_diagnoses = await db.execute(
+            select(Patient.primary_diagnosis)
+            .where(Patient.primary_diagnosis.ilike(f"%{q}%"))
+            .where(Patient.primary_diagnosis.isnot(None))
+            .group_by(Patient.primary_diagnosis)
+            .limit(10)
+        )
+        existing_diagnoses = [row[0] for row in existing_case_records.all()] + [row[0] for row in existing_patient_diagnoses.all()]
         existing_texts = {r["text"].lower() for r in results}
         for diag in existing_diagnoses:
-            if diag.lower() not in existing_texts:
+            normalized = diag.strip().lower()
+            if normalized and normalized not in existing_texts:
                 results.append({
                     "text": diag,
                     "icd_code": None,

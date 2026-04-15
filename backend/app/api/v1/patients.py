@@ -22,7 +22,7 @@ from app.models.faculty import Faculty
 from app.models.report import Report
 from app.models.wallet import WalletTransaction, WalletType, TransactionType
 from app.models.notification import PatientNotification, ScheduledNotification
-from app.models.case_record import CaseRecord
+from app.models.case_record import Approval, CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
 from app.services.patient_insurance import sync_patient_insurance_category
@@ -128,6 +128,7 @@ async def get_patient_case_records(
     """Get all case records for a patient (any role)."""
     result = await db.execute(
         select(CaseRecord)
+        .options(selectinload(CaseRecord.approval).selectinload(Approval.faculty))
         .where(CaseRecord.patient_id == patient_id)
         .order_by(CaseRecord.date.desc())
     )
@@ -153,6 +154,7 @@ async def get_patient_case_records(
             "procedure_name": r.procedure_name,
             "status": r.status,
             "approved_by": r.approved_by,
+            "approver_name": r.approval.faculty.name if r.approval and r.approval.faculty else None,
             "approved_at": r.approved_at,
             "created_by_name": r.created_by_name,
             "created_by_role": r.created_by_role,

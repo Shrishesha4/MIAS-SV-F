@@ -1,7 +1,7 @@
 """Admin panel API – dashboard, user management, departments, analytics."""
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, text, and_, distinct, extract
+from sqlalchemy import select, func, case, text, and_, or_, distinct, extract
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, date
 from typing import Optional
@@ -25,6 +25,7 @@ from app.models.programme import Programme
 from app.models.admission import Admission
 from app.models.prescription import Prescription
 from app.models.vital import Vital, VitalParameter
+from app.models.icd_code import ICDCode
 from app.models.medical_record import MedicalRecord
 from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
@@ -55,6 +56,32 @@ def _normalize_hex_color(value: Optional[str], default: str) -> str:
     if len(normalized) != 7 or any(ch not in "#0123456789ABCDEF" for ch in normalized):
         raise HTTPException(status_code=400, detail=f"Invalid hex color: {value}")
     return normalized
+
+
+def _normalize_required_text(value: Optional[str], field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail=f"{field_name} is required")
+    return normalized
+
+
+def _normalize_icd_code(value: Optional[str]) -> str:
+    normalized = _normalize_required_text(value, "ICD code").upper()
+    if len(normalized) > 32:
+        raise HTTPException(status_code=400, detail="ICD code is too long")
+    return normalized
+
+
+def _serialize_icd_code(item: ICDCode) -> dict:
+    return {
+        "id": item.id,
+        "code": item.code,
+        "description": item.description,
+        "category": item.category,
+        "is_active": item.is_active,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+        "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+    }
 
 
 # ── Dashboard Overview ───────────────────────────────────────────────
@@ -1251,6 +1278,143 @@ async def delete_patient_category(
     await sync_charge_price_categories(db)
     await db.commit()
     return {"message": f"Patient category '{item.name}' deleted"}
+
+
+# ── ICD Code Catalog ────────────────────────────────────────────────
+
+
+class ICDCodeCreate(BaseModel):
+    code: str
+    description: str
+    category: Optional[str] = "General"
+    is_active: bool = True
+
+
+class ICDCodeUpdate(BaseModel):
+    code: Optional[str] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/icd-codes")
+async def list_icd_codes(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = Query(None, description="Search by ICD code, description, or category"),
+    include_inactive: bool = Query(True, description="Include inactive codes in the result"),
+):
+    query = select(ICDCode)
+    if not include_inactive:
+        query = query.where(ICDCode.is_active == True)
+
+    if search:
+        search_term = search.strip()
+        like = f"%{search_term}%"
+        prefix = f"{search_term}%"
+        query = query.where(
+            or_(
+                ICDCode.code.ilike(like),
+                ICDCode.description.ilike(like),
+                ICDCode.category.ilike(like),
+            )
+        ).order_by(
+            case(
+                (ICDCode.code.ilike(prefix), 0),
+                (ICDCode.description.ilike(prefix), 1),
+                (ICDCode.category.ilike(prefix), 2),
+                else_=3,
+            ),
+            ICDCode.code,
+        )
+    else:
+        query = query.order_by(ICDCode.code)
+
+    items = (await db.execute(query)).scalars().all()
+    return [_serialize_icd_code(item) for item in items]
+
+
+@router.post("/icd-codes", status_code=201)
+async def create_icd_code(
+    data: ICDCodeCreate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    code = _normalize_icd_code(data.code)
+    description = _normalize_required_text(data.description, "Description")
+    category = _normalize_required_text(data.category or "General", "Category")
+
+    existing = (
+        await db.execute(select(ICDCode).where(ICDCode.code == code))
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"ICD code '{code}' already exists")
+
+    item = ICDCode(
+        id=_uid(),
+        code=code,
+        description=description,
+        category=category,
+        is_active=data.is_active,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return _serialize_icd_code(item)
+
+
+@router.patch("/icd-codes/{icd_id}")
+async def update_icd_code(
+    icd_id: str,
+    data: ICDCodeUpdate,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    item = (
+        await db.execute(select(ICDCode).where(ICDCode.id == icd_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="ICD code not found")
+
+    if data.code is not None:
+        code = _normalize_icd_code(data.code)
+        existing = (
+            await db.execute(
+                select(ICDCode).where(ICDCode.code == code).where(ICDCode.id != item.id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"ICD code '{code}' already exists")
+        item.code = code
+
+    if data.description is not None:
+        item.description = _normalize_required_text(data.description, "Description")
+    if data.category is not None:
+        item.category = _normalize_required_text(data.category, "Category")
+    if data.is_active is not None:
+        item.is_active = data.is_active
+
+    await db.commit()
+    await db.refresh(item)
+    return _serialize_icd_code(item)
+
+
+@router.delete("/icd-codes/{icd_id}")
+async def delete_icd_code(
+    icd_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    item = (
+        await db.execute(select(ICDCode).where(ICDCode.id == icd_id))
+    ).scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="ICD code not found")
+
+    code = item.code
+    await db.delete(item)
+    await db.commit()
+    return {"message": f"ICD code '{code}' deleted"}
 
 
 # ── Vital Parameters Management ──────────────────────────────────────

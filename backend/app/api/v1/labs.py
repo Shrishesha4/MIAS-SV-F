@@ -10,7 +10,11 @@ from app.api.deps import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory
 from app.core.exceptions import NotFoundException
-from app.services.charge_sync import get_charge_price_categories, sync_charge_price_categories, sync_charge_sources
+from app.services.charge_sync import (
+    get_charge_price_categories,
+    sync_charge_price_categories,
+    sync_charge_sources,
+)
 from app.services.patient_categories import normalize_patient_category_name
 
 router = APIRouter(prefix="/labs", tags=["Labs"])
@@ -228,6 +232,20 @@ class UpdateLabTestRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+def _serialize_lab_test(test: LabTest) -> dict:
+    return {
+        "id": test.id,
+        "lab_id": test.lab_id,
+        "name": test.name,
+        "code": test.code,
+        "category": test.category,
+        "description": test.description,
+        "sample_type": test.sample_type,
+        "turnaround_time": test.turnaround_time,
+        "is_active": test.is_active,
+    }
+
+
 @router.get("/{lab_id}/tests")
 async def list_lab_tests(
     lab_id: str,
@@ -242,17 +260,7 @@ async def list_lab_tests(
     )
     tests = result.scalars().all()
     return [
-        {
-            "id": t.id,
-            "lab_id": t.lab_id,
-            "name": t.name,
-            "code": t.code,
-            "category": t.category,
-            "description": t.description,
-            "sample_type": t.sample_type,
-            "turnaround_time": t.turnaround_time,
-            "is_active": t.is_active,
-        }
+        _serialize_lab_test(t)
         for t in tests
     ]
 
@@ -282,19 +290,12 @@ async def create_lab_test(
         is_active=data.is_active,
     )
     db.add(test)
+    await db.flush()
+    await sync_charge_sources(db)
+    await sync_charge_price_categories(db)
     await db.commit()
     await db.refresh(test)
-    return {
-        "id": test.id,
-        "lab_id": test.lab_id,
-        "name": test.name,
-        "code": test.code,
-        "category": test.category,
-        "description": test.description,
-        "sample_type": test.sample_type,
-        "turnaround_time": test.turnaround_time,
-        "is_active": test.is_active,
-    }
+    return _serialize_lab_test(test)
 
 
 @router.put("/{lab_id}/tests/{test_id}")
@@ -328,19 +329,12 @@ async def update_lab_test(
     if data.is_active is not None:
         test.is_active = data.is_active
 
+    await db.flush()
+    await sync_charge_sources(db)
+    await sync_charge_price_categories(db)
     await db.commit()
     await db.refresh(test)
-    return {
-        "id": test.id,
-        "lab_id": test.lab_id,
-        "name": test.name,
-        "code": test.code,
-        "category": test.category,
-        "description": test.description,
-        "sample_type": test.sample_type,
-        "turnaround_time": test.turnaround_time,
-        "is_active": test.is_active,
-    }
+    return _serialize_lab_test(test)
 
 
 @router.delete("/{lab_id}/tests/{test_id}")
@@ -359,6 +353,8 @@ async def delete_lab_test(
         raise NotFoundException("Lab test not found")
 
     await db.delete(test)
+    await db.flush()
+    await sync_charge_sources(db)
     await db.commit()
     return {"message": "Lab test deleted successfully"}
 
@@ -379,6 +375,20 @@ class UpdateLabTestGroupRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+def _serialize_lab_test_group(group: LabTestGroup) -> dict:
+    return {
+        "id": group.id,
+        "lab_id": group.lab_id,
+        "name": group.name,
+        "description": group.description,
+        "is_active": group.is_active,
+        "tests": [
+            {"id": t.id, "name": t.name, "code": t.code, "category": t.category}
+            for t in group.tests
+        ],
+    }
+
+
 @router.get("/{lab_id}/groups")
 async def list_lab_test_groups(
     lab_id: str,
@@ -394,17 +404,7 @@ async def list_lab_test_groups(
     )
     groups = result.scalars().all()
     return [
-        {
-            "id": g.id,
-            "lab_id": g.lab_id,
-            "name": g.name,
-            "description": g.description,
-            "is_active": g.is_active,
-            "tests": [
-                {"id": t.id, "name": t.name, "code": t.code, "category": t.category}
-                for t in g.tests
-            ],
-        }
+        _serialize_lab_test_group(g)
         for g in groups
     ]
 
@@ -431,7 +431,7 @@ async def create_lab_test_group(
         is_active=data.is_active,
     )
     db.add(group)
-    await db.commit()
+    await db.flush()
     
     # Now add tests to the committed group
     if data.test_ids:
@@ -449,7 +449,11 @@ async def create_lab_test_group(
         )
         tests = result.scalars().all()
         group.tests = list(tests)
-        await db.commit()
+        await db.flush()
+
+    await sync_charge_sources(db)
+    await sync_charge_price_categories(db)
+    await db.commit()
     
     # Reload with tests for response
     result = await db.execute(
@@ -459,17 +463,7 @@ async def create_lab_test_group(
     )
     group = result.scalar_one()
     
-    return {
-        "id": group.id,
-        "lab_id": group.lab_id,
-        "name": group.name,
-        "description": group.description,
-        "is_active": group.is_active,
-        "tests": [
-            {"id": t.id, "name": t.name, "code": t.code, "category": t.category}
-            for t in group.tests
-        ],
-    }
+    return _serialize_lab_test_group(group)
 
 
 @router.put("/{lab_id}/groups/{group_id}")
@@ -503,6 +497,9 @@ async def update_lab_test_group(
         tests = result.scalars().all()
         group.tests = list(tests)
 
+    await db.flush()
+    await sync_charge_sources(db)
+    await sync_charge_price_categories(db)
     group_id = group.id  # Store ID before commit
     await db.commit()
     
@@ -514,17 +511,7 @@ async def update_lab_test_group(
     )
     group = result.scalar_one()
     
-    return {
-        "id": group.id,
-        "lab_id": group.lab_id,
-        "name": group.name,
-        "description": group.description,
-        "is_active": group.is_active,
-        "tests": [
-            {"id": t.id, "name": t.name, "code": t.code, "category": t.category}
-            for t in group.tests
-        ],
-    }
+    return _serialize_lab_test_group(group)
 
 
 @router.delete("/{lab_id}/groups/{group_id}")
@@ -543,6 +530,8 @@ async def delete_lab_test_group(
         raise NotFoundException("Test group not found")
 
     await db.delete(group)
+    await db.flush()
+    await sync_charge_sources(db)
     await db.commit()
     return {"message": "Test group deleted successfully"}
 
@@ -629,9 +618,6 @@ async def list_charge_items(
     current_user: User = Depends(get_current_user),
 ):
     """List all charge items, optionally filtered by category"""
-    await sync_charge_sources(db)
-    await sync_charge_price_categories(db)
-
     query = select(ChargeItem).options(selectinload(ChargeItem.prices))
     if category:
         query = query.where(ChargeItem.category == ChargeCategory(category))
@@ -741,8 +727,6 @@ async def update_charge_item(
             price=normalized_prices.get(category_name, 0),
         )
         db.add(price_obj)
-
-    await sync_charge_price_categories(db, [item])
 
     item_id = item.id  # Store ID before commit
     await db.commit()

@@ -154,7 +154,9 @@
 			for (const insurance of insuranceItems) {
 				for (const patientCat of insurance.patient_categories) {
 					const walkInType = `WALKIN_${patientCat.name.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
-					const config = insurance.clinic_configs.find(c => c.walk_in_type === walkInType);
+					// Prefer configs from clinics that explicitly serve this walk-in type
+					const configsForType = insurance.clinic_configs.filter(c => c.walk_in_type === walkInType);
+					const config = configsForType.find(c => c.clinic_walk_in_types?.includes(walkInType)) || configsForType[0];
 					const key = `${insurance.id}::${patientCat.id}`;
 					if (config) {
 						fees[key] = config.registration_fee;

@@ -412,7 +412,7 @@ async def get_student_case_records(
     if patient_id:
         query = query.where(CaseRecord.patient_id == patient_id)
     result = await db.execute(
-        query.order_by(CaseRecord.date.desc())
+        query.options(selectinload(CaseRecord.approval).selectinload(Approval.faculty)).order_by(CaseRecord.date.desc())
     )
     records = result.scalars().all()
 
@@ -436,6 +436,7 @@ async def get_student_case_records(
             "provider": r.provider,
             "status": r.status,
             "approved_by": r.approved_by,
+            "approver_name": r.approval.faculty.name if r.approval and r.approval.faculty else None,
             "approved_at": r.approved_at,
             "created_by_name": r.created_by_name,
             "created_by_role": r.created_by_role,

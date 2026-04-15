@@ -8,11 +8,11 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
+	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
-	const fieldTypes: FormFieldType[] = ['text', 'textarea', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis'];
+	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis'];
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
 		ADMISSION: 'CLINICAL',
@@ -189,7 +189,7 @@
 		return {
 			key: '',
 			label: '',
-			type: 'text',
+			type: 'textarea',
 			required: false,
 			placeholder: ''
 		};
@@ -239,6 +239,7 @@
 	function openCreateFormEditor(section: FormSection = activeSection) {
 		resetFormEditor();
 		formEditorSection = section;
+		formEditorType = section;
 		activeSection = section;
 		showFormEditor = true;
 		addFormField();
@@ -592,15 +593,12 @@
 		const payload: FormDefinitionPayload = {
 			name: formEditorName.trim(),
 			section: formEditorSection,
+			form_type: formEditorType || formEditorSection,
 			fields: nextFields,
 			rules: formEditorRules.length > 0 ? formEditorRules : undefined,
 			sort_order: formEditorSortOrder,
 			is_active: formEditorIsActive,
 		};
-
-		if (formEditorType) {
-			payload.form_type = formEditorType;
-		}
 
 		savingForm = true;
 		formSaveError = '';
@@ -690,9 +688,9 @@
 {/snippet}
 
 {#snippet formEditorHeader()}
-	<div class="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
+	<div class="form-editor-header-shell">
 		<div class="min-w-0 flex-1">
-			<p class="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Form Studio</p>
+			<p class="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-700">Form Studio</p>
 			{#if isEditingFormName}
 				<input
 					bind:this={formNameInput}
@@ -708,38 +706,35 @@
 							isEditingFormName = false;
 						}
 					}}
-					class="mt-1 w-full rounded-[14px] border border-slate-300 px-3 py-2 text-base font-bold text-slate-900 outline-none md:max-w-[360px]"
-					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+					class="mt-1 w-full rounded-[12px] border border-slate-300 px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none md:max-w-[420px]"
+					style="background: rgba(255,255,255,0.96); box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);"
 					placeholder="Untitled form"
 				/>
 			{:else}
 				<button
 					type="button"
 					onclick={startEditingFormName}
-					class="mt-1 inline-flex min-w-0 max-w-full flex-col items-start rounded-[14px] px-1 py-1 text-left cursor-pointer"
+					class="form-editor-name-trigger"
 				>
-					<span class="truncate text-base font-bold text-slate-900 md:text-lg">{formEditorName || 'Untitled Form'}</span>
-					<span class="text-[11px] text-slate-500">Click to rename</span>
+					<span class="truncate text-lg font-bold text-slate-950 md:text-[1.35rem]">{formEditorName || 'Untitled Form'}</span>
+					<span class="text-[11px] font-medium text-slate-500">Click to rename</span>
 				</button>
 			{/if}
 		</div>
 
-		<div class="flex flex-wrap items-center gap-2 md:justify-end">
-			<div class="rounded-[14px] border border-slate-200 px-2.5 py-2" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-				<p class="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Type</p>
-				<input
-					type="text"
-					placeholder="CLINICAL"
-					class="w-28 bg-transparent text-xs font-bold uppercase text-slate-800 outline-none"
-					bind:value={formEditorType}
-				/>
-			</div>
-
-			<div class="rounded-[14px] border border-slate-200 px-2.5 py-2" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-				<p class="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Section</p>
+		<div class="header-inline-bar">
+			<div class="header-inline-group">
+				<p class="header-inline-label">Category</p>
 				<select
-					class="w-28 cursor-pointer bg-transparent text-xs font-bold text-slate-800 outline-none"
+					class="inline-select"
 					bind:value={formEditorSection}
+					onchange={(event) => {
+						const value = (event.currentTarget as HTMLSelectElement).value;
+						formEditorSection = value;
+						if (!editingFormId) {
+							formEditorType = value;
+						}
+					}}
 				>
 					{#each sectionTabs as section}
 						<option value={section}>{section}</option>
@@ -747,27 +742,22 @@
 				</select>
 			</div>
 
-			<div class="rounded-[14px] border border-slate-200 px-2.5 py-2" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);">
-				<p class="mb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Sort</p>
-				<input
-					type="number"
-					min="0"
-					class="w-16 bg-transparent text-xs font-bold text-slate-800 outline-none"
-					value={formEditorSortOrder}
-					oninput={(event) => {
-						const value = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
-						formEditorSortOrder = Number.isFinite(value) && value >= 0 ? value : 0;
-					}}
-				/>
-			</div>
+			<span class="header-inline-divider" aria-hidden="true"></span>
 
 			<button
 				type="button"
+				role="switch"
+				aria-checked={formEditorIsActive}
+				aria-label="Toggle form active status"
 				onclick={() => (formEditorIsActive = !formEditorIsActive)}
-				class="rounded-[14px] border px-4 py-3 text-xs font-bold cursor-pointer"
-				style={`border-color: ${formEditorIsActive ? 'rgba(37,99,235,0.22)' : 'rgba(148,163,184,0.28)'}; background: ${formEditorIsActive ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'}; color: ${formEditorIsActive ? '#1d4ed8' : '#64748b'};`}
+				class="toggle-switch-shell header-inline-toggle cursor-pointer"
 			>
-				{formEditorIsActive ? 'Active' : 'Inactive'}
+				<span class="text-[11px] font-bold uppercase tracking-[0.12em]" style={`color: ${formEditorIsActive ? '#1d4ed8' : '#64748b'};`}>
+					{formEditorIsActive ? 'Active' : 'Inactive'}
+				</span>
+				<span class={`toggle-switch ${formEditorIsActive ? 'is-on' : ''}`} aria-hidden="true">
+					<span class="toggle-thumb"></span>
+				</span>
 			</button>
 		</div>
 	</div>
@@ -953,8 +943,8 @@
 	}
 
 	.form-tab-shell :global(.tab-bar--jiggle) {
-		border-color: rgba(226, 232, 240, 0.9);
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+		border-color: rgba(203, 213, 225, 0.9);
+		background: #f8fafc;
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 	}
 
@@ -964,8 +954,8 @@
 		width: max-content;
 		padding: 0.28rem;
 		border: 1px solid rgba(226, 232, 240, 0.9);
-		border-radius: 1.4rem;
-		background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.96));
+		border-radius: 0.9rem;
+		background: #f8fafc;
 		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
 	}
 
@@ -974,7 +964,7 @@
 		min-height: 2.7rem;
 		padding: 0.62rem 0.88rem;
 		border: 1px solid transparent;
-		border-radius: 1.1rem;
+		border-radius: 0.75rem;
 		background: transparent;
 		font-size: 0.84rem;
 		font-weight: 700;
@@ -1006,16 +996,16 @@
 		width: 100%;
 		padding: 0.75rem 0.85rem;
 		border: 1px solid rgba(226, 232, 240, 0.95);
-		border-radius: 1rem;
-		background: linear-gradient(to bottom, #ffffff, #f8fafc);
-		box-shadow: 0 8px 16px rgba(15, 23, 42, 0.04);
+		border-radius: 0.8rem;
+		background: #ffffff;
+		box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
 		transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background 140ms ease, opacity 140ms ease;
 	}
 
 	.drag-sort-row.is-selected {
-		border-color: rgba(37, 99, 235, 0.3);
-		background: linear-gradient(to bottom, #eff6ff, #dbeafe);
-		box-shadow: 0 10px 20px rgba(37, 99, 235, 0.12);
+		border-color: rgba(37, 99, 235, 0.42);
+		background: #eef4ff;
+		box-shadow: 0 6px 14px rgba(37, 99, 235, 0.12);
 	}
 
 	.drag-sort-row.is-drop-target {
@@ -1035,14 +1025,170 @@
 		flex: 0 0 auto;
 		width: 1.75rem;
 		height: 1.75rem;
-		border-radius: 999px;
-		background: rgba(148, 163, 184, 0.12);
+		border-radius: 0.6rem;
+		background: rgba(148, 163, 184, 0.1);
 		color: #64748b;
+	}
+
+	.studio-card {
+		border: 1px solid rgba(203, 213, 225, 0.95);
+		border-radius: 0.9rem;
+		background: #ffffff;
+		box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+	}
+
+	.studio-subcard {
+		border: 1px solid rgba(203, 213, 225, 0.95);
+		border-radius: 0.75rem;
+		background: #f8fafc;
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+	}
+
+	.form-editor-header-shell {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		width: 100%;
+	}
+
+	.form-editor-name-trigger {
+		display: inline-flex;
+		min-width: 0;
+		max-width: 100%;
+		flex-direction: column;
+		align-items: flex-start;
+		padding: 0.15rem 0;
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.header-inline-bar {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.9rem;
+		padding: 0.45rem 0.55rem 0.45rem 0.85rem;
+		border: 1px solid rgba(203, 213, 225, 0.95);
+		border-radius: 1.1rem;
+		background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.96));
+		box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08), inset 0 1px 0 rgba(255,255,255,0.9);
+	}
+
+	.header-inline-group {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.8rem;
+		min-width: 0;
+	}
+
+	.header-inline-label {
+		margin: 0;
+		font-size: 0.66rem;
+		font-weight: 800;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: #1d4ed8;
+		white-space: nowrap;
+	}
+
+	.header-inline-divider {
+		width: 1px;
+		height: 2rem;
+		background: linear-gradient(180deg, rgba(203,213,225,0), rgba(203,213,225,0.9), rgba(203,213,225,0));
+	}
+
+	.inline-select {
+		width: 9rem;
+		padding: 0.65rem 0.85rem;
+		border: 1px solid rgba(148, 163, 184, 0.32);
+		border-radius: 0.9rem;
+		background: #ffffff;
+		font-size: 0.78rem;
+		font-weight: 700;
+		color: #0f172a;
+		outline: none;
+		cursor: pointer;
+		box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);
+	}
+
+	.header-inline-toggle {
+		gap: 0.8rem;
+		padding: 0.2rem 0.15rem 0.2rem 0;
+		border: 0;
+		box-shadow: none;
+		background: transparent;
+	}
+
+	.toggle-switch-shell {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.65rem 0.8rem;
+		border: 1px solid rgba(203, 213, 225, 0.95);
+		border-radius: 0.75rem;
+		background: #ffffff;
+		box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+	}
+
+	.toggle-switch {
+		position: relative;
+		display: inline-flex;
+		align-items: center;
+		width: 2.8rem;
+		height: 1.6rem;
+		padding: 0.14rem;
+		border-radius: 999px;
+		background: #cbd5e1;
+		transition: background 140ms ease;
+	}
+
+	.toggle-switch.is-on {
+		background: #2563eb;
+	}
+
+	.toggle-thumb {
+		width: 1.3rem;
+		height: 1.3rem;
+		border-radius: 999px;
+		background: #ffffff;
+		box-shadow: 0 2px 6px rgba(15, 23, 42, 0.24);
+		transition: transform 140ms ease;
+	}
+
+	.toggle-switch.is-on .toggle-thumb {
+		transform: translateX(1.18rem);
 	}
 
 	@media (min-width: 768px) {
 		.form-tab-scroll {
 			max-width: 620px;
+		}
+	}
+
+	@media (max-width: 767px) {
+		.form-editor-header-shell {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.header-inline-bar {
+			width: 100%;
+			justify-content: space-between;
+			flex-wrap: wrap;
+			gap: 0.8rem;
+		}
+
+		.header-inline-group {
+			flex: 1 1 auto;
+		}
+
+		.inline-select {
+			width: 100%;
+			max-width: 10rem;
+		}
+
+		.header-inline-divider {
+			display: none;
 		}
 	}
 </style>
@@ -1054,22 +1200,19 @@
 		panelClass="sm:max-w-[1320px]"
 		contentClass="p-0"
 	>
-		<div class="px-3.5 py-3.5 md:px-4 md:py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb); max-height: calc(100vh - 8rem);">
+		<div class="px-3.5 py-3.5 md:px-4 md:py-4" style="background: #f3f6fb; max-height: calc(100vh - 8rem);">
 			{#if formSaveError}
 				<div class="mb-4 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
 			{/if}
 
 			<div class="space-y-4 overflow-y-auto pr-1">
 				<div class="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_minmax(0,1.1fr)]">
-					<div class="rounded-[22px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(248,250,252,0.96)); box-shadow: 0 12px 24px rgba(15,23,42,0.05);">
+					<div class="studio-card p-3.5">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
 								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Fields Overview</p>
 								<p class="mt-1 text-xs text-slate-500">Drag to reorder. Tap a row to edit.</p>
 							</div>
-							<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
-								{formEditorFields.length} FIELD{formEditorFields.length === 1 ? '' : 'S'}
-							</span>
 						</div>
 
 						<div class="space-y-1.5" role="list" aria-label="Form fields">
@@ -1105,7 +1248,7 @@
 							<button
 								type="button"
 								onclick={addFormField}
-								class="w-full rounded-[18px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
+								class="w-full rounded-[12px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
 								style="background: rgba(255,255,255,0.55);"
 							>
 								<Plus class="mr-1.5 inline-block h-3.5 w-3.5" />
@@ -1114,7 +1257,7 @@
 						</div>
 					</div>
 
-					<div class="rounded-[22px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(248,250,252,0.96)); box-shadow: 0 12px 24px rgba(15,23,42,0.05);">
+					<div class="studio-card p-3.5">
 						{#if selectedField}
 							{@const availableFields = getAvailableConditionFields(selectedFieldIndex)}
 							<div class="mb-3 flex items-start justify-between gap-3">
@@ -1126,9 +1269,10 @@
 								<button
 									type="button"
 									onclick={() => removeFormField(selectedFieldIndex)}
-									class="rounded-full border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 cursor-pointer"
-									style="background: linear-gradient(to bottom, #ffffff, #fff1f2);"
+									class="inline-flex items-center gap-1.5 rounded-[10px] border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 cursor-pointer"
+									style="background: #fff5f5; box-shadow: 0 4px 10px rgba(239,68,68,0.08);"
 								>
+									<Trash2 class="h-3.5 w-3.5" />
 									Remove
 								</button>
 							</div>
@@ -1139,8 +1283,8 @@
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Label</p>
 										<input
 											type="text"
-											class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
+											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 											value={selectedField.label}
 											oninput={(event) => updateFieldLabel(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
 										/>
@@ -1150,8 +1294,8 @@
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Key</p>
 										<input
 											type="text"
-											class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
+											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 											value={selectedField.key}
 											oninput={(event) => updateFieldKey(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
 										/>
@@ -1161,8 +1305,8 @@
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Type</p>
 										<select
-											class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer"
-											style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer"
+											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 											value={selectedField.type}
 											onchange={(event) => updateFieldType(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}
 										>
@@ -1176,11 +1320,18 @@
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Required</p>
 										<button
 											type="button"
+											role="switch"
+											aria-checked={selectedField.required}
+											aria-label="Toggle required field"
 											onclick={() => updateFieldRequired(selectedFieldIndex, !selectedField.required)}
-											class="w-full rounded-[14px] border px-3 py-2.5 text-sm font-bold cursor-pointer"
-											style={`border-color: ${selectedField.required ? 'rgba(37,99,235,0.22)' : 'rgba(226,232,240,0.95)'}; background: ${selectedField.required ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'}; color: ${selectedField.required ? '#1d4ed8' : '#64748b'};`}
+											class="toggle-switch-shell w-full justify-between cursor-pointer"
 										>
-											{selectedField.required ? 'Required Field' : 'Optional Field'}
+											<span class="text-sm font-bold" style={`color: ${selectedField.required ? '#1d4ed8' : '#64748b'};`}>
+												{selectedField.required ? 'Required' : 'Optional'}
+											</span>
+											<span class={`toggle-switch ${selectedField.required ? 'is-on' : ''}`} aria-hidden="true">
+												<span class="toggle-thumb"></span>
+											</span>
 										</button>
 									</div>
 								</div>
@@ -1189,8 +1340,8 @@
 									<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Placeholder</p>
 									<input
 										type="text"
-										class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-										style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+										class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
+										style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 										value={selectedField.placeholder || ''}
 										oninput={(event) => updateFieldProperty(selectedFieldIndex, 'placeholder', (event.currentTarget as HTMLInputElement).value)}
 									/>
@@ -1200,15 +1351,15 @@
 									<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Help Text</p>
 									<textarea
 										rows="2"
-										class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none resize-y"
-										style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+										class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none resize-y"
+										style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 										value={selectedField.help_text || ''}
 										oninput={(event) => updateFieldProperty(selectedFieldIndex, 'help_text', (event.currentTarget as HTMLTextAreaElement).value)}
 									></textarea>
 								</div>
 
 								{#if selectedField.type === 'select'}
-									<div class="rounded-[18px] border border-slate-200 p-3" style="background: linear-gradient(to bottom, rgba(248,250,252,0.95), rgba(241,245,249,0.95));">
+									<div class="studio-subcard p-3">
 										<div class="flex items-center justify-between gap-3">
 											<div>
 												<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Options</p>
@@ -1217,8 +1368,8 @@
 											<button
 												type="button"
 												onclick={() => addFieldOption(selectedFieldIndex)}
-												class="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
-												style="background: linear-gradient(to bottom, #ffffff, #f8fafc);"
+												class="rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
+												style="background: #ffffff; box-shadow: 0 4px 10px rgba(15,23,42,0.06);"
 											>
 												<Plus class="mr-1 inline-block h-3.5 w-3.5" />
 												Add Option
@@ -1243,8 +1394,8 @@
 														<input
 															type="text"
 															placeholder={`Option ${optionIndex + 1}`}
-															class="min-w-0 flex-1 rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-															style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+															class="min-w-0 flex-1 rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
+															style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 															value={option}
 															oninput={(event) => updateFieldOption(selectedFieldIndex, optionIndex, (event.currentTarget as HTMLInputElement).value)}
 														/>
@@ -1263,7 +1414,7 @@
 											<button
 												type="button"
 												onclick={() => addFieldOption(selectedFieldIndex)}
-												class="mt-3 w-full rounded-[14px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
+												class="mt-3 w-full rounded-[10px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
 												style="background: rgba(255,255,255,0.55);"
 											>
 												Add first option
@@ -1278,8 +1429,8 @@
 										<input
 											type="number"
 											min="1"
-											class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
+											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 											value={selectedField.rows ?? 3}
 											oninput={(event) => {
 												const parsed = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
@@ -1296,8 +1447,8 @@
 											<input
 												type="text"
 												placeholder=".pdf,.jpg,image/*"
-												class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-												style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+												class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
+												style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
 												value={selectedField.accept || ''}
 												oninput={(event) => updateFieldProperty(selectedFieldIndex, 'accept', (event.currentTarget as HTMLInputElement).value)}
 											/>
@@ -1307,17 +1458,24 @@
 											<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Upload Mode</p>
 											<button
 												type="button"
+												role="switch"
+												aria-checked={selectedField.multiple}
+												aria-label="Toggle multiple file uploads"
 												onclick={() => updateFieldProperty(selectedFieldIndex, 'multiple', !selectedField.multiple)}
-												class="w-full rounded-[14px] border px-3 py-2.5 text-sm font-bold cursor-pointer"
-												style={`border-color: ${selectedField.multiple ? 'rgba(37,99,235,0.22)' : 'rgba(226,232,240,0.95)'}; background: ${selectedField.multiple ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'}; color: ${selectedField.multiple ? '#1d4ed8' : '#64748b'};`}
+												class="toggle-switch-shell w-full justify-between cursor-pointer"
 											>
-												{selectedField.multiple ? 'Multiple Files' : 'Single File'}
+												<span class="text-sm font-bold" style={`color: ${selectedField.multiple ? '#1d4ed8' : '#64748b'};`}>
+													{selectedField.multiple ? 'Multiple Files' : 'Single File'}
+												</span>
+												<span class={`toggle-switch ${selectedField.multiple ? 'is-on' : ''}`} aria-hidden="true">
+													<span class="toggle-thumb"></span>
+												</span>
 											</button>
 										</div>
 									</div>
 								{/if}
 
-								<div class="rounded-[18px] border border-slate-200 p-3" style="background: linear-gradient(to bottom, rgba(248,250,252,0.95), rgba(241,245,249,0.95));">
+								<div class="studio-subcard p-3">
 									<div class="mb-3">
 										<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Visibility Logic</p>
 										<p class="mt-1 text-xs text-slate-500">Simple field-level visibility is configured here. Earlier fields can drive later fields.</p>
@@ -1406,7 +1564,7 @@
 						{/if}
 					</div>
 
-					<div class="rounded-[22px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(248,250,252,0.96)); box-shadow: 0 12px 24px rgba(15,23,42,0.05);">
+					<div class="studio-card p-3.5">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
 								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Live Preview</p>
@@ -1415,10 +1573,11 @@
 							<button
 								type="button"
 								onclick={() => (previewValues = {})}
-								class="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
-								style="background: linear-gradient(to bottom, #ffffff, #f8fafc);"
+								class="inline-flex items-center gap-1.5 rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
+								style="background: #ffffff; box-shadow: 0 4px 10px rgba(15,23,42,0.06);"
 							>
-								Reset Preview
+								<RotateCcw class="h-3.5 w-3.5" />
+								Reset
 							</button>
 						</div>
 
@@ -1428,7 +1587,7 @@
 							</div>
 						{/if}
 
-						<div class="rounded-[18px] border border-slate-200 p-3" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); min-height: 420px;">
+						<div class="rounded-[12px] border border-slate-300 p-3" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.06); min-height: 420px;">
 							{#if previewSchema.fields.length > 0}
 								<div class="space-y-3">
 									<DynamicFormRenderer

@@ -58,10 +58,6 @@ def _group_item_code(group: LabTestGroup) -> str:
     return _normalize_code('PANEL', group.name, f'GROUP_{group.id[:8]}')
 
 
-def _price_category_key(name: str | None) -> str:
-    return normalize_patient_category_name(name or '').casefold()
-
-
 def _base_prices(item: ChargeItem) -> dict[str, ChargePrice]:
     prices: dict[str, ChargePrice] = {}
     for price in item.prices:
@@ -156,7 +152,11 @@ def _upsert_charge_item(
         item.prices = []
         db.add(item)
         existing_items[key] = item
-    elif not is_active and item.is_active:
+    else:
+        item.item_code = item_code
+        item.name = name
+        item.category = category
+        item.description = description
         item.is_active = is_active
 
     _ensure_price_tiers(item, db, category_names)

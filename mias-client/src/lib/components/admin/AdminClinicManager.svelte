@@ -47,8 +47,7 @@
 		is_active: true
 	});
 	let savingClinic = $state(false);
-	// For ER type: multi-selected walk-in types
-	let erWalkInTypes = $state<string[]>([]);
+	let selectedWalkInTypes = $state<string[]>([]);
 
 	// When a ghost card triggers clinic creation, remember which insurance mapping to auto-create.
 	let pendingInsuranceConfig = $state<{
@@ -89,6 +88,9 @@
 			...walkInTypes,
 		];
 	});
+
+	const clinicSelectableWalkInTypes = $derived.by(() => clinicFormWalkInTypes.filter((item) => item.value !== 'NO_WALK_IN'));
+	const clinicSupportsWalkInTypes = $derived(clinicData.clinic_type !== 'IP');
 
 	const missingConfigCards = $derived.by<MissingConfigCard[]>(() => {
 		if (insuranceCategories.length === 0) return [];
@@ -150,7 +152,8 @@
 
 	const missingClinicCount = $derived.by(() => missingConfigCards.length);
 
-	function clinicAccessModeLabel(accessMode: ClinicInfo['access_mode']) {
+	function clinicAccessModeLabel(clinicType: string, accessMode: ClinicInfo['access_mode']) {
+		if ((clinicType || '').toUpperCase() === 'IP') return 'No Walk-In Clinic';
 		if (accessMode === 'APPOINTMENT_ONLY') return 'Appointment Only';
 		return 'Walk-In Clinic';
 	}
@@ -217,7 +220,7 @@
 		clinics.map((clinic) => ({
 			clinic,
 			description: [clinic.location, clinic.department, clinic.block].filter(Boolean).join(' • ') || 'Clinic service',
-			accessModeLabel: clinicAccessModeLabel(clinic.access_mode)
+			accessModeLabel: clinicAccessModeLabel(clinic.clinic_type, clinic.access_mode)
 		}))
 	);
 
@@ -273,7 +276,7 @@
 			location: '',
 			is_active: true
 		};
-		erWalkInTypes = [];
+		selectedWalkInTypes = [];
 		clinicModal = true;
 	}
 
@@ -289,8 +292,34 @@
 			location: clinic.location || '',
 			is_active: clinic.is_active ?? true
 		};
-		erWalkInTypes = clinic.walk_in_types?.length ? [...clinic.walk_in_types] : [];
+		selectedWalkInTypes = clinic.walk_in_types?.length
+			? [...clinic.walk_in_types]
+			: clinic.walk_in_type && clinic.walk_in_type !== 'NO_WALK_IN'
+				? [clinic.walk_in_type]
+				: [];
 		clinicModal = true;
+	}
+
+	function handleClinicTypeChange(nextType: string) {
+		clinicData.clinic_type = nextType;
+		if (nextType === 'IP') {
+			selectedWalkInTypes = [];
+			clinicData.walk_in_type = 'NO_WALK_IN';
+			return;
+		}
+
+		if (selectedWalkInTypes.length === 0 && clinicData.walk_in_type && clinicData.walk_in_type !== 'NO_WALK_IN') {
+			selectedWalkInTypes = [clinicData.walk_in_type];
+		}
+	}
+
+	function toggleWalkInType(value: string, checked: boolean) {
+		if (checked) {
+			selectedWalkInTypes = selectedWalkInTypes.includes(value) ? selectedWalkInTypes : [...selectedWalkInTypes, value];
+			return;
+		}
+
+		selectedWalkInTypes = selectedWalkInTypes.filter((item) => item !== value);
 	}
 
 	async function saveClinic() {
@@ -301,14 +330,23 @@
 
 		savingClinic = true;
 		try {
-		const isER = clinicData.clinic_type === 'ER';
-		const payload = {
-			name: clinicData.name.trim(),
-			block: clinicData.block.trim() || undefined,
-			clinic_type: clinicData.clinic_type,
-			access_mode: clinicData.access_mode,
-			walk_in_type: isER ? (erWalkInTypes[0] || 'NO_WALK_IN') : clinicData.walk_in_type,
-			walk_in_types: isER ? erWalkInTypes : undefined,
+			const usesMultiWalkInTypes = clinicData.clinic_type === 'ER' || clinicData.clinic_type === 'OP';
+			const normalizedWalkInTypes = usesMultiWalkInTypes ? selectedWalkInTypes.filter(Boolean) : [];
+			const payload = {
+				name: clinicData.name.trim(),
+				block: clinicData.block.trim() || undefined,
+				clinic_type: clinicData.clinic_type,
+				access_mode: clinicData.access_mode,
+				walk_in_type: clinicData.clinic_type === 'IP'
+					? 'NO_WALK_IN'
+					: usesMultiWalkInTypes
+						? (normalizedWalkInTypes[0] || 'NO_WALK_IN')
+						: clinicData.walk_in_type,
+				walk_in_types: clinicData.clinic_type === 'IP'
+					? []
+					: usesMultiWalkInTypes
+						? normalizedWalkInTypes
+						: undefined,
 				department: clinicData.department.trim() || undefined,
 				location: clinicData.location.trim() || undefined,
 				is_active: clinicData.is_active
@@ -460,7 +498,7 @@
 			location: '',
 			is_active: true
 		};
-		erWalkInTypes = [];
+		selectedWalkInTypes = [card.walkInType];
 		clinicModal = true;
 	}
 
@@ -532,7 +570,7 @@
 							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
 								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{item.accessModeLabel}</span>
-								{#if item.clinic.clinic_type === 'ER' && item.clinic.walk_in_types?.length}
+								{#if item.clinic.clinic_type !== 'IP' && item.clinic.walk_in_types?.length}
 									{#each item.clinic.walk_in_types as wt}
 										<span class="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{walkInTypeToLabel(wt)}</span>
 									{/each}
@@ -666,6 +704,7 @@
 					<select
 						id="clinic-type"
 						bind:value={clinicData.clinic_type}
+						onchange={(event) => handleClinicTypeChange((event.currentTarget as HTMLSelectElement).value)}
 						class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
 					>
 						{#each clinicTypeOptions as clinicType}
@@ -699,51 +738,32 @@
 				</div>
 			</div>
 
-			<!-- Walk-in Type -->
-			<div class="border-t border-gray-200 pt-4 mt-2">
-				{#if clinicData.clinic_type === 'ER'}
+			{#if clinicSupportsWalkInTypes}
+				<div class="border-t border-gray-200 pt-4 mt-2">
 					<p class="block text-sm font-medium text-gray-700 mb-2">Walk-in Types <span class="text-xs text-gray-500">(select one or more)</span></p>
 					<div class="space-y-2 rounded-lg border border-gray-200 p-3 max-h-48 overflow-y-auto">
-						{#each clinicFormWalkInTypes.filter(t => t.value !== 'NO_WALK_IN') as type}
+						{#each clinicSelectableWalkInTypes as type}
 							<label class="flex items-center gap-2.5 cursor-pointer">
 								<input
 									type="checkbox"
 									class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-									checked={erWalkInTypes.includes(type.value)}
-									onchange={(e) => {
-										if ((e.target as HTMLInputElement).checked) {
-											erWalkInTypes = [...erWalkInTypes, type.value];
-										} else {
-											erWalkInTypes = erWalkInTypes.filter(v => v !== type.value);
-										}
-									}}
+									checked={selectedWalkInTypes.includes(type.value)}
+									onchange={(event) => toggleWalkInType(type.value, (event.target as HTMLInputElement).checked)}
 								/>
 								<span class="text-sm text-gray-700">{type.label}</span>
 							</label>
 						{/each}
-						{#if clinicFormWalkInTypes.filter(t => t.value !== 'NO_WALK_IN').length === 0}
+						{#if clinicSelectableWalkInTypes.length === 0}
 							<p class="text-xs text-gray-400 italic">No walk-in types configured. Add patient categories first.</p>
 						{/if}
 					</div>
-					{#if erWalkInTypes.length > 0}
-						<p class="mt-1.5 text-xs text-blue-600 font-medium">{erWalkInTypes.length} type{erWalkInTypes.length !== 1 ? 's' : ''} selected</p>
+					{#if selectedWalkInTypes.length > 0}
+						<p class="mt-1.5 text-xs text-blue-600 font-medium">{selectedWalkInTypes.length} type{selectedWalkInTypes.length !== 1 ? 's' : ''} selected</p>
 					{:else}
-						<p class="mt-1 text-xs text-amber-500">No types selected — ER clinic will accept all walk-in types</p>
+						<p class="mt-1 text-xs text-amber-500">No types selected</p>
 					{/if}
-				{:else}
-					<label for="walk-in-type" class="block text-sm font-medium text-gray-700 mb-2">Walk-in Type</label>
-					<select
-						id="walk-in-type"
-						bind:value={clinicData.walk_in_type}
-						class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-					>
-						{#each clinicFormWalkInTypes as type}
-							<option value={type.value}>{type.label}</option>
-						{/each}
-					</select>
-					<p class="mt-1 text-xs text-gray-500">The walk-in type for this clinic</p>
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			<label class="flex items-center gap-2 text-sm text-gray-700 mt-4">
 				<input

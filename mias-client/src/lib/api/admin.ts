@@ -144,6 +144,23 @@ export interface VitalParameter {
   sort_order: number;
 }
 
+export interface ICDCodeRecord {
+  id: string;
+  code: string;
+  description: string;
+  category: string;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ICDCodeCreate {
+  code: string;
+  description: string;
+  category?: string;
+  is_active?: boolean;
+}
+
 export interface VitalParameterCreate {
   name: string;
   display_name: string;
@@ -363,6 +380,26 @@ export const adminApi = {
 
   async deletePatientCategory(categoryId: string): Promise<{ message: string }> {
     const r = await client.delete(`/admin/patient-categories/${categoryId}`);
+    return r.data;
+  },
+
+  async getICDCodes(params?: { search?: string; include_inactive?: boolean }): Promise<ICDCodeRecord[]> {
+    const r = await client.get('/admin/icd-codes', { params });
+    return r.data;
+  },
+
+  async createICDCode(data: ICDCodeCreate): Promise<ICDCodeRecord> {
+    const r = await client.post('/admin/icd-codes', data);
+    return r.data;
+  },
+
+  async updateICDCode(icdId: string, data: Partial<ICDCodeCreate>): Promise<ICDCodeRecord> {
+    const r = await client.patch(`/admin/icd-codes/${icdId}`, data);
+    return r.data;
+  },
+
+  async deleteICDCode(icdId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/icd-codes/${icdId}`);
     return r.data;
   },
 

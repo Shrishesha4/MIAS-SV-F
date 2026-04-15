@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { BrainCircuit, UsersRound, CreditCard } from 'lucide-svelte';
+	import { BrainCircuit, UsersRound, CreditCard, FileText } from 'lucide-svelte';
 
 	interface Props {
-		activeTab: 'patients' | 'ai' | 'insurance';
+		activeTab: 'patients' | 'icd' | 'ai' | 'insurance';
 	}
 
 	let { activeTab }: Props = $props();
 
 	const tabs = [
 		{ id: 'patients', label: 'Patients', icon: UsersRound },
+		{ id: 'icd', label: 'ICD Codes', icon: FileText },
 		{ id: 'insurance', label: 'Insurance', icon: CreditCard },
 		{ id: 'ai', label: 'AI', icon: BrainCircuit },
 	];

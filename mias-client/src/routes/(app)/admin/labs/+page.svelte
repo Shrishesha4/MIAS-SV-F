@@ -185,7 +185,11 @@
 
 	function openTestModal() {
 		editingTest = null;
-		testData = { name: '', code: '', category: 'Hematology' };
+		testData = {
+			name: '',
+			code: '',
+			category: 'Hematology'
+		};
 		testModal = true;
 	}
 
@@ -204,13 +208,19 @@
 			toastStore.addToast('Name and code are required', 'error');
 			return;
 		}
+
 		savingTest = true;
 		try {
+			const payload = {
+				name: testData.name.trim(),
+				code: testData.code.trim(),
+				category: testData.category.trim(),
+			};
 			if (editingTest) {
-				await labsApi.updateTest(configLab.id, editingTest.id, testData);
+				await labsApi.updateTest(configLab.id, editingTest.id, payload);
 				toastStore.addToast('Test updated successfully', 'success');
 			} else {
-				await labsApi.createTest(configLab.id, testData);
+				await labsApi.createTest(configLab.id, payload);
 				toastStore.addToast('Test created successfully', 'success');
 			}
 			testModal = false;
@@ -276,13 +286,18 @@
 			toastStore.addToast('Group name is required', 'error');
 			return;
 		}
+
 		savingGroup = true;
 		try {
+			const payload = {
+				name: groupData.name.trim(),
+				test_ids: groupData.test_ids,
+			};
 			if (editingGroup) {
-				await labsApi.updateGroup(configLab.id, editingGroup.id, groupData);
+				await labsApi.updateGroup(configLab.id, editingGroup.id, payload);
 				toastStore.addToast('Group updated successfully', 'success');
 			} else {
-				await labsApi.createGroup(configLab.id, groupData);
+				await labsApi.createGroup(configLab.id, payload);
 				toastStore.addToast('Group created successfully', 'success');
 			}
 			groupModal = false;

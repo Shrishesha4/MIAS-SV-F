@@ -17,6 +17,7 @@ export interface ClinicConfig {
   id: string;
   clinic_id: string;
   clinic_name: string;
+  clinic_walk_in_types: string[];  // walk_in_types array from the clinic
   walk_in_type: string;
   walk_in_label: string;
   registration_fee: number;

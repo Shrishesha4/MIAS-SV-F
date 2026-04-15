@@ -132,6 +132,7 @@ class ClinicConfigResponse(BaseModel):
     id: str
     clinic_id: str
     clinic_name: str
+    clinic_walk_in_types: List[str]  # walk_in_types array from the clinic
     walk_in_type: str
     walk_in_label: str
     registration_fee: float
@@ -258,10 +259,14 @@ async def list_insurance_categories(
     for cat in categories:
         clinic_configs = []
         for config in cat.clinic_configs:
+            clinic_walk_in_types = []
+            if config.clinic:
+                clinic_walk_in_types = config.clinic.walk_in_types or []
             clinic_configs.append(ClinicConfigResponse(
                 id=config.id,
                 clinic_id=config.clinic_id,
                 clinic_name=config.clinic.name if config.clinic else "Unknown",
+                clinic_walk_in_types=clinic_walk_in_types,
                 walk_in_type=config.walk_in_type,
                 walk_in_label=await get_walk_in_type_label(db, config.walk_in_type),
                 registration_fee=config.registration_fee,

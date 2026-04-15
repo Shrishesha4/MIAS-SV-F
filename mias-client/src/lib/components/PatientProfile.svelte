@@ -46,7 +46,7 @@
 	import { Chart, registerables } from 'chart.js';
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
-		CheckCircle2, ChevronDown, ChevronRight, User, Users,
+		CheckCircle2, ChevronDown, ChevronRight, User,
 		Thermometer, Droplet, Activity, Scale, Wind, CircleDot,
 		Phone, Mail, MapPin, Shield, Edit, X,
 		Trash2, CheckCircle, Send, History, ClipboardList, TestTube,
@@ -127,6 +127,8 @@
 	let showDiagnosisHistory = $state(false);
 	let newDiagnosis = $state('');
 	let diagnosisSubmitting = $state(false);
+	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
+	let diagnosisSearchLoading = $state(false);
 
 	// ── Case Record form ──────────────────────────────────────────
 	let selectedCrFormId = $state('');
@@ -603,6 +605,14 @@
 		if (grade.startsWith('B')) return '#3b82f6';
 		if (grade.startsWith('C')) return '#f97316';
 		return '#ef4444';
+	}
+
+	function caseRecordRequesterName(record: any) {
+		return record.created_by_name || record.provider || '—';
+	}
+
+	function caseRecordApproverName(record: any) {
+		return record.approved_by || record.approver_name || record.approver || 'Faculty';
 	}
 
 	function patientAge(): number {
@@ -1352,6 +1362,31 @@
 	}
 
 	// ── Primary Diagnosis ─────────────────────────────────────────
+	async function handleDiagnosisSearch(query: string) {
+		if (query.length < 2) {
+			diagnosisSuggestions = [];
+			return;
+		}
+		diagnosisSearchLoading = true;
+		try {
+			diagnosisSuggestions = await autocompleteApi.searchDiagnoses(query);
+		} catch {
+			diagnosisSuggestions = [];
+		} finally {
+			diagnosisSearchLoading = false;
+		}
+	}
+
+	function handleDiagnosisSelect(item: DiagnosisSuggestion) {
+		newDiagnosis = item.text;
+		diagnosisSuggestions = [];
+	}
+
+	function handleDiagnosisClear() {
+		newDiagnosis = '';
+		diagnosisSuggestions = [];
+	}
+
 	async function updateDiagnosis() {
 		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
 		if (studentReadOnly) return;
@@ -1360,12 +1395,13 @@
 			const now = new Date();
 			await patientApi.updatePrimaryDiagnosis(patient.id, {
 				diagnosis: newDiagnosis.trim(),
-				doctor: studentData?.name || '',
+				doctor: studentData?.name || facultyData?.name || 'Clinical Staff',
 				date: now.toLocaleDateString(),
 				time: now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
 			});
 			patient = await patientApi.getPatient(patient.id);
 			newDiagnosis = '';
+			diagnosisSuggestions = [];
 			showDiagnosisInput = false;
 		} catch (err) { console.error('Failed to update diagnosis', err); }
 		finally { diagnosisSubmitting = false; }
@@ -1375,6 +1411,7 @@
 		if (diagnosisPanelOpen) {
 			showDiagnosisInput = false;
 			showDiagnosisHistory = false;
+			diagnosisSuggestions = [];
 			return;
 		}
 
@@ -1389,6 +1426,8 @@
 
 		const nextState = !showDiagnosisInput;
 		showDiagnosisInput = nextState;
+		newDiagnosis = nextState ? (patient?.primary_diagnosis || '') : '';
+		diagnosisSuggestions = [];
 		showDiagnosisHistory = nextState || showDiagnosisHistory;
 	}
 </script>
@@ -1538,11 +1577,25 @@
 					<div class="mt-4 space-y-3 overflow-hidden" transition:slide={{ duration: 260 }}>
 						{#if showDiagnosisInput}
 							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
-								<div class="flex gap-2 items-center">
-									<input type="text" bind:value={newDiagnosis} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none transition-shadow duration-200 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.12)]" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter diagnosis..." onkeydown={(e) => e.key === 'Enter' && updateDiagnosis()} />
-									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting}>Save</button>
-									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; }}>Close</button>
+								<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+									<div class="flex-1">
+										<Autocomplete
+											placeholder="Type disease name or ICD code"
+											bind:value={newDiagnosis}
+											items={diagnosisSuggestions}
+											loading={diagnosisSearchLoading}
+											labelKey="text"
+											badgeKey="category"
+											onInput={handleDiagnosisSearch}
+											onSelect={handleDiagnosisSelect}
+											onClear={handleDiagnosisClear}
+											minChars={2}
+										/>
+									</div>
+									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting || !newDiagnosis.trim()}>Save</button>
+									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; diagnosisSuggestions = []; }}>Close</button>
 								</div>
+								<p class="mt-2 text-[11px] font-medium text-slate-500">Suggestions match both ICD code and disease name. You can still save a manual diagnosis if the exact wording is not in the catalog.</p>
 							</div>
 						{/if}
 
@@ -1756,6 +1809,7 @@
 			{:else}
 				<div class="space-y-5">
 					{#each caseRecords as record}
+						{@const isApprovedRecord = !!record.approved_at}
 						<div class="pb-5 border-b border-gray-100 last:border-0 last:pb-0">
 							<div class="flex items-center gap-3 mb-2">
 								<div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
@@ -1783,20 +1837,23 @@
 								<p class="text-sm text-gray-700 mt-1"><strong>Diagnosis:</strong> {record.diagnosis || '—'}</p>
 								<p class="text-sm text-gray-700 mt-1"><strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}</p>
 							</div>
-							<div class="ml-12 mt-2 flex items-center justify-between text-xs">
-								<div class="text-gray-500">
-									<div class="flex items-center gap-1">
-										<User class="w-3 h-3" /> Provider: {record.provider || '—'}
-									</div>
-									<div class="flex items-center gap-1 mt-0.5">
-										<Users class="w-3 h-3" /> Approver: {record.approver || '—'}
-									</div>
+							<div class="ml-12 mt-2 flex flex-wrap items-center gap-2 text-xs">
+								<div
+									class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
+									style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(241,245,249,0.96)); border: 1px solid rgba(148,163,184,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.88);"
+								>
+									<User class="h-3.5 w-3.5 text-slate-400" />
+									<span class="font-semibold text-slate-500">Requested by</span>
+									<span class="font-semibold text-slate-700">{caseRecordRequesterName(record)}</span>
 								</div>
-								{#if record.approved_at}
-									<div class="text-right text-green-600 font-medium">
-										<p>{record.date}</p>
-									</div>
-								{/if}
+								<div
+									class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
+									style="background: {isApprovedRecord ? 'linear-gradient(to bottom, rgba(240,253,244,0.98), rgba(220,252,231,0.96))' : 'linear-gradient(to bottom, rgba(255,247,237,0.98), rgba(254,215,170,0.9))'}; border: 1px solid {isApprovedRecord ? 'rgba(34,197,94,0.2)' : 'rgba(249,115,22,0.2)'}; box-shadow: inset 0 1px 0 rgba(255,255,255,0.82);"
+								>
+									<Shield class="h-3.5 w-3.5" style="color: {isApprovedRecord ? '#16a34a' : '#ea580c'};" />
+									<span class="font-semibold" style="color: {isApprovedRecord ? '#15803d' : '#c2410c'};">{isApprovedRecord ? 'Approved by' : 'Approval pending by'}</span>
+									<span class="font-semibold" style="color: {isApprovedRecord ? '#166534' : '#9a3412'};">{caseRecordApproverName(record)}</span>
+								</div>
 							</div>
 						</div>
 					{/each}

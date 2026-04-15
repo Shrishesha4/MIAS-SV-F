@@ -36,3 +36,4 @@ from app.models.form_definition import FormDefinition
 from app.models.form_category import FormCategoryOption
 from app.models.ai_provider import AIProviderSettings, AIProviderType
 from app.models.insurance_category import InsuranceCategory, InsuranceClinicConfig
+from app.models.icd_code import ICDCode
