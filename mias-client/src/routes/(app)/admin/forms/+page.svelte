@@ -8,7 +8,7 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { ArrowDown, ArrowUp, FileText, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
+	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
@@ -59,6 +59,10 @@
 	let savingCategory = $state(false);
 	let categorySaveError = $state('');
 	let categoryMenu = $state<{ x: number; y: number; category: FormCategory } | null>(null);
+	let draggedFieldIndex = $state<number | null>(null);
+	let dragOverFieldIndex = $state<number | null>(null);
+	let draggedOptionIndex = $state<number | null>(null);
+	let dragOverOptionIndex = $state<number | null>(null);
 
 	const selectedField = $derived(formEditorFields[selectedFieldIndex] ?? null);
 	const previewSchema = $derived.by(() => {
@@ -222,6 +226,8 @@
 		previewValues = {};
 		isEditingFormName = false;
 		formSaveError = '';
+		resetFieldDragState();
+		resetOptionDragState();
 	}
 
 	function resetCategoryEditor() {
@@ -269,6 +275,8 @@
 	}
 
 	function removeFormField(index: number) {
+		resetFieldDragState();
+		resetOptionDragState();
 		const nextFields = formEditorFields.filter((_, fieldIndex) => fieldIndex !== index);
 		if (nextFields.length === 0) {
 			formEditorFields = [createEmptyField()];
@@ -315,17 +323,37 @@
 		}
 	}
 
-	function setFormFieldOrder(index: number, nextOrder: number) {
-		const normalizedOrder = Math.min(Math.max(nextOrder, 1), formEditorFields.length) - 1;
-		moveFormField(index, normalizedOrder);
+	function resetFieldDragState() {
+		draggedFieldIndex = null;
+		dragOverFieldIndex = null;
 	}
 
-	function canMoveFieldUp(index: number) {
-		return index > 0;
+	function handleFieldDragStart(event: DragEvent, index: number) {
+		draggedFieldIndex = index;
+		dragOverFieldIndex = index;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.dropEffect = 'move';
+			event.dataTransfer.setData('text/plain', String(index));
+		}
 	}
 
-	function canMoveFieldDown(index: number) {
-		return index < formEditorFields.length - 1;
+	function handleFieldDragOver(event: DragEvent, index: number) {
+		event.preventDefault();
+		dragOverFieldIndex = index;
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
+	function handleFieldDrop(event: DragEvent, index: number) {
+		event.preventDefault();
+		const fromIndex = draggedFieldIndex;
+		resetFieldDragState();
+		if (fromIndex === null) {
+			return;
+		}
+		moveFormField(fromIndex, index);
 	}
 
 	function patchField(index: number, nextField: FormFieldDefinition) {
@@ -345,8 +373,11 @@
 	function updateFieldType(index: number, type: string) {
 		const field = formEditorFields[index];
 		const nextField: FormFieldDefinition = { ...field, type: normalizeFieldType(type) };
-		if (nextField.type !== 'select') {
+		if (nextField.type === 'select') {
+			nextField.options = field.options && field.options.length > 0 ? [...field.options] : [''];
+		} else {
 			nextField.options = [];
+			resetOptionDragState();
 		}
 		if (nextField.type !== 'textarea') {
 			nextField.rows = undefined;
@@ -374,9 +405,78 @@
 		patchField(index, { ...formEditorFields[index], required });
 	}
 
-	function updateFormFieldOptions(index: number, value: string) {
-		const options = value.split(',').map((item) => item.trim()).filter(Boolean);
+	function sanitizeOptionList(options: string[] | undefined): string[] {
+		return (options ?? []).map((option) => option.trim()).filter(Boolean);
+	}
+
+	function updateFieldOptions(index: number, options: string[]) {
 		patchField(index, { ...formEditorFields[index], options });
+	}
+
+	function addFieldOption(index: number) {
+		updateFieldOptions(index, [...(formEditorFields[index].options ?? []), '']);
+	}
+
+	function updateFieldOption(index: number, optionIndex: number, value: string) {
+		const options = [...(formEditorFields[index].options ?? [])];
+		options[optionIndex] = value;
+		updateFieldOptions(index, options);
+	}
+
+	function removeFieldOption(index: number, optionIndex: number) {
+		const options = (formEditorFields[index].options ?? []).filter((_, currentIndex) => currentIndex !== optionIndex);
+		updateFieldOptions(index, options);
+		resetOptionDragState();
+	}
+
+	function moveFieldOption(index: number, fromIndex: number, toIndex: number) {
+		const options = [...(formEditorFields[index].options ?? [])];
+		if (
+			fromIndex === toIndex ||
+			fromIndex < 0 ||
+			toIndex < 0 ||
+			fromIndex >= options.length ||
+			toIndex >= options.length
+		) {
+			return;
+		}
+
+		const [movedOption] = options.splice(fromIndex, 1);
+		options.splice(toIndex, 0, movedOption);
+		updateFieldOptions(index, options);
+	}
+
+	function resetOptionDragState() {
+		draggedOptionIndex = null;
+		dragOverOptionIndex = null;
+	}
+
+	function handleOptionDragStart(event: DragEvent, optionIndex: number) {
+		draggedOptionIndex = optionIndex;
+		dragOverOptionIndex = optionIndex;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.dropEffect = 'move';
+			event.dataTransfer.setData('text/plain', String(optionIndex));
+		}
+	}
+
+	function handleOptionDragOver(event: DragEvent, optionIndex: number) {
+		event.preventDefault();
+		dragOverOptionIndex = optionIndex;
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
+	function handleOptionDrop(event: DragEvent, fieldIndex: number, optionIndex: number) {
+		event.preventDefault();
+		const fromIndex = draggedOptionIndex;
+		resetOptionDragState();
+		if (fromIndex === null) {
+			return;
+		}
+		moveFieldOption(fieldIndex, fromIndex, optionIndex);
 	}
 
 	function updateFieldCondition(index: number, condition: FormFieldDefinition['condition']) {
@@ -392,7 +492,7 @@
 			key: f.key || getEffectiveKey(f, idx),
 			label: f.label || f.key || `Field ${idx + 1}`,
 			type: f.type,
-			options: f.type === 'select' ? (f.options ?? []) : []
+			options: f.type === 'select' ? sanitizeOptionList(f.options) : []
 		}));
 	}
 
@@ -445,7 +545,7 @@
 				type: normalizeFieldType(field.type),
 				key: finalKeys[index],
 				label: field.label.trim(),
-				options: field.type === 'select' ? field.options ?? [] : field.options,
+				options: field.type === 'select' ? sanitizeOptionList(field.options) : field.options,
 				placeholder: field.placeholder || undefined,
 				help_text: field.help_text || undefined,
 				accept: field.accept || undefined,
@@ -899,6 +999,47 @@
 			inset 0 -1px 0 rgba(15, 23, 42, 0.12);
 	}
 
+	.drag-sort-row {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		width: 100%;
+		padding: 0.75rem 0.85rem;
+		border: 1px solid rgba(226, 232, 240, 0.95);
+		border-radius: 1rem;
+		background: linear-gradient(to bottom, #ffffff, #f8fafc);
+		box-shadow: 0 8px 16px rgba(15, 23, 42, 0.04);
+		transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, background 140ms ease, opacity 140ms ease;
+	}
+
+	.drag-sort-row.is-selected {
+		border-color: rgba(37, 99, 235, 0.3);
+		background: linear-gradient(to bottom, #eff6ff, #dbeafe);
+		box-shadow: 0 10px 20px rgba(37, 99, 235, 0.12);
+	}
+
+	.drag-sort-row.is-drop-target {
+		border-color: rgba(8, 145, 178, 0.34);
+		box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.12);
+	}
+
+	.drag-sort-row.is-dragging {
+		opacity: 0.72;
+		transform: scale(0.99);
+	}
+
+	.drag-handle {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		width: 1.75rem;
+		height: 1.75rem;
+		border-radius: 999px;
+		background: rgba(148, 163, 184, 0.12);
+		color: #64748b;
+	}
+
 	@media (min-width: 768px) {
 		.form-tab-scroll {
 			max-width: 620px;
@@ -924,73 +1065,40 @@
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
 								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Fields Overview</p>
-								<p class="mt-1 text-xs text-slate-500">Pick a field to configure it in detail.</p>
+								<p class="mt-1 text-xs text-slate-500">Drag to reorder. Tap a row to edit.</p>
 							</div>
 							<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
 								{formEditorFields.length} FIELD{formEditorFields.length === 1 ? '' : 'S'}
 							</span>
 						</div>
 
-						<div class="space-y-2">
+						<div class="space-y-1.5" role="list" aria-label="Form fields">
 							{#each formEditorFields as field, index (getEditorFieldId(field, index))}
 								<div
-									class="rounded-[18px] border p-2.5"
-									style={`border-color: ${selectedFieldIndex === index ? 'rgba(37,99,235,0.3)' : 'rgba(226,232,240,0.95)'}; background: ${selectedFieldIndex === index ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : 'linear-gradient(to bottom, #ffffff, #f8fafc)'}; box-shadow: ${selectedFieldIndex === index ? '0 10px 20px rgba(37,99,235,0.12)' : '0 8px 16px rgba(15,23,42,0.04)'};`}
+									class={`drag-sort-row ${selectedFieldIndex === index ? 'is-selected' : ''} ${draggedFieldIndex === index ? 'is-dragging' : ''} ${dragOverFieldIndex === index && draggedFieldIndex !== null && draggedFieldIndex !== index ? 'is-drop-target' : ''}`}
+									role="listitem"
+									draggable="true"
+									ondragstart={(event) => handleFieldDragStart(event, index)}
+									ondragover={(event) => handleFieldDragOver(event, index)}
+									ondrop={(event) => handleFieldDrop(event, index)}
+									ondragend={resetFieldDragState}
 								>
-									<div class="flex items-start gap-2">
-										<button
-											type="button"
-											class="min-w-0 flex-1 text-left cursor-pointer"
-											onclick={() => (selectedFieldIndex = index)}
-										>
-											<div class="flex items-center gap-2">
-												<span class="rounded-full px-2 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(15,23,42,0.06); color: #475569;">
-													#{index + 1}
-												</span>
-												<span class="rounded-full px-2 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
-													{field.type.toUpperCase()}
-												</span>
-												{#if field.required}
-													<span class="rounded-full px-2 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(220,38,38,0.1); color: #dc2626;">
-														REQUIRED
-													</span>
-												{/if}
-											</div>
-											<p class="mt-2 truncate text-sm font-bold text-slate-900">{field.label || `Untitled field ${index + 1}`}</p>
-											<p class="mt-1 truncate text-[11px] text-slate-500">{field.key || slugify(field.label) || `field_${index + 1}`}</p>
-											{#if field.condition}
-												<p class="mt-1.5 text-[11px] text-slate-500">Conditional on {field.condition.field}</p>
-											{/if}
-										</button>
-										<div class="flex shrink-0 flex-col gap-1">
-											<button
-												type="button"
-												class="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 cursor-pointer hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35"
-												onclick={() => moveFormField(index, index - 1)}
-												disabled={!canMoveFieldUp(index)}
-												aria-label="Move field up"
-											>
-												<ArrowUp class="h-3.5 w-3.5" />
-											</button>
-											<button
-												type="button"
-												class="flex h-8 w-8 items-center justify-center rounded-full text-slate-500 cursor-pointer hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-35"
-												onclick={() => moveFormField(index, index + 1)}
-												disabled={!canMoveFieldDown(index)}
-												aria-label="Move field down"
-											>
-												<ArrowDown class="h-3.5 w-3.5" />
-											</button>
-											<button
-												type="button"
-												class="flex h-8 w-8 items-center justify-center rounded-full text-red-500 cursor-pointer hover:bg-red-50"
-												onclick={() => removeFormField(index)}
-												aria-label="Delete field"
-											>
-												<Trash2 class="h-3.5 w-3.5" />
-											</button>
-										</div>
-									</div>
+									<button
+										type="button"
+										class="flex min-w-0 flex-1 items-center gap-2.5 text-left cursor-pointer"
+										title={field.key || slugify(field.label) || `field_${index + 1}`}
+										onclick={() => {
+											selectedFieldIndex = index;
+											resetOptionDragState();
+										}}
+									>
+										<span class="drag-handle" aria-hidden="true">
+											<GripVertical class="h-3.5 w-3.5" />
+										</span>
+										<span class="truncate text-sm font-semibold" style={`color: ${selectedFieldIndex === index ? '#0f172a' : '#334155'};`}>
+											{field.label || `Untitled field ${index + 1}`}
+										</span>
+									</button>
 								</div>
 							{/each}
 
@@ -1013,7 +1121,7 @@
 								<div>
 									<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Selected Field</p>
 									<h4 class="mt-1 text-sm font-bold text-slate-900">{selectedField.label || `Field ${selectedFieldIndex + 1}`}</h4>
-									<p class="mt-1 text-xs text-slate-500">Adjust the schema for the currently highlighted field.</p>
+									<p class="mt-1 text-xs text-slate-500">Adjust the schema here. Reorder from the list on the left.</p>
 								</div>
 								<button
 									type="button"
@@ -1026,61 +1134,6 @@
 							</div>
 
 							<div class="space-y-3">
-								<div class="rounded-[18px] border border-slate-200 p-3" style="background: linear-gradient(to bottom, rgba(248,250,252,0.95), rgba(241,245,249,0.95));">
-									<div class="flex items-center justify-between gap-3">
-										<div>
-											<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Field Order</p>
-											<p class="mt-1 text-xs text-slate-500">Rearrange this field from the detail pane.</p>
-										</div>
-										<span class="rounded-full px-2.5 py-1 text-[10px] font-bold tracking-[0.12em]" style="background: rgba(37,99,235,0.1); color: #2563eb;">
-											#{selectedFieldIndex + 1} OF {formEditorFields.length}
-										</span>
-									</div>
-
-									<div class="mt-3 grid gap-3 md:grid-cols-[120px_minmax(0,1fr)] md:items-end">
-										<div>
-											<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Position</p>
-											<input
-												type="number"
-												min="1"
-												max={formEditorFields.length}
-												class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-												style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-												value={selectedFieldIndex + 1}
-												onchange={(event) => {
-													const value = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
-													if (Number.isFinite(value)) {
-														setFormFieldOrder(selectedFieldIndex, value);
-													}
-												}}
-											/>
-										</div>
-
-										<div class="grid gap-2 md:grid-cols-2">
-											<button
-												type="button"
-												onclick={() => moveFormField(selectedFieldIndex, selectedFieldIndex - 1)}
-												disabled={!canMoveFieldUp(selectedFieldIndex)}
-												class="rounded-[14px] border px-3 py-2.5 text-sm font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-												style="border-color: rgba(226,232,240,0.95); background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #475569;"
-											>
-												<ArrowUp class="mr-1.5 inline-block h-3.5 w-3.5" />
-												Move Earlier
-											</button>
-											<button
-												type="button"
-												onclick={() => moveFormField(selectedFieldIndex, selectedFieldIndex + 1)}
-												disabled={!canMoveFieldDown(selectedFieldIndex)}
-												class="rounded-[14px] border px-3 py-2.5 text-sm font-bold cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
-												style="border-color: rgba(226,232,240,0.95); background: linear-gradient(to bottom, #ffffff, #f8fafc); color: #475569;"
-											>
-												<ArrowDown class="mr-1.5 inline-block h-3.5 w-3.5" />
-												Move Later
-											</button>
-										</div>
-									</div>
-								</div>
-
 								<div class="grid gap-3 md:grid-cols-2">
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Label</p>
@@ -1155,16 +1208,67 @@
 								</div>
 
 								{#if selectedField.type === 'select'}
-									<div>
-										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Options</p>
-										<input
-											type="text"
-											placeholder="comma,separated,values"
-											class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-											style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-											value={selectedField.options?.join(', ') || ''}
-											oninput={(event) => updateFormFieldOptions(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
-										/>
+									<div class="rounded-[18px] border border-slate-200 p-3" style="background: linear-gradient(to bottom, rgba(248,250,252,0.95), rgba(241,245,249,0.95));">
+										<div class="flex items-center justify-between gap-3">
+											<div>
+												<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Options</p>
+												<p class="mt-1 text-xs text-slate-500">Each option is its own row. Drag to reorder.</p>
+											</div>
+											<button
+												type="button"
+												onclick={() => addFieldOption(selectedFieldIndex)}
+												class="rounded-full border border-slate-200 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
+												style="background: linear-gradient(to bottom, #ffffff, #f8fafc);"
+											>
+												<Plus class="mr-1 inline-block h-3.5 w-3.5" />
+												Add Option
+											</button>
+										</div>
+
+										{#if (selectedField.options?.length ?? 0) > 0}
+											<div class="mt-3 space-y-2" role="list" aria-label="Select field options">
+												{#each selectedField.options ?? [] as option, optionIndex (optionIndex)}
+													<div
+														class={`drag-sort-row ${draggedOptionIndex === optionIndex ? 'is-dragging' : ''} ${dragOverOptionIndex === optionIndex && draggedOptionIndex !== null && draggedOptionIndex !== optionIndex ? 'is-drop-target' : ''}`}
+														role="listitem"
+														draggable="true"
+														ondragstart={(event) => handleOptionDragStart(event, optionIndex)}
+														ondragover={(event) => handleOptionDragOver(event, optionIndex)}
+														ondrop={(event) => handleOptionDrop(event, selectedFieldIndex, optionIndex)}
+														ondragend={resetOptionDragState}
+													>
+														<span class="drag-handle" aria-hidden="true">
+															<GripVertical class="h-3.5 w-3.5" />
+														</span>
+														<input
+															type="text"
+															placeholder={`Option ${optionIndex + 1}`}
+															class="min-w-0 flex-1 rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
+															style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+															value={option}
+															oninput={(event) => updateFieldOption(selectedFieldIndex, optionIndex, (event.currentTarget as HTMLInputElement).value)}
+														/>
+														<button
+															type="button"
+															onclick={() => removeFieldOption(selectedFieldIndex, optionIndex)}
+															class="flex h-9 w-9 items-center justify-center rounded-full text-red-500 cursor-pointer hover:bg-red-50"
+															aria-label="Remove option"
+														>
+															<Trash2 class="h-3.5 w-3.5" />
+														</button>
+													</div>
+												{/each}
+											</div>
+										{:else}
+											<button
+												type="button"
+												onclick={() => addFieldOption(selectedFieldIndex)}
+												class="mt-3 w-full rounded-[14px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
+												style="background: rgba(255,255,255,0.55);"
+											>
+												Add first option
+											</button>
+										{/if}
 									</div>
 								{/if}
 
