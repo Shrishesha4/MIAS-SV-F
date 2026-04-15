@@ -41,11 +41,11 @@
 		diagnosis_doctor: string;
 		diagnosis_date: string;
 		diagnosis_time: string;
-		year: string;
-		semester: string;
+		year: string | number;
+		semester: string | number;
 		program: string;
 		degree: string;
-		gpa: string;
+		gpa: string | number;
 		academic_standing: string;
 		academic_advisor: string;
 		department: string;
@@ -138,14 +138,28 @@
 		return trimmed ? trimmed : undefined;
 	}
 
-	function parseOptionalInteger(value: string): number | undefined {
+	function hasValue(value: string | number | null | undefined): boolean {
+		if (value === null || value === undefined) return false;
+		if (typeof value === 'number') return Number.isFinite(value);
+		return value.trim().length > 0;
+	}
+
+	function parseOptionalInteger(value: string | number | null | undefined): number | undefined {
+		if (value === null || value === undefined || value === '') return undefined;
+		if (typeof value === 'number') {
+			return Number.isFinite(value) ? Math.trunc(value) : undefined;
+		}
 		const trimmed = value.trim();
 		if (!trimmed) return undefined;
 		const parsed = Number.parseInt(trimmed, 10);
 		return Number.isFinite(parsed) ? parsed : undefined;
 	}
 
-	function parseOptionalFloat(value: string): number | undefined {
+	function parseOptionalFloat(value: string | number | null | undefined): number | undefined {
+		if (value === null || value === undefined || value === '') return undefined;
+		if (typeof value === 'number') {
+			return Number.isFinite(value) ? value : undefined;
+		}
 		const trimmed = value.trim();
 		if (!trimmed) return undefined;
 		const parsed = Number.parseFloat(trimmed);
@@ -331,7 +345,13 @@
 	}
 
 	async function createUser() {
-		if (!newUserData.username.trim() || !newUserData.email.trim() || !newUserData.password || !newUserData.name.trim()) {
+		const username = String(newUserData.username ?? '').trim();
+		const email = String(newUserData.email ?? '').trim();
+		const name = String(newUserData.name ?? '').trim();
+		const program = String(newUserData.program ?? '').trim();
+		const department = String(newUserData.department ?? '').trim();
+
+		if (!username || !email || !newUserData.password || !name) {
 			toastStore.addToast('Username, email, password, and full name are required', 'error');
 			return;
 		}
@@ -342,7 +362,7 @@
 		}
 
 		if (newUserRole === 'STUDENT') {
-			if (!newUserData.year.trim() || !newUserData.semester.trim() || !newUserData.program.trim()) {
+			if (!hasValue(newUserData.year) || !hasValue(newUserData.semester) || !program) {
 				toastStore.addToast('Year, semester, and program are required for students', 'error');
 				return;
 			}
@@ -352,22 +372,22 @@
 			}
 		}
 
-		if (newUserRole === 'FACULTY' && !newUserData.department.trim()) {
+		if (newUserRole === 'FACULTY' && !department) {
 			toastStore.addToast('Department is required for faculty', 'error');
 			return;
 		}
 
-		if (newUserData.gpa.trim() && parseOptionalFloat(newUserData.gpa) === undefined) {
+		if (hasValue(newUserData.gpa) && parseOptionalFloat(newUserData.gpa) === undefined) {
 			toastStore.addToast('GPA must be a valid number', 'error');
 			return;
 		}
 
 		const payload: AdminCreateUserPayload = {
-			username: newUserData.username.trim(),
-			email: newUserData.email.trim(),
+			username,
+			email,
 			password: newUserData.password,
 			role: newUserRole,
-			name: newUserData.name.trim(),
+			name,
 			photo: normalizeOptionalString(newUserData.photo),
 		};
 
@@ -389,7 +409,7 @@
 		if (newUserRole === 'STUDENT') {
 			payload.year = parseOptionalInteger(newUserData.year);
 			payload.semester = parseOptionalInteger(newUserData.semester);
-			payload.program = normalizeOptionalString(newUserData.program);
+			payload.program = program || undefined;
 			payload.degree = normalizeOptionalString(newUserData.degree);
 			payload.gpa = parseOptionalFloat(newUserData.gpa);
 			payload.academic_standing = normalizeOptionalString(newUserData.academic_standing);
@@ -397,7 +417,7 @@
 		}
 
 		if (newUserRole === 'FACULTY') {
-			payload.department = normalizeOptionalString(newUserData.department);
+			payload.department = department || undefined;
 			payload.specialty = normalizeOptionalString(newUserData.specialty);
 			payload.phone = normalizeOptionalString(newUserData.phone);
 			payload.availability = normalizeOptionalString(newUserData.availability);
