@@ -5,6 +5,7 @@ export interface PendingPatient {
 	id: string;
 	patient_id: string;
 	name: string;
+	photo?: string | null;
 	age: number | null;
 	phone: string;
 	email: string;

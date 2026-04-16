@@ -149,6 +149,8 @@ export interface FormDefinition {
 	rules?: FormRule[];
 	sort_order: number;
 	is_active: boolean;
+	icon?: string | null;
+	color?: string | null;
 	created_at: string | null;
 	updated_at: string | null;
 }

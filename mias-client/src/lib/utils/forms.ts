@@ -2,6 +2,49 @@ import { getProcedureFields } from '$lib/config/procedure-fields';
 import type { FormDefinition, FormFieldDefinition, UploadedFormFile } from '$lib/types/forms';
 
 const CASE_RECORD_STANDARD_KEYS = new Set(['findings', 'diagnosis', 'treatment', 'notes']);
+const ADMISSION_ASSESSMENT_CONSUMED_KEYS = new Set([
+	'department',
+	'ward',
+	'bed_number',
+	'drug_allergy',
+	'chief_complaints',
+	'history_of_present_illness',
+	'medication_history',
+	'weight_admission',
+	'pallor',
+	'icterus',
+	'cyanosis',
+	'clubbing',
+	'pedal_edema',
+	'lymph_nodes',
+	'cvs',
+	'rs',
+	'abdomen',
+	'cns',
+	'pain_score',
+	'dvt_score',
+	'psychological_evaluation',
+	'provisional_diagnosis',
+	'proposed_plan',
+	'expected_cost_outcome_briefed',
+	'additional_information',
+]);
+
+export interface AdmissionAssessmentSubmission {
+	department?: string;
+	ward?: string;
+	bedNumber?: string;
+	drugAllergy?: string;
+	chiefComplaints?: string;
+	historyOfPresentIllness?: string;
+	medicationHistory?: string;
+	weightAdmission?: number;
+	painScore?: number;
+	provisionalDiagnosis?: string;
+	proposedPlan?: string;
+	physicalExamination?: string;
+	notes?: string;
+}
 
 export function isCaseRecordLikeForm(
 	form: Pick<FormDefinition, 'form_type' | 'section' | 'is_active'>
@@ -167,6 +210,46 @@ export function buildSupplementalFormDescription(
 		}
 	}
 	return parts.join('; ');
+}
+
+export function buildAdmissionAssessmentSubmission(
+	fields: FormFieldDefinition[],
+	values: Record<string, any>
+): AdmissionAssessmentSubmission {
+	const physicalExamination = [
+		['Pallor', asOptionalString(values.pallor)],
+		['Icterus', asOptionalString(values.icterus)],
+		['Cyanosis', asOptionalString(values.cyanosis)],
+		['Clubbing', asOptionalString(values.clubbing)],
+		['Pedal Edema', asOptionalString(values.pedal_edema)],
+		['Lymph nodes', asOptionalString(values.lymph_nodes)],
+		['CVS', asOptionalString(values.cvs)],
+		['RS', asOptionalString(values.rs)],
+		['Abdomen', asOptionalString(values.abdomen)],
+		['CNS', asOptionalString(values.cns)],
+	]
+		.filter(([, value]) => value)
+		.map(([label, value]) => `${label}: ${value}`)
+		.join('; ');
+
+	return {
+		department: asOptionalString(values.department),
+		ward: asOptionalString(values.ward),
+		bedNumber: asOptionalString(values.bed_number),
+		drugAllergy: asOptionalString(values.drug_allergy),
+		chiefComplaints: asOptionalString(values.chief_complaints),
+		historyOfPresentIllness: asOptionalString(values.history_of_present_illness),
+		medicationHistory: asOptionalString(values.medication_history),
+		weightAdmission: asOptionalNumber(values.weight_admission),
+		painScore: asOptionalNumber(values.pain_score),
+		provisionalDiagnosis: asOptionalString(values.provisional_diagnosis),
+		proposedPlan: asOptionalString(values.proposed_plan),
+		physicalExamination: physicalExamination || undefined,
+		notes: appendSupplementalText(
+			asOptionalString(values.additional_information),
+			buildSupplementalFormDescription(fields, values, ADMISSION_ASSESSMENT_CONSUMED_KEYS)
+		),
+	};
 }
 
 export async function persistFormFiles(

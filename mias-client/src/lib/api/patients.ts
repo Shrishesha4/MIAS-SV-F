@@ -192,6 +192,19 @@ export const patientApi = {
     return response.data;
   },
 
+  async addPrimaryDiagnosisEntry(
+    patientId: string,
+    data: { diagnosis: string; icd_code?: string; icd_description?: string }
+  ) {
+    const response = await client.post(`/patients/${patientId}/primary-diagnosis/entries`, data);
+    return response.data;
+  },
+
+  async removePrimaryDiagnosisEntry(patientId: string, entryId: string) {
+    const response = await client.delete(`/patients/${patientId}/primary-diagnosis/entries/${entryId}`);
+    return response.data;
+  },
+
   // Medical Alerts
   async addMedicalAlert(patientId: string, data: { title: string; type?: string; severity?: string; added_by?: string }) {
     const response = await client.post(`/patients/${patientId}/medical-alerts`, data);
@@ -295,6 +308,15 @@ export const patientApi = {
 
   async updateProfile(patientId: string, data: { name?: string; phone?: string; email?: string; address?: string; blood_group?: string }) {
     const response = await client.put(`/patients/${patientId}/profile`, data);
+    return response.data;
+  },
+
+  async uploadPhoto(patientId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await client.post(`/patients/${patientId}/upload-photo`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   },
 

@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -9,7 +11,7 @@ import uuid
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Appointment, MedicalAlert, InsurancePolicy
+from app.models.patient import Patient, Appointment, MedicalAlert, InsurancePolicy, PatientDiagnosisEntry
 from app.models.vital import Vital
 from app.models.prescription import (
     Prescription, PrescriptionStatus, PrescriptionMedication,
@@ -28,6 +30,61 @@ from app.services.ai_provider import AIProviderError, generate_case_record_draft
 from app.services.patient_insurance import sync_patient_insurance_category
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
+UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
+
+
+async def _resolve_actor_name(db: AsyncSession, user: User) -> str:
+    if user.role == UserRole.FACULTY:
+        faculty = (await db.execute(select(Faculty).where(Faculty.user_id == user.id))).scalar_one_or_none()
+        if faculty and faculty.name:
+            return faculty.name
+    elif user.role == UserRole.STUDENT:
+        from app.models.student import Student
+
+        student = (await db.execute(select(Student).where(Student.user_id == user.id))).scalar_one_or_none()
+        if student and student.name:
+            return student.name
+    elif user.role == UserRole.NURSE:
+        from app.models.nurse import Nurse
+
+        nurse = (await db.execute(select(Nurse).where(Nurse.user_id == user.id))).scalar_one_or_none()
+        if nurse and nurse.name:
+            return nurse.name
+    elif user.role == UserRole.PATIENT:
+        patient = (await db.execute(select(Patient).where(Patient.user_id == user.id))).scalar_one_or_none()
+        if patient and patient.name:
+            return patient.name
+
+    return user.username
+
+
+def _format_diagnosis_timestamp(timestamp: datetime | None) -> tuple[str | None, str | None]:
+    if not timestamp:
+        return None, None
+    return timestamp.date().isoformat(), timestamp.strftime("%H:%M")
+
+
+async def _sync_patient_diagnosis_summary(db: AsyncSession, patient: Patient) -> None:
+    result = await db.execute(
+        select(PatientDiagnosisEntry)
+        .where(PatientDiagnosisEntry.patient_id == patient.id)
+        .order_by(PatientDiagnosisEntry.added_at.desc())
+    )
+    entries = result.scalars().all()
+    active_entries = [entry for entry in entries if entry.is_active]
+
+    patient.primary_diagnosis = ", ".join(entry.diagnosis for entry in active_entries) or None
+
+    latest_actor = None
+    latest_time = None
+    for entry in entries:
+        event_time = entry.removed_at or entry.added_at
+        if event_time and (latest_time is None or event_time > latest_time):
+            latest_time = event_time
+            latest_actor = entry.removed_by if entry.removed_at and entry.removed_at == event_time else entry.added_by
+
+    patient.diagnosis_doctor = latest_actor
+    patient.diagnosis_date, patient.diagnosis_time = _format_diagnosis_timestamp(latest_time)
 
 
 @router.get("/me", response_model=PatientDetailResponse)
@@ -41,6 +98,7 @@ async def get_current_patient(
             selectinload(Patient.emergency_contact),
             selectinload(Patient.allergies),
             selectinload(Patient.medical_alerts),
+            selectinload(Patient.diagnosis_entries),
             selectinload(Patient.insurance_policies),
         )
         .where(Patient.user_id == user.id)
@@ -60,6 +118,7 @@ async def get_current_patient(
 
     data = {k: v for k, v in vars(patient).items() if not k.startswith("_")}
     data["clinic_name"] = clinic_name
+    data["diagnosis_entries"] = patient.diagnosis_entries
     return data
 
 
@@ -75,6 +134,7 @@ async def get_patient(
             selectinload(Patient.emergency_contact),
             selectinload(Patient.allergies),
             selectinload(Patient.medical_alerts),
+            selectinload(Patient.diagnosis_entries),
             selectinload(Patient.insurance_policies),
         )
         .where(Patient.id == patient_id)
@@ -119,6 +179,30 @@ async def update_patient_profile(
     }
 
 
+@router.post("/{patient_id}/upload-photo")
+async def upload_patient_photo(
+    patient_id: str,
+    file: UploadFile = File(...),
+    user: User = Depends(require_role(UserRole.STUDENT, UserRole.FACULTY, UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    ext = os.path.splitext(file.filename or "photo.png")[1] or ".png"
+    filename = f"{patient.id}_{uuid.uuid4().hex[:8]}{ext}"
+    filepath = os.path.join(UPLOADS_DIR, "photos", filename)
+    content = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(content)
+
+    patient.photo = f"/uploads/photos/{filename}"
+    await db.commit()
+    return {"photo": patient.photo, "message": "Photo uploaded successfully"}
+
+
 @router.get("/{patient_id}/case-records")
 async def get_patient_case_records(
     patient_id: str,
@@ -142,6 +226,12 @@ async def get_patient_case_records(
             "time": r.time,
             "type": r.type,
             "description": r.description,
+            "procedure_name": r.procedure_name,
+            "procedure_description": r.procedure_description,
+            "form_name": r.form_name,
+            "form_description": r.form_description,
+            "form_fields": r.form_fields,
+            "form_values": r.form_values,
             "department": r.department,
             "findings": r.findings,
             "diagnosis": r.diagnosis,
@@ -203,6 +293,10 @@ async def create_patient_case_record(
         procedure_name=body.get("procedure"),
         procedure_description=body.get("procedure_description"),
         description=body.get("description", ""),
+        form_name=body.get("form_name"),
+        form_description=body.get("form_description"),
+        form_fields=body.get("form_fields"),
+        form_values=body.get("form_values"),
         department=body.get("department"),
         findings=body.get("findings"),
         diagnosis=body.get("diagnosis"),
@@ -770,6 +864,46 @@ async def create_admission(
     db.add(admission)
     await db.flush()
 
+    initial_systolic_bp = None
+    initial_diastolic_bp = None
+    bp_admission = body.get("bp_admission")
+    if isinstance(bp_admission, str) and "/" in bp_admission:
+        systolic_raw, diastolic_raw = bp_admission.split("/", 1)
+        try:
+            initial_systolic_bp = int(systolic_raw.strip())
+            initial_diastolic_bp = int(diastolic_raw.strip())
+        except ValueError:
+            initial_systolic_bp = None
+            initial_diastolic_bp = None
+
+    initial_vital_fields = {
+        "systolic_bp": body.get("systolic_bp") or initial_systolic_bp,
+        "diastolic_bp": body.get("diastolic_bp") or initial_diastolic_bp,
+        "heart_rate": body.get("heart_rate"),
+        "respiratory_rate": body.get("respiratory_rate"),
+        "temperature": body.get("temperature"),
+        "oxygen_saturation": body.get("oxygen_saturation"),
+        "weight": body.get("weight_admission"),
+        "blood_glucose": body.get("cbg"),
+    }
+    if any(value is not None for value in initial_vital_fields.values()):
+        db.add(
+            Vital(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                recorded_at=admission_date,
+                recorded_by=getattr(user, "username", None),
+                systolic_bp=initial_vital_fields["systolic_bp"],
+                diastolic_bp=initial_vital_fields["diastolic_bp"],
+                heart_rate=initial_vital_fields["heart_rate"],
+                respiratory_rate=initial_vital_fields["respiratory_rate"],
+                temperature=initial_vital_fields["temperature"],
+                oxygen_saturation=initial_vital_fields["oxygen_saturation"],
+                weight=initial_vital_fields["weight"],
+                blood_glucose=initial_vital_fields["blood_glucose"],
+            )
+        )
+
     # For student submissions: create a pending approval record
     if is_student and faculty_approver_id:
         db.add(Approval(
@@ -836,6 +970,8 @@ async def discharge_patient(
     db: AsyncSession = Depends(get_db),
 ):
     """Discharge a patient from an active admission."""
+    from app.models.student import StudentPatientAssignment
+
     admission = (
         await db.execute(
             select(Admission).where(
@@ -854,6 +990,17 @@ async def discharge_patient(
     admission.discharge_summary = body.get("discharge_summary", "")
     admission.discharge_instructions = body.get("discharge_instructions", "")
     admission.diagnosis = body.get("diagnosis") or admission.diagnosis
+
+    active_assignments = (
+        await db.execute(
+            select(StudentPatientAssignment).where(
+                StudentPatientAssignment.patient_id == patient_id,
+                StudentPatientAssignment.status == "Active",
+            )
+        )
+    ).scalars().all()
+    for assignment in active_assignments:
+        assignment.status = "Completed"
 
     follow_up = body.get("follow_up_date")
     if follow_up:
@@ -1431,19 +1578,150 @@ async def update_primary_diagnosis(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update the primary diagnosis for a patient."""
+    """Legacy endpoint: replace active diagnosis set with a single diagnosis."""
     result = await db.execute(select(Patient).where(Patient.id == patient_id))
     patient = result.scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    patient.primary_diagnosis = body.get("diagnosis", patient.primary_diagnosis)
-    patient.diagnosis_doctor = body.get("doctor", patient.diagnosis_doctor)
-    patient.diagnosis_date = body.get("date", patient.diagnosis_date)
-    patient.diagnosis_time = body.get("time", patient.diagnosis_time)
+    diagnosis = (body.get("diagnosis") or "").strip()
+    if not diagnosis:
+        raise HTTPException(status_code=400, detail="Diagnosis is required")
+
+    actor_name = body.get("doctor") or await _resolve_actor_name(db, user)
+    now = datetime.utcnow()
+
+    existing_entries = (
+        await db.execute(
+            select(PatientDiagnosisEntry)
+            .where(PatientDiagnosisEntry.patient_id == patient_id)
+            .where(PatientDiagnosisEntry.is_active.is_(True))
+        )
+    ).scalars().all()
+    for entry in existing_entries:
+        entry.is_active = False
+        entry.removed_by = actor_name
+        entry.removed_at = now
+
+    db.add(
+        PatientDiagnosisEntry(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            diagnosis=diagnosis,
+            icd_code=body.get("icd_code"),
+            icd_description=body.get("icd_description"),
+            is_active=True,
+            added_by=actor_name,
+            added_at=now,
+        )
+    )
+    await db.flush()
+    await _sync_patient_diagnosis_summary(db, patient)
     await db.commit()
 
     return {
+        "primary_diagnosis": patient.primary_diagnosis,
+        "diagnosis_doctor": patient.diagnosis_doctor,
+        "diagnosis_date": patient.diagnosis_date,
+        "diagnosis_time": patient.diagnosis_time,
+    }
+
+
+@router.post("/{patient_id}/primary-diagnosis/entries")
+async def add_primary_diagnosis_entry(
+    patient_id: str,
+    body: dict,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a diagnosis entry without removing existing active diagnoses."""
+    result = await db.execute(select(Patient).where(Patient.id == patient_id))
+    patient = result.scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    diagnosis = (body.get("diagnosis") or "").strip()
+    if not diagnosis:
+        raise HTTPException(status_code=400, detail="Diagnosis is required")
+
+    active_duplicate = (
+        await db.execute(
+            select(PatientDiagnosisEntry)
+            .where(PatientDiagnosisEntry.patient_id == patient_id)
+            .where(PatientDiagnosisEntry.is_active.is_(True))
+            .where(func.lower(PatientDiagnosisEntry.diagnosis) == diagnosis.lower())
+        )
+    ).scalar_one_or_none()
+    if active_duplicate:
+        raise HTTPException(status_code=400, detail="Diagnosis already exists")
+
+    actor_name = await _resolve_actor_name(db, user)
+    entry = PatientDiagnosisEntry(
+        id=str(uuid.uuid4()),
+        patient_id=patient_id,
+        diagnosis=diagnosis,
+        icd_code=body.get("icd_code"),
+        icd_description=body.get("icd_description"),
+        is_active=True,
+        added_by=actor_name,
+    )
+    db.add(entry)
+    await db.flush()
+    await _sync_patient_diagnosis_summary(db, patient)
+    await db.commit()
+    await db.refresh(entry)
+
+    return {
+        "id": entry.id,
+        "diagnosis": entry.diagnosis,
+        "icd_code": entry.icd_code,
+        "icd_description": entry.icd_description,
+        "is_active": entry.is_active,
+        "added_by": entry.added_by,
+        "added_at": entry.added_at.isoformat() if entry.added_at else None,
+        "removed_by": entry.removed_by,
+        "removed_at": entry.removed_at.isoformat() if entry.removed_at else None,
+        "primary_diagnosis": patient.primary_diagnosis,
+        "diagnosis_doctor": patient.diagnosis_doctor,
+        "diagnosis_date": patient.diagnosis_date,
+        "diagnosis_time": patient.diagnosis_time,
+    }
+
+
+@router.delete("/{patient_id}/primary-diagnosis/entries/{entry_id}")
+async def remove_primary_diagnosis_entry(
+    patient_id: str,
+    entry_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate a diagnosis entry and keep audit metadata."""
+    patient = (
+        await db.execute(select(Patient).where(Patient.id == patient_id))
+    ).scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    entry = (
+        await db.execute(
+            select(PatientDiagnosisEntry)
+            .where(PatientDiagnosisEntry.id == entry_id)
+            .where(PatientDiagnosisEntry.patient_id == patient_id)
+        )
+    ).scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Diagnosis entry not found")
+    if not entry.is_active:
+        raise HTTPException(status_code=400, detail="Diagnosis entry already removed")
+
+    entry.is_active = False
+    entry.removed_by = await _resolve_actor_name(db, user)
+    entry.removed_at = datetime.utcnow()
+    await _sync_patient_diagnosis_summary(db, patient)
+    await db.commit()
+
+    return {
+        "message": "Diagnosis entry removed",
         "primary_diagnosis": patient.primary_diagnosis,
         "diagnosis_doctor": patient.diagnosis_doctor,
         "diagnosis_date": patient.diagnosis_date,

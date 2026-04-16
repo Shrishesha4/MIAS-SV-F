@@ -11,7 +11,6 @@
 	import {
 		defaultAdmissionDischargeFields,
 		defaultAdmissionIntakeFields,
-		defaultAdmissionRequestFields,
 		defaultAdmissionTransferFields,
 	} from '$lib/config/default-form-definitions';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
@@ -19,6 +18,8 @@
 	import type { FormDefinition } from '$lib/types/forms';
 	import {
 		appendSupplementalText,
+		buildAdmissionAssessmentSubmission,
+		asOptionalNumber,
 		asOptionalString,
 		buildSupplementalFormDescription,
 		mergeFieldOptions,
@@ -138,16 +139,10 @@
 
 	const departmentOptions = $derived(dbDepartments.map((department) => department.name));
 	const admissionRequestFields = $derived(
-		mergeFieldOptions(
-			resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_REQUEST', defaultAdmissionRequestFields),
-			{ department: departmentOptions }
-		)
+		mergeFieldOptions(defaultAdmissionIntakeFields, { department: departmentOptions })
 	);
 	const admissionIntakeFields = $derived(
-		mergeFieldOptions(
-			resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_INTAKE', defaultAdmissionIntakeFields),
-			{ department: departmentOptions }
-		)
+		mergeFieldOptions(defaultAdmissionIntakeFields, { department: departmentOptions })
 	);
 	const admissionDischargeFields = $derived(
 		resolveFormFieldsByType(admissionFormDefinitions, 'ADMISSION_DISCHARGE', defaultAdmissionDischargeFields)
@@ -247,23 +242,71 @@
 				(file, options) => formsApi.uploadFile(file, options),
 				'admission-intake'
 			);
+			const physicalExamination = [
+				['Pallor', asOptionalString(submittedValues.pallor)],
+				['Icterus', asOptionalString(submittedValues.icterus)],
+				['Cyanosis', asOptionalString(submittedValues.cyanosis)],
+				['Clubbing', asOptionalString(submittedValues.clubbing)],
+				['Pedal Edema', asOptionalString(submittedValues.pedal_edema)],
+				['Lymph nodes', asOptionalString(submittedValues.lymph_nodes)],
+				['CVS', asOptionalString(submittedValues.cvs)],
+				['RS', asOptionalString(submittedValues.rs)],
+				['Abdomen', asOptionalString(submittedValues.abdomen)],
+				['CNS', asOptionalString(submittedValues.cns)],
+			]
+				.filter(([, value]) => value)
+				.map(([label, value]) => `${label}: ${value}`)
+				.join('; ');
 			const notes = appendSupplementalText(
-				asOptionalString(submittedValues.notes),
+				asOptionalString(submittedValues.additional_information),
 				buildSupplementalFormDescription(
 					admissionIntakeFields,
 					submittedValues,
-					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
+					new Set([
+						'department',
+						'ward',
+						'bed_number',
+						'drug_allergy',
+						'chief_complaints',
+						'history_of_present_illness',
+						'medication_history',
+						'weight_admission',
+						'pallor',
+						'icterus',
+						'cyanosis',
+						'clubbing',
+						'pedal_edema',
+						'lymph_nodes',
+						'cvs',
+						'rs',
+						'abdomen',
+						'cns',
+						'pain_score',
+						'provisional_diagnosis',
+						'proposed_plan',
+						'additional_information',
+					])
 				)
 			);
+			const chiefComplaints = asOptionalString(submittedValues.chief_complaints);
+			const provisionalDiagnosis = asOptionalString(submittedValues.provisional_diagnosis);
 			await patientApi.createAdmission(selectedPatient.id, {
 				insurance_category_id: admitInsuranceCategoryId || undefined,
 				department: asOptionalString(submittedValues.department) || '',
 				ward: asOptionalString(submittedValues.ward) || '',
 				bed_number: asOptionalString(submittedValues.bed_number) || '',
-				reason: asOptionalString(submittedValues.reason),
-				diagnosis: asOptionalString(submittedValues.diagnosis),
+				reason: chiefComplaints,
+				diagnosis: provisionalDiagnosis,
 				notes,
-				referring_doctor: asOptionalString(submittedValues.referring_doctor),
+				drug_allergy: asOptionalString(submittedValues.drug_allergy),
+				chief_complaints: chiefComplaints,
+				history_of_present_illness: asOptionalString(submittedValues.history_of_present_illness),
+				medication_history: asOptionalString(submittedValues.medication_history),
+				weight_admission: asOptionalNumber(submittedValues.weight_admission),
+				pain_score: asOptionalNumber(submittedValues.pain_score),
+				provisional_diagnosis: provisionalDiagnosis,
+				proposed_plan: asOptionalString(submittedValues.proposed_plan),
+				physical_examination: physicalExamination || undefined,
 			});
 			showAdmitModal = false;
 			toastStore.addToast('Patient admitted successfully', 'success');
@@ -395,7 +438,9 @@
 		if (!reqPatient) { reqError = 'Please select a patient'; return; }
 		if (!reqFaculty) { reqError = 'Please select approving faculty'; return; }
 		if (insuranceOptions.length > 0 && !reqInsuranceCategoryId) { reqError = 'Please select the insurance type for this admission'; return; }
-		if (!requestFormData.reason) { reqError = 'Reason for admission is required'; return; }
+		if (!requestFormData.department) { reqError = 'Please select a department'; return; }
+		if (!requestFormData.ward) { reqError = 'Ward is required'; return; }
+		if (!requestFormData.bed_number) { reqError = 'Bed number is required'; return; }
 		reqSubmitting = true;
 		reqError = '';
 		try {
@@ -405,25 +450,17 @@
 				(file, options) => formsApi.uploadFile(file, options),
 				'admission-request'
 			);
-			const notes = appendSupplementalText(
-				asOptionalString(submittedValues.notes),
-				buildSupplementalFormDescription(
-					admissionRequestFields,
-					submittedValues,
-					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
-				)
-			);
+			const assessment = buildAdmissionAssessmentSubmission(admissionRequestFields, submittedValues);
 			await studentApi.submitAdmissionRequest(studentId, {
 				patient_id: reqPatient.id,
 				faculty_id: reqFaculty,
 				insurance_category_id: reqInsuranceCategoryId || undefined,
-				department: asOptionalString(submittedValues.department),
-				ward: asOptionalString(submittedValues.ward),
-				bed_number: asOptionalString(submittedValues.bed_number),
-				reason: asOptionalString(submittedValues.reason) || '',
-				diagnosis: asOptionalString(submittedValues.diagnosis),
-				notes,
-				referring_doctor: asOptionalString(submittedValues.referring_doctor),
+				department: assessment.department,
+				ward: assessment.ward,
+				bed_number: assessment.bedNumber,
+				reason: assessment.chiefComplaints || '',
+				diagnosis: assessment.provisionalDiagnosis,
+				notes: assessment.notes,
 			});
 			showRequestModal = false;
 			toastStore.addToast('Admission request submitted successfully', 'success');
@@ -579,7 +616,7 @@
 
 	<!-- Student: Admission Request Modal -->
 	{#if showRequestModal}
-		<AquaModal title="Request Patient Admission" onclose={() => { showRequestModal = false; requestFormData = {}; }}>
+		<AquaModal title="Admission Initial Assessment Form" onclose={() => { showRequestModal = false; requestFormData = {}; }}>
 			<div class="space-y-4">
 				{#if reqError}
 					<div class="rounded-lg p-3" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2);">
@@ -657,7 +694,7 @@
 					disabled={reqSubmitting}
 					onclick={submitAdmissionRequest}
 				>
-					{reqSubmitting ? 'Submitting...' : 'Submit Admission Request'}
+					{reqSubmitting ? 'Submitting...' : 'Send for Approval'}
 				</button>
 			</div>
 		</AquaModal>
@@ -1165,7 +1202,7 @@
 		{#snippet header()}
 			<div class="flex items-center gap-2">
 				<Plus class="w-5 h-5 text-blue-600" />
-				<span class="font-semibold text-gray-800">Admission Assessment</span>
+				<span class="font-semibold text-gray-800">Admission Initial Assessment Form</span>
 			</div>
 		{/snippet}
 

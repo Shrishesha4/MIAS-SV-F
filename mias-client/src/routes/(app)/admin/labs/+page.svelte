@@ -8,7 +8,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { FlaskConical, Trash2, X, Plus, Pencil } from 'lucide-svelte';
+	import { FlaskConical, Trash2, X, Plus, Pencil, Power } from 'lucide-svelte';
 
 	const DEFAULT_LAB_TYPE = 'General';
 	const COMMON_LAB_TYPES = [
@@ -82,6 +82,9 @@
 	});
 	let savingGroup = $state(false);
 	let allAvailableTests: LabTest[] = $state([]);
+	let togglingLabId = $state<string | null>(null);
+	let togglingTestId = $state<string | null>(null);
+	let togglingGroupId = $state<string | null>(null);
 
 	// Delete confirmation
 	let confirmModal = $state(false);
@@ -123,6 +126,26 @@
 		labModal = true;
 	}
 
+	function openEditLabModal(lab: LabInfo) {
+		editingLab = lab;
+		labData = {
+			name: lab.name,
+			block: lab.block || '',
+			lab_type: lab.lab_type || DEFAULT_LAB_TYPE,
+			department: lab.department || '',
+			location: lab.location || '',
+			contact_phone: lab.contact_phone || '',
+			operating_hours: lab.operating_hours || '',
+			is_active: lab.is_active,
+		};
+		labModal = true;
+	}
+
+	function closeLabModal() {
+		labModal = false;
+		editingLab = null;
+	}
+
 	async function saveLab() {
 		const payload = {
 			name: normalizeLabText(labData.name),
@@ -150,6 +173,17 @@
 			}
 			labModal = false;
 			await loadLabs();
+			if (editingLab && configLab?.id === editingLab.id) {
+				configLab = {
+					...configLab,
+					...payload,
+					block: payload.block || undefined,
+					location: payload.location || undefined,
+					contact_phone: payload.contact_phone || undefined,
+					operating_hours: payload.operating_hours || undefined,
+				};
+			}
+			editingLab = null;
 		} catch (e: any) {
 			toastStore.addToast(e.response?.data?.detail || 'Failed to save lab', 'error');
 		} finally {
@@ -328,6 +362,52 @@
 		};
 		confirmModal = true;
 	}
+
+	async function toggleLabActive(lab: LabInfo) {
+		togglingLabId = lab.id;
+		try {
+			await labsApi.update(lab.id, { is_active: !lab.is_active });
+			await loadLabs();
+			if (configLab?.id === lab.id) {
+				await loadLabConfig(lab.id);
+			}
+			toastStore.addToast(`Lab ${lab.is_active ? 'disabled' : 'enabled'}`, 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update lab status', 'error');
+		} finally {
+			togglingLabId = null;
+		}
+	}
+
+	async function toggleTestActive(test: LabTest) {
+		if (!configLab) return;
+		togglingTestId = test.id;
+		try {
+			await labsApi.updateTest(configLab.id, test.id, { is_active: !test.is_active });
+			await loadLabConfig(configLab.id);
+			await loadLabs();
+			toastStore.addToast(`Test ${test.is_active ? 'disabled' : 'enabled'}`, 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update test status', 'error');
+		} finally {
+			togglingTestId = null;
+		}
+	}
+
+	async function toggleGroupActive(group: LabTestGroup) {
+		if (!configLab) return;
+		togglingGroupId = group.id;
+		try {
+			await labsApi.updateGroup(configLab.id, group.id, { is_active: !group.is_active });
+			await loadLabConfig(configLab.id);
+			await loadLabs();
+			toastStore.addToast(`Group ${group.is_active ? 'disabled' : 'enabled'}`, 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update group status', 'error');
+		} finally {
+			togglingGroupId = null;
+		}
+	}
 </script>
 
 	{#if loading}
@@ -369,13 +449,32 @@
 								</p>
 							</div>
 						</div>
-						<button
-							onclick={() => openConfigPanel(lab)}
-							class="px-4 py-1.5 text-xs font-semibold text-slate-600 rounded-full"
-							style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);"
-						>
-							Configure
-						</button>
+						<div class="flex items-center gap-2">
+							<button
+								onclick={() => openEditLabModal(lab)}
+								class="px-3 py-1.5 text-xs font-semibold text-blue-600 rounded-full cursor-pointer"
+								style="background: rgba(59,130,246,0.12);"
+							>
+								<Pencil class="mr-1 inline h-3.5 w-3.5" />
+								Edit
+							</button>
+							<button
+								onclick={() => openConfigPanel(lab)}
+								class="px-4 py-1.5 text-xs font-semibold text-slate-600 rounded-full"
+								style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05);"
+							>
+								Configure
+							</button>
+							<button
+								onclick={() => toggleLabActive(lab)}
+								class="px-3 py-1.5 text-xs font-semibold rounded-full cursor-pointer disabled:opacity-60 {lab.is_active ? 'text-amber-700' : 'text-emerald-700'}"
+								style={lab.is_active ? 'background: rgba(251,191,36,0.16);' : 'background: rgba(16,185,129,0.14);'}
+								disabled={togglingLabId === lab.id}
+							>
+								<Power class="mr-1 inline h-3.5 w-3.5" />
+								{togglingLabId === lab.id ? 'Saving...' : lab.is_active ? 'Disable' : 'Enable'}
+							</button>
+						</div>
 					</div>
 
 					<div class="grid grid-cols-2 gap-3">
@@ -405,9 +504,19 @@
 						</div>
 						<TabBar tabs={configTabs} activeTab={configTab} onchange={(id) => configTab = id} />
 					</div>
-					<button onclick={closeConfigPanel} class="p-1.5 text-slate-400 hover:text-slate-600">
-						<X class="w-5 h-5" />
-					</button>
+					<div class="flex items-center gap-2">
+						<button
+							onclick={() => configLab && openEditLabModal(configLab)}
+							class="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold text-blue-600 cursor-pointer"
+							style="background: rgba(59,130,246,0.12);"
+						>
+							<Pencil class="w-3.5 h-3.5" />
+							Edit Lab
+						</button>
+						<button onclick={closeConfigPanel} class="p-1.5 text-slate-400 hover:text-slate-600">
+							<X class="w-5 h-5" />
+						</button>
+					</div>
 				</div>
 
 				{#if loadingConfig}
@@ -423,7 +532,7 @@
 					</div>
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 						{#each labTests as test (test.id)}
-							<div class="flex items-center justify-between p-3 rounded-xl" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04);">
+							<div class="flex items-center justify-between p-3 rounded-xl" style={`background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04); opacity: ${test.is_active ? 1 : 0.65};`}>
 								<div>
 									<p class="font-semibold text-slate-900">{test.name}</p>
 									<p class="text-xs text-slate-500">{test.category} • {test.code}</p>
@@ -432,9 +541,15 @@
 								<button onclick={() => openEditTestModal(test)} class="p-1.5 text-slate-400 hover:text-blue-500">
 									<Pencil class="w-4 h-4" />
 								</button>
+								<button onclick={() => toggleTestActive(test)} class="p-1.5 disabled:opacity-60 {test.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingTestId === test.id}>
+									<Power class="w-4 h-4" />
+								</button>
+								<!-- Delete test action hidden until admin disable flow replaces hard delete UI. -->
+								<!--
 								<button onclick={() => confirmDeleteTest(test)} class="p-1.5 text-slate-400 hover:text-red-500">
 									<Trash2 class="w-4 h-4" />
 								</button>
+								-->
 							</div>
 							</div>
 						{/each}
@@ -448,16 +563,22 @@
 					</div>
 					<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
 						{#each labGroups as group (group.id)}
-							<div class="p-3 rounded-xl" style="background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04);">
+							<div class="p-3 rounded-xl" style={`background: linear-gradient(to bottom, #fafafa, #f5f5f5); border: 1px solid rgba(0,0,0,0.04); opacity: ${group.is_active ? 1 : 0.65};`}>
 								<div class="flex items-center justify-between mb-2">
 									<p class="font-semibold text-slate-900">{group.name}</p>
 								<div class="flex items-center gap-1">
 									<button onclick={() => openEditGroupModal(group)} class="p-1.5 text-slate-400 hover:text-blue-500">
 										<Pencil class="w-4 h-4" />
 									</button>
+									<button onclick={() => toggleGroupActive(group)} class="p-1.5 disabled:opacity-60 {group.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingGroupId === group.id}>
+										<Power class="w-4 h-4" />
+									</button>
+									<!-- Delete group action hidden until admin disable flow replaces hard delete UI. -->
+									<!--
 									<button onclick={() => confirmDeleteGroup(group)} class="p-1.5 text-slate-400 hover:text-red-500">
 										<Trash2 class="w-4 h-4" />
 									</button>
+									-->
 								</div>
 								</div>
 								<div class="flex flex-wrap gap-1.5">
@@ -474,7 +595,7 @@
 	{/if}
 
 {#if labModal}
-	<AquaModal title={editingLab ? 'Edit Lab' : 'Add New Lab'} onclose={() => { labModal = false; }}>
+	<AquaModal title={editingLab ? 'Edit Lab' : 'Add New Lab'} onclose={closeLabModal}>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-3">
 			<div>
@@ -521,7 +642,7 @@
 			</div>
 		</div>
 		<div class="flex gap-2 mt-4">
-			<button onclick={() => { labModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingLab}>Cancel</button>
+			<button onclick={closeLabModal} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingLab}>Cancel</button>
 			<button onclick={saveLab} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" disabled={savingLab}>{savingLab ? 'Saving...' : editingLab ? 'Update Lab' : 'Create Lab'}</button>
 		</div>
 	</AquaModal>

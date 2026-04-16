@@ -11,15 +11,15 @@
 	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Trash2 } from 'lucide-svelte';
 
 	const auth = get(authStore);
-	const defaultSections: FormSection[] = ['CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
+	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
 	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis'];
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
-		ADMISSION: 'CLINICAL',
-		ADMISSION_REQUEST: 'CLINICAL',
-		ADMISSION_INTAKE: 'CLINICAL',
-		ADMISSION_DISCHARGE: 'CLINICAL',
-		ADMISSION_TRANSFER: 'CLINICAL',
+		ADMISSION: 'ADMISSION',
+		ADMISSION_REQUEST: 'ADMISSION',
+		ADMISSION_INTAKE: 'ADMISSION',
+		ADMISSION_DISCHARGE: 'ADMISSION',
+		ADMISSION_TRANSFER: 'ADMISSION',
 		PRESCRIPTION: 'CLINICAL',
 		PRESCRIPTION_CREATE: 'CLINICAL',
 		PRESCRIPTION_EDIT: 'CLINICAL',
@@ -37,15 +37,17 @@
 	let loadingForms = $state(true);
 	let formDefinitions: FormDefinition[] = $state([]);
 	let formCategories: FormCategory[] = $state([]);
-	let activeSection = $state<FormSection>('CLINICAL');
+	let activeSection = $state<FormSection>('ADMISSION');
 
 	let showFormEditor = $state(false);
 	let editingFormId: string | null = $state(null);
-	let formEditorSection = $state<FormSection>('CLINICAL');
+	let formEditorSection = $state<FormSection>('ADMISSION');
 	let formEditorType = $state('');
 	let formEditorName = $state('');
 	let formEditorSortOrder = $state(0);
 	let formEditorIsActive = $state(true);
+	let formEditorIcon = $state('');
+	let formEditorColor = $state('');
 	let formEditorFields: FormFieldDefinition[] = $state([]);
 	let formEditorRules: FormRule[] = $state([]);
 	let selectedFieldIndex = $state(0);
@@ -149,6 +151,24 @@
 		}
 	}
 
+	async function toggleCategoryActiveFromMenu() {
+		if (!categoryMenu) return;
+		const target = categoryMenu.category;
+		categoryMenu = null;
+		try {
+			const updated = await formsApi.updateFormCategory(target.id, {
+				is_active: !target.is_active,
+			});
+			formCategories = sortFormCategories(
+				formCategories.map((item) => (item.id === updated.id ? updated : item))
+			);
+			syncActiveSection(formCategories);
+			toastStore.addToast(`Form category ${updated.is_active ? 'enabled' : 'disabled'}`, 'success');
+		} catch (error: any) {
+			toastStore.addToast(error?.response?.data?.detail || 'Failed to update form category', 'error');
+		}
+	}
+
 	function resolveFormSection(form: Pick<FormDefinition, 'section' | 'form_type'>): FormSection {
 		const explicitSection = form.section?.toString().toUpperCase();
 		if (explicitSection) {
@@ -220,6 +240,8 @@
 		formEditorName = '';
 		formEditorSortOrder = 0;
 		formEditorIsActive = true;
+		formEditorIcon = '';
+		formEditorColor = '';
 		formEditorFields = [];
 		formEditorRules = [];
 		selectedFieldIndex = 0;
@@ -258,6 +280,8 @@
 		formEditorName = form.name;
 		formEditorSortOrder = form.sort_order || 0;
 		formEditorIsActive = form.is_active;
+		formEditorIcon = form.icon || '';
+		formEditorColor = form.color || '';
 		formEditorFields = (form.fields.length > 0 ? form.fields : [createEmptyField()]).map((field) => ({
 			...field,
 			type: normalizeFieldType(field.type)
@@ -598,6 +622,8 @@
 			rules: formEditorRules.length > 0 ? formEditorRules : undefined,
 			sort_order: formEditorSortOrder,
 			is_active: formEditorIsActive,
+			icon: formEditorIcon.trim() || null,
+			color: formEditorColor.trim() || null,
 		};
 
 		savingForm = true;
@@ -744,6 +770,35 @@
 
 			<span class="header-inline-divider" aria-hidden="true"></span>
 
+			<div class="header-inline-group">
+				<p class="header-inline-label">Icon</p>
+				<input
+					class="inline-select"
+					style="width: 110px;"
+					placeholder="e.g. Stethoscope"
+					bind:value={formEditorIcon}
+					title="Lucide icon name (optional)"
+				/>
+			</div>
+
+			<span class="header-inline-divider" aria-hidden="true"></span>
+
+			<div class="header-inline-group" style="align-items: center; gap: 6px;">
+				<p class="header-inline-label">Color</p>
+				<input
+					type="color"
+					style="width: 28px; height: 28px; padding: 1px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.15); cursor: pointer; background: none;"
+					value={formEditorColor || '#6b7280'}
+					oninput={(e) => formEditorColor = (e.currentTarget as HTMLInputElement).value}
+					title="Pick a color for this form's icon"
+				/>
+				{#if formEditorColor}
+					<button type="button" onclick={() => formEditorColor = ''} class="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+				{/if}
+			</div>
+
+			<span class="header-inline-divider" aria-hidden="true"></span>
+
 			<button
 				type="button"
 				role="switch"
@@ -825,12 +880,23 @@
 		>
 			<button
 				type="button"
+				onclick={toggleCategoryActiveFromMenu}
+				class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+			>
+				<Power class="h-3.5 w-3.5" />
+				{categoryMenu.category.is_active ? 'Disable Tab' : 'Enable Tab'}
+			</button>
+			<!-- Delete tab action hidden until admin disable flow replaces hard delete UI. -->
+			<!--
+			<button
+				type="button"
 				onclick={deleteCategoryFromMenu}
 				class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 cursor-pointer"
 			>
 				<Trash2 class="h-3.5 w-3.5" />
 				Delete Tab
 			</button>
+			-->
 		</div>
 	{/if}
 
@@ -1264,7 +1330,6 @@
 								<div>
 									<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Selected Field</p>
 									<h4 class="mt-1 text-sm font-bold text-slate-900">{selectedField.label || `Field ${selectedFieldIndex + 1}`}</h4>
-									<p class="mt-1 text-xs text-slate-500">Adjust the schema here. Reorder from the list on the left.</p>
 								</div>
 								<button
 									type="button"
@@ -1290,7 +1355,7 @@
 										/>
 									</div>
 
-									<div>
+									<!-- <div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Key</p>
 										<input
 											type="text"
@@ -1300,7 +1365,7 @@
 											oninput={(event) => updateFieldKey(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
 										/>
 										<p class="mt-1 text-[11px] text-slate-500">Auto-normalized to lowercase underscore format.</p>
-									</div>
+									</div> -->
 
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Type</p>
@@ -1478,7 +1543,6 @@
 								<div class="studio-subcard p-3">
 									<div class="mb-3">
 										<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Visibility Logic</p>
-										<p class="mt-1 text-xs text-slate-500">Simple field-level visibility is configured here. Earlier fields can drive later fields.</p>
 									</div>
 
 									{#if availableFields.length === 0}

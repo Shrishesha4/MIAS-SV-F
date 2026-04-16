@@ -48,12 +48,20 @@ class FormDefinitionPayload(BaseModel):
     fields: list[FormFieldPayload] = Field(default_factory=list)
     sort_order: int = 0
     is_active: bool = True
+    icon: Optional[str] = None
+    color: Optional[str] = None
 
 
 class FormCategoryPayload(BaseModel):
     name: str
     sort_order: Optional[int] = None
     is_active: bool = True
+
+
+class FormCategoryUpdatePayload(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
 
 
 def _serialize_form_category(category: FormCategoryOption) -> dict:
@@ -186,6 +194,8 @@ def _serialize_form(form: FormDefinition) -> dict:
         "section": infer_form_section(form.form_type, form.section),
         "department": form.department,
         "procedure_name": form.procedure_name,
+        "icon": form.icon,
+        "color": form.color,
         "fields": normalized_fields,
         "sort_order": form.sort_order,
         "is_active": form.is_active,
@@ -309,6 +319,51 @@ async def delete_form_category(
     return {"message": "Form category deleted"}
 
 
+@router.patch("/categories/{category_id}")
+async def update_form_category(
+    category_id: str,
+    payload: FormCategoryUpdatePayload,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    category = (
+        await db.execute(
+            select(FormCategoryOption).where(FormCategoryOption.id == category_id)
+        )
+    ).scalar_one_or_none()
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    if payload.name is not None:
+        normalized_name = normalize_form_section_name(payload.name)
+        if not normalized_name:
+            raise HTTPException(status_code=400, detail="Category name is required")
+        existing = (
+            await db.execute(
+                select(FormCategoryOption)
+                .where(FormCategoryOption.name == normalized_name)
+                .where(FormCategoryOption.id != category.id)
+            )
+        ).scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=400, detail="Category name already exists")
+        if category.is_system and normalized_name != category.name:
+            raise HTTPException(status_code=400, detail="System categories cannot be renamed")
+        category.name = normalized_name
+
+    if payload.sort_order is not None:
+        category.sort_order = payload.sort_order
+
+    if payload.is_active is not None:
+        if category.is_system and payload.is_active is False:
+            raise HTTPException(status_code=400, detail="System categories cannot be disabled")
+        category.is_active = payload.is_active
+
+    await db.flush()
+    await db.refresh(category)
+    return _serialize_form_category(category)
+
+
 @router.get("")
 async def list_forms(
     form_type: Optional[str] = Query(None),
@@ -376,6 +431,8 @@ async def create_form_definition(
         fields=[_normalize_field(field) for field in payload.fields],
         sort_order=payload.sort_order,
         is_active=payload.is_active,
+        icon=payload.icon or None,
+        color=payload.color or None,
     )
     db.add(form)
     await db.flush()
@@ -424,6 +481,8 @@ async def update_form_definition(
     form.fields = [_normalize_field(field) for field in payload.fields]
     form.sort_order = payload.sort_order
     form.is_active = payload.is_active
+    form.icon = payload.icon or None
+    form.color = payload.color or None
 
     await db.flush()
     await db.refresh(form)

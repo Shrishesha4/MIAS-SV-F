@@ -7,7 +7,7 @@
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
-	import { Loader2, PencilLine, Plus, ShieldCheck, Star, Trash2, UsersRound } from 'lucide-svelte';
+	import { Loader2, PencilLine, Plus, Power, ShieldCheck, Star, Trash2, UsersRound } from 'lucide-svelte';
 
 	type CategoryFormState = {
 		id: string | null;
@@ -24,6 +24,7 @@
 	let loading = $state(true);
 	let saving = $state(false);
 	let deletingId = $state<string | null>(null);
+	let togglingId = $state<string | null>(null);
 	let categories = $state<PatientCategoryConfig[]>([]);
 	let editorOpen = $state(false);
 	let form = $state<CategoryFormState>({
@@ -150,6 +151,23 @@
 			deletingId = null;
 		}
 	}
+
+	async function toggleCategoryActive(category: PatientCategoryConfig) {
+		togglingId = category.id;
+		try {
+			const updated = await adminApi.updatePatientCategory(category.id, {
+				is_active: !category.is_active,
+			});
+			categories = [...categories]
+				.map((item) => item.id === updated.id ? updated : item)
+				.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+			toastStore.addToast(`Patient category ${updated.is_active ? 'enabled' : 'disabled'}`, 'success');
+		} catch (error: any) {
+			toastStore.addToast(error?.response?.data?.detail || 'Failed to update patient category', 'error');
+		} finally {
+			togglingId = null;
+		}
+	}
 </script>
 
 <div class="space-y-4">
@@ -259,9 +277,15 @@
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 cursor-pointer" style="background: rgba(148,163,184,0.12);" onclick={() => openEdit(category)}>
 											<PencilLine class="mr-1 inline h-3.5 w-3.5" /> Edit
 										</button>
+										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-60 {category.is_active ? 'text-amber-700' : 'text-emerald-700'}" style={category.is_active ? 'background: rgba(251,191,36,0.16);' : 'background: rgba(16,185,129,0.14);'} onclick={() => toggleCategoryActive(category)} disabled={togglingId === category.id}>
+											<Power class="mr-1 inline h-3.5 w-3.5" /> {togglingId === category.id ? 'Saving...' : category.is_active ? 'Disable' : 'Enable'}
+										</button>
+										<!-- Delete patient category action hidden until admin disable flow replaces hard delete UI. -->
+										<!--
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60" style="background: rgba(248,113,113,0.12);" onclick={() => removeCategory(category)} disabled={deletingId === category.id}>
 											<Trash2 class="mr-1 inline h-3.5 w-3.5" /> {deletingId === category.id ? 'Removing...' : 'Delete'}
 										</button>
+										-->
 									</div>
 								</td>
 							</tr>

@@ -24,5 +24,7 @@ class FormDefinition(Base):
     fields = Column(JSON, nullable=False, default=list)
     sort_order = Column(Integer, nullable=False, default=0)
     is_active = Column(Boolean, nullable=False, default=True)
+    icon = Column(String, nullable=True)   # lucide icon name e.g. "Stethoscope"
+    color = Column(String, nullable=True)  # hex color e.g. "#f97316"
     created_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False)

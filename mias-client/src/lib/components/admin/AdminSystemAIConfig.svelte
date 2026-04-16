@@ -320,9 +320,12 @@
 										<button type="button" class="inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-semibold cursor-pointer disabled:opacity-60 {row.is_enabled ? 'text-emerald-700' : 'text-amber-700'}" style={row.is_enabled ? 'background: rgba(16,185,129,0.14);' : 'background: rgba(251,191,36,0.18);'} onclick={() => activateRow(row)} disabled={row.is_enabled}>
 											<Bot class="h-3.5 w-3.5" /> {row.is_enabled ? 'Live' : 'Activate'}
 										</button>
+										<!-- Delete provider action hidden until admin disable flow replaces hard delete UI. -->
+										<!--
 										<button type="button" class="inline-flex items-center justify-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60" style="background: rgba(248,113,113,0.12);" onclick={() => deleteRow(row)} disabled={row.deleting}>
 											<Trash2 class="h-3.5 w-3.5" /> {row.deleting ? 'Deleting...' : 'Delete'}
 										</button>
+										-->
 									</div>
 								</td>
 							</tr>

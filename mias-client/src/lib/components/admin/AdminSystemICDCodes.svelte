@@ -7,7 +7,7 @@
 	import { adminApi, type ICDCodeRecord } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
-	import { FileText, Loader2, PencilLine, Plus, Search, Trash2 } from 'lucide-svelte';
+	import { FileText, Loader2, PencilLine, Plus, Power, Search, Trash2 } from 'lucide-svelte';
 
 	type ICDFormState = {
 		id: string | null;
@@ -22,6 +22,7 @@
 	let loading = $state(true);
 	let saving = $state(false);
 	let deletingId = $state<string | null>(null);
+	let togglingId = $state<string | null>(null);
 	let codes = $state<ICDCodeRecord[]>([]);
 	let search = $state('');
 	let editorOpen = $state(false);
@@ -141,6 +142,21 @@
 			deletingId = null;
 		}
 	}
+
+	async function toggleCodeActive(item: ICDCodeRecord) {
+		togglingId = item.id;
+		try {
+			const updated = await adminApi.updateICDCode(item.id, {
+				is_active: !item.is_active,
+			});
+			codes = codes.map((entry) => entry.id === updated.id ? updated : entry);
+			toastStore.addToast(`ICD code ${updated.is_active ? 'enabled' : 'disabled'}`, 'success');
+		} catch (error: any) {
+			toastStore.addToast(error?.response?.data?.detail || 'Failed to update ICD code', 'error');
+		} finally {
+			togglingId = null;
+		}
+	}
 </script>
 
 <div class="space-y-4">
@@ -235,9 +251,15 @@
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 cursor-pointer" style="background: rgba(148,163,184,0.12);" onclick={() => openEdit(item)}>
 											<PencilLine class="mr-1 inline h-3.5 w-3.5" /> Edit
 										</button>
+										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-60 {item.is_active ? 'text-amber-700' : 'text-emerald-700'}" style={item.is_active ? 'background: rgba(251,191,36,0.16);' : 'background: rgba(16,185,129,0.14);'} onclick={() => toggleCodeActive(item)} disabled={togglingId === item.id}>
+											<Power class="mr-1 inline h-3.5 w-3.5" /> {togglingId === item.id ? 'Saving...' : item.is_active ? 'Disable' : 'Enable'}
+										</button>
+										<!-- Delete ICD code action hidden until admin disable flow replaces hard delete UI. -->
+										<!--
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60" style="background: rgba(248,113,113,0.12);" onclick={() => removeCode(item)} disabled={deletingId === item.id}>
 											<Trash2 class="mr-1 inline h-3.5 w-3.5" /> {deletingId === item.id ? 'Removing...' : 'Delete'}
 										</button>
+										-->
 									</div>
 								</td>
 							</tr>

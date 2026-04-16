@@ -44,6 +44,7 @@ class PatientDataCreate(BaseModel):
     category: Optional[str] = None
     patient_category_id: Optional[str] = None
     insurance_category_id: Optional[str] = None
+    photo: Optional[str] = None
     emergency_contact: Optional[EmergencyContactCreate] = None
 
 

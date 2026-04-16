@@ -1,7 +1,7 @@
 from app.models.user import User, UserRole, RefreshToken
 from app.models.patient import (
     Patient, Gender, EmergencyContact,
-    InsurancePolicy, Allergy, MedicalAlert, Appointment
+    InsurancePolicy, Allergy, MedicalAlert, Appointment, PatientDiagnosisEntry
 )
 from app.models.patient_category import PatientCategoryOption
 from app.models.student import (

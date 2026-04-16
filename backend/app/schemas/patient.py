@@ -59,6 +59,20 @@ class MedicalAlertResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PatientDiagnosisEntryResponse(BaseModel):
+    id: str
+    diagnosis: str
+    icd_code: Optional[str] = None
+    icd_description: Optional[str] = None
+    is_active: bool
+    added_by: Optional[str] = None
+    added_at: Optional[datetime] = None
+    removed_by: Optional[str] = None
+    removed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
 class PatientResponse(BaseModel):
     id: str
     patient_id: str
@@ -85,6 +99,7 @@ class PatientDetailResponse(PatientResponse):
     diagnosis_doctor: Optional[str] = None
     diagnosis_date: Optional[str] = None
     diagnosis_time: Optional[str] = None
+    diagnosis_entries: List[PatientDiagnosisEntryResponse] = []
     emergency_contact: Optional[EmergencyContactResponse] = None
     allergies: List[AllergyResponse] = []
     medical_alerts: List[MedicalAlertResponse] = []

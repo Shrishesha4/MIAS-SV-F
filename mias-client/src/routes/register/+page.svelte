@@ -9,6 +9,7 @@
 		Phone, ShieldCheck, Fingerprint, BadgeCheck,
 		User, Building2, Heart, CreditCard, CircleCheck,
 		ArrowLeft, ArrowRight, HeartPulse, Eye, EyeOff,
+		Camera, ImagePlus, Move, RotateCcw,
 		CheckCircle2, ChevronRight, Landmark, Briefcase, Wallet, CircleOff
 	} from 'lucide-svelte';
 
@@ -24,6 +25,28 @@
 
 	// Step 1 – phone
 	let phone = $state('');
+	let patientPhoto = $state('');
+	let photoCaptureInput = $state<HTMLInputElement>();
+	let photoGalleryInput = $state<HTMLInputElement>();
+	let pendingPhotoSrc = $state('');
+	let cropImage = $state<HTMLImageElement | null>(null);
+	let showPhotoCropper = $state(false);
+	let cropZoom = $state(1);
+	let cropOffsetX = $state(0);
+	let cropOffsetY = $state(0);
+	let cropDragActive = $state(false);
+	let cropDragStartX = 0;
+	let cropDragStartY = 0;
+	let cropStartOffsetX = 0;
+	let cropStartOffsetY = 0;
+	const CROP_FRAME_SIZE = 240;
+	const CROP_EXPORT_SIZE = 720;
+	const cropBaseScale = $derived.by(() => {
+		if (!cropImage) return 1;
+		return Math.max(CROP_FRAME_SIZE / cropImage.naturalWidth, CROP_FRAME_SIZE / cropImage.naturalHeight);
+	});
+	const cropDisplayScale = $derived(cropBaseScale * cropZoom);
+	const photoStepReady = $derived(phone.replace(/\D/g, '').length >= 10 && !!patientPhoto);
 
 	// Step 2 – OTP
 	let otp = $state(['', '', '', '', '', '']);
@@ -250,12 +273,158 @@
 
 	// ─── Step 1: Send OTP ──────────────────────────────────
 	function handleSendOtp() {
+		if (!patientPhoto) {
+			error = 'Please capture or upload patient photo';
+			return;
+		}
 		if (phone.replace(/\D/g, '').length < 10) {
 			error = 'Enter a valid 10-digit mobile number';
 			return;
 		}
 		// mock: just proceed
 		next();
+	}
+
+	function resetPhotoCropper() {
+		pendingPhotoSrc = '';
+		cropImage = null;
+		showPhotoCropper = false;
+		cropZoom = 1;
+		cropOffsetX = 0;
+		cropOffsetY = 0;
+		cropDragActive = false;
+	}
+
+	function clampCropOffsets(nextX: number, nextY: number) {
+		if (!cropImage) {
+			return { x: 0, y: 0 };
+		}
+
+		const scaledWidth = cropImage.naturalWidth * cropDisplayScale;
+		const scaledHeight = cropImage.naturalHeight * cropDisplayScale;
+		const maxOffsetX = Math.max(0, (scaledWidth - CROP_FRAME_SIZE) / 2);
+		const maxOffsetY = Math.max(0, (scaledHeight - CROP_FRAME_SIZE) / 2);
+
+		return {
+			x: Math.min(maxOffsetX, Math.max(-maxOffsetX, nextX)),
+			y: Math.min(maxOffsetY, Math.max(-maxOffsetY, nextY)),
+		};
+	}
+
+	function updateCropOffsets(nextX: number, nextY: number) {
+		const clamped = clampCropOffsets(nextX, nextY);
+		cropOffsetX = clamped.x;
+		cropOffsetY = clamped.y;
+	}
+
+	async function openPhotoCropper(file: File) {
+		const dataUrl = await new Promise<string>((resolve, reject) => {
+			const reader = new FileReader();
+			reader.onload = () => resolve(String(reader.result || ''));
+			reader.onerror = () => reject(new Error('Failed to read image'));
+			reader.readAsDataURL(file);
+		});
+
+		await openPhotoCropperFromDataUrl(dataUrl);
+	}
+
+	async function openPhotoCropperFromDataUrl(dataUrl: string) {
+		if (!dataUrl.startsWith('data:image/')) {
+			error = 'Please choose an image file';
+			return;
+		}
+
+		const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+			const nextImage = new Image();
+			nextImage.onload = () => resolve(nextImage);
+			nextImage.onerror = () => reject(new Error('Failed to load image'));
+			nextImage.src = dataUrl;
+		});
+
+		pendingPhotoSrc = dataUrl;
+		cropImage = image;
+		cropZoom = 1;
+		cropOffsetX = 0;
+		cropOffsetY = 0;
+		showPhotoCropper = true;
+		error = '';
+	}
+
+	async function handlePhotoSelection(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) {
+			return;
+		}
+
+		try {
+			await openPhotoCropper(file);
+		} catch (err) {
+			error = 'Failed to load selected photo';
+		} finally {
+			input.value = '';
+		}
+	}
+
+	function startCropDrag(event: PointerEvent) {
+		cropDragActive = true;
+		cropDragStartX = event.clientX;
+		cropDragStartY = event.clientY;
+		cropStartOffsetX = cropOffsetX;
+		cropStartOffsetY = cropOffsetY;
+		(event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
+	}
+
+	function moveCropDrag(event: PointerEvent) {
+		if (!cropDragActive) return;
+		updateCropOffsets(
+			cropStartOffsetX + (event.clientX - cropDragStartX),
+			cropStartOffsetY + (event.clientY - cropDragStartY),
+		);
+	}
+
+	function endCropDrag() {
+		cropDragActive = false;
+	}
+
+	function resetCropPosition() {
+		cropZoom = 1;
+		cropOffsetX = 0;
+		cropOffsetY = 0;
+	}
+
+	function applyPhotoCrop() {
+		if (!cropImage) {
+			return;
+		}
+
+		const canvas = document.createElement('canvas');
+		canvas.width = CROP_EXPORT_SIZE;
+		canvas.height = CROP_EXPORT_SIZE;
+
+		const context = canvas.getContext('2d');
+		if (!context) {
+			error = 'Failed to prepare cropped image';
+			return;
+		}
+
+		const exportScale = CROP_EXPORT_SIZE / CROP_FRAME_SIZE;
+		const drawWidth = cropImage.naturalWidth * cropDisplayScale * exportScale;
+		const drawHeight = cropImage.naturalHeight * cropDisplayScale * exportScale;
+		const center = CROP_EXPORT_SIZE / 2;
+
+		context.fillStyle = '#ffffff';
+		context.fillRect(0, 0, CROP_EXPORT_SIZE, CROP_EXPORT_SIZE);
+		context.drawImage(
+			cropImage,
+			center + cropOffsetX * exportScale - drawWidth / 2,
+			center + cropOffsetY * exportScale - drawHeight / 2,
+			drawWidth,
+			drawHeight,
+		);
+
+		patientPhoto = canvas.toDataURL('image/jpeg', 0.9);
+		resetPhotoCropper();
 	}
 
 	// ─── Step 2: Verify OTP ───────────────────────────────
@@ -330,6 +499,7 @@
 					phone: phone.replace(/\D/g, ''),
 					email: patEmail.trim(),
 					address: patAddress.trim(),
+					photo: patientPhoto,
 					abha_id: mockAbha,
 					category: patientCategory,
 					patient_category_id: selectedPatientCategoryId,
@@ -430,14 +600,88 @@
 			<div class="flex flex-col items-center px-6 py-8 gap-5">
 				<div class="w-16 h-16 rounded-full flex items-center justify-center"
 					 style="background: linear-gradient(to bottom, #e8f0fe, #d0e1fd);">
-					<Phone class="w-7 h-7 text-blue-600" />
+					<Camera class="w-7 h-7 text-blue-600" />
 				</div>
 				<div class="text-center">
-					<h2 class="text-lg font-bold text-gray-800">Enter Phone Number</h2>
-					<p class="text-sm text-gray-500 mt-1">We'll send a one-time password to verify your number.</p>
+					<h2 class="text-lg font-bold text-gray-800">Add Photo & Verify Phone</h2>
+					<p class="text-sm text-gray-500 mt-1">Take or upload a patient photo first, then we'll verify your mobile number.</p>
 				</div>
 
 				{#if error}<p class="text-xs text-red-500 text-center -mt-2">{error}</p>{/if}
+
+				<div class="w-full rounded-2xl p-4"
+					 style="background: linear-gradient(180deg, rgba(77,144,254,0.08), rgba(59,122,237,0.03)); border: 1px solid rgba(77,144,254,0.14);">
+					<div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+						<div class="mx-auto sm:mx-0">
+							{#if patientPhoto}
+								<img
+									src={patientPhoto}
+									alt="Patient preview"
+									class="h-24 w-24 rounded-2xl object-cover"
+									style="box-shadow: 0 8px 18px rgba(59,122,237,0.18); border: 2px solid rgba(255,255,255,0.88);"
+								/>
+							{:else}
+								<div
+									class="flex h-24 w-24 items-center justify-center rounded-2xl text-blue-600"
+									style="background: linear-gradient(to bottom, #edf4ff, #dbeafe); border: 1px dashed rgba(59,122,237,0.34);"
+								>
+									<Camera class="h-8 w-8" />
+								</div>
+							{/if}
+						</div>
+
+						<div class="flex-1 text-center sm:text-left">
+							<p class="text-sm font-semibold text-slate-800">Patient photo</p>
+							<p class="mt-1 text-xs leading-5 text-slate-500">Square crop. Use camera or gallery. This photo will be saved to the patient profile.</p>
+							<div class="mt-3 grid grid-cols-2 gap-2">
+								<button
+									type="button"
+									class="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold text-white cursor-pointer transition-opacity hover:opacity-90"
+									style="background: linear-gradient(to bottom, #4d90fe, #3b7aed); box-shadow: 0 2px 8px rgba(59,122,237,0.28);"
+									onclick={() => photoCaptureInput?.click()}
+								>
+									<Camera class="h-3.5 w-3.5" />
+									Take
+								</button>
+								<button
+									type="button"
+									class="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-700 cursor-pointer transition-opacity hover:opacity-90"
+									style="background: #f8fbff; border: 1px solid rgba(15,23,42,0.1);"
+									onclick={() => photoGalleryInput?.click()}
+								>
+									<ImagePlus class="h-3.5 w-3.5" />
+									Upload
+								</button>
+							</div>
+			{#if patientPhoto}
+				<button
+					type="button"
+					class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-blue-600 cursor-pointer hover:underline"
+					onclick={() => openPhotoCropperFromDataUrl(patientPhoto)}
+				>
+					<Move class="h-3.5 w-3.5" />
+					Re-crop photo
+				</button>
+			{/if}
+						</div>
+					</div>
+
+					<input
+						bind:this={photoCaptureInput}
+						type="file"
+						accept="image/*"
+						capture="environment"
+						class="hidden"
+						onchange={handlePhotoSelection}
+					/>
+					<input
+						bind:this={photoGalleryInput}
+						type="file"
+						accept="image/*"
+						class="hidden"
+						onchange={handlePhotoSelection}
+					/>
+				</div>
 
 				<div class="w-full">
 <label for="phone" class="text-xs font-medium text-gray-600 mb-1.5 block">Mobile Number</label>
@@ -461,11 +705,12 @@
 				</div>
 
 				<button
-					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98]"
+					class="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white font-semibold text-sm cursor-pointer transition-opacity hover:opacity-90 active:scale-[0.98] disabled:opacity-55"
 					style="background: linear-gradient(to bottom, #4d90fe, #3b7aed);
 						   box-shadow: 0 2px 8px rgba(59,122,237,0.4);
 						   border: 1px solid rgba(0,0,0,0.1);"
 					onclick={handleSendOtp}
+					disabled={!photoStepReady}
 				>
 					Send OTP <ArrowRight class="w-4 h-4" />
 				</button>
@@ -980,5 +1225,98 @@
 		<p class="mt-6 text-xs text-gray-400 text-center px-4">
 			By registering, you agree to our Terms of Service and Privacy Policy. Your data is secured and used only for medical purposes.
 		</p>
+	{/if}
+
+	{#if showPhotoCropper && cropImage}
+		<div class="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 px-4 py-4 sm:items-center">
+			<div
+				class="w-full max-w-md rounded-[28px] bg-white p-4 sm:p-5"
+				style="box-shadow: 0 18px 48px rgba(15,23,42,0.28); border: 1px solid rgba(255,255,255,0.82);"
+			>
+				<div class="mb-4 flex items-start justify-between gap-3">
+					<div>
+						<p class="text-base font-bold text-slate-900">Crop patient photo</p>
+						<p class="mt-1 text-xs leading-5 text-slate-500">Drag to reposition. Use zoom to keep face centered.</p>
+					</div>
+					<button
+						type="button"
+						class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-500 cursor-pointer hover:text-slate-700"
+						onclick={resetPhotoCropper}
+					>
+						Close
+					</button>
+				</div>
+
+				<div class="flex justify-center">
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div
+						class="relative overflow-hidden rounded-[28px] bg-slate-100 touch-none select-none"
+						style={`width: ${CROP_FRAME_SIZE}px; height: ${CROP_FRAME_SIZE}px; box-shadow: inset 0 0 0 1px rgba(15,23,42,0.08);`}
+						onpointerdown={startCropDrag}
+						onpointermove={moveCropDrag}
+						onpointerup={endCropDrag}
+						onpointerleave={endCropDrag}
+						onpointercancel={endCropDrag}
+					>
+						<img
+							src={pendingPhotoSrc}
+							alt="Crop preview"
+							draggable="false"
+							class="pointer-events-none absolute left-1/2 top-1/2 max-w-none"
+							style={`width: ${cropImage.naturalWidth}px; height: ${cropImage.naturalHeight}px; transform: translate(calc(-50% + ${cropOffsetX}px), calc(-50% + ${cropOffsetY}px)) scale(${cropDisplayScale}); transform-origin: center;`}
+						/>
+						<div class="pointer-events-none absolute inset-0 rounded-[28px]" style="box-shadow: inset 0 0 0 2px rgba(255,255,255,0.95), inset 0 0 0 999px rgba(15,23,42,0.08);"></div>
+					</div>
+				</div>
+
+				<div class="mt-4 space-y-3">
+					<div class="rounded-2xl px-3 py-3" style="background: #f8fbff; border: 1px solid rgba(15,23,42,0.08);">
+						<div class="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
+							<span>Zoom</span>
+							<span>{cropZoom.toFixed(1)}x</span>
+						</div>
+						<input
+							type="range"
+							min="1"
+							max="2.8"
+							step="0.05"
+							bind:value={cropZoom}
+							oninput={() => updateCropOffsets(cropOffsetX, cropOffsetY)}
+							class="w-full cursor-pointer accent-blue-600"
+						/>
+						<div class="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+							<span class="inline-flex items-center gap-1"><Move class="h-3 w-3" /> Drag to move</span>
+							<button
+								type="button"
+								class="inline-flex items-center gap-1 font-semibold text-blue-600 cursor-pointer hover:underline"
+								onclick={resetCropPosition}
+							>
+								<RotateCcw class="h-3 w-3" />
+								Reset
+							</button>
+						</div>
+					</div>
+
+					<div class="grid grid-cols-2 gap-2">
+						<button
+							type="button"
+							class="rounded-xl px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer"
+							style="background: #f8fafc; border: 1px solid rgba(15,23,42,0.1);"
+							onclick={resetPhotoCropper}
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							class="rounded-xl px-4 py-3 text-sm font-semibold text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #4d90fe, #3b7aed); box-shadow: 0 2px 8px rgba(59,122,237,0.28);"
+							onclick={applyPhotoCrop}
+						>
+							Use Photo
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
 	{/if}
 </div>

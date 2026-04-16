@@ -41,6 +41,7 @@
     onClose?: () => void;  // Alternative prop name
     header?: Snippet;
     panelClass?: string;
+    panelStyle?: string;
     contentClass?: string;
     children: Snippet;
   }
@@ -52,6 +53,7 @@
     onClose,
     header,
     panelClass = 'sm:max-w-md',
+    panelStyle = '',
     contentClass = 'p-4',
     children
   }: Props = $props();
@@ -91,10 +93,7 @@
     <div class="absolute inset-0" onclick={handleClose}></div>
     <div
       class={`motion-dialog pointer-events-auto relative flex max-h-[90vh] w-full flex-col ${panelClass}`}
-      style="background-color: white;
-            border-radius: 20px;
-            box-shadow: 0 -8px 28px rgba(0,0,0,0.18);
-             border: 1px solid rgba(0,0,0,0.1);"
+      style={`background-color: white; border-radius: 20px; box-shadow: 0 -8px 28px rgba(0,0,0,0.18); border: 1px solid rgba(0,0,0,0.1); ${panelStyle}`}
       in:fly={{ y: 24, duration: 280, easing: cubicOut }}
       out:fly={{ y: 18, duration: 180 }}
     >

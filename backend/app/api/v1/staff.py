@@ -161,6 +161,7 @@ async def get_pending_patients(
             "id": patient.id,
             "patient_id": patient.patient_id,
             "name": patient.name,
+            "photo": patient.photo,
             "phone": patient.phone,
             "email": patient.email,
             "gender": patient.gender.value if patient.gender else None,

@@ -355,7 +355,10 @@ async def get_assigned_patients(
             selectinload(StudentPatientAssignment.patient)
             .selectinload(Patient.insurance_policies),
         )
-        .where(StudentPatientAssignment.student_id == student_id)
+        .where(
+            StudentPatientAssignment.student_id == student_id,
+            StudentPatientAssignment.status == "Active",
+        )
     )
     assignments = result.scalars().all()
 
@@ -425,6 +428,12 @@ async def get_student_case_records(
             "time": r.time,
             "type": r.type,
             "description": r.description,
+            "procedure_name": r.procedure_name,
+            "procedure_description": r.procedure_description,
+            "form_name": r.form_name,
+            "form_description": r.form_description,
+            "form_fields": r.form_fields,
+            "form_values": r.form_values,
             "department": r.department,
             "findings": r.findings,
             "diagnosis": r.diagnosis,
@@ -466,6 +475,10 @@ async def create_case_record(
         time=body.get("time"),
         type=body.get("type", "Examination"),
         description=body.get("description", ""),
+        form_name=body.get("form_name"),
+        form_description=body.get("form_description"),
+        form_fields=body.get("form_fields"),
+        form_values=body.get("form_values"),
         department=body.get("department"),
         findings=body.get("findings"),
         diagnosis=body.get("diagnosis"),
@@ -968,7 +981,7 @@ async def get_previous_patients(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get previously assigned patients (no longer active) for the student."""
+    """Get previous patient sessions for a student."""
     result = await db.execute(
         select(StudentPatientAssignment)
         .options(
@@ -982,17 +995,65 @@ async def get_previous_patients(
     )
     assignments = result.scalars().all()
 
+    patient_ids = list({assignment.patient_id for assignment in assignments})
+    admissions_by_patient: dict[str, list[Admission]] = {}
+    if patient_ids:
+        admission_result = await db.execute(
+            select(Admission)
+            .where(
+                Admission.patient_id.in_(patient_ids),
+                Admission.status != "Active",
+                Admission.discharge_date.is_not(None),
+            )
+            .order_by(Admission.patient_id, Admission.discharge_date.desc())
+        )
+        admissions = admission_result.scalars().all()
+        for admission in admissions:
+            admissions_by_patient.setdefault(admission.patient_id, []).append(admission)
+
+    assignments_by_patient: dict[str, list[StudentPatientAssignment]] = {}
+    for assignment in assignments:
+        assignments_by_patient.setdefault(assignment.patient_id, []).append(assignment)
+    for grouped_assignments in assignments_by_patient.values():
+        grouped_assignments.sort(key=lambda assignment: assignment.assigned_date or datetime.min)
+
     patients = []
     for a in assignments:
         if not a.patient:
             continue
+
+        patient_assignments = assignments_by_patient.get(a.patient_id, [])
+        next_assignment_date = None
+        for index, assignment in enumerate(patient_assignments):
+            if assignment.id != a.id:
+                continue
+            if index + 1 < len(patient_assignments):
+                next_assignment_date = patient_assignments[index + 1].assigned_date
+            break
+
+        matching_admission = None
+        for admission in admissions_by_patient.get(a.patient_id, []):
+            if not admission.discharge_date:
+                continue
+            if a.assigned_date and admission.discharge_date < a.assigned_date:
+                continue
+            if next_assignment_date and admission.discharge_date >= next_assignment_date:
+                continue
+            matching_admission = admission
+            break
+
         age = None
         if a.patient.date_of_birth:
             today = date.today()
             dob = a.patient.date_of_birth
             age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         patients.append({
-            "id": a.patient.id,
+            "id": a.id,
+            "patient_db_id": a.patient.id,
+            "assignment_id": a.id,
+            "admission_id": matching_admission.id if matching_admission else None,
+            "admission_date": matching_admission.admission_date.isoformat() if matching_admission and matching_admission.admission_date else None,
+            "discharge_date": matching_admission.discharge_date.isoformat() if matching_admission and matching_admission.discharge_date else None,
             "patient_id": a.patient.patient_id,
             "name": a.patient.name,
             "age": age,
@@ -1001,9 +1062,18 @@ async def get_previous_patients(
             "photo": a.patient.photo,
             "status": a.status,
             "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
+            "department": matching_admission.department if matching_admission else None,
+            "primary_diagnosis": (
+                matching_admission.diagnosis
+                or a.patient.primary_diagnosis
+            ),
             **serialize_patient_badge_context(a.patient),
             "insurance_policies": serialize_patient_insurance(a.patient),
         })
+    patients.sort(
+        key=lambda patient: patient["discharge_date"] or patient["assigned_date"] or "",
+        reverse=True,
+    )
     return patients
 
 
@@ -1032,6 +1102,10 @@ async def submit_case_record_for_approval(
         procedure_name=body.get("procedure"),
         procedure_description=body.get("procedure_description"),
         description=body.get("description", ""),
+        form_name=body.get("form_name"),
+        form_description=body.get("form_description"),
+        form_fields=body.get("form_fields"),
+        form_values=body.get("form_values"),
         department=body.get("department"),
         findings=body.get("findings"),
         diagnosis=body.get("diagnosis"),

@@ -1,28 +1,41 @@
-need 
+- need to do
 
-#   departments must be shown in labs as dropdown selector
+    ask insurance type again when requesting admission
 
-    add student not working 
+    form disabling capability to certain patient types
+
+    only make form visible after entering price in chargemaster
+    
+    faculty should be able to edit case record request from student
+    
+    prescription edit window to match the add prescription window
+    
+    fac
+
+
+- done
+
+    departments must be shown in labs as dropdown selector
+
+    add student not working
 
     remove charge master add new button
 
-    need conditional forms 
-    
+    need conditional forms
+
     need to show insurance types for all patient in their profile badge itself with color based on patinets
 
-# rearrange formfields
+    rearrange formfields
 
-make the default formfield as "textarea"
+    make the default formfield as "textarea"
 
-small edit icon near patient profile header to edit blood group.
-
-ask for blood group in registration form.
-
-ask insurance type again when requesting admission
-
-form disabling capability to certain patient types
-
-only make form visible after entering price in chargemaster
+    ask for blood group in registration form.
 
 
-
+- questions
+    
+    admission handover button near discharge button in /reviews page?
+    
+    pharmacy medicine inventory?
+    
+    

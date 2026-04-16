@@ -43,6 +43,8 @@ export interface FormDefinitionPayload {
 	rules?: FormRule[];
 	sort_order?: number;
 	is_active?: boolean;
+	icon?: string | null;
+	color?: string | null;
 }
 
 export interface FormCategoryPayload {
@@ -64,6 +66,11 @@ export const formsApi = {
 
 	async deleteFormCategory(categoryId: string): Promise<{ message: string }> {
 		const response = await client.delete<{ message: string }>(`/forms/categories/${categoryId}`);
+		return response.data;
+	},
+
+	async updateFormCategory(categoryId: string, data: Partial<FormCategoryPayload>): Promise<FormCategory> {
+		const response = await client.patch<FormCategory>(`/forms/categories/${categoryId}`, data);
 		return response.data;
 	},
 

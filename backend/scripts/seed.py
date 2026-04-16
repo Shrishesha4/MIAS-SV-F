@@ -14,7 +14,7 @@ from app.database import AsyncSessionLocal, engine
 from sqlalchemy import select
 from app.db_init import run_startup_migrations
 from app.models.user import User, UserRole
-from app.models.patient import Patient, Gender, MedicalAlert
+from app.models.patient import Patient, Gender, MedicalAlert, InsurancePolicy
 from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment
 from app.models.faculty import Faculty
 from app.models.nurse import Nurse
@@ -27,12 +27,41 @@ from app.models.admission import Admission
 from app.models.io_event import IOEvent, SOAPNote, AdmissionEquipment
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.form_definition import FormDefinition
+from app.models.insurance_category import InsuranceCategory, InsuranceClinicConfig
+from app.models.patient_category import get_default_patient_category_colors
 from app.core.security import get_password_hash
-from app.services.form_categories import infer_form_section
+from app.services.charge_sync import sync_charge_sources
+from app.services.form_categories import ensure_form_categories, infer_form_section
+from app.services.patient_categories import ensure_patient_categories
 
 
 def uid() -> str:
     return str(uuid.uuid4())
+
+
+def walk_in_type_for_category(category_name: str) -> str:
+    cleaned = str(category_name or "").strip().upper().replace(" ", "_").replace("-", "_")
+    return f"WALKIN_{cleaned}" if cleaned else "NO_WALK_IN"
+
+
+def get_form_visual_defaults(form_definition: dict) -> tuple[str | None, str | None]:
+    section = infer_form_section(form_definition.get("form_type"), form_definition.get("section"))
+    department = str(form_definition.get("department") or "").strip().casefold()
+    procedure_name = str(form_definition.get("procedure_name") or "").strip().casefold()
+
+    if section == "ADMISSION":
+        return "ClipboardList", "#2563EB"
+    if department == "cardiology":
+        return "HeartPulse", "#EF4444"
+    if department == "pediatrics":
+        return "Baby", "#22C55E"
+    if department == "internal medicine":
+        return "Stethoscope", "#0EA5E9"
+    if procedure_name.startswith("lab") or section == "LABORATORY":
+        return "FlaskConical", "#7C3AED"
+    if section == "ADMINISTRATIVE":
+        return "ClipboardList", "#0F766E"
+    return "FileText", "#2563EB"
 
 
 MOCK_DATA_SENTINEL_USERNAMES = (
@@ -153,10 +182,113 @@ DEPARTMENTS = [
 ]
 
 CLINICS = [
-    {"name": "Saveetha General Clinic", "block": "Block A", "clinic_type": "OP", "department": "Internal Medicine", "location": "Outpatient Wing, Ground Floor", "faculty_idx": 0},
-    {"name": "Saveetha Dental Clinic",  "block": "Block B", "clinic_type": "OP", "department": "Dentistry",        "location": "Block B, 1st Floor",           "faculty_idx": 2},
-    {"name": "Cardiology Clinic",       "block": "Block C", "clinic_type": "IP", "department": "Cardiology",     "location": "Block C, 2nd Floor",           "faculty_idx": 1},
+    {
+        "name": "Saveetha General Clinic",
+        "block": "Block A",
+        "clinic_type": "OP",
+        "access_mode": "WALK_IN",
+        "walk_in_type": "WALKIN_CLASSIC",
+        "walk_in_types": ["WALKIN_CLASSIC", "WALKIN_PRIME", "WALKIN_COMMUNITY"],
+        "department": "Internal Medicine",
+        "location": "Outpatient Wing, Ground Floor",
+        "faculty_idx": 0,
+    },
+    {
+        "name": "Saveetha Dental Clinic",
+        "block": "Block B",
+        "clinic_type": "OP",
+        "access_mode": "WALK_IN",
+        "walk_in_type": "WALKIN_PRIME",
+        "walk_in_types": ["WALKIN_CLASSIC", "WALKIN_PRIME"],
+        "department": "Dentistry",
+        "location": "Block B, 1st Floor",
+        "faculty_idx": 2,
+    },
+    {
+        "name": "Cardiology Clinic",
+        "block": "Block C",
+        "clinic_type": "IP",
+        "access_mode": "APPOINTMENT_ONLY",
+        "walk_in_type": "NO_WALK_IN",
+        "walk_in_types": None,
+        "department": "Cardiology",
+        "location": "Block C, 2nd Floor",
+        "faculty_idx": 1,
+    },
 ]
+
+PATIENT_CATEGORY_SEED_DATA = (
+    {
+        "name": "Classic",
+        "description": "Standard hospital pricing and registration category.",
+        "sort_order": 0,
+        "registration_fee": 100,
+    },
+    {
+        "name": "Prime",
+        "description": "Priority services with upgraded access and benefits.",
+        "sort_order": 1,
+        "registration_fee": 200,
+    },
+    {
+        "name": "Elite",
+        "description": "Premium category for high-touch service workflows.",
+        "sort_order": 2,
+        "registration_fee": 500,
+    },
+    {
+        "name": "Community",
+        "description": "Community or subsidized patient support category.",
+        "sort_order": 3,
+        "registration_fee": 50,
+    },
+)
+
+INSURANCE_CATEGORIES_DATA = (
+    {
+        "name": "Self Pay",
+        "description": "Direct self-pay registration and billing without insurer mediation.",
+        "icon_key": "wallet",
+        "custom_badge_symbol": None,
+        "color_primary": "#FB7185",
+        "color_secondary": "#E11D48",
+        "sort_order": 0,
+        "patient_categories": ["Classic", "Prime", "Elite", "Community"],
+    },
+    {
+        "name": "Private Insurance",
+        "description": "Commercial and employer-backed insurance plans with standard approvals.",
+        "icon_key": "shield",
+        "custom_badge_symbol": None,
+        "color_primary": "#60A5FA",
+        "color_secondary": "#1D4ED8",
+        "sort_order": 1,
+        "patient_categories": ["Classic", "Prime", "Elite"],
+    },
+    {
+        "name": "CM Scheme",
+        "description": "Government-sponsored beneficiary coverage for subsidized care workflows.",
+        "icon_key": "landmark",
+        "custom_badge_symbol": "CM",
+        "color_primary": "#34D399",
+        "color_secondary": "#0F766E",
+        "sort_order": 2,
+        "patient_categories": ["Classic", "Community"],
+    },
+)
+
+PATIENT_REGISTRATION_PROFILES = (
+    {"category": "Classic", "insurance": "Self Pay"},
+    {"category": "Prime", "insurance": "Private Insurance"},
+    {"category": "Elite", "insurance": "Self Pay"},
+    {"category": "Community", "insurance": "CM Scheme"},
+    {"category": "Classic", "insurance": "Private Insurance"},
+    {"category": "Prime", "insurance": "Private Insurance"},
+    {"category": "Elite", "insurance": "Self Pay"},
+    {"category": "Community", "insurance": "CM Scheme"},
+    {"category": "Classic", "insurance": "Self Pay"},
+    {"category": "Prime", "insurance": "Private Insurance"},
+)
 
 LABS = [
     {"name": "Central Pathology Lab", "block": "Block C", "lab_type": "Pathology", "department": "Pathology", "location": "Block C, Ground Floor", "contact_phone": "+91-44-2680-1234", "operating_hours": "24/7"},
@@ -537,6 +669,88 @@ FORM_DEFINITIONS_DATA = [
             {"id": "plan", "label": "Management Adjustments", "type": "textarea", "required": True, "placeholder": "Diuretic titration, device therapy, follow-up"},
         ],
     },
+    {
+        "slug": "admission-initial-assessment-form",
+        "name": "Admission Initial Assessment Form",
+        "description": "Default nursing and clinical intake assessment used whenever a patient is admitted.",
+        "form_type": "ADMISSION_INTAKE",
+        "section": "ADMISSION",
+        "sort_order": 0,
+        "icon": "ClipboardList",
+        "color": "#2563EB",
+        "fields": [
+            {"id": "department", "label": "Department", "type": "select", "required": True, "options": []},
+            {"id": "ward", "label": "Ward", "type": "text", "required": True, "placeholder": "General Ward"},
+            {"id": "bed_number", "label": "Bed Number", "type": "text", "required": True, "placeholder": "A-12"},
+            {"id": "drug_allergy", "label": "H/O allergies", "type": "select", "options": ["Yes", "No"]},
+            {"id": "chief_complaints", "label": "Chief Complaints", "type": "textarea", "rows": 3},
+            {"id": "history_of_present_illness", "label": "History Of present Illness", "type": "textarea", "rows": 3},
+            {"id": "medication_history", "label": "Current Medications", "type": "textarea", "rows": 3},
+            {"id": "weight_admission", "label": "Clinical Examination Weight", "type": "number"},
+            {"id": "pallor", "label": "Pallor", "type": "select", "options": ["Yes", "No"]},
+            {"id": "icterus", "label": "Icterus", "type": "select", "options": ["Yes", "No"]},
+            {"id": "cyanosis", "label": "Cyanosis", "type": "select", "options": ["Yes", "No"]},
+            {"id": "clubbing", "label": "Clubbing", "type": "select", "options": ["Yes", "No"]},
+            {"id": "pedal_edema", "label": "Pedal Edema", "type": "select", "options": ["Yes", "No"]},
+            {"id": "lymph_nodes", "label": "Lymph nodes", "type": "select", "options": ["Yes", "No"]},
+            {"id": "cvs", "label": "CVS", "type": "textarea", "rows": 2, "help_text": "Systemic Examination"},
+            {"id": "rs", "label": "RS", "type": "textarea", "rows": 2},
+            {"id": "abdomen", "label": "Abdomen", "type": "textarea", "rows": 2},
+            {"id": "cns", "label": "CNS", "type": "textarea", "rows": 2},
+            {"id": "pain_score", "label": "Pain Score", "type": "select", "required": True, "options": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"], "help_text": "0 = No pain, 1-3 = Mild pain, 4-5 = Moderate pain, 6-7 = Severe pain, 8-9 = Very severe pain, 10 = Worse pain"},
+            {"id": "dvt_score", "label": "DVT score", "type": "text"},
+            {"id": "psychological_evaluation", "label": "Psychological Evaluation", "type": "select", "options": ["Normal", "Anxious", "Depressed", "Others(specify)"]},
+            {"id": "provisional_diagnosis", "label": "Provisional Diagnosis", "type": "textarea", "rows": 2},
+            {"id": "proposed_plan", "label": "Proposed Care Plan", "type": "textarea", "rows": 3},
+            {"id": "expected_cost_outcome_briefed", "label": "Expected Cost & Outcome briefed to patient / patient attendants", "type": "select", "options": ["Yes", "No"]},
+            {"id": "additional_information", "label": "Additional Information", "type": "textarea", "rows": 3},
+        ],
+    },
+    {
+        "slug": "administrative-patient-registration-intake",
+        "name": "Patient Registration Intake",
+        "description": "Front-desk intake form for new and returning patient registration.",
+        "form_type": "ADMINISTRATIVE",
+        "section": "ADMINISTRATIVE",
+        "sort_order": 0,
+        "icon": "ClipboardList",
+        "color": "#0F766E",
+        "fields": [
+            {"id": "full_name", "label": "Full Name", "type": "text", "required": True, "placeholder": "Patient full name"},
+            {"id": "phone", "label": "Phone Number", "type": "tel", "required": True, "placeholder": "+91 XXXXX XXXXX"},
+            {"id": "insurance_category", "label": "Insurance Category", "type": "select", "required": True, "options": ["Self Pay", "Private Insurance", "CM Scheme"]},
+            {"id": "patient_category", "label": "Patient Category", "type": "select", "required": True, "options": ["Classic", "Prime", "Elite", "Community"]},
+            {"id": "clinic_preference", "label": "Preferred Clinic", "type": "text", "required": False, "placeholder": "Requested clinic or department"},
+            {"id": "notes", "label": "Registration Notes", "type": "textarea", "required": False, "placeholder": "Referral, token, or walk-in remarks"},
+        ],
+    },
+    {
+        "slug": "laboratory-basic-panel-request",
+        "name": "Basic Lab Panel Request",
+        "description": "Laboratory requisition template for baseline hematology and biochemistry workups.",
+        "form_type": "LABORATORY",
+        "section": "LABORATORY",
+        "department": "Pathology",
+        "procedure_name": "Basic Panel",
+        "sort_order": 0,
+        "icon": "FlaskConical",
+        "color": "#7C3AED",
+        "fields": [
+            {"id": "requesting_clinician", "label": "Requesting Clinician", "type": "text", "required": True, "placeholder": "Consultant or duty doctor"},
+            {"id": "clinical_indication", "label": "Clinical Indication", "type": "textarea", "required": True, "placeholder": "Reason for ordering lab panel"},
+            {"id": "panel_type", "label": "Panel Type", "type": "select", "required": True, "options": ["CBC", "RFT", "LFT", "Electrolytes", "Cardiac Markers"]},
+            {"id": "fasting_required", "label": "Fasting Required", "type": "select", "required": True, "options": ["Yes", "No"]},
+            {"id": "sample_priority", "label": "Sample Priority", "type": "select", "required": True, "options": ["Routine", "Urgent", "STAT"]},
+            {
+                "id": "fasting_hours",
+                "label": "Fasting Hours",
+                "type": "number",
+                "required": False,
+                "placeholder": "Hours fasted before sample collection",
+                "condition": {"field": "fasting_required", "operator": "eq", "value": "Yes"},
+            },
+        ],
+    },
 ]
 
 
@@ -556,6 +770,24 @@ async def seed():
             print("\nℹ️ Mock data already exists. Skipping seed without resetting the database.\n")
             print("Default admin login: a / a\n")
             return
+
+        patient_category_seed_map = {
+            str(item["name"]).casefold(): item
+            for item in PATIENT_CATEGORY_SEED_DATA
+        }
+        patient_categories = await ensure_patient_categories(db)
+        patient_category_map = {}
+        for category in patient_categories:
+            seed_item = patient_category_seed_map.get(category.name.casefold())
+            primary, secondary = get_default_patient_category_colors(category.name)
+            if seed_item:
+                category.description = str(seed_item["description"])
+                category.sort_order = int(seed_item["sort_order"])
+                category.registration_fee = int(seed_item["registration_fee"])
+            category.color_primary = category.color_primary or primary
+            category.color_secondary = category.color_secondary or secondary
+            category.is_active = True
+            patient_category_map[category.name.casefold()] = category
 
         # ── Reception ───────────────────────────────────
         db.add(User(
@@ -628,7 +860,11 @@ async def seed():
             ))
 
         # ── Patients ─────────────────────────────────────
-        for p in PATIENTS:
+        for idx, p in enumerate(PATIENTS):
+            registration_profile = PATIENT_REGISTRATION_PROFILES[idx % len(PATIENT_REGISTRATION_PROFILES)]
+            category = patient_category_map.get(str(registration_profile["category"]).casefold())
+            category_name = category.name if category else str(registration_profile["category"])
+            color_primary, color_secondary = get_default_patient_category_colors(category_name)
             user_id = uid()
             db.add(User(
                 id=user_id,
@@ -648,7 +884,9 @@ async def seed():
                 phone=p["phone"],
                 email=p["email"],
                 address=p["address"],
-                category="Classic",
+                category=category_name,
+                category_color_primary=category.color_primary if category else color_primary,
+                category_color_secondary=category.color_secondary if category else color_secondary,
             ))
 
         # ── Departments ──────────────────────────────────
@@ -700,7 +938,9 @@ async def seed():
                     "accept": field.get("accept"),
                     "multiple": field.get("multiple", False),
                     "help_text": field.get("help_text"),
+                    "condition": field.get("condition"),
                 })
+            icon, color = get_form_visual_defaults(form_def)
             db.add(FormDefinition(
                 id=uid(),
                 slug=form_def["slug"],
@@ -712,11 +952,14 @@ async def seed():
                 procedure_name=form_def.get("procedure_name"),
                 fields=normalized_fields,
                 sort_order=form_def.get("sort_order", 0),
-                is_active=True,
+                is_active=form_def.get("is_active", True),
+                icon=form_def.get("icon") or icon,
+                color=form_def.get("color") or color,
             ))
 
         # Flush to get IDs
         await db.flush()
+        await ensure_form_categories(db)
 
         # ── Fetch all student and patient records ────────
         stu_result = await db.execute(select(Student))
@@ -849,6 +1092,9 @@ async def seed():
                 name=c["name"],
                 block=c.get("block"),
                 clinic_type=c.get("clinic_type", "OP"),
+                access_mode=c.get("access_mode", "WALK_IN"),
+                walk_in_type=c.get("walk_in_type", "NO_WALK_IN"),
+                walk_in_types=c.get("walk_in_types"),
                 department=c["department"],
                 location=c.get("location", ""),
                 faculty_id=faculty_list[c["faculty_idx"]].id if faculty_list else None,
@@ -857,6 +1103,75 @@ async def seed():
             db.add(clinic)
             clinic_objs.append(clinic)
         await db.flush()
+
+        # ── Insurance Categories & Clinic Configs ────────
+        insurance_category_map = {}
+        insurance_categories = []
+        for insurance_seed in INSURANCE_CATEGORIES_DATA:
+            allowed_categories = [
+                patient_category_map[name.casefold()]
+                for name in insurance_seed["patient_categories"]
+                if name.casefold() in patient_category_map
+            ]
+            insurance_category = InsuranceCategory(
+                id=uid(),
+                name=insurance_seed["name"],
+                description=insurance_seed.get("description"),
+                icon_key=insurance_seed["icon_key"],
+                custom_badge_symbol=insurance_seed.get("custom_badge_symbol"),
+                color_primary=insurance_seed["color_primary"],
+                color_secondary=insurance_seed["color_secondary"],
+                is_active=True,
+                sort_order=insurance_seed["sort_order"],
+                patient_categories=allowed_categories,
+            )
+            db.add(insurance_category)
+            insurance_categories.append(insurance_category)
+            insurance_category_map[insurance_category.name.casefold()] = insurance_category
+        await db.flush()
+
+        for insurance_category in insurance_categories:
+            allowed_categories = list(insurance_category.patient_categories or [])
+            fallback_category = allowed_categories[0] if allowed_categories else None
+            for clinic in clinic_objs:
+                matched_category = None
+                if clinic.access_mode == "WALK_IN":
+                    supported_walk_in_types = set(clinic.walk_in_types or [])
+                    for allowed_category in allowed_categories:
+                        walk_in_value = walk_in_type_for_category(allowed_category.name)
+                        if not supported_walk_in_types or walk_in_value in supported_walk_in_types:
+                            matched_category = allowed_category
+                            break
+                selected_category = matched_category or fallback_category
+                db.add(InsuranceClinicConfig(
+                    id=uid(),
+                    insurance_category_id=insurance_category.id,
+                    clinic_id=clinic.id,
+                    walk_in_type=walk_in_type_for_category(selected_category.name) if matched_category else "NO_WALK_IN",
+                    registration_fee=float(selected_category.registration_fee if selected_category else 100),
+                    is_enabled=True,
+                ))
+
+        # ── Patient Insurance Policies ───────────────────
+        for idx, patient_seed in enumerate(PATIENTS):
+            patient = patient_map.get(patient_seed["patient_id"])
+            registration_profile = PATIENT_REGISTRATION_PROFILES[idx % len(PATIENT_REGISTRATION_PROFILES)]
+            insurance_category = insurance_category_map.get(str(registration_profile["insurance"]).casefold())
+            if not patient or not insurance_category:
+                continue
+            db.add(InsurancePolicy(
+                id=uid(),
+                patient_id=patient.id,
+                insurance_category_id=insurance_category.id,
+                provider=insurance_category.name,
+                policy_number=f"{insurance_category.name[:3].upper().replace(' ', '')}-{patient.patient_id}",
+                valid_until=date.today() + timedelta(days=730),
+                coverage_type=insurance_category.name,
+                icon_key=insurance_category.icon_key,
+                custom_badge_symbol=insurance_category.custom_badge_symbol,
+                color_primary=insurance_category.color_primary,
+                color_secondary=insurance_category.color_secondary,
+            ))
 
         # ── Labs ─────────────────────────────────────────
         from app.models.lab import Lab
@@ -1272,6 +1587,7 @@ async def seed():
                     is_completed=(j == 2),  # Mark last one as completed
                 ))
 
+        await sync_charge_sources(db)
         await db.commit()
 
     # ── Print credentials ────────────────────────────────

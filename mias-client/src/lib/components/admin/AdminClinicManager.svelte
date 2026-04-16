@@ -613,6 +613,8 @@
 							>
 								<PencilLine class="h-4 w-4 text-slate-400" />
 							</button>
+							<!-- Delete clinic action hidden until admin disable flow replaces hard delete UI. -->
+							<!--
 							<button
 								type="button"
 								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-rose-50"
@@ -621,6 +623,7 @@
 							>
 								<Trash2 class="h-4 w-4 text-rose-400" />
 							</button>
+							-->
 						</div>
 					</div>
 				</div>

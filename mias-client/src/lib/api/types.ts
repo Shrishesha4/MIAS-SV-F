@@ -28,6 +28,23 @@ export interface Patient {
   allergies: Allergy[];
   medical_alerts: MedicalAlert[];
   insurance_policies?: InsurancePolicy[];
+  primary_diagnosis?: string | null;
+  diagnosis_doctor?: string | null;
+  diagnosis_date?: string | null;
+  diagnosis_time?: string | null;
+  diagnosis_entries?: PatientDiagnosisEntry[];
+}
+
+export interface PatientDiagnosisEntry {
+  id: string;
+  diagnosis: string;
+  icd_code?: string | null;
+  icd_description?: string | null;
+  is_active: boolean;
+  added_by?: string | null;
+  added_at?: string | null;
+  removed_by?: string | null;
+  removed_at?: string | null;
 }
 
 export interface EmergencyContact {
@@ -284,6 +301,7 @@ export interface Admission {
   id: string;
   patient_id: string;
   admission_date: string;
+  created_at?: string;
   discharge_date?: string;
   department: string;
   ward: string;
@@ -293,6 +311,9 @@ export interface Admission {
   diagnosis?: string;
   status: 'Active' | 'Discharged' | 'Transferred';
   notes?: string;
+  physical_examination?: string;
+  provisional_diagnosis?: string;
+  proposed_plan?: string;
   program_duration_days?: number;
   related_admission_id?: string;
   transferred_from_department?: string;
@@ -398,6 +419,12 @@ export interface CaseRecord {
   time?: string;
   department?: string;
   procedure?: string;
+  procedure_name?: string;
+  procedure_description?: string;
+  form_name?: string;
+  form_description?: string;
+  form_fields?: FormFieldDefinition[];
+  form_values?: Record<string, any>;
   chief_complaint?: string;
   description?: string;
   history?: string;
@@ -509,9 +536,13 @@ export interface PatientDetail extends Patient {
 export interface PrescriptionRequest {
   id: string;
   medication: string;
+  dosage?: string;
   requested_date: string;
   status: 'Pending' | 'Approved' | 'Rejected';
   notes: string;
+  responded_by?: string;
+  responded_at?: string;
+  response_notes?: string;
 }
 
 export interface PatientMedication {
@@ -526,3 +557,4 @@ export interface PatientMedication {
   prescribed_by: string;
   department: string;
 }
+import type { FormFieldDefinition } from '$lib/types/forms';

@@ -9,11 +9,11 @@
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { facultyApi } from '$lib/api/faculty';
-	import type { VitalParameterConfig } from '$lib/api/types';
+	import type { Patient, PatientDiagnosisEntry, VitalParameterConfig } from '$lib/api/types';
 	import type { Report } from '$lib/api/types';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
 	import {
-		defaultAdmissionRequestFields,
+		defaultAdmissionIntakeFields,
 		defaultPrescriptionCreateFields,
 		defaultPrescriptionEditFields,
 		defaultPrescriptionRequestFields,
@@ -24,6 +24,7 @@
 		appendSupplementalText,
 		asOptionalNumber,
 		asOptionalString,
+		buildAdmissionAssessmentSubmission,
 		buildCaseRecordDescription,
 		buildCaseRecordProcedureMap,
 		buildSupplementalFormDescription,
@@ -40,8 +41,10 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+	import ReadonlySubmittedForm from '$lib/components/forms/ReadonlySubmittedForm.svelte';
 	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
+	import PatientProfileOverviewModal from '$lib/components/patient/PatientProfileOverviewModal.svelte';
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
@@ -50,8 +53,18 @@
 		Thermometer, Droplet, Activity, Scale, Wind, CircleDot,
 		Phone, Mail, MapPin, Shield, Edit, X,
 		Trash2, CheckCircle, Send, History, ClipboardList, TestTube,
-		Image as ImageIcon
+		Image as ImageIcon, Stethoscope, FlaskConical, Microscope,
+		Brain, Bone, Eye, Ear, Heart, Baby, Syringe, BandageIcon
 	} from 'lucide-svelte';
+	import type { ComponentType } from 'svelte';
+
+	// Map lucide icon name strings (from FormDefinition.icon) to components
+	const ICON_MAP: Record<string, ComponentType> = {
+		FileText, HeartPulse, Pill, ClipboardList, TestTube,
+		Stethoscope, FlaskConical, Microscope, Brain, Bone,
+		Eye, Ear, Heart, Baby, Syringe, Activity, History,
+		User, Shield, CheckCircle2,
+	};
 
 	Chart.register(...registerables);
 
@@ -67,9 +80,19 @@
 	const studentReadOnly = $derived(role === 'STUDENT' && !canEdit);
 	const studentEditAllowed = $derived(role !== 'STUDENT' || canEdit);
 	const interactiveClinicalAccess = $derived(role !== 'PATIENT' && (role !== 'STUDENT' || canEdit));
+	const canManagePatientProfile = $derived(role === 'FACULTY' || role === 'ADMIN' || (role === 'STUDENT' && canEdit));
 
 	function showReadOnlyToast() {
 		toastStore.addToast('This patient is not assigned to you. You can view details, but editing is disabled.', 'info');
+	}
+
+	function openProfileOverviewModal() {
+		if (!patient) return;
+		showProfileOverviewModal = true;
+	}
+
+	function handlePatientOverviewUpdate(updatedPatient: Patient) {
+		patient = { ...patient, ...updatedPatient };
 	}
 
 	// ── Core data (reactive) ──────────────────────────────────────
@@ -115,6 +138,7 @@
 	let showEditEmergencyModal = $state(false);
 	let showAddInsuranceModal = $state(false);
 	let showAdmissionHistoryModal = $state(false);
+	let showProfileOverviewModal = $state(false);
 
 	// Medical Alerts UI
 	let showAlertInput = $state(false);
@@ -129,6 +153,7 @@
 	let diagnosisSubmitting = $state(false);
 	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let diagnosisSearchLoading = $state(false);
+	let selectedDiagnosisSuggestion: DiagnosisSuggestion | null = $state(null);
 
 	// ── Case Record form ──────────────────────────────────────────
 	let selectedCrFormId = $state('');
@@ -202,6 +227,16 @@
 		caseRecordForms.filter(isCaseRecordLikeForm).find(f => f.id === selectedCrFormId) || null
 	);
 
+	/** Lookup map: procedure_name → FormDefinition for getting icon/color */
+	const formByProcedure = $derived.by(() => {
+		const map = new Map<string, FormDefinition>();
+		for (const f of caseRecordForms) {
+			if (f.procedure_name) map.set(f.procedure_name, f);
+			map.set(f.name, f);
+		}
+		return map;
+	});
+
 	const searchableCrForms = $derived.by(() =>
 		caseRecordForms
 			.filter(isCaseRecordLikeForm)
@@ -225,6 +260,30 @@
 	const crFields: FormFieldDefinition[] | null = $derived(
 		selectedCrForm ? selectedCrForm.fields : null
 	);
+
+	function getCaseRecordDisplayFields(record: any): FormFieldDefinition[] {
+		if (Array.isArray(record?.form_fields) && record.form_fields.length > 0) {
+			return record.form_fields;
+		}
+		const matchedForm = caseRecordForms
+			.filter(isCaseRecordLikeForm)
+			.find((form) =>
+				(record?.form_name && form.name === record.form_name) ||
+				(record?.procedure_name && form.procedure_name === record.procedure_name)
+			) || null;
+		if (matchedForm?.fields?.length) {
+			return matchedForm.fields;
+		}
+		return resolveCaseRecordFields(
+			caseRecordForms,
+			record?.department || matchedForm?.department || '',
+			record?.procedure_name || record?.type || matchedForm?.procedure_name || ''
+		) || [];
+	}
+
+	function hasOriginalCaseRecordForm(record: any): boolean {
+		return Boolean(record?.form_values && Object.keys(record.form_values).length > 0);
+	}
 	const vitalFormOptions = $derived.by((): FormDefinition[] => {
 		const activeVitalForms = caseRecordForms.filter(
 			(form) => form.form_type === 'VITAL_ENTRY' && form.is_active
@@ -294,7 +353,7 @@
 	});
 	const admissionRequestFields = $derived(
 		mergeFieldOptions(
-			resolveFormFieldsByType(caseRecordForms, 'ADMISSION_REQUEST', defaultAdmissionRequestFields),
+			defaultAdmissionIntakeFields,
 			{ department: departments }
 		)
 	);
@@ -439,6 +498,12 @@
 
 	const activeAlerts = $derived(
 		patient?.medical_alerts?.filter((a: any) => a.is_active !== false) ?? []
+	);
+	const diagnosisEntries = $derived<PatientDiagnosisEntry[]>(
+		patient?.diagnosis_entries ?? []
+	);
+	const activeDiagnosisEntries = $derived(
+		diagnosisEntries.filter((entry) => entry.is_active)
 	);
 	const alertPanelOpen = $derived(showAlertInput || showAlertHistory);
 	const diagnosisPanelOpen = $derived(showDiagnosisInput || showDiagnosisHistory);
@@ -613,6 +678,16 @@
 
 	function caseRecordApproverName(record: any) {
 		return record.approved_by || record.approver_name || record.approver || 'Faculty';
+	}
+
+	function formatCaseRecordDate(raw: string | null | undefined): string {
+		if (!raw) return '';
+		try {
+			const d = new Date(raw);
+			if (isNaN(d.getTime())) return raw;
+			return d.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }) +
+				' · ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+		} catch { return raw; }
 	}
 
 	function patientAge(): number {
@@ -890,19 +965,26 @@
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				crFields ?? [],
+				crFormData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'patient-profile-case-record'
+			);
 			const now = new Date();
 			const payload: Record<string, unknown> = {
 				patient_id: patient.id,
 				department: selectedCrForm.department || '',
 				procedure: selectedCrForm.procedure_name || '',
 				findings: '',
-				diagnosis: stringifyFormValue(crFormData['diagnosis']) || '',
+				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
 				treatment: '',
-				notes: stringifyFormValue(crFormData['notes']) || '',
-				description: buildCaseRecordDescription(crFields, crFormData),
+				notes: stringifyFormValue(submittedValues['notes']) || '',
+				description: buildCaseRecordDescription(crFields, submittedValues),
 				icd_code: crIcdCode || undefined,
 				icd_description: crIcdDescription || undefined,
-				form_values: crFormData,
+				form_fields: crFields ?? undefined,
+				form_values: submittedValues,
 				form_name: selectedCrForm.name,
 				form_description: selectedCrForm.description || undefined,
 				time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -1136,8 +1218,16 @@
 			admissionError = 'Please select a faculty approver';
 			return;
 		}
-		if (!admissionRequestFormData.reason) {
-			admissionError = 'Reason for admission is required';
+		if (!admissionRequestFormData.department) {
+			admissionError = 'Please select a department';
+			return;
+		}
+		if (!admissionRequestFormData.ward) {
+			admissionError = 'Ward is required';
+			return;
+		}
+		if (!admissionRequestFormData.bed_number) {
+			admissionError = 'Bed number is required';
 			return;
 		}
 
@@ -1150,25 +1240,17 @@
 				(file, options) => formsApi.uploadFile(file, options),
 				'patient-profile-admission-request'
 			);
-			const notes = appendSupplementalText(
-				asOptionalString(submittedValues.notes),
-				buildSupplementalFormDescription(
-					admissionRequestFields,
-					submittedValues,
-					new Set(['department', 'ward', 'bed_number', 'reason', 'diagnosis', 'notes', 'referring_doctor'])
-				)
-			);
+			const assessment = buildAdmissionAssessmentSubmission(admissionRequestFields, submittedValues);
 
 			await studentApi.submitAdmissionRequest(studentData.id, {
 				patient_id: patient.id,
 				faculty_id: admissionFacultyId,
-				department: asOptionalString(submittedValues.department),
-				ward: asOptionalString(submittedValues.ward),
-				bed_number: asOptionalString(submittedValues.bed_number),
-				reason: asOptionalString(submittedValues.reason) || '',
-				diagnosis: asOptionalString(submittedValues.diagnosis),
-				notes,
-				referring_doctor: asOptionalString(submittedValues.referring_doctor),
+				department: assessment.department,
+				ward: assessment.ward,
+				bed_number: assessment.bedNumber,
+				reason: assessment.chiefComplaints || '',
+				diagnosis: assessment.provisionalDiagnosis,
+				notes: assessment.notes,
 			});
 
 			admissions = await patientApi.getAdmissions(patient.id);
@@ -1363,6 +1445,9 @@
 
 	// ── Primary Diagnosis ─────────────────────────────────────────
 	async function handleDiagnosisSearch(query: string) {
+		if (selectedDiagnosisSuggestion && query !== selectedDiagnosisSuggestion.text) {
+			selectedDiagnosisSuggestion = null;
+		}
 		if (query.length < 2) {
 			diagnosisSuggestions = [];
 			return;
@@ -1379,32 +1464,66 @@
 
 	function handleDiagnosisSelect(item: DiagnosisSuggestion) {
 		newDiagnosis = item.text;
+		selectedDiagnosisSuggestion = item;
 		diagnosisSuggestions = [];
 	}
 
 	function handleDiagnosisClear() {
 		newDiagnosis = '';
+		selectedDiagnosisSuggestion = null;
 		diagnosisSuggestions = [];
 	}
 
-	async function updateDiagnosis() {
+	function formatDiagnosisAudit(value?: string | null): string {
+		if (!value) {
+			return 'Unknown time';
+		}
+
+		const parsed = new Date(value);
+		if (Number.isNaN(parsed.getTime())) {
+			return value;
+		}
+
+		return parsed.toLocaleString([], {
+			day: '2-digit',
+			month: 'short',
+			year: 'numeric',
+			hour: '2-digit',
+			minute: '2-digit',
+		});
+	}
+
+	async function addDiagnosis() {
 		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
 		if (studentReadOnly) return;
 		diagnosisSubmitting = true;
 		try {
-			const now = new Date();
-			await patientApi.updatePrimaryDiagnosis(patient.id, {
+			await patientApi.addPrimaryDiagnosisEntry(patient.id, {
 				diagnosis: newDiagnosis.trim(),
-				doctor: studentData?.name || facultyData?.name || 'Clinical Staff',
-				date: now.toLocaleDateString(),
-				time: now.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}),
+				icd_code: selectedDiagnosisSuggestion?.icd_code || undefined,
+				icd_description: selectedDiagnosisSuggestion?.icd_description || undefined,
 			});
 			patient = await patientApi.getPatient(patient.id);
 			newDiagnosis = '';
+			selectedDiagnosisSuggestion = null;
 			diagnosisSuggestions = [];
 			showDiagnosisInput = false;
 		} catch (err) { console.error('Failed to update diagnosis', err); }
 		finally { diagnosisSubmitting = false; }
+	}
+
+	async function removeDiagnosis(entryId: string) {
+		if (!patient || diagnosisSubmitting) return;
+		if (studentReadOnly) return;
+		diagnosisSubmitting = true;
+		try {
+			await patientApi.removePrimaryDiagnosisEntry(patient.id, entryId);
+			patient = await patientApi.getPatient(patient.id);
+		} catch (err) {
+			console.error('Failed to remove diagnosis', err);
+		} finally {
+			diagnosisSubmitting = false;
+		}
 	}
 
 	function toggleDiagnosisDetails() {
@@ -1426,13 +1545,14 @@
 
 		const nextState = !showDiagnosisInput;
 		showDiagnosisInput = nextState;
-		newDiagnosis = nextState ? (patient?.primary_diagnosis || '') : '';
+		newDiagnosis = '';
+		selectedDiagnosisSuggestion = null;
 		diagnosisSuggestions = [];
 		showDiagnosisHistory = nextState || showDiagnosisHistory;
 	}
 </script>
 
-<div class="space-y-3 px-3 py-3">
+<div class="space-y-2.5 px-2.5 py-2.5">
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -1449,53 +1569,58 @@
 		</div>
 	{/if} -->
 
-	<div class="overflow-hidden rounded-[22px]"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 8px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.85);">
+	<div class="overflow-hidden rounded-[20px]"
+		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 6px 18px rgba(15,23,42,0.07), inset 0 1px 0 rgba(255,255,255,0.85);">
 		<div class="grid grid-cols-1 border-b border-slate-200/80 md:grid-cols-[1.05fr_1fr_1fr]">
-			<div class="p-4 md:p-5" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
-				<div class="flex items-center gap-3">
+			<div class="p-3.5 md:p-4" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
+				<button class="flex w-full items-center gap-2.5 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
+					type="button"
+					onclick={openProfileOverviewModal}>
 					<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="lg" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 					<div class="min-w-0 flex-1">
-						<h2 class="text-2xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
-						<p class="mt-1.5 text-[11px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
-						<p class="mt-2 text-[13px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
-						<p class="mt-1.5 text-[13px] text-slate-600">{patient.phone || '—'}</p>
+						<div class="flex items-center gap-1.5">
+							<h2 class="text-xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
+							<ChevronRight class="h-4.5 w-4.5 text-blue-500" />
+						</div>
+						<p class="mt-1 text-[10px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
+						<p class="mt-1.5 text-[12px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
+						<p class="mt-1 text-[12px] text-slate-600">{patient.phone || '—'}</p>
 						<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact />
 					</div>
-				</div>
+				</button>
 			</div>
 
-			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
+			<div class="border-t border-slate-200/80 p-3.5 md:border-l md:border-t-0 md:p-4"
 				style="background: linear-gradient(135deg, rgba(254,242,242,0.95), rgba(254,226,226,0.82));">
 				<div class="flex items-center justify-between gap-3">
 					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
 						type="button"
 						onclick={toggleAlertDetails}>
 						<AlertTriangle class="h-4 w-4 text-red-500" />
-						<span class="text-[13px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
+						<span class="text-[12px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
 						<ChevronDown class="h-4 w-4 text-red-400 transition-transform duration-300 {alertPanelOpen ? 'rotate-180' : ''}" />
 					</button>
 					<div class="flex gap-2">
-						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
+						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							type="button"
 							onclick={toggleAlertDetails}>
-							<History class="h-3.5 w-3.5 text-blue-500" />
+							<History class="h-3 w-3 text-blue-500" />
 						</button>
 						{#if studentEditAllowed}
-						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
+						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							type="button"
 							onclick={toggleAlertComposer}>
-							<Plus class="h-3.5 w-3.5 text-blue-500" />
+							<Plus class="h-3 w-3 text-blue-500" />
 						</button>
 						{/if}
 					</div>
 				</div>
-				<div class="mt-4 flex flex-wrap gap-2">
+				<div class="mt-3 flex flex-wrap gap-1.5">
 					{#if activeAlerts.length > 0}
 						{#each activeAlerts as alert (alert.id)}
-							<span class="inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-[12px] font-semibold text-red-700"
+							<span class="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-red-700"
 								in:scale={{ duration: 180, start: 0.9 }}
 								out:scale={{ duration: 140, start: 0.92 }}
 								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(248,113,113,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
@@ -1506,15 +1631,15 @@
 							</span>
 						{/each}
 					{:else}
-						<p class="text-sm font-medium text-red-300">No active alerts</p>
+						<p class="text-xs font-medium text-red-300">No active alerts</p>
 					{/if}
 				</div>
 				{#if alertPanelOpen}
-					<div class="mt-4 space-y-3 overflow-hidden" transition:slide={{ duration: 260 }}>
+					<div class="mt-3 space-y-2.5 overflow-hidden" transition:slide={{ duration: 260 }}>
 						{#if showAlertInput}
-							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+							<div class="rounded-xl p-2.5" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
 								<div class="flex gap-2 items-center">
-									<input type="text" bind:value={newAlertTitle} class="flex-1 rounded-xl px-3 py-2 text-sm bg-white outline-none transition-shadow duration-200 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.12)]" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter alert..." onkeydown={(e) => e.key === 'Enter' && addAlert()} />
+									<input type="text" bind:value={newAlertTitle} class="flex-1 rounded-xl px-3 py-1.75 text-sm bg-white outline-none transition-shadow duration-200 focus:shadow-[0_0_0_4px_rgba(239,68,68,0.12)]" style="border: 1px solid rgba(0,0,0,0.12);" placeholder="Enter alert..." onkeydown={(e) => e.key === 'Enter' && addAlert()} />
 									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" onclick={addAlert} disabled={alertSubmitting}>Add</button>
 									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showAlertInput = false; newAlertTitle = ''; }}>Close</button>
 								</div>
@@ -1522,9 +1647,9 @@
 						{/if}
 
 						{#if showAlertHistory}
-							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
+							<div class="rounded-xl p-2.5" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(248,113,113,0.14);">
 								<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Alert History</h4>
-								<div class="space-y-2 max-h-32 overflow-y-auto pr-1">
+								<div class="space-y-1.5 max-h-28 overflow-y-auto pr-1">
 									{#each alertHistory as h}
 										<div class="flex items-center gap-2 pl-2" in:fade={{ duration: 150 }} style="border-left: 2px solid {h.is_active ? '#ef4444' : '#d1d5db'};">
 											<p class="text-xs flex-1" style="color: {h.is_active ? '#dc2626' : '#6b7280'};">{h.title}</p>
@@ -1538,45 +1663,58 @@
 				{/if}
 			</div>
 
-			<div class="border-t border-slate-200/80 p-4 md:border-l md:border-t-0 md:p-5"
+			<div class="border-t border-slate-200/80 p-3.5 md:border-l md:border-t-0 md:p-4"
 				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));">
 				<div class="flex items-center justify-between gap-3">
 					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
 						type="button"
 						onclick={toggleDiagnosisDetails}>
 						<FileText class="h-4 w-4 text-blue-600" />
-						<span class="text-[13px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
+						<span class="text-[12px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
 						<ChevronDown class="h-4 w-4 text-blue-400 transition-transform duration-300 {diagnosisPanelOpen ? 'rotate-180' : ''}" />
 					</button>
 					<div class="flex gap-2">
-						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
+						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							type="button"
 							onclick={toggleDiagnosisDetails}>
-							<History class="h-3.5 w-3.5 text-blue-500" />
+							<History class="h-3 w-3 text-blue-500" />
 						</button>
 						{#if studentEditAllowed}
-						<button class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer"
+						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
 							style="background: rgba(255,255,255,0.88); border: 1px solid rgba(59,130,246,0.18); box-shadow: 0 2px 6px rgba(15,23,42,0.1);"
 							type="button"
 							onclick={toggleDiagnosisComposer}>
-							<Edit class="h-3.5 w-3.5 text-blue-500" />
+							<Plus class="h-3 w-3 text-blue-500" />
 						</button>
 						{/if}
 					</div>
 				</div>
-				<div class="mt-4">
-					{#if patient.primary_diagnosis}
-						<p class="text-[16px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
-						<p class="mt-2 text-[12px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
+				<div class="mt-3">
+					{#if activeDiagnosisEntries.length > 0}
+						<div class="flex flex-wrap gap-1.5">
+							{#each activeDiagnosisEntries as entry (entry.id)}
+								<span class="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-blue-700"
+									style="background: rgba(255,255,255,0.56); border: 1px solid rgba(59,130,246,0.16); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
+									{entry.diagnosis}
+									{#if studentEditAllowed}
+										<button class="cursor-pointer text-blue-400 hover:text-blue-600 leading-none disabled:opacity-50" onclick={() => removeDiagnosis(entry.id)} disabled={diagnosisSubmitting}>×</button>
+									{/if}
+								</span>
+							{/each}
+						</div>
+						<p class="mt-1.5 text-[11px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
+					{:else if patient.primary_diagnosis}
+						<p class="text-[15px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
+						<p class="mt-1.5 text-[11px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
 					{:else}
 						<p class="text-sm font-medium text-blue-300">No diagnosis recorded</p>
 					{/if}
 				</div>
 				{#if diagnosisPanelOpen}
-					<div class="mt-4 space-y-3 overflow-hidden" transition:slide={{ duration: 260 }}>
+					<div class="mt-3 space-y-2.5 overflow-hidden" transition:slide={{ duration: 260 }}>
 						{#if showDiagnosisInput}
-							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+							<div class="rounded-xl p-2.5" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
 								<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
 									<div class="flex-1">
 										<Autocomplete
@@ -1592,17 +1730,35 @@
 											minChars={2}
 										/>
 									</div>
-									<button class="rounded-xl px-3 py-2 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={updateDiagnosis} disabled={diagnosisSubmitting || !newDiagnosis.trim()}>Save</button>
-									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; diagnosisSuggestions = []; }}>Close</button>
+									<button class="rounded-xl px-3 py-1.75 text-xs font-bold text-white cursor-pointer transition-transform duration-200 hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #2563eb);" onclick={addDiagnosis} disabled={diagnosisSubmitting || !newDiagnosis.trim()}>Add</button>
+									<button class="text-xs text-slate-400 cursor-pointer hover:text-slate-600" onclick={() => { showDiagnosisInput = false; newDiagnosis = ''; selectedDiagnosisSuggestion = null; diagnosisSuggestions = []; }}>Close</button>
 								</div>
-								<p class="mt-2 text-[11px] font-medium text-slate-500">Suggestions match both ICD code and disease name. You can still save a manual diagnosis if the exact wording is not in the catalog.</p>
 							</div>
 						{/if}
 
 						{#if showDiagnosisHistory}
-							<div class="rounded-2xl p-3" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
+							<div class="rounded-xl p-2.5" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }} style="background: rgba(255,255,255,0.52); border: 1px solid rgba(96,165,250,0.16);">
 								<h4 class="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Diagnosis History</h4>
-								{#if patient.primary_diagnosis}
+								{#if diagnosisEntries.length > 0}
+									<div class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+										{#each diagnosisEntries as entry (entry.id)}
+											<div class="rounded-xl px-3 py-2" in:fade={{ duration: 150 }} style="background: rgba(255,255,255,0.72); border: 1px solid rgba(96,165,250,0.12);">
+												<div class="flex items-start gap-2">
+													<div class="min-w-0 flex-1">
+														<p class="text-xs font-semibold text-blue-700">{entry.diagnosis}</p>
+														<p class="mt-1 text-[11px] text-slate-500">Added by {entry.added_by || 'Unknown'} • {formatDiagnosisAudit(entry.added_at)}</p>
+														{#if entry.removed_at}
+															<p class="mt-1 text-[11px] text-rose-500">Removed by {entry.removed_by || 'Unknown'} • {formatDiagnosisAudit(entry.removed_at)}</p>
+														{/if}
+													</div>
+													<span class="text-[10px] px-1.5 py-0.5 rounded" style={`background: ${entry.is_active ? 'rgba(59,130,246,0.1)' : 'rgba(148,163,184,0.14)'}; color: ${entry.is_active ? '#2563eb' : '#64748b'};`}>
+														{entry.is_active ? 'Active' : 'Removed'}
+													</span>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{:else if patient.primary_diagnosis}
 									<div class="flex items-center gap-2 pl-2" in:fade={{ duration: 150 }} style="border-left: 2px solid #3b82f6;">
 										<p class="text-xs text-blue-700 flex-1">{patient.primary_diagnosis}</p>
 										<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(59,130,246,0.1); color: #2563eb;">Current</span>
@@ -1664,7 +1820,7 @@
 			{#snippet header()}
 				<div class="flex items-center gap-2">
 					<ClipboardList class="w-5 h-5 text-blue-600" />
-					<span class="font-semibold text-gray-800">Admission Request - {patient?.name}</span>
+					<span class="font-semibold text-gray-800">Admission Initial Assessment Form - {patient?.name}</span>
 				</div>
 			{/snippet}
 
@@ -1708,7 +1864,7 @@
 				<button class="px-4 py-2 rounded-md text-sm font-medium text-white cursor-pointer flex items-center gap-1.5"
 					style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.2); box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);"
 					onclick={submitAdmissionRequest}
-					disabled={admissionSubmitting || !admissionFacultyId || !admissionRequestFormData.reason}>
+					disabled={admissionSubmitting || !admissionFacultyId}>
 					{#if admissionSubmitting}
 						<div class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
 					{/if}
@@ -1810,15 +1966,18 @@
 				<div class="space-y-5">
 					{#each caseRecords as record}
 						{@const isApprovedRecord = !!record.approved_at}
+						{@const formDef = formByProcedure.get(record.procedure_name || '') || formByProcedure.get(record.type || '') || null}
+						{@const iconColor = formDef?.color || (record.status === 'APPROVED' ? '#22c55e' : '#f97316')}
+						{@const IconComponent = formDef?.icon ? (ICON_MAP[formDef.icon] ?? FileText) : FileText}
 						<div class="pb-5 border-b border-gray-100 last:border-0 last:pb-0">
 							<div class="flex items-center gap-3 mb-2">
 								<div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-									style="background: {record.status === 'APPROVED' ? '#22c55e' : '#f97316'};">
-									<CheckCircle2 class="w-5 h-5 text-white" />
+									style="background: {iconColor};">
+									<IconComponent class="w-5 h-5 text-white" />
 								</div>
 								<div class="flex-1">
 									<div class="flex items-center gap-2 flex-wrap">
-										<span class="font-semibold text-gray-800">{record.procedure_name || 'Physical Examination'}</span>
+										<span class="font-semibold text-gray-800">{record.procedure_name || formDef?.name || 'Case Record'}</span>
 										{#if record.grade}
 											<span class="px-2 py-0.5 rounded text-xs font-bold"
 												style="background: {getGradeColor(record.grade)}15; color: {getGradeColor(record.grade)}; border: 1px solid {getGradeColor(record.grade)}30;">
@@ -1826,10 +1985,10 @@
 											</span>
 										{/if}
 									</div>
-									<p class="text-xs text-gray-500">{record.date} · {record.time} · {record.department}</p>
+									<p class="text-xs text-gray-500">{formatCaseRecordDate(record.date)} · {record.department}</p>
 								</div>
 							</div>
-							<div class="ml-12 p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+							<div class="p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
 								{#if !(record.examination || record.findings || record.diagnosis || record.treatment_plan || record.treatment)}
 									<p class="text-sm text-amber-700"><strong>Status:</strong>Pending</p>
 								{/if}
@@ -1837,23 +1996,32 @@
 								<p class="text-sm text-gray-700 mt-1"><strong>Diagnosis:</strong> {record.diagnosis || '—'}</p>
 								<p class="text-sm text-gray-700 mt-1"><strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}</p>
 							</div>
-							<div class="ml-12 mt-2 flex flex-wrap items-center gap-2 text-xs">
-								<div
-									class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
-									style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(241,245,249,0.96)); border: 1px solid rgba(148,163,184,0.18); box-shadow: inset 0 1px 0 rgba(255,255,255,0.88);"
-								>
-									<User class="h-3.5 w-3.5 text-slate-400" />
-									<span class="font-semibold text-slate-500">Requested by</span>
-									<span class="font-semibold text-slate-700">{caseRecordRequesterName(record)}</span>
+							{#if hasOriginalCaseRecordForm(record)}
+								<div class="mt-2">
+									<ReadonlySubmittedForm
+										title={record.form_name || 'Original Submitted Form'}
+										fields={getCaseRecordDisplayFields(record)}
+										values={record.form_values}
+									/>
 								</div>
-								<div
-									class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5"
-									style="background: {isApprovedRecord ? 'linear-gradient(to bottom, rgba(240,253,244,0.98), rgba(220,252,231,0.96))' : 'linear-gradient(to bottom, rgba(255,247,237,0.98), rgba(254,215,170,0.9))'}; border: 1px solid {isApprovedRecord ? 'rgba(34,197,94,0.2)' : 'rgba(249,115,22,0.2)'}; box-shadow: inset 0 1px 0 rgba(255,255,255,0.82);"
-								>
-									<Shield class="h-3.5 w-3.5" style="color: {isApprovedRecord ? '#16a34a' : '#ea580c'};" />
-									<span class="font-semibold" style="color: {isApprovedRecord ? '#15803d' : '#c2410c'};">{isApprovedRecord ? 'Approved by' : 'Approval pending by'}</span>
-									<span class="font-semibold" style="color: {isApprovedRecord ? '#166534' : '#9a3412'};">{caseRecordApproverName(record)}</span>
+							{/if}
+							<div class="mt-2 pt-2 px-3 pb-2.5 rounded-lg flex items-start justify-between gap-2 text-xs"
+								style="background: linear-gradient(to bottom, rgba(239,246,255,0.9), rgba(219,234,254,0.7)); border: 1px solid rgba(147,197,253,0.3);">
+								<div class="flex flex-col gap-1">
+									<div class="flex items-center gap-1.5 text-gray-600">
+										<User class="h-3.5 w-3.5 shrink-0 text-blue-400" />
+										<span class="font-semibold text-blue-600">Provider:</span>
+										<span class="text-gray-700">{caseRecordRequesterName(record)}</span>
+									</div>
+									<div class="flex items-center gap-1.5 text-gray-600">
+										<Shield class="h-3.5 w-3.5 shrink-0" style="color: {isApprovedRecord ? '#16a34a' : '#ea580c'};" />
+										<span class="font-semibold text-blue-600">Approver:</span>
+										<span class="text-gray-700">{caseRecordApproverName(record)}</span>
+									</div>
 								</div>
+								{#if record.approved_at}
+									<span class="text-gray-400 text-right shrink-0">{formatCaseRecordDate(record.approved_at)}</span>
+								{/if}
 							</div>
 						</div>
 					{/each}
@@ -2362,9 +2530,25 @@
      MODALS
      ═══════════════════════════════════════════════════════════════════ -->
 
+{#if showProfileOverviewModal && patient}
+<PatientProfileOverviewModal
+	patient={patient}
+	caseRecords={caseRecords}
+	vitals={vitals}
+	prescriptions={prescriptions}
+	prescriptionRequests={prescriptionRequests}
+	reports={reports}
+	admissions={admissions}
+	initialAlertHistory={alertHistory}
+	editable={canManagePatientProfile}
+	onclose={() => { showProfileOverviewModal = false; }}
+	onpatientupdated={handlePatientOverviewUpdate}
+/>
+{/if}
+
 <!-- Add Case Record Modal -->
 {#if showAddRecordModal}
-<AquaModal onclose={() => { showAddRecordModal = false; resetCaseRecordForm(); }}>
+<AquaModal panelClass="max-w-none h-[calc(100dvh-24px)] max-h-[calc(100dvh-24px)] lg:h-auto lg:max-h-[88vh] lg:max-w-[min(1200px,92vw)] xl:max-w-[min(1320px,88vw)]" onclose={() => { showAddRecordModal = false; resetCaseRecordForm(); }}>
 	{#snippet header()}
 		<div class="flex items-center gap-2">
 			<FileText class="w-5 h-5 text-blue-600" />

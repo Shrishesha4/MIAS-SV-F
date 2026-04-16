@@ -170,6 +170,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         phone=request.patient_data.phone,
         email=request.patient_data.email,
         address=request.patient_data.address or "",
+        photo=request.patient_data.photo,
         aadhaar_id=request.patient_data.aadhaar_id,
         abha_id=request.patient_data.abha_id,
         category=resolved_category_name,

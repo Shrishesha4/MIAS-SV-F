@@ -9,7 +9,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { Trash2, Pencil, Check, X } from 'lucide-svelte';
+	import { Pencil, Check, Power, X } from 'lucide-svelte';
 
 	type ChargeMetaDraft = {
 		name: string;
@@ -18,10 +18,20 @@
 		description: string;
 	};
 
-	type PriceEditState = {
-		chargeId: string;
-		tier: ChargeTier;
-		value: string;
+	type PricingTierOption = {
+		key: string;
+		insuranceId: string | null;
+		insuranceName: string;
+		patientCategoryId: string | null;
+		patientCategoryName: string;
+		isLegacy?: boolean;
+	};
+
+	type PricingColumnGroup = {
+		id: string;
+		label: string;
+		tiers: PricingTierOption[];
+		isLegacy?: boolean;
 	};
 
 	const auth = get(authStore);
@@ -46,36 +56,6 @@
 		{ id: 'ADMIN', label: 'ADMIN' }
 	];
 
-	const pricingColumns = $derived.by(() => {
-		const columnNames: string[] = [];
-		
-		// Create insurance-patient type combinations
-		for (const insurance of insuranceCategories) {
-			for (const patientCategory of insurance.patient_categories || []) {
-				columnNames.push(`${insurance.name} - ${patientCategory.name}`);
-			}
-		}
-		
-		const seen = new Set(columnNames.map((name) => name.toLocaleLowerCase()));
-
-		// Also include any existing price keys that don't match the new format
-		for (const charge of charges) {
-			for (const priceName of Object.keys(charge.prices || {})) {
-				const normalizedName = priceName.trim();
-				const priceKey = normalizedName.toLocaleLowerCase();
-				if (!normalizedName || seen.has(priceKey)) {
-					continue;
-				}
-				columnNames.push(normalizedName);
-				seen.add(priceKey);
-			}
-		}
-
-		return columnNames;
-	});
-
-	const tableGridStyle = $derived.by(() => `grid-template-columns: minmax(240px, 2fr) repeat(${Math.max(pricingColumns.length, 1)}, minmax(112px, 1fr));`);
-
 	// Add/Edit modal
 	let chargeModal = $state(false);
 	let editingCharge: ChargeItem | null = $state(null);
@@ -96,8 +76,9 @@
 		description: ''
 	});
 	let savingMeta = $state(false);
-	let editingPrice = $state<PriceEditState | null>(null);
-	let savingPrice = $state(false);
+	let priceDrafts = $state<Record<string, string>>({});
+	let savingPriceKey = $state<string | null>(null);
+	let togglingChargeId = $state<string | null>(null);
 
 	// Delete confirmation
 	let confirmModal = $state(false);
@@ -110,6 +91,109 @@
 	function sortPatientCategories(categories: PatientCategoryConfig[]) {
 		return [...categories].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
 	}
+
+	function sortInsuranceCategories(categories: InsuranceCategory[]) {
+		return [...categories].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
+	}
+
+	function sortInsurancePatientCategories(categories: InsuranceCategory['patient_categories']) {
+		return [...categories].sort((left, right) => left.name.localeCompare(right.name));
+	}
+
+	function normalizePricingKey(value: string): string {
+		return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+	}
+
+	function buildPricingGroups(
+		chargeItems: ChargeItem[],
+		categoryItems: PatientCategoryConfig[],
+		insuranceItems: InsuranceCategory[]
+	): PricingColumnGroup[] {
+		const groups: PricingColumnGroup[] = sortPatientCategories(categoryItems).map((category) => ({
+			id: category.id,
+			label: category.name,
+			tiers: []
+		}));
+		const groupsByCategoryName = new Map(groups.map((group) => [normalizePricingKey(group.label), group]));
+		const seenTierKeys = new Set<string>();
+
+		for (const insurance of sortInsuranceCategories(insuranceItems)) {
+			for (const patientCategory of sortInsurancePatientCategories(insurance.patient_categories || [])) {
+				const group = groupsByCategoryName.get(normalizePricingKey(patientCategory.name));
+				if (!group) {
+					continue;
+				}
+
+				const tierKey = `${insurance.name} - ${patientCategory.name}`;
+				const normalizedTierKey = normalizePricingKey(tierKey);
+				if (seenTierKeys.has(normalizedTierKey)) {
+					continue;
+				}
+
+				group.tiers.push({
+					key: tierKey,
+					insuranceId: insurance.id,
+					insuranceName: insurance.name,
+					patientCategoryId: patientCategory.id,
+					patientCategoryName: patientCategory.name
+				});
+				seenTierKeys.add(normalizedTierKey);
+			}
+		}
+
+		for (const charge of chargeItems) {
+			for (const existingTierKey of Object.keys(charge.prices || {})) {
+				const normalizedTierKey = normalizePricingKey(existingTierKey);
+				if (!normalizedTierKey || seenTierKeys.has(normalizedTierKey)) {
+					continue;
+				}
+
+				const matchedGroup = groups.find((group) => normalizedTierKey.endsWith(`- ${normalizePricingKey(group.label)}`));
+				if (matchedGroup) {
+					matchedGroup.tiers.push({
+						key: existingTierKey,
+						insuranceId: null,
+						insuranceName: existingTierKey.replace(new RegExp(`\\s*-\\s*${matchedGroup.label}$`, 'i'), '').trim() || existingTierKey,
+						patientCategoryId: matchedGroup.id,
+						patientCategoryName: matchedGroup.label,
+						isLegacy: true
+					});
+				} else {
+					let legacyGroup = groups.find((group) => group.id === '__legacy__');
+					if (!legacyGroup) {
+						legacyGroup = {
+							id: '__legacy__',
+							label: 'Other',
+							tiers: [],
+							isLegacy: true
+						};
+						groups.push(legacyGroup);
+					}
+
+					legacyGroup.tiers.push({
+						key: existingTierKey,
+						insuranceId: null,
+						insuranceName: existingTierKey,
+						patientCategoryId: null,
+						patientCategoryName: legacyGroup.label,
+						isLegacy: true
+					});
+				}
+
+				seenTierKeys.add(normalizedTierKey);
+			}
+		}
+
+		return groups;
+	}
+
+	function flattenPricingGroups(groups: PricingColumnGroup[]): string[] {
+		return groups.flatMap((group) => group.tiers.map((tier) => tier.key));
+	}
+
+	const pricingGroups = $derived.by(() => buildPricingGroups(charges, priceCategories, insuranceCategories));
+	const pricingColumns = $derived.by(() => flattenPricingGroups(pricingGroups));
+	const tableGridStyle = $derived.by(() => `grid-template-columns: minmax(200px, 1.2fr) repeat(${Math.max(pricingGroups.length, 1)}, minmax(148px, 0.92fr));`);
 
 	function buildEmptyPrices(categoryNames: string[]): Record<string, number> {
 		return Object.fromEntries(categoryNames.map((categoryName) => [categoryName, 0]));
@@ -131,6 +215,18 @@
 		return `charge-price-${categoryName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 	}
 
+	function priceDraftKey(chargeId: string, tier: ChargeTier): string {
+		return `${chargeId}::${tier}`;
+	}
+
+	function getPriceInputValue(charge: ChargeItem, tier: ChargeTier): string {
+		return priceDrafts[priceDraftKey(charge.id, tier)] ?? String(charge.prices[tier] ?? 0);
+	}
+
+	function resetPriceDraft(chargeId: string, tier: ChargeTier) {
+		delete priceDrafts[priceDraftKey(chargeId, tier)];
+	}
+
 	onMount(() => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
 		void loadCharges();
@@ -146,7 +242,7 @@
 				insuranceCategoriesApi.listCategories(),
 			]);
 			priceCategories = sortPatientCategories(categoryItems);
-			insuranceCategories = insuranceItems;
+			insuranceCategories = sortInsuranceCategories(insuranceItems);
 
 			// Build per-combo fees from clinic_configs
 			const fees: Record<string, number> = {};
@@ -167,7 +263,8 @@
 			registrationFees = fees;
 			regFeeClinicMap = clinicMap;
 			
-			charges = chargeItems.map((charge) => mergeChargePrices(charge, pricingColumns));
+			const nextPricingColumns = flattenPricingGroups(buildPricingGroups(chargeItems, categoryItems, insuranceItems));
+			charges = chargeItems.map((charge) => mergeChargePrices(charge, nextPricingColumns));
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load charges';
 		} finally {
@@ -199,7 +296,6 @@
 	}
 
 	function startMetaEdit(charge: ChargeItem) {
-		editingPrice = null;
 		editingMetaId = charge.id;
 		metaDraft = {
 			name: charge.name,
@@ -254,32 +350,23 @@
 		}
 	}
 
-	function startPriceEdit(charge: ChargeItem, tier: ChargeTier) {
-		editingMetaId = null;
-		editingPrice = {
-			chargeId: charge.id,
-			tier,
-			value: String(charge.prices[tier] ?? 0)
-		};
-	}
-
-	function cancelPriceEdit() {
-		editingPrice = null;
-	}
-
-	async function savePriceEdit(charge: ChargeItem) {
-		if (!editingPrice || editingPrice.chargeId !== charge.id) return;
-
-		const nextPrice = Number(editingPrice.value);
+	async function savePriceEdit(charge: ChargeItem, tier: ChargeTier) {
+		const draftKey = priceDraftKey(charge.id, tier);
+		const nextPrice = Number((priceDrafts[draftKey] ?? String(charge.prices[tier] ?? 0)).trim());
 		if (!Number.isFinite(nextPrice) || nextPrice < 0) {
 			toastStore.addToast('Price must be a valid non-negative number', 'error');
 			return;
 		}
 
-		savingPrice = true;
+		if (nextPrice === (charge.prices[tier] ?? 0)) {
+			resetPriceDraft(charge.id, tier);
+			return;
+		}
+
+		savingPriceKey = draftKey;
 		try {
 			const updated = await chargesApi.update(charge.id, {
-				prices: { [editingPrice.tier]: nextPrice }
+				prices: { [tier]: nextPrice }
 			});
 			updateChargeInState({
 				...charge,
@@ -287,15 +374,17 @@
 				prices: {
 					...charge.prices,
 					...updated.prices,
-					[editingPrice.tier]: nextPrice
+					[tier]: nextPrice
 				}
 			});
-			cancelPriceEdit();
+			resetPriceDraft(charge.id, tier);
 			toastStore.addToast('Price updated', 'success');
 		} catch (e: any) {
 			toastStore.addToast(e.response?.data?.detail || 'Failed to update price', 'error');
 		} finally {
-			savingPrice = false;
+			if (savingPriceKey === draftKey) {
+				savingPriceKey = null;
+			}
 		}
 	}
 
@@ -387,9 +476,26 @@
 		confirmModal = true;
 	}
 
-	function formatPrice(price: number): string {
-		return '₹' + price.toLocaleString('en-IN');
+	async function toggleChargeActive(charge: ChargeItem) {
+		togglingChargeId = charge.id;
+		try {
+			const updated = await chargesApi.update(charge.id, { is_active: !charge.is_active });
+			updateChargeInState({
+				...charge,
+				...updated,
+				prices: {
+					...charge.prices,
+					...updated.prices,
+				},
+			});
+			toastStore.addToast(`Charge ${updated.is_active ? 'enabled' : 'disabled'}`, 'success');
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to update charge status', 'error');
+		} finally {
+			togglingChargeId = null;
+		}
 	}
+
 </script>
 
 	{#if loading}
@@ -466,7 +572,7 @@
 													type="number"
 													min="0"
 													step="1"
-													class="w-20 bg-white border border-slate-200 rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none text-center"
+													class="number-field soft-field w-20 bg-white rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none text-center"
 													value={editingRegFee?.value ?? ''}
 													oninput={(event) => {
 														if (editingRegFee) {
@@ -524,10 +630,12 @@
 		>
 			<div class="min-w-max">
 				<!-- Table Header -->
-				<div class="grid gap-2 px-4 py-3" style={`background: linear-gradient(to bottom, #f1f5f9, #e2e8f0); ${tableGridStyle}`}>
-					<div class="text-xs font-bold text-slate-700 uppercase tracking-wide">Item</div>
-					{#each pricingColumns as tier}
-						<div class="text-xs font-bold text-slate-700 uppercase tracking-wide text-center">{tier}</div>
+				<div class="sticky top-0 z-20 grid gap-1 border-b border-slate-200/80 px-2 py-2 backdrop-blur-sm" style={`background: linear-gradient(to bottom, rgba(241,245,249,0.96), rgba(226,232,240,0.94)); box-shadow: 0 1px 0 rgba(148,163,184,0.18); ${tableGridStyle}`}>
+					<div class="text-[10px] font-bold text-slate-700 uppercase tracking-[0.16em]">Item</div>
+					{#each pricingGroups as group (group.id)}
+						<div class="px-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700">
+							{group.label}
+						</div>
 					{/each}
 				</div>
 
@@ -540,30 +648,30 @@
 					{#each filteredCharges as charge, i (charge.id)}
 						{@const isEditingMeta = editingMetaId === charge.id}
 						<div
-							class="grid gap-2 px-4 py-3 items-center group"
+							class="grid gap-1 px-2 py-1.5 items-start group"
 							class:border-t={i > 0}
 							style={`${tableGridStyle}${i > 0 ? ' border-color: rgba(0,0,0,0.06);' : ''}`}
 						>
 						<div>
 							{#if isEditingMeta}
-								<div class="space-y-2 rounded-xl border border-blue-200/70 bg-blue-50/55 p-3">
+								<div class="space-y-1.5 rounded-lg border border-blue-200/70 bg-blue-50/55 p-2">
 									<input
 										type="text"
-										class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-900"
+										class="soft-field w-full rounded-md px-2 py-1 text-xs font-semibold text-slate-900"
 										style="background: rgba(255,255,255,0.95);"
 										bind:value={metaDraft.name}
 										placeholder="Title"
 									/>
-									<div class="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
+									<div class="grid grid-cols-[minmax(0,1fr)_96px] gap-1.5">
 										<input
 											type="text"
-											class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
 											style="background: rgba(255,255,255,0.95);"
 											bind:value={metaDraft.item_code}
 											placeholder="Code"
 										/>
 										<select
-											class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
 											style="background: rgba(255,255,255,0.95);"
 											bind:value={metaDraft.category}
 										>
@@ -574,7 +682,7 @@
 									</div>
 									<input
 										type="text"
-										class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600"
+										class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
 										style="background: rgba(255,255,255,0.95);"
 										bind:value={metaDraft.description}
 										placeholder="Description"
@@ -599,10 +707,10 @@
 									</div>
 								</div>
 							{:else}
-								<div class="flex items-start gap-2">
+								<div class="flex items-start gap-1.5">
 									<div class="min-w-0 flex-1">
-										<p class="font-semibold text-slate-900 text-sm">{charge.name}</p>
-										<div class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+										<p class="font-semibold leading-4 text-slate-900 text-[13px]">{charge.name}</p>
+										<div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
 											<span>{charge.item_code}</span>
 										</div>
 									</div>
@@ -610,65 +718,62 @@
 										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
 											<Pencil class="w-3.5 h-3.5" />
 										</button>
+										<button onclick={() => toggleChargeActive(charge)} class="p-1 cursor-pointer disabled:opacity-60 {charge.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingChargeId === charge.id}>
+											<Power class="w-3.5 h-3.5" />
+										</button>
+										<!-- Delete charge action hidden until admin disable flow replaces hard delete UI. -->
+										<!--
 										<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
 											<Trash2 class="w-3.5 h-3.5" />
 										</button>
+										-->
 									</div>
 								</div>
 							{/if}
 						</div>
-						{#each pricingColumns as tier}
-							{@const isEditingThisPrice = editingPrice?.chargeId === charge.id && editingPrice?.tier === tier}
-							<div class="flex justify-center">
-								{#if isEditingThisPrice}
-									<div class="flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50/60 px-2 py-1">
-										<span class="text-xs font-semibold text-slate-500">₹</span>
-										<input
-											type="number"
-											min="0"
-											step="1"
-											class="w-16 bg-transparent text-center text-sm font-semibold text-slate-800 outline-none"
-											value={editingPrice?.value ?? ''}
-											oninput={(event) => {
-												if (editingPrice) {
-													editingPrice.value = (event.currentTarget as HTMLInputElement).value;
-												}
-											}}
-											onkeydown={(event) => {
-												if (event.key === 'Enter') {
-													savePriceEdit(charge);
-												}
-												if (event.key === 'Escape') {
-													cancelPriceEdit();
-												}
-											}}
-										/>
-										<button
-											onclick={() => savePriceEdit(charge)}
-											class="flex h-6 w-6 items-center justify-center rounded-full text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
-											disabled={savingPrice}
-										>
-											<Check class="h-3 w-3" />
-										</button>
-										<button
-											onclick={cancelPriceEdit}
-											class="flex h-6 w-6 items-center justify-center rounded-full text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
-											disabled={savingPrice}
-										>
-											<X class="h-3 w-3" />
-										</button>
-									</div>
-								{:else}
-									<button
-										onclick={() => startPriceEdit(charge, tier)}
-										class="min-w-[92px] rounded-xl px-3 py-2 text-sm font-semibold text-slate-800 cursor-pointer transition-colors hover:bg-slate-100"
-										style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
-									>
-										{formatPrice(charge.prices[tier] ?? 0)}
-									</button>
-								{/if}
+						{#each pricingGroups as group (group.id)}
+							<div class="min-w-0">
+								<div class="overflow-hidden rounded-lg border border-slate-200/80 bg-white/80">
+									{#if group.tiers.length === 0}
+										<div class="px-1.5 py-2 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-400">
+											No plans
+										</div>
+									{:else}
+										{#each group.tiers as tier, tierIndex (tier.key)}
+											{@const inputKey = priceDraftKey(charge.id, tier.key)}
+											<div class:border-t={tierIndex > 0} class="grid grid-cols-[minmax(0,1fr)_68px] items-center gap-0.5 px-1 py-0.5" style="border-color: rgba(148,163,184,0.16);">
+												<div class="truncate text-[8px] font-semibold uppercase tracking-wide leading-none text-slate-500">
+													{tier.insuranceName}
+												</div>
+												<label class="flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-slate-50/90 px-1" class:ring-1={savingPriceKey === inputKey} class:ring-blue-300={savingPriceKey === inputKey}>
+													<span class="text-[8px] font-semibold leading-none text-slate-400">₹</span>
+													<input
+														type="number"
+														min="0"
+														step="1"
+														class="compact-number-input h-full w-full min-w-0 bg-transparent text-right text-[9px] font-semibold leading-none text-slate-800 outline-none"
+														value={getPriceInputValue(charge, tier.key)}
+														disabled={savingPriceKey === inputKey}
+														oninput={(event) => {
+															priceDrafts[inputKey] = (event.currentTarget as HTMLInputElement).value;
+														}}
+														onblur={() => savePriceEdit(charge, tier.key)}
+														onkeydown={(event) => {
+															if (event.key === 'Enter') {
+																event.preventDefault();
+																void savePriceEdit(charge, tier.key);
+															}
+															if (event.key === 'Escape') {
+																event.preventDefault();
+																resetPriceDraft(charge.id, tier.key);
+															}
+														}}
+													/>
+												</label>
+											</div>
+										{/each}
+									{/if}
+								</div>
 							</div>
 						{/each}
 						</div>
@@ -684,15 +789,15 @@
 		<div class="space-y-3">
 			<div>
 				<label for="charge-name" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Name *</label>
-				<input id="charge-name" type="text" placeholder="e.g., Blood Test - CBC" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.name} />
+				<input id="charge-name" type="text" placeholder="e.g., Blood Test - CBC" class="soft-field w-full px-3 py-2.5 text-sm rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.name} />
 			</div>
 			<div>
 				<label for="charge-code" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Item Code *</label>
-				<input id="charge-code" type="text" placeholder="e.g., LAB-CBC-001" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.item_code} />
+				<input id="charge-code" type="text" placeholder="e.g., LAB-CBC-001" class="soft-field w-full px-3 py-2.5 text-sm rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.item_code} />
 			</div>
 			<div>
 				<label for="charge-category" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Category</label>
-				<select id="charge-category" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.category}>
+				<select id="charge-category" class="soft-field w-full px-3 py-2.5 text-sm rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.category}>
 					<option value="CLINICAL">Clinical</option>
 					<option value="LABS">Labs</option>
 					<option value="ADMIN">Admin</option>
@@ -700,7 +805,7 @@
 			</div>
 			<div>
 				<label for="charge-desc" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Description</label>
-				<input id="charge-desc" type="text" placeholder="Optional description" class="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.description} />
+				<input id="charge-desc" type="text" placeholder="Optional description" class="soft-field w-full px-3 py-2.5 text-sm rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.description} />
 			</div>
 
 			<div>
@@ -714,7 +819,7 @@
 								type="number"
 								min="0"
 								step="1"
-								class="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl"
+								class="number-field soft-field w-full px-3 py-2 text-sm rounded-xl"
 								style="background: linear-gradient(to bottom, #ffffff, #fafafa);"
 								bind:value={chargeData.prices![tier]}
 							/>
@@ -734,6 +839,47 @@
 		</div>
 	</AquaModal>
 {/if}
+
+<style>
+	.soft-field {
+		border: 1px solid rgba(203, 213, 225, 0.9);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.92),
+			0 1px 2px rgba(148, 163, 184, 0.08);
+		outline: none;
+	}
+
+	.soft-field:focus {
+		border-color: rgba(147, 197, 253, 0.95);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.95),
+			0 0 0 3px rgba(191, 219, 254, 0.55);
+	}
+
+	.compact-number-input {
+		appearance: textfield;
+		-webkit-appearance: none;
+		-moz-appearance: textfield;
+		border: 0 !important;
+		box-shadow: none !important;
+		background: transparent !important;
+		border-radius: 0;
+	}
+
+	.number-field {
+		appearance: textfield;
+		-webkit-appearance: none;
+		-moz-appearance: textfield;
+	}
+
+	.number-field::-webkit-outer-spin-button,
+	.number-field::-webkit-inner-spin-button,
+	.compact-number-input::-webkit-outer-spin-button,
+	.compact-number-input::-webkit-inner-spin-button {
+		-webkit-appearance: none;
+		margin: 0;
+	}
+</style>
 
 {#if confirmModal}
 	<AquaModal title="Confirm Delete" onclose={() => { confirmModal = false; }}>

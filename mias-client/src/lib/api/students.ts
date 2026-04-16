@@ -62,6 +62,11 @@ export interface ClinicSession {
 
 export interface AssignedPatient {
   id: string;
+  patient_db_id?: string;
+  assignment_id?: string;
+  admission_id?: string | null;
+  admission_date?: string | null;
+  discharge_date?: string | null;
   patient_id: string;
   name: string;
   age: number;
@@ -69,7 +74,9 @@ export interface AssignedPatient {
   blood_group: string;
   photo: string;
   primary_diagnosis: string;
+  department?: string | null;
   status: string;
+  assigned_date?: string | null;
   category?: string | null;
   category_color_primary?: string | null;
   category_color_secondary?: string | null;
@@ -226,7 +233,7 @@ export const studentApi = {
     return response.data;
   },
 
-  async getPreviousPatients(studentId: string) {
+  async getPreviousPatients(studentId: string): Promise<AssignedPatient[]> {
     const response = await client.get(`/students/${studentId}/previous-patients`);
     return response.data;
   },

@@ -20,6 +20,7 @@ export interface WardPatient {
   id: string;
   patient_id: string;
   name: string;
+  photo?: string | null;
   age: number;
   gender: string | null;
   ward: string;
@@ -39,6 +40,7 @@ export interface NewlyRegisteredPatient {
   id: string;
   patient_id: string;
   name: string;
+  photo?: string | null;
   age: number | null;
   gender: string | null;
   phone: string | null;

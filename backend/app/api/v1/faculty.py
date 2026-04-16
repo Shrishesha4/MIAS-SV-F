@@ -955,6 +955,7 @@ async def assign_patient_to_student(
         select(StudentPatientAssignment)
         .where(StudentPatientAssignment.student_id == student_id)
         .where(StudentPatientAssignment.patient_id == patient_id)
+        .where(StudentPatientAssignment.status == "Active")
     )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Patient is already assigned to this student")
@@ -993,4 +994,3 @@ async def remove_patient_assignment(
     await db.commit()
     
     return {"message": "Assignment removed"}
-

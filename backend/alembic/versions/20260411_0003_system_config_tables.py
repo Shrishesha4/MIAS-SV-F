@@ -18,6 +18,15 @@ down_revision = '20260411_0002'
 branch_labels = None
 depends_on = None
 
+DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY = '#60A5FA'
+DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY = '#1D4ED8'
+PATIENT_CATEGORY_COLOR_PRESETS = {
+    'classic': ('#60A5FA', '#1D4ED8'),
+    'prime': ('#A78BFA', '#6D28D9'),
+    'elite': ('#FBBF24', '#D97706'),
+    'community': ('#34D399', '#047857'),
+}
+
 
 def _get_table_names(bind) -> set[str]:
     inspector = sa.inspect(bind)
@@ -27,6 +36,13 @@ def _get_table_names(bind) -> set[str]:
 def _get_column_names(bind, table_name: str) -> set[str]:
     inspector = sa.inspect(bind)
     return {column['name'] for column in inspector.get_columns(table_name)}
+
+
+def _get_patient_category_colors(name: str) -> tuple[str, str]:
+    return PATIENT_CATEGORY_COLOR_PRESETS.get(
+        (name or '').strip().casefold(),
+        (DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY, DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY),
+    )
 
 
 def upgrade() -> None:
@@ -83,6 +99,8 @@ def upgrade() -> None:
         pco_columns = _get_column_names(bind, 'patient_category_options')
         has_is_default_col = 'is_default' in pco_columns
         has_registration_fee_col = 'registration_fee' in pco_columns
+        has_color_primary_col = 'color_primary' in pco_columns
+        has_color_secondary_col = 'color_secondary' in pco_columns
 
         existing_names = {
             row[0].casefold(): row[0]
@@ -100,6 +118,7 @@ def upgrade() -> None:
             cols = ['id', 'name', 'description', 'is_active', 'sort_order', 'created_at', 'updated_at']
             vals = [':id', ':name', ':description', 'TRUE', ':sort_order', 'NOW()', 'NOW()']
             params = {'id': str(uuid4()), 'name': name_val, 'description': desc_val, 'sort_order': sort_val}
+            color_primary, color_secondary = _get_patient_category_colors(name_val)
             if has_is_default_col:
                 cols.insert(4, 'is_default')
                 vals.insert(4, ':is_default')
@@ -108,6 +127,20 @@ def upgrade() -> None:
                 cols.insert(5 if has_is_default_col else 4, 'registration_fee')
                 vals.insert(5 if has_is_default_col else 4, ':registration_fee')
                 params['registration_fee'] = 0
+            if has_color_primary_col:
+                insert_at = 5 if has_is_default_col else 4
+                if has_registration_fee_col:
+                    insert_at += 1
+                cols.insert(insert_at, 'color_primary')
+                vals.insert(insert_at, ':color_primary')
+                params['color_primary'] = color_primary
+            if has_color_secondary_col:
+                insert_at = 6 if has_is_default_col else 5
+                if has_registration_fee_col:
+                    insert_at += 1
+                cols.insert(insert_at, 'color_secondary')
+                vals.insert(insert_at, ':color_secondary')
+                params['color_secondary'] = color_secondary
             sql = f"INSERT INTO patient_category_options ({', '.join(cols)}) VALUES ({', '.join(vals)})"
             return sql, params
 

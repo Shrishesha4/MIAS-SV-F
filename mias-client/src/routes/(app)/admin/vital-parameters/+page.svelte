@@ -195,12 +195,15 @@
 										>
 											<Edit2 class="w-4 h-4 text-blue-600" />
 										</button>
+										<!-- Delete action hidden until admin disable flow replaces hard delete UI. -->
+										<!--
 										<button
 											class="p-1.5 rounded-lg hover:bg-gray-200 transition-colors"
 											onclick={() => handleDelete(param)}
 										>
 											<Trash2 class="w-4 h-4 text-red-500" />
 										</button>
+										-->
 									</div>
 								</div>
 							{/each}

@@ -73,6 +73,7 @@
 
 	// ── SOAP Note form ────────────────────────────────────────────
 	let showSoapModal = $state(false);
+	let showSoapHistoryModal = $state(false);
 	let soapSubjective = $state('');
 	let soapObjective = $state('');
 	let soapAssessment = $state('');
@@ -130,6 +131,9 @@
 
 	// ── Derived ───────────────────────────────────────────────────
 	const latestSoap = $derived(soapNotes[0] ?? null);
+	const chronologicalSoapNotes = $derived(
+		[...soapNotes].sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
+	);
 
 	// Group IO events by hour for timeline
 	const ioEventsByTime = $derived.by(() => {
@@ -322,6 +326,24 @@
 		finally { soapSubmitting = false; }
 	}
 
+	function resetSoapForm() {
+		soapSubjective = '';
+		soapObjective = '';
+		soapAssessment = '';
+		soapPlan = '';
+		editSoapId = null;
+	}
+
+	function closeSoapModal() {
+		showSoapModal = false;
+		resetSoapForm();
+	}
+
+	function openNewSoap() {
+		resetSoapForm();
+		showSoapModal = true;
+	}
+
 	function openEditSoap(note: any) {
 		editSoapId = note.id;
 		soapSubjective = note.subjective ?? '';
@@ -362,22 +384,44 @@
 		return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 	}
 
-	// Get chart Y values for a parameter
-	function getChartData(param: string): number[] {
-		return sortedVitals.map(v => {
-			const val = (v as any)[param];
-			return typeof val === 'number' ? val : 0;
-		});
+	function getChartX(index: number, total: number): number {
+		if (total <= 1) return 50;
+		return (index / (total - 1)) * 100;
 	}
 
-	function getChartMin(values: number[]): number {
-		const validValues = values.filter(v => v > 0);
-		return validValues.length ? Math.min(...validValues) * 0.9 : 0;
+	function getChartPoints(param: string): Array<{ index: number; value: number }> {
+		return sortedVitals
+			.map((v, index) => ({ index, value: Number((v as any)[param]) }))
+			.filter((point) => Number.isFinite(point.value) && point.value > 0);
 	}
 
-	function getChartMax(values: number[]): number {
-		const validValues = values.filter(v => v > 0);
-		return validValues.length ? Math.max(...validValues) * 1.1 : 100;
+	function getChartBounds(values: number[]): { min: number; max: number } {
+		if (values.length === 0) {
+			return { min: 0, max: 100 };
+		}
+		const minValue = Math.min(...values);
+		const maxValue = Math.max(...values);
+		const padding = Math.max((maxValue - minValue) * 0.15, maxValue * 0.1, 1);
+		return {
+			min: Math.max(0, minValue - padding),
+			max: maxValue + padding,
+		};
+	}
+
+	function getChartY(value: number, min: number, max: number): number {
+		const range = max - min || 1;
+		return 100 - ((value - min) / range) * 100;
+	}
+
+	function getChartLabelIndices(total: number): number[] {
+		if (total <= 5) {
+			return Array.from({ length: total }, (_, index) => index);
+		}
+		const indices = new Set<number>([0, total - 1]);
+		for (let index = 2; index < total - 1; index += 2) {
+			indices.add(index);
+		}
+		return Array.from(indices).sort((left, right) => left - right);
 	}
 
 	// Get IO events at a specific time (within 30 minute window)
@@ -611,11 +655,11 @@
 		<div class="p-4 space-y-6">
 			{#each selectedVitalParams as param}
 				{@const cfg = vitalParamsConfig[param] || biochemParams[param] || haemaParams[param]}
-				{@const data = getChartData(param)}
-				{@const min = getChartMin(data)}
-				{@const max = getChartMax(data)}
-				{@const range = max - min || 1}
-				{#if cfg && data.some(v => v > 0)}
+				{@const points = getChartPoints(param)}
+				{@const diastolicPoints = param === 'systolic_bp' ? getChartPoints('diastolic_bp') : []}
+				{@const bounds = getChartBounds(param === 'systolic_bp' ? [...points.map((point) => point.value), ...diastolicPoints.map((point) => point.value)] : points.map((point) => point.value))}
+				{@const labelIndices = getChartLabelIndices(sortedVitals.length)}
+				{#if cfg && points.length > 0}
 					<div class="rounded-xl p-4" style="background: #fef7ed; border: 1px solid rgba(0,0,0,0.05);">
 						<!-- Chart Header -->
 						<div class="flex items-center gap-2 mb-3">
@@ -701,9 +745,9 @@
 							{/if}
 							<!-- Y-axis labels -->
 							<div class="absolute left-0 top-0 bottom-0 w-8 flex flex-col justify-between text-[10px] text-gray-400 pr-2">
-								<span>{Math.round(max)}</span>
-								<span>{Math.round((max + min) / 2)}</span>
-								<span>{Math.round(min)}</span>
+								<span>{Math.round(bounds.max)}</span>
+								<span>{Math.round((bounds.max + bounds.min) / 2)}</span>
+								<span>{Math.round(bounds.min)}</span>
 							</div>
 
 							<!-- Chart grid and line -->
@@ -724,40 +768,30 @@
 										stroke-width="0.5"
 										stroke-linecap="round"
 										stroke-linejoin="round"
-										points={data.map((v, i) => {
-											const x = (i / (data.length - 1 || 1)) * 100;
-											const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
-											return `${x},${y}`;
-										}).join(' ')}
+										points={points.map((point) => `${getChartX(point.index, sortedVitals.length)},${getChartY(point.value, bounds.min, bounds.max)}`).join(' ')}
 									/>
 									<!-- Data points -->
-									{#each data as v, i}
-										{#if v > 0}
-											{@const x = (i / (data.length - 1 || 1)) * 100}
-											{@const y = 100 - ((v - min) / range) * 100}
-											{@const isHovered = hoveredVitalIndex === i && hoveredVitalParam === param}
-											<circle 
-												cx="{x}" 
-												cy="{y}" 
-												r={isHovered ? "2" : "1.5"} 
-												fill={cfg.color}
-												role="button"
-												tabindex="0"
-												aria-label="Data point at {fmtTimeShort(sortedVitals[i]?.recorded_at)}"
-												style="cursor: pointer; transition: r 0.15s ease;"
-												onmouseenter={(e) => handleChartPointHover(e, i, param)}
-												onmouseleave={handleChartPointLeave}
-											/>
-										{/if}
+									{#each points as point}
+										{@const x = getChartX(point.index, sortedVitals.length)}
+										{@const y = getChartY(point.value, bounds.min, bounds.max)}
+										{@const isHovered = hoveredVitalIndex === point.index && hoveredVitalParam === param}
+										<circle 
+											cx={x}
+											cy={y}
+											r={isHovered ? "2" : "1.5"} 
+											fill={cfg.color}
+											role="button"
+											tabindex="0"
+											aria-label="Data point at {fmtTimeShort(sortedVitals[point.index]?.recorded_at)}"
+											style="cursor: pointer; transition: r 0.15s ease;"
+											onmouseenter={(e) => handleChartPointHover(e, point.index, param)}
+											onmouseleave={handleChartPointLeave}
+										/>
 									{/each}
 								</svg>
 
 								<!-- Diastolic line for BP -->
 								{#if param === 'systolic_bp'}
-									{@const diaData = sortedVitals.map(v => v.diastolic_bp ?? 0)}
-									{@const diaMin = getChartMin(diaData)}
-									{@const diaMax = getChartMax(diaData)}
-									{@const diaRange = diaMax - diaMin || 1}
 										<svg class="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
 											<polyline
 												fill="none"
@@ -766,21 +800,19 @@
 												stroke-dasharray="2 2"
 												stroke-linecap="round"
 												opacity="0.5"
-												points={diaData.map((v, i) => {
-													const x = (i / (diaData.length - 1 || 1)) * 100;
-													const y = v > 0 ? 100 - ((v - min) / range) * 100 : 100;
-													return `${x},${y}`;
-											}).join(' ')}
+												points={diastolicPoints.map((point) => `${getChartX(point.index, sortedVitals.length)},${getChartY(point.value, bounds.min, bounds.max)}`).join(' ')}
 										/>
 									</svg>
 								{/if}
 							</div>
 
 							<!-- X-axis labels (times) -->
-							<div class="absolute left-10 right-0 bottom-0 flex justify-between text-[10px] text-gray-400">
-								{#each sortedVitals as v, i}
-									{#if i === 0 || i === sortedVitals.length - 1 || i % 2 === 0}
-										<span>{fmtTimeShort(v.recorded_at)}</span>
+							<div class="absolute left-10 right-0 bottom-0 h-4 text-[10px] text-gray-400">
+								{#each labelIndices as index}
+									{#if sortedVitals[index]}
+										<span class="absolute" style={`left: ${getChartX(index, sortedVitals.length)}%; transform: translateX(-50%);`}>
+											{fmtTimeShort(sortedVitals[index].recorded_at)}
+										</span>
 									{/if}
 								{/each}
 							</div>
@@ -1102,11 +1134,36 @@
 			<FileText class="w-4 h-4 text-blue-600" />
 			<span class="text-sm font-bold text-gray-800 uppercase tracking-wide">Clinical Progress Notes (SOAP)</span>
 		</div>
-		<button class="text-xs font-semibold text-blue-600 cursor-pointer">VIEW FULL HISTORY</button>
+		<div class="flex items-center gap-2">
+			<button
+				onclick={() => showSoapHistoryModal = true}
+				class="text-xs font-semibold text-blue-600 cursor-pointer"
+			>
+				VIEW FULL HISTORY
+			</button>
+			{#if role === 'STUDENT' || role === 'FACULTY'}
+				<button
+					onclick={openNewSoap}
+					class="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white cursor-pointer flex items-center gap-1"
+					style="background: linear-gradient(to bottom, #0d9488, #0f766e);"
+				>
+					<Plus class="w-3.5 h-3.5" />
+					New Note
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	{#if latestSoap}
 		<div class="p-4 space-y-3">
+			<div class="flex items-center justify-between rounded-xl px-3 py-2 text-[11px]" style="background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.12);">
+				<div class="text-gray-600">
+					Latest entry
+					<span class="font-semibold text-gray-800 ml-1">{fmtDate(latestSoap.created_at)} · {fmtTime(latestSoap.created_at) || '—'}</span>
+				</div>
+				<div class="text-gray-500">{soapNotes.length} entr{soapNotes.length === 1 ? 'y' : 'ies'}</div>
+			</div>
+
 			<!-- Subjective -->
 			<div class="rounded-xl p-4" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
 				<div class="flex items-center justify-between mb-2">
@@ -1276,7 +1333,7 @@
 		<div class="p-6 text-center">
 			<p class="text-xs text-gray-400 mb-3">No SOAP notes recorded yet.</p>
 			{#if role === 'STUDENT' || role === 'FACULTY'}
-				<button onclick={() => { editSoapId = null; soapSubjective=''; soapObjective=''; soapAssessment=''; soapPlan=''; showSoapModal = true; }}
+				<button onclick={openNewSoap}
 					class="px-4 py-2 rounded-lg text-xs font-semibold text-white cursor-pointer"
 					style="background: linear-gradient(to bottom, #0d9488, #0f766e);">
 					<Plus class="w-3.5 h-3.5 inline mr-1" /> Create First Note
@@ -1563,9 +1620,69 @@
 </AquaModal>
 {/if}
 
+<!-- SOAP History Modal -->
+{#if showSoapHistoryModal}
+<AquaModal onclose={() => showSoapHistoryModal = false}>
+	{#snippet header()}
+		<div class="flex items-center gap-2">
+			<LayoutList class="w-5 h-5 text-blue-600" />
+			<span class="font-semibold text-gray-800">SOAP Note History</span>
+		</div>
+	{/snippet}
+
+	<div class="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+		{#if chronologicalSoapNotes.length > 0}
+			{#each chronologicalSoapNotes as note (note.id)}
+				<div class="rounded-xl overflow-hidden" style="border: 1px solid rgba(0,0,0,0.08);">
+					<div class="px-4 py-3 flex items-center justify-between gap-3" style="background: #eff6ff; border-bottom: 1px solid rgba(0,0,0,0.06);">
+						<div>
+							<div class="text-xs font-semibold text-gray-800">
+								{fmtDate(note.created_at)} · {fmtTime(note.created_at) || '—'}
+							</div>
+							<div class="text-[10px] text-gray-500">
+								{note.note_meta?.author || note.created_by || 'Clinical note'}
+							</div>
+						</div>
+						{#if role === 'STUDENT' || role === 'FACULTY'}
+							<button
+								onclick={() => { showSoapHistoryModal = false; openEditSoap(note); }}
+								class="text-xs text-blue-600 cursor-pointer flex items-center gap-1"
+							>
+								<Edit class="w-3 h-3" /> Edit
+							</button>
+						{/if}
+					</div>
+
+					<div class="p-4 space-y-3">
+						<div>
+							<div class="text-[11px] font-bold text-orange-600 mb-1">S — Subjective</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.subjective || 'No subjective notes recorded.'}</p>
+						</div>
+						<div>
+							<div class="text-[11px] font-bold text-blue-600 mb-1">O — Objective</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.objective || 'No objective notes recorded.'}</p>
+						</div>
+						<div>
+							<div class="text-[11px] font-bold text-amber-600 mb-1">A — Assessment</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.assessment || 'No assessment recorded.'}</p>
+						</div>
+						<div>
+							<div class="text-[11px] font-bold text-green-600 mb-1">P — Plan</div>
+							<p class="text-xs text-gray-700 leading-relaxed">{note.plan || 'No plan recorded.'}</p>
+						</div>
+					</div>
+				</div>
+			{/each}
+		{:else}
+			<div class="p-6 text-center text-xs text-gray-400">No SOAP notes recorded yet.</div>
+		{/if}
+	</div>
+</AquaModal>
+{/if}
+
 <!-- SOAP Note Modal -->
 {#if showSoapModal}
-<AquaModal onclose={() => { showSoapModal = false; editSoapId = null; }}>
+<AquaModal onclose={closeSoapModal}>
 	{#snippet header()}
 		<div class="flex items-center gap-2">
 			<ClipboardList class="w-5 h-5 text-teal-600" />
@@ -1605,7 +1722,7 @@
 	<div class="flex justify-end gap-2 mt-5">
 		<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
 			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);"
-			onclick={() => { showSoapModal = false; editSoapId = null; }}>Cancel</button>
+			onclick={closeSoapModal}>Cancel</button>
 		<button class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer"
 			style="background: linear-gradient(to bottom, #0d9488, #0f766e); box-shadow: 0 2px 4px rgba(13,148,136,0.3);"
 			onclick={saveSoapNote} disabled={soapSubmitting}>

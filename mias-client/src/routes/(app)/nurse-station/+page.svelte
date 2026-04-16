@@ -188,7 +188,7 @@
 					{#each newlyRegisteredPatients as patient (patient.id)}
 						<div class="px-4 py-3 hover:bg-gray-50 transition-colors">
 							<div class="flex items-start gap-3">
-								<PatientInsuranceAvatar name={patient.name} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
+								<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 								<div class="flex-1 min-w-0">
 									<div class="flex items-center gap-2 flex-wrap">
 										<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>
@@ -236,7 +236,7 @@
 								onclick={() => togglePatient(patient)}
 							>
 								<div class="flex items-center gap-3">
-									<PatientInsuranceAvatar name={patient.name} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
+									<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="md" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 									<div class="flex-1 min-w-0">
 										<div class="flex items-center gap-2">
 											<h3 class="text-sm font-semibold text-gray-900">{patient.name}</h3>

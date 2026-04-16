@@ -184,9 +184,12 @@
 							<button class="p-2 rounded-lg cursor-pointer hover:bg-gray-100" onclick={() => openEdit(prog)}>
 								<Edit3 class="w-4 h-4 text-blue-500" />
 							</button>
+							<!-- Delete programme action hidden until admin disable flow replaces hard delete UI. -->
+							<!--
 							<button class="p-2 rounded-lg cursor-pointer hover:bg-red-50" onclick={() => confirmDelete(prog)}>
 								<Trash2 class="w-4 h-4 text-red-400" />
 							</button>
+							-->
 						</div>
 					</div>
 				</AquaCard>

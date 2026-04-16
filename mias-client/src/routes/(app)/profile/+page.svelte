@@ -559,7 +559,7 @@
 				<div class="absolute -bottom-16 left-4">
 					<PatientInsuranceAvatar
 						name={patient.name}
-						src={patient.photo ? `${API_BASE}${patient.photo}` : null}
+						src={patient.photo}
 						size="xl"
 						insurancePolicies={patient.insurance_policies}
 						patientCategory={patient.category}

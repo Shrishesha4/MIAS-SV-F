@@ -9,7 +9,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.icd_code import ICDCode
 from app.models.case_record import CaseRecord
-from app.models.patient import Patient
+from app.models.patient import Patient, PatientDiagnosisEntry
 from app.models.prescription import PrescriptionMedication
 from app.utils.reference_data import (
     search_medicines, FREQUENCIES, DURATIONS, DOSAGE_FORMS,
@@ -191,10 +191,10 @@ async def autocomplete_diagnoses(
             .limit(10)
         )
         existing_patient_diagnoses = await db.execute(
-            select(Patient.primary_diagnosis)
-            .where(Patient.primary_diagnosis.ilike(f"%{q}%"))
-            .where(Patient.primary_diagnosis.isnot(None))
-            .group_by(Patient.primary_diagnosis)
+            select(PatientDiagnosisEntry.diagnosis)
+            .where(PatientDiagnosisEntry.diagnosis.ilike(f"%{q}%"))
+            .where(PatientDiagnosisEntry.is_active.is_(True))
+            .group_by(PatientDiagnosisEntry.diagnosis)
             .limit(10)
         )
         existing_diagnoses = [row[0] for row in existing_case_records.all()] + [row[0] for row in existing_patient_diagnoses.all()]

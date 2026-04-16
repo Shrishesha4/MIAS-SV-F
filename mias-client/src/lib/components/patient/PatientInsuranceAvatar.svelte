@@ -3,6 +3,7 @@
 	import type { InsurancePolicy } from '$lib/api/types';
 	import { getPrimaryInsuranceVisual } from '$lib/utils/patient-insurance';
 	import { getPatientCategoryVisual } from '$lib/utils/patient-category';
+	import { resolvePhotoSrc } from '$lib/utils/photo';
 
 	interface Props {
 		name: string;
@@ -79,6 +80,7 @@
 	const patientVisual = $derived(getPatientCategoryVisual(patientCategory, patientCategoryColorPrimary, patientCategoryColorSecondary));
 	const config = $derived(sizeConfig[size]);
 	const InsuranceIcon = $derived(insuranceIcons[visual.iconKey]);
+	const resolvedSrc = $derived(resolvePhotoSrc(src));
 	const initials = $derived(
 		String(name ?? '')
 			.split(' ')
@@ -98,8 +100,8 @@
 		// style={`background: ${patientVisual.background};`}
 		style={`${avatarShadow} background: ${patientVisual.background};`}
 	>
-		{#if src}
-			<img src={src} alt={name} class="h-full w-full rounded-full object-cover" />
+		{#if resolvedSrc}
+			<img src={resolvedSrc} alt={name} class="h-full w-full rounded-full object-cover" />
 			<div class="pointer-events-none absolute inset-0 rounded-full" style="box-shadow: inset 0 0 0 2px rgba(255,255,255,0.94);"></div>
 		{:else}
 			<div class="flex h-full w-full items-center justify-center rounded-full font-black tracking-tight text-white">

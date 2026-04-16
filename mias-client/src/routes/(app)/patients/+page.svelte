@@ -31,6 +31,7 @@
 
 	type StudentPatientSelection = {
 		id: string;
+		rowId: string;
 		patient_id: string;
 		name: string;
 		canEdit: boolean;
@@ -151,7 +152,8 @@
 
 	function toAssignedSelection(patient: AssignedPatient): StudentPatientSelection {
 		return {
-			id: patient.id,
+			id: patient.patient_db_id ?? patient.id,
+			rowId: patient.assignment_id ?? patient.id,
 			patient_id: patient.patient_id,
 			name: patient.name,
 			canEdit: true,
@@ -162,6 +164,7 @@
 		if (!patient.patient_db_id) return null;
 		return {
 			id: patient.patient_db_id,
+			rowId: patient.patient_db_id,
 			patient_id: patient.patient_id,
 			name: patient.patient_name,
 			canEdit: patient.is_assigned || assignedPatientIds.has(patient.patient_db_id),
@@ -247,6 +250,13 @@
 		const d = new Date(dateStr);
 		const dateFormatted = d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 		return time ? `${dateFormatted}, ${time}` : dateFormatted;
+	}
+
+	function formatSessionWindow(patient: AssignedPatient): string | null {
+		if (!patient.admission_date && !patient.discharge_date) return null;
+		const start = patient.admission_date ? formatDate(patient.admission_date) : 'Unknown start';
+		const end = patient.discharge_date ? formatDate(patient.discharge_date) : 'Open';
+		return `${start} - ${end}`;
 	}
 
 	function getScheduleColor(type: string) {
@@ -369,7 +379,7 @@
 					</div>
 				</div>
 			</div>
-			
+
 			<!-- Medical Alerts Bar -->
 			{#if medicalAlertsText}
 				<div class="px-4 py-2.5 flex items-center gap-2"
@@ -576,7 +586,7 @@
 						{#each assignedPatients as ap}
 							<button
 								class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-200 hover:bg-gray-50"
-								class:bg-blue-50={selectedPatient?.id === ap.id}
+								class:bg-blue-50={selectedPatient?.rowId === (ap.assignment_id ?? ap.id)}
 								onclick={() => openStudentPatient(toAssignedSelection(ap))}
 							>
 								<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
@@ -664,7 +674,7 @@
 						{#each clinicPatients as cp}
 							<button
 								class="w-full flex items-center gap-3 px-4 py-3 text-left border-b border-gray-50 transition-colors cursor-pointer hover:bg-gray-50"
-								class:bg-blue-50={selectedPatient?.id === cp.patient_db_id}
+								class:bg-blue-50={selectedPatient?.rowId === cp.patient_db_id}
 								onclick={() => openStudentPatient(toClinicSelection(cp))}
 							>
 								<PatientInsuranceAvatar name={cp.patient_name} src={cp.photo} size="sm" insurancePolicies={cp.insurance_policies} patientCategory={cp.category} patientCategoryColorPrimary={cp.category_color_primary} patientCategoryColorSecondary={cp.category_color_secondary} />
@@ -672,9 +682,9 @@
 									<p class="font-semibold text-gray-800 text-sm">{cp.patient_name}</p>
 									<p class="text-xs text-gray-500 truncate">{cp.appointment_time} · {cp.provider_name}</p>
 									<InsuranceTypeBadges insurancePolicies={cp.insurance_policies} compact maxVisible={2} />
-									<p class="mt-1 text-[11px] font-medium {cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'text-emerald-600' : 'text-amber-600'}">
+									<!-- <p class="mt-1 text-[11px] font-medium {cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'text-emerald-600' : 'text-amber-600'}">
 										{cp.is_assigned || (cp.patient_db_id && assignedPatientIds.has(cp.patient_db_id)) ? 'Assigned to you · edit enabled' : 'View only · not assigned to you'}
-									</p>
+									</p> -->
 								</div>
 								<div class="flex flex-col items-end gap-1 shrink-0">
 									<span
@@ -704,13 +714,18 @@
 							{#each previousPatients as ap}
 								<button
 									class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
-									class:bg-blue-50={selectedPatient?.id === ap.id}
+									class:bg-blue-50={selectedPatient?.rowId === (ap.assignment_id ?? ap.id)}
 									onclick={() => openStudentPatient(toAssignedSelection(ap))}
 								>
 									<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
 									<div class="flex-1 min-w-0">
 										<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
 										<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
+										{#if formatSessionWindow(ap) || ap.department}
+											<p class="text-[11px] text-gray-400 truncate">
+												{formatSessionWindow(ap) || 'Previous session'}{ap.department ? ` · ${ap.department}` : ''}
+											</p>
+										{/if}
 										<InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
 									</div>
 									<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
@@ -732,11 +747,11 @@
 				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">
 				{#if selectedPatient}
 					<div class="flex-1 overflow-y-auto relative">
-						<button class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+						<!-- <button class="absolute top-3 right-3 z-10 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
 							style="background: rgba(255,255,255,0.9); box-shadow: 0 1px 4px rgba(0,0,0,0.15); border: 1px solid rgba(0,0,0,0.08);"
 							onclick={() => selectedPatient = null}>
 							<X class="w-4 h-4 text-gray-500" />
-						</button>
+						</button> -->
 						<PatientProfile patientId={selectedPatient.id} canEdit={selectedPatient.canEdit} />
 					</div>
 				{:else}
@@ -777,7 +792,7 @@
 			</div>
 		</AquaCard>
 
-		
+
 
 		<!-- Approval Cards -->
 		<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

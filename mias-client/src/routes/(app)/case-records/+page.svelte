@@ -6,12 +6,13 @@
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
-	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, isCaseRecordLikeForm, mergeProcedureMaps, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
+	import { buildCaseRecordDescription, buildCaseRecordProcedureMap, isCaseRecordLikeForm, mergeProcedureMaps, persistFormFiles, resolveCaseRecordFields, stringifyFormValue } from '$lib/utils/forms';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+	import ReadonlySubmittedForm from '$lib/components/forms/ReadonlySubmittedForm.svelte';
 	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus } from 'lucide-svelte';
 
 	let expandedId = $state<string | null>(null);
@@ -57,6 +58,28 @@
 	const crFields: FormFieldDefinition[] | null = $derived(
 		selectedForm ? selectedForm.fields : null
 	);
+
+	function getCaseRecordDisplayFields(record: any): FormFieldDefinition[] {
+		if (Array.isArray(record?.form_fields) && record.form_fields.length > 0) {
+			return record.form_fields;
+		}
+		const matchedForm = caseRecordForms.find((form) =>
+			(record?.form_name && form.name === record.form_name) ||
+			(record?.procedure_name && form.procedure_name === record.procedure_name)
+		) || null;
+		if (matchedForm?.fields?.length) {
+			return matchedForm.fields;
+		}
+		return resolveCaseRecordFields(
+			caseRecordForms,
+			record?.department || matchedForm?.department || '',
+			record?.procedure_name || record?.type || matchedForm?.procedure_name || ''
+		) || [];
+	}
+
+	function hasOriginalCaseRecordForm(record: any): boolean {
+		return Boolean(record?.form_values && Object.keys(record.form_values).length > 0);
+	}
 
 	const searchablePatients = $derived.by(() =>
 		assignedPatients.map((patient) => ({
@@ -258,19 +281,26 @@
 		}
 		submitting = true;
 		try {
+			const submittedValues = await persistFormFiles(
+				crFields ?? [],
+				formData,
+				(file, options) => formsApi.uploadFile(file, options),
+				'student-case-record'
+			);
 			await studentApi.submitCaseRecord(student.id, {
 				patient_id: selectedPatientId,
 				department: selectedDepartment,
 				procedure: selectedProcedure,
-				procedure_description: buildCaseRecordDescription(crFields, formData) || undefined,
-				notes: stringifyFormValue(formData['notes']) || '',
+				procedure_description: buildCaseRecordDescription(crFields, submittedValues) || undefined,
+				notes: stringifyFormValue(submittedValues['notes']) || '',
 				findings: '',
-				diagnosis: stringifyFormValue(formData['diagnosis']) || '',
+				diagnosis: stringifyFormValue(submittedValues['diagnosis']) || '',
 				treatment: '',
 				icd_code: icdCode || undefined,
 				icd_description: icdDescription || undefined,
 				faculty_id: selectedFacultyId,
-				form_values: formData,
+				form_fields: crFields ?? undefined,
+				form_values: submittedValues,
 				form_name: selectedForm?.name,
 				form_description: selectedForm?.description || undefined,
 				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
@@ -394,6 +424,14 @@
 							<p class="text-xs font-semibold text-gray-700 mb-1">History</p>
 							<p class="text-xs text-gray-600">{cr.history}</p>
 						</div>
+					{/if}
+
+					{#if hasOriginalCaseRecordForm(cr)}
+						<ReadonlySubmittedForm
+							title={cr.form_name || 'Original Submitted Form'}
+							fields={getCaseRecordDisplayFields(cr)}
+							values={cr.form_values}
+						/>
 					{/if}
 
 					<!-- Footer info -->

@@ -14,6 +14,7 @@ export interface RegisterData {
     phone: string;
     email: string;
     address?: string;
+    photo?: string;
     aadhaar_id?: string;
     abha_id?: string;
     category?: string;

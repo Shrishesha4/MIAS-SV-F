@@ -172,12 +172,15 @@
 					</div>
 
 					<div class="flex items-center gap-2 shrink-0">
+						<!-- Delete department action hidden until admin disable flow replaces hard delete UI. -->
+						<!--
 						<button
 							class="hidden h-8 w-8 items-center justify-center rounded-full cursor-pointer opacity-0 transition-opacity hover:bg-rose-50 group-hover:flex group-hover:opacity-100"
 							onclick={(event) => { event.stopPropagation(); confirmDelete(dept); }}
 						>
 							<Trash2 class="h-4 w-4 text-rose-500" />
 						</button>
+						-->
 						<ChevronRight class="h-4 w-4 text-slate-300 transition-colors group-hover:text-slate-500" />
 					</div>
 				</div>

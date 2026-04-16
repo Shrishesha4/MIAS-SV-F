@@ -59,17 +59,28 @@ def normalize_lab_type(value: Optional[str], default: str = "General") -> str:
     return normalized_value or default
 
 
+async def _get_visible_lab(
+    db: AsyncSession,
+    lab_id: str,
+    current_user: User,
+) -> Lab:
+    result = await db.execute(select(Lab).where(Lab.id == lab_id))
+    lab = result.scalar_one_or_none()
+    if not lab or (current_user.role != UserRole.ADMIN and not lab.is_active):
+        raise NotFoundException("Lab not found")
+    return lab
+
+
 @router.get("")
 async def list_labs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """List all labs with test and group counts"""
-    result = await db.execute(
-        select(Lab)
-        .options(selectinload(Lab.tests), selectinload(Lab.test_groups))
-        .order_by(Lab.created_at.desc())
-    )
+    query = select(Lab).options(selectinload(Lab.tests), selectinload(Lab.test_groups))
+    if current_user.role != UserRole.ADMIN:
+        query = query.where(Lab.is_active == True)
+    result = await db.execute(query.order_by(Lab.created_at.desc()))
     labs = result.scalars().all()
     return [
         {
@@ -82,8 +93,8 @@ async def list_labs(
             "contact_phone": lab.contact_phone,
             "operating_hours": lab.operating_hours,
             "is_active": lab.is_active,
-            "test_count": len(lab.tests) if lab.tests else 0,
-            "group_count": len(lab.test_groups) if lab.test_groups else 0,
+            "test_count": len([test for test in (lab.tests or []) if current_user.role == UserRole.ADMIN or test.is_active]),
+            "group_count": len([group for group in (lab.test_groups or []) if current_user.role == UserRole.ADMIN or group.is_active]),
         }
         for lab in labs
     ]
@@ -130,10 +141,7 @@ async def get_lab(
     current_user: User = Depends(get_current_user),
 ):
     """Get a specific lab by ID"""
-    result = await db.execute(select(Lab).where(Lab.id == id))
-    lab = result.scalar_one_or_none()
-    if not lab:
-        raise NotFoundException("Lab not found")
+    lab = await _get_visible_lab(db, id, current_user)
     return {
         "id": lab.id,
         "name": lab.name,
@@ -253,6 +261,7 @@ async def list_lab_tests(
     current_user: User = Depends(get_current_user),
 ):
     """List all tests for a lab"""
+    await _get_visible_lab(db, lab_id, current_user)
     result = await db.execute(
         select(LabTest)
         .where(LabTest.lab_id == lab_id)
@@ -262,6 +271,7 @@ async def list_lab_tests(
     return [
         _serialize_lab_test(t)
         for t in tests
+        if current_user.role == UserRole.ADMIN or t.is_active
     ]
 
 
@@ -396,6 +406,7 @@ async def list_lab_test_groups(
     current_user: User = Depends(get_current_user),
 ):
     """List all test groups for a lab"""
+    await _get_visible_lab(db, lab_id, current_user)
     result = await db.execute(
         select(LabTestGroup)
         .options(selectinload(LabTestGroup.tests))
@@ -403,10 +414,18 @@ async def list_lab_test_groups(
         .order_by(LabTestGroup.name)
     )
     groups = result.scalars().all()
-    return [
-        _serialize_lab_test_group(g)
-        for g in groups
-    ]
+    serialized_groups: list[dict] = []
+    for group in groups:
+        if current_user.role != UserRole.ADMIN and not group.is_active:
+            continue
+        serialized = _serialize_lab_test_group(group)
+        if current_user.role != UserRole.ADMIN:
+            serialized["tests"] = [
+                test for test in serialized["tests"]
+                if any(source_test.id == test["id"] and source_test.is_active for source_test in group.tests)
+            ]
+        serialized_groups.append(serialized)
+    return serialized_groups
 
 
 @router.post("/{lab_id}/groups")
@@ -621,6 +640,8 @@ async def list_charge_items(
     query = select(ChargeItem).options(selectinload(ChargeItem.prices))
     if category:
         query = query.where(ChargeItem.category == ChargeCategory(category))
+    if current_user.role != UserRole.ADMIN:
+        query = query.where(ChargeItem.is_active == True)
     query = query.order_by(ChargeItem.category, ChargeItem.name)
     
     result = await db.execute(query)

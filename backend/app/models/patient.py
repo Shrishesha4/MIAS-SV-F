@@ -57,6 +57,12 @@ class Patient(Base):
     insurance_policies = relationship("InsurancePolicy", back_populates="patient")
     allergies = relationship("Allergy", back_populates="patient")
     medical_alerts = relationship("MedicalAlert", back_populates="patient")
+    diagnosis_entries = relationship(
+        "PatientDiagnosisEntry",
+        back_populates="patient",
+        cascade="all, delete-orphan",
+        order_by="desc(PatientDiagnosisEntry.added_at)",
+    )
     admissions = relationship("Admission", back_populates="patient")
     medical_records = relationship("MedicalRecord", back_populates="patient")
     prescriptions = relationship("Prescription", back_populates="patient")
@@ -134,6 +140,27 @@ class MedicalAlert(Base):
     added_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     patient = relationship("Patient", back_populates="medical_alerts")
+
+
+class PatientDiagnosisEntry(Base):
+    __tablename__ = "patient_diagnosis_entries"
+    __table_args__ = (
+        Index("idx_patient_diagnosis_patient_active", "patient_id", "is_active"),
+        Index("idx_patient_diagnosis_added_at", "added_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
+    diagnosis = Column(Text, nullable=False)
+    icd_code = Column(String, nullable=True)
+    icd_description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    added_by = Column(String, nullable=True)
+    added_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
+    removed_by = Column(String, nullable=True)
+    removed_at = Column(DateTime, nullable=True)
+
+    patient = relationship("Patient", back_populates="diagnosis_entries")
 
 
 class Appointment(Base):

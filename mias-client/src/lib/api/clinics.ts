@@ -38,6 +38,7 @@ export interface ClinicPatientSearchResult {
   id: string;
   patient_id: string;
   name: string;
+  photo?: string | null;
   gender: string | null;
   blood_group: string | null;
   phone: string | null;

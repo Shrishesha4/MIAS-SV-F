@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Enum as SQLEnum, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -35,6 +35,10 @@ class CaseRecord(Base):
     description = Column(Text, nullable=False)
     procedure_name = Column(String, nullable=True)
     procedure_description = Column(Text, nullable=True)
+    form_name = Column(String, nullable=True)
+    form_description = Column(Text, nullable=True)
+    form_fields = Column(JSON, nullable=True)
+    form_values = Column(JSON, nullable=True)
     department = Column(String, nullable=True)
     findings = Column(Text, nullable=True)
     diagnosis = Column(Text, nullable=True)

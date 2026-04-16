@@ -583,6 +583,8 @@
 									<Shield class="w-3.5 h-3.5 text-green-500" />
 								{/if}
 							</button>
+							<!-- Delete user action hidden until admin disable flow replaces hard delete UI. -->
+							<!--
 							<button
 								class="p-1.5 rounded-lg cursor-pointer hover:bg-red-50"
 								title="Delete"
@@ -590,6 +592,7 @@
 							>
 								<Trash2 class="w-3.5 h-3.5 text-red-400" />
 							</button>
+							-->
 						</div>
 					</div>
 				{/each}

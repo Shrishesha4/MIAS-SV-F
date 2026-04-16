@@ -39,9 +39,10 @@ async def list_clinics(
     db: AsyncSession = Depends(get_db),
 ):
     """List all clinics with their faculty info."""
-    result = await db.execute(
-        select(Clinic).options(selectinload(Clinic.faculty)).order_by(Clinic.created_at.desc())
-    )
+    query = select(Clinic).options(selectinload(Clinic.faculty))
+    if user.role != UserRole.ADMIN:
+        query = query.where(Clinic.is_active == True)
+    result = await db.execute(query.order_by(Clinic.created_at.desc()))
     clinics = result.scalars().all()
     return [
         {
@@ -125,7 +126,7 @@ async def get_clinic(
         .where(Clinic.id == clinic_id)
     )
     clinic = result.scalar_one_or_none()
-    if not clinic:
+    if not clinic or (user.role != UserRole.ADMIN and not clinic.is_active):
         raise HTTPException(status_code=404, detail="Clinic not found")
     return {
         "id": clinic.id,
@@ -388,6 +389,7 @@ async def search_patient_for_checkin(
             "id": p.id,
             "patient_id": p.patient_id,
             "name": p.name,
+            "photo": p.photo,
             "gender": p.gender.value if p.gender else None,
             "blood_group": p.blood_group,
             "phone": p.phone,

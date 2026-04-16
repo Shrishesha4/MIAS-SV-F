@@ -447,7 +447,7 @@
 									   border: 1px solid rgba(0,0,0,0.07);">
 								<div class="px-3 py-2.5">
 									<div class="flex items-center gap-2">
-										<PatientInsuranceAvatar name={patient.name} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
+										<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 										<div class="min-w-0 flex-1">
 											<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
 											<p class="text-[10px] text-gray-400 truncate">
@@ -511,7 +511,7 @@
 										   border: 1px solid #86efac;">
 									<div class="px-3 py-2.5">
 										<div class="flex items-center gap-2">
-											<PatientInsuranceAvatar name={patient.name} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
+											<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="sm" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
 											<div class="min-w-0 flex-1">
 												<p class="text-xs font-semibold text-gray-900 truncate">{patient.name}</p>
 												<p class="text-[10px] text-gray-400 truncate">
@@ -662,7 +662,7 @@
 					<div class="rounded-xl overflow-hidden"
 						style="border: 1.5px solid #bfdbfe; background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);">
 						<div class="px-4 py-3 flex items-center gap-3">
-							<PatientInsuranceAvatar name={searchedPatient.name} size="sm" insurancePolicies={searchedPatient.insurance_policies} patientCategory={searchedPatient.category} patientCategoryColorPrimary={searchedPatient.category_color_primary} patientCategoryColorSecondary={searchedPatient.category_color_secondary} />
+							<PatientInsuranceAvatar name={searchedPatient.name} src={searchedPatient.photo} size="sm" insurancePolicies={searchedPatient.insurance_policies} patientCategory={searchedPatient.category} patientCategoryColorPrimary={searchedPatient.category_color_primary} patientCategoryColorSecondary={searchedPatient.category_color_secondary} />
 							<div class="flex-1 min-w-0">
 								<p class="text-sm font-bold text-gray-900 truncate">{searchedPatient.name}</p>
 								<p class="text-[11px] text-gray-500 truncate">{searchedPatient.patient_id}</p>
