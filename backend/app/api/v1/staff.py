@@ -15,6 +15,11 @@ from app.models.admission import Admission
 from app.models.student import Clinic, ClinicAppointment, ClinicSession, Student, StudentPatientAssignment, StudentNotification
 from app.models.nurse import Nurse
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
+from app.services.clinic_intake import (
+    ACTIVE_CLINIC_APPOINTMENT_STATUSES,
+    ensure_clinic_checkin,
+)
+from app.services.daily_checkins import ensure_daily_checkin
 
 router = APIRouter(prefix="/staff", tags=["Staff"])
 
@@ -119,16 +124,18 @@ async def get_pending_patients(
     
     pending_list = []
     for patient in patients:
-        # Check if patient has any appointments
-        appt_result = await db.execute(
-            select(func.count(Appointment.id))
-            .where(Appointment.patient_id == patient.id)
-        )
         clinic_appt_result = await db.execute(
-            select(func.count(ClinicAppointment.id))
+            select(ClinicAppointment)
             .where(ClinicAppointment.patient_id == patient.id)
+            .where(
+                ClinicAppointment.appointment_date >= datetime.combine(date.today(), dt_time.min),
+                ClinicAppointment.appointment_date <= datetime.combine(date.today(), dt_time.max),
+                ClinicAppointment.status.in_(ACTIVE_CLINIC_APPOINTMENT_STATUSES),
+            )
+            .order_by(ClinicAppointment.appointment_date.desc())
         )
-        has_appointment = (appt_result.scalar() or 0) > 0 or (clinic_appt_result.scalar() or 0) > 0
+        clinic_appointment = clinic_appt_result.scalars().first()
+        has_appointment = clinic_appointment is not None
 
         assignment_result = await db.execute(
             select(StudentPatientAssignment)
@@ -146,10 +153,26 @@ async def get_pending_patients(
         # Check if patient has any admissions
         adm_result = await db.execute(
             select(func.count(Admission.id))
-            .where(Admission.patient_id == patient.id)
+            .where(
+                Admission.patient_id == patient.id,
+                Admission.status == "Active",
+            )
         )
-        has_admission = adm_result.scalar() > 0
-        
+        has_admission = (adm_result.scalar() or 0) > 0
+        checked_in_today = bool(
+            clinic_appointment
+            and clinic_appointment.status in {"Checked In", "In Progress"}
+        )
+        workflow_status = (
+            "admitted"
+            if has_admission
+            else "assigned"
+            if has_student_assignment
+            else "unassigned"
+            if clinic_appointment
+            else "unchecked"
+        )
+
         # Calculate age
         age = None
         if patient.date_of_birth:
@@ -170,12 +193,16 @@ async def get_pending_patients(
             "blood_group": patient.blood_group,
             "registered_at": patient.created_at.isoformat(),
             "has_appointment": has_appointment,
+            "checked_in_today": checked_in_today,
+            "clinic_appointment_id": clinic_appointment.id if clinic_appointment else None,
+            "clinic_appointment_status": clinic_appointment.status if clinic_appointment else None,
             "has_student_assignment": has_student_assignment,
             "assigned_student_id": student_assignment.student_id if student_assignment else None,
             "assigned_student_name": student_assignment.student.name if student_assignment and student_assignment.student else None,
             "has_admission": has_admission,
             "clinic_id": patient.clinic_id,
             "clinic_name": clinic_name_map.get(patient.clinic_id) if patient.clinic_id else None,
+            "workflow_status": workflow_status,
             **serialize_patient_badge_context(patient),
             "insurance_policies": serialize_patient_insurance(patient),
         })
@@ -273,20 +300,39 @@ async def assign_patient_to_student(
     if existing_assignment_result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Patient is already assigned to a student")
 
-    if data.clinic_id:
-        active_session_result = await db.execute(
-            select(ClinicSession).where(
-                and_(
-                    ClinicSession.student_id == data.student_id,
-                    ClinicSession.clinic_id == data.clinic_id,
-                    ClinicSession.checked_in_at.is_not(None),
-                    ClinicSession.checked_out_at.is_(None),
-                )
+    target_clinic_id = data.clinic_id or patient.clinic_id
+    if not target_clinic_id:
+        raise HTTPException(status_code=400, detail="Patient has no clinic allocated")
+
+    clinic_result = await db.execute(
+        select(Clinic)
+        .options(selectinload(Clinic.faculty))
+        .where(Clinic.id == target_clinic_id)
+    )
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+
+    active_session_result = await db.execute(
+        select(ClinicSession).where(
+            and_(
+                ClinicSession.student_id == data.student_id,
+                ClinicSession.clinic_id == target_clinic_id,
+                ClinicSession.checked_in_at.is_not(None),
+                ClinicSession.checked_out_at.is_(None),
             )
         )
-        if not active_session_result.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Student is not currently checked in to this clinic")
-        patient.clinic_id = data.clinic_id
+    )
+    if not active_session_result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Student is not currently checked in to this clinic")
+
+    await ensure_clinic_checkin(
+        db,
+        patient=patient,
+        clinic=clinic,
+        appointment_datetime=datetime.utcnow(),
+        status="Checked In",
+    )
 
     assignment = StudentPatientAssignment(
         id=str(uuid.uuid4()),
@@ -439,7 +485,7 @@ async def assign_patient_to_ward(
     patient = patient_result.scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
+
     # Check if patient already has an active admission
     active_adm_result = await db.execute(
         select(Admission)
@@ -477,6 +523,13 @@ async def assign_patient_to_ward(
         notes=data.notes,
     )
     db.add(admission)
+    if patient.user_id:
+        await ensure_daily_checkin(
+            db,
+            user_id=patient.user_id,
+            role=UserRole.PATIENT,
+            checked_in_at=admission_dt,
+        )
     await db.commit()
     
     return {
@@ -513,6 +566,15 @@ async def auto_assign_patient_to_student(
     patient = patient_result.scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    clinic_result = await db.execute(
+        select(Clinic)
+        .options(selectinload(Clinic.faculty))
+        .where(Clinic.id == data.clinic_id)
+    )
+    clinic = clinic_result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
     
     # Check if patient is already assigned to a student
     existing_assignment = await db.execute(
@@ -545,10 +607,26 @@ async def auto_assign_patient_to_student(
     clinic_sessions = clinic_sessions_result.scalars().all()
     
     if not clinic_sessions:
-        raise HTTPException(
-            status_code=400, 
-            detail="No students are currently checked in to this clinic. Cannot auto-assign."
+        clinic_appointment, _ = await ensure_clinic_checkin(
+            db,
+            patient=patient,
+            clinic=clinic,
+            appointment_datetime=datetime.utcnow(),
+            status="Checked In",
         )
+        await db.commit()
+        return {
+            "message": f"{patient.name} checked in to {clinic.name} and is waiting for manual assignment",
+            "assignment_id": None,
+            "patient_id": patient.id,
+            "patient_name": patient.name,
+            "student_id": None,
+            "student_name": None,
+            "student_patient_count": 0,
+            "clinic_only": True,
+            "clinic_name": clinic.name,
+            "clinic_appointment_id": clinic_appointment.id,
+        }
     
     # Get unique students from clinic sessions
     students_in_clinic = {cs.student_id: cs.student for cs in clinic_sessions if cs.student}
@@ -576,7 +654,13 @@ async def auto_assign_patient_to_student(
     # Sort by count (ascending) to find student with fewest patients
     student_counts.sort(key=lambda x: x[2])
     selected_student_id, selected_student, assignment_count = student_counts[0]
-    patient.clinic_id = data.clinic_id
+    await ensure_clinic_checkin(
+        db,
+        patient=patient,
+        clinic=clinic,
+        appointment_datetime=datetime.utcnow(),
+        status="Checked In",
+    )
     
     # Create the assignment
     assignment = StudentPatientAssignment(
@@ -608,6 +692,8 @@ async def auto_assign_patient_to_student(
         "student_id": selected_student_id,
         "student_name": selected_student.name,
         "student_patient_count": assignment_count + 1,
+        "clinic_only": False,
+        "clinic_name": clinic.name,
     }
 
 

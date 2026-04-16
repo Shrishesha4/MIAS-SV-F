@@ -7,16 +7,23 @@ export interface PendingPatient {
 	name: string;
 	photo?: string | null;
 	age: number | null;
-	phone: string;
-	email: string;
+	phone: string | null;
+	email: string | null;
+	gender: string | null;
+	dob?: string | null;
+	blood_group?: string | null;
 	registered_at: string;
 	has_appointment: boolean;
+	checked_in_today: boolean;
+	clinic_appointment_id: string | null;
+	clinic_appointment_status: string | null;
 	has_student_assignment: boolean;
 	assigned_student_id: string | null;
 	assigned_student_name: string | null;
 	has_admission: boolean;
 	clinic_id: string | null;
 	clinic_name: string | null;
+	workflow_status: 'unchecked' | 'unassigned' | 'assigned' | 'admitted';
 	category?: string | null;
 	category_color_primary?: string | null;
 	category_color_secondary?: string | null;
@@ -55,6 +62,19 @@ export interface AssignToStudentRequest {
 	clinic_id?: string;
 }
 
+export interface StaffAssignmentResult {
+	message: string;
+	assignment_id: string | null;
+	patient_id: string;
+	patient_name: string;
+	student_id: string | null;
+	student_name: string | null;
+	student_patient_count: number;
+	clinic_only?: boolean;
+	clinic_name?: string | null;
+	clinic_appointment_id?: string | null;
+}
+
 export const staffApi = {
 	async getPendingPatients(): Promise<PendingPatient[]> {
 		const response = await client.get('/staff/pending-patients');
@@ -71,15 +91,7 @@ export const staffApi = {
 		return response.data;
 	},
 
-	async assignToStudent(data: AssignToStudentRequest): Promise<{
-		message: string;
-		assignment_id: string;
-		patient_id: string;
-		patient_name: string;
-		student_id: string;
-		student_name: string;
-		student_patient_count: number;
-	}> {
+	async assignToStudent(data: AssignToStudentRequest): Promise<StaffAssignmentResult> {
 		const response = await client.post('/staff/assign-to-student', data);
 		return response.data;
 	},
@@ -89,15 +101,7 @@ export const staffApi = {
 		return response.data;
 	},
 
-	async autoAssignPatient(patientId: string, clinicId: string): Promise<{
-		message: string;
-		assignment_id: string;
-		patient_id: string;
-		patient_name: string;
-		student_id: string;
-		student_name: string;
-		student_patient_count: number;
-	}> {
+	async autoAssignPatient(patientId: string, clinicId: string): Promise<StaffAssignmentResult> {
 		const response = await client.post('/staff/auto-assign', {
 			patient_id: patientId,
 			clinic_id: clinicId,

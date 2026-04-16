@@ -18,6 +18,7 @@ from app.models.student import (
 from app.models.patient import Patient
 from app.models.faculty import Faculty
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
+from app.services.clinic_intake import ensure_clinic_checkin
 
 router = APIRouter(prefix="/clinics", tags=["Clinics"])
 
@@ -425,24 +426,23 @@ async def check_in_patient(
         raise HTTPException(status_code=404, detail="Patient not found")
 
     # Check clinic exists
-    clinic_result = await db.execute(select(Clinic).where(Clinic.id == clinic_id))
+    clinic_result = await db.execute(
+        select(Clinic)
+        .options(selectinload(Clinic.faculty))
+        .where(Clinic.id == clinic_id)
+    )
     clinic = clinic_result.scalar_one_or_none()
     if not clinic:
         raise HTTPException(status_code=404, detail="Clinic not found")
-    if clinic.access_mode == "APPOINTMENT_ONLY":
-        raise HTTPException(status_code=400, detail="This clinic accepts appointments only")
 
-    now = datetime.now()
-    appointment = ClinicAppointment(
-        id=str(uuid.uuid4()),
-        clinic_id=clinic_id,
-        patient_id=patient.id,
-        appointment_date=now,
-        appointment_time=now.strftime("%I:%M %p"),
-        provider_name=body.get("provider_name", clinic.faculty.name if hasattr(clinic, 'faculty') and clinic.faculty else ""),
+    appointment, created = await ensure_clinic_checkin(
+        db,
+        patient=patient,
+        clinic=clinic,
+        appointment_datetime=datetime.utcnow(),
+        provider_name=body.get("provider_name"),
         status="Checked In",
     )
-    db.add(appointment)
     await db.commit()
 
     return {
@@ -450,7 +450,11 @@ async def check_in_patient(
         "patient_id": patient.patient_id,
         "patient_name": patient.name,
         "status": "Checked In",
-        "message": f"{patient.name} checked in successfully",
+        "message": (
+            f"{patient.name} checked in successfully"
+            if created
+            else f"{patient.name} is already checked in for today"
+        ),
     }
 
 

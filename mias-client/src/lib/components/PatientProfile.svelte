@@ -46,6 +46,7 @@
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import PatientProfileOverviewModal from '$lib/components/patient/PatientProfileOverviewModal.svelte';
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
+	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
@@ -139,6 +140,7 @@
 	let showAddInsuranceModal = $state(false);
 	let showAdmissionHistoryModal = $state(false);
 	let showProfileOverviewModal = $state(false);
+	let selectedCaseRecord = $state<any | null>(null);
 
 	// Medical Alerts UI
 	let showAlertInput = $state(false);
@@ -283,6 +285,10 @@
 
 	function hasOriginalCaseRecordForm(record: any): boolean {
 		return Boolean(record?.form_values && Object.keys(record.form_values).length > 0);
+	}
+
+	function openCaseRecordEntry(record: any) {
+		selectedCaseRecord = record;
 	}
 	const vitalFormOptions = $derived.by((): FormDefinition[] => {
 		const activeVitalForms = caseRecordForms.filter(
@@ -1933,6 +1939,70 @@
 		</AquaModal>
 	{/if}
 
+	{#if selectedCaseRecord}
+		<AquaModal onclose={() => selectedCaseRecord = null} panelClass="w-full max-w-3xl">
+			{#snippet header()}
+				<div class="flex items-center gap-2">
+					<FileText class="w-5 h-5 text-blue-600" />
+					<span class="font-semibold text-gray-800">{selectedCaseRecord.procedure_name || selectedCaseRecord.form_name || 'Case Record Entry'}</span>
+				</div>
+			{/snippet}
+			{@const modalFormDef = formByProcedure.get(selectedCaseRecord.procedure_name || '') || formByProcedure.get(selectedCaseRecord.type || '') || null}
+			{@const modalApprovedRecord = !!selectedCaseRecord.approved_at}
+			<div class="space-y-3">
+				<div class="rounded-xl p-3" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="font-semibold text-gray-800">{selectedCaseRecord.procedure_name || modalFormDef?.name || 'Case Record'}</span>
+						<StatusBadge variant={modalApprovedRecord ? 'success' : 'pending'}>{selectedCaseRecord.status || 'Pending'}</StatusBadge>
+						{#if selectedCaseRecord.grade}
+							<span class="px-2 py-0.5 rounded text-xs font-bold"
+								style="background: {getGradeColor(selectedCaseRecord.grade)}15; color: {getGradeColor(selectedCaseRecord.grade)}; border: 1px solid {getGradeColor(selectedCaseRecord.grade)}30;">
+								Approved: {selectedCaseRecord.grade}
+							</span>
+						{/if}
+					</div>
+					<p class="mt-1 text-xs text-gray-500">{formatCaseRecordDate(selectedCaseRecord.date)}{#if selectedCaseRecord.department} · {selectedCaseRecord.department}{/if}</p>
+				</div>
+
+				<div class="rounded-xl p-3" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
+					{#if !(selectedCaseRecord.examination || selectedCaseRecord.findings || selectedCaseRecord.diagnosis || selectedCaseRecord.treatment_plan || selectedCaseRecord.treatment)}
+						<p class="text-sm text-amber-700"><strong>Status:</strong> Pending</p>
+					{/if}
+					<p class="text-sm text-gray-700"><strong>Findings:</strong> {selectedCaseRecord.examination || selectedCaseRecord.findings || '—'}</p>
+					<p class="mt-1 text-sm text-gray-700"><strong>Diagnosis:</strong> {selectedCaseRecord.diagnosis || '—'}</p>
+					<p class="mt-1 text-sm text-gray-700"><strong>Treatment:</strong> {selectedCaseRecord.treatment_plan || selectedCaseRecord.treatment || '—'}</p>
+				</div>
+
+				{#if hasOriginalCaseRecordForm(selectedCaseRecord)}
+					<ReadonlySubmittedForm
+						title={selectedCaseRecord.form_name || 'Original Submitted Form'}
+						fields={getCaseRecordDisplayFields(selectedCaseRecord)}
+						values={selectedCaseRecord.form_values}
+					/>
+				{/if}
+
+				<div class="rounded-xl flex items-start justify-between gap-2 px-3 pb-2.5 pt-2 text-xs"
+					style="background: linear-gradient(to bottom, rgba(239,246,255,0.9), rgba(219,234,254,0.7)); border: 1px solid rgba(147,197,253,0.3);">
+					<div class="flex flex-col gap-1">
+						<div class="flex items-center gap-1.5 text-gray-600">
+							<User class="h-3.5 w-3.5 shrink-0 text-blue-400" />
+							<span class="font-semibold text-blue-600">Provider:</span>
+							<span class="text-gray-700">{caseRecordRequesterName(selectedCaseRecord)}</span>
+						</div>
+						<div class="flex items-center gap-1.5 text-gray-600">
+							<Shield class="h-3.5 w-3.5 shrink-0" style="color: {modalApprovedRecord ? '#16a34a' : '#ea580c'};" />
+							<span class="font-semibold text-blue-600">Approver:</span>
+							<span class="text-gray-700">{caseRecordApproverName(selectedCaseRecord)}</span>
+						</div>
+					</div>
+					{#if selectedCaseRecord.approved_at}
+						<span class="shrink-0 text-right text-gray-400">{formatCaseRecordDate(selectedCaseRecord.approved_at)}</span>
+					{/if}
+				</div>
+			</div>
+		</AquaModal>
+	{/if}
+
 	<!-- ═══════════════════════════════════════════════════════════════
 	     TABS
 	     ═══════════════════════════════════════════════════════════════ -->
@@ -1970,7 +2040,11 @@
 						{@const iconColor = formDef?.color || (record.status === 'APPROVED' ? '#22c55e' : '#f97316')}
 						{@const IconComponent = formDef?.icon ? (ICON_MAP[formDef.icon] ?? FileText) : FileText}
 						<div class="pb-5 border-b border-gray-100 last:border-0 last:pb-0">
-							<div class="flex items-center gap-3 mb-2">
+							<button
+								type="button"
+								class="mb-2 flex w-full items-center gap-3 text-left cursor-pointer rounded-xl px-1.5 py-1.5 transition-colors hover:bg-slate-50/80"
+								onclick={() => openCaseRecordEntry(record)}
+							>
 								<div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
 									style="background: {iconColor};">
 									<IconComponent class="w-5 h-5 text-white" />
@@ -1987,7 +2061,10 @@
 									</div>
 									<p class="text-xs text-gray-500">{formatCaseRecordDate(record.date)} · {record.department}</p>
 								</div>
-							</div>
+								<div class="flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+									<Eye class="h-4 w-4" />
+								</div>
+							</button>
 							<div class="p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
 								{#if !(record.examination || record.findings || record.diagnosis || record.treatment_plan || record.treatment)}
 									<p class="text-sm text-amber-700"><strong>Status:</strong>Pending</p>
@@ -1996,15 +2073,7 @@
 								<p class="text-sm text-gray-700 mt-1"><strong>Diagnosis:</strong> {record.diagnosis || '—'}</p>
 								<p class="text-sm text-gray-700 mt-1"><strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}</p>
 							</div>
-							{#if hasOriginalCaseRecordForm(record)}
-								<div class="mt-2">
-									<ReadonlySubmittedForm
-										title={record.form_name || 'Original Submitted Form'}
-										fields={getCaseRecordDisplayFields(record)}
-										values={record.form_values}
-									/>
-								</div>
-							{/if}
+
 							<div class="mt-2 pt-2 px-3 pb-2.5 rounded-lg flex items-start justify-between gap-2 text-xs"
 								style="background: linear-gradient(to bottom, rgba(239,246,255,0.9), rgba(219,234,254,0.7)); border: 1px solid rgba(147,197,253,0.3);">
 								<div class="flex flex-col gap-1">

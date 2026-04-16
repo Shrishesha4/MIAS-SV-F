@@ -9,7 +9,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { Pencil, Check, Power, X } from 'lucide-svelte';
+	import { Pencil, Check, Power, X, ShieldCheck, Landmark, Briefcase, Building2, Wallet, HeartPulse, CircleOff, Maximize2, Minimize2 } from 'lucide-svelte';
 
 	type ChargeMetaDraft = {
 		name: string;
@@ -22,15 +22,14 @@
 		key: string;
 		insuranceId: string | null;
 		insuranceName: string;
+		insuranceIconKey: InsuranceCategory['icon_key'];
+		insuranceBadgeSymbol: string | null;
+		insuranceColorPrimary: string;
+		insuranceColorSecondary: string;
 		patientCategoryId: string | null;
 		patientCategoryName: string;
-		isLegacy?: boolean;
-	};
-
-	type PricingColumnGroup = {
-		id: string;
-		label: string;
-		tiers: PricingTierOption[];
+		patientColorPrimary: string;
+		patientColorSecondary: string;
 		isLegacy?: boolean;
 	};
 
@@ -41,13 +40,14 @@
 	let priceCategories = $state<PatientCategoryConfig[]>([]);
 	let insuranceCategories = $state<InsuranceCategory[]>([]);
 	let activeCategory: ChargeCategory = $state('REGISTRATION');
-	
+
 	// Registration fees keyed by "insuranceId::patientCategoryId" — per combo
 	let registrationFees = $state<Record<string, number>>({});
 	// Map "insuranceId::patientCategoryId" -> { clinicId, walkInType } for saving
 	let regFeeClinicMap = $state<Record<string, { clinicId: string; walkInType: string }>>({});
-	let editingRegFee = $state<{ insuranceId: string; categoryId: string; value: string } | null>(null);
 	let savingRegFee = $state(false);
+	let regFeeDrafts = $state<Record<string, string>>({});
+	let savingRegFeeKey = $state<string | null>(null);
 
 	const categoryTabs = [
 		{ id: 'REGISTRATION', label: 'REGISTRATION' },
@@ -55,6 +55,15 @@
 		{ id: 'LABS', label: 'LABS' },
 		{ id: 'ADMIN', label: 'ADMIN' }
 	];
+	const insuranceIcons = {
+		shield: ShieldCheck,
+		landmark: Landmark,
+		briefcase: Briefcase,
+		building: Building2,
+		wallet: Wallet,
+		heart: HeartPulse,
+		off: CircleOff
+	} as const;
 
 	// Add/Edit modal
 	let chargeModal = $state(false);
@@ -79,6 +88,20 @@
 	let priceDrafts = $state<Record<string, string>>({});
 	let savingPriceKey = $state<string | null>(null);
 	let togglingChargeId = $state<string | null>(null);
+	let columnOrder = $state<string[]>([]);
+	let columnWidths = $state<Record<string, number>>({});
+	let itemColumnWidth = $state(180);
+	let registrationColumnOrder = $state<string[]>([]);
+	let registrationColumnWidths = $state<Record<string, number>>({});
+	let registrationItemColumnWidth = $state(180);
+	let draggedColumnKey = $state<string | null>(null);
+	let dragOverColumnKey = $state<string | null>(null);
+	let draggedRegistrationColumnKey = $state<string | null>(null);
+	let dragOverRegistrationColumnKey = $state<string | null>(null);
+	let resizeState = $state<{ key: string; startX: number; startWidth: number } | null>(null);
+	let sheetContainer = $state<HTMLDivElement | null>(null);
+	let isSheetFullscreen = $state(false);
+	let layoutPrefsReady = $state(false);
 
 	// Delete confirmation
 	let confirmModal = $state(false);
@@ -104,23 +127,53 @@
 		return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 	}
 
-	function buildPricingGroups(
+	function withAlpha(color: string, alpha: number): string {
+		const normalized = color.trim();
+		if (!/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+			return `rgba(37, 99, 235, ${alpha})`;
+		}
+		const hex = normalized.slice(1);
+		const red = Number.parseInt(hex.slice(0, 2), 16);
+		const green = Number.parseInt(hex.slice(2, 4), 16);
+		const blue = Number.parseInt(hex.slice(4, 6), 16);
+		return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+	}
+
+	function compactLabel(value: string): string {
+		const parts = value
+			.split(/[\s/-]+/)
+			.map((part) => part.trim())
+			.filter(Boolean);
+		if (parts.length >= 2) {
+			return parts.slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+		}
+		return value.slice(0, 3).toUpperCase();
+	}
+
+	function showExpandedColumnHeader(key: string): boolean {
+		return (columnWidths[key] ?? 72) >= 116;
+	}
+
+	function showExpandedRegistrationHeader(key: string): boolean {
+		return (registrationColumnWidths[key] ?? 92) >= 132;
+	}
+
+	function buildPricingColumns(
 		chargeItems: ChargeItem[],
 		categoryItems: PatientCategoryConfig[],
 		insuranceItems: InsuranceCategory[]
-	): PricingColumnGroup[] {
-		const groups: PricingColumnGroup[] = sortPatientCategories(categoryItems).map((category) => ({
-			id: category.id,
-			label: category.name,
-			tiers: []
-		}));
-		const groupsByCategoryName = new Map(groups.map((group) => [normalizePricingKey(group.label), group]));
+	): PricingTierOption[] {
+		const tiers: PricingTierOption[] = [];
+		const sortedCategories = sortPatientCategories(categoryItems);
+		const categoriesByName = new Map(
+			sortedCategories.map((category) => [normalizePricingKey(category.name), category])
+		);
 		const seenTierKeys = new Set<string>();
 
 		for (const insurance of sortInsuranceCategories(insuranceItems)) {
 			for (const patientCategory of sortInsurancePatientCategories(insurance.patient_categories || [])) {
-				const group = groupsByCategoryName.get(normalizePricingKey(patientCategory.name));
-				if (!group) {
+				const matchedCategory = categoriesByName.get(normalizePricingKey(patientCategory.name));
+				if (!matchedCategory) {
 					continue;
 				}
 
@@ -130,12 +183,18 @@
 					continue;
 				}
 
-				group.tiers.push({
+				tiers.push({
 					key: tierKey,
 					insuranceId: insurance.id,
 					insuranceName: insurance.name,
-					patientCategoryId: patientCategory.id,
-					patientCategoryName: patientCategory.name
+					insuranceIconKey: insurance.icon_key,
+					insuranceBadgeSymbol: insurance.custom_badge_symbol?.trim().toUpperCase() || null,
+					insuranceColorPrimary: insurance.color_primary,
+					insuranceColorSecondary: insurance.color_secondary,
+					patientCategoryId: matchedCategory.id,
+					patientCategoryName: patientCategory.name,
+					patientColorPrimary: matchedCategory.color_primary,
+					patientColorSecondary: matchedCategory.color_secondary
 				});
 				seenTierKeys.add(normalizedTierKey);
 			}
@@ -148,34 +207,37 @@
 					continue;
 				}
 
-				const matchedGroup = groups.find((group) => normalizedTierKey.endsWith(`- ${normalizePricingKey(group.label)}`));
-				if (matchedGroup) {
-					matchedGroup.tiers.push({
+				const matchedCategory = sortedCategories.find(
+					(category) => normalizedTierKey.endsWith(`- ${normalizePricingKey(category.name)}`)
+				);
+				if (matchedCategory) {
+					tiers.push({
 						key: existingTierKey,
 						insuranceId: null,
-						insuranceName: existingTierKey.replace(new RegExp(`\\s*-\\s*${matchedGroup.label}$`, 'i'), '').trim() || existingTierKey,
-						patientCategoryId: matchedGroup.id,
-						patientCategoryName: matchedGroup.label,
+						insuranceName: existingTierKey.replace(new RegExp(`\\s*-\\s*${matchedCategory.name}$`, 'i'), '').trim() || existingTierKey,
+						insuranceIconKey: 'off',
+						insuranceBadgeSymbol: null,
+						insuranceColorPrimary: '#94A3B8',
+						insuranceColorSecondary: '#475569',
+						patientCategoryId: matchedCategory.id,
+						patientCategoryName: matchedCategory.name,
+						patientColorPrimary: matchedCategory.color_primary,
+						patientColorSecondary: matchedCategory.color_secondary,
 						isLegacy: true
 					});
 				} else {
-					let legacyGroup = groups.find((group) => group.id === '__legacy__');
-					if (!legacyGroup) {
-						legacyGroup = {
-							id: '__legacy__',
-							label: 'Other',
-							tiers: [],
-							isLegacy: true
-						};
-						groups.push(legacyGroup);
-					}
-
-					legacyGroup.tiers.push({
+					tiers.push({
 						key: existingTierKey,
 						insuranceId: null,
 						insuranceName: existingTierKey,
+						insuranceIconKey: 'off',
+						insuranceBadgeSymbol: null,
+						insuranceColorPrimary: '#94A3B8',
+						insuranceColorSecondary: '#475569',
 						patientCategoryId: null,
-						patientCategoryName: legacyGroup.label,
+						patientCategoryName: 'Other',
+						patientColorPrimary: '#94A3B8',
+						patientColorSecondary: '#475569',
 						isLegacy: true
 					});
 				}
@@ -184,16 +246,83 @@
 			}
 		}
 
-		return groups;
+		return tiers;
 	}
 
-	function flattenPricingGroups(groups: PricingColumnGroup[]): string[] {
-		return groups.flatMap((group) => group.tiers.map((tier) => tier.key));
+	function syncColumnOrder(nextColumns: string[]) {
+		const existing = columnOrder.filter((key) => nextColumns.includes(key));
+		const missing = nextColumns.filter((key) => !existing.includes(key));
+		const nextOrder = [...existing, ...missing];
+		if (
+			nextOrder.length === columnOrder.length &&
+			nextOrder.every((key, index) => key === columnOrder[index])
+		) {
+			return;
+		}
+		columnOrder = nextOrder;
 	}
 
-	const pricingGroups = $derived.by(() => buildPricingGroups(charges, priceCategories, insuranceCategories));
-	const pricingColumns = $derived.by(() => flattenPricingGroups(pricingGroups));
-	const tableGridStyle = $derived.by(() => `grid-template-columns: minmax(200px, 1.2fr) repeat(${Math.max(pricingGroups.length, 1)}, minmax(148px, 0.92fr));`);
+	function syncColumnWidths(nextColumns: string[]) {
+		const nextWidths: Record<string, number> = {};
+		for (const key of nextColumns) {
+			nextWidths[key] = Math.max(50, columnWidths[key] ?? 67);
+		}
+		const sameKeys =
+			Object.keys(nextWidths).length === Object.keys(columnWidths).length &&
+			Object.entries(nextWidths).every(([key, value]) => columnWidths[key] === value);
+		if (!sameKeys) {
+			columnWidths = nextWidths;
+		}
+	}
+
+	function syncRegistrationColumnOrder(nextColumns: string[]) {
+		const existing = registrationColumnOrder.filter((key) => nextColumns.includes(key));
+		const missing = nextColumns.filter((key) => !existing.includes(key));
+		const nextOrder = [...existing, ...missing];
+		if (
+			nextOrder.length === registrationColumnOrder.length &&
+			nextOrder.every((key, index) => key === registrationColumnOrder[index])
+		) {
+			return;
+		}
+		registrationColumnOrder = nextOrder;
+	}
+
+	function syncRegistrationColumnWidths(nextColumns: string[]) {
+		const nextWidths: Record<string, number> = {};
+		for (const key of nextColumns) {
+			nextWidths[key] = Math.max(50, registrationColumnWidths[key] ?? 67);
+		}
+		const sameKeys =
+			Object.keys(nextWidths).length === Object.keys(registrationColumnWidths).length &&
+			Object.entries(nextWidths).every(([key, value]) => registrationColumnWidths[key] === value);
+		if (!sameKeys) {
+			registrationColumnWidths = nextWidths;
+		}
+	}
+
+	const availablePricingTiers = $derived.by(() => buildPricingColumns(charges, priceCategories, insuranceCategories));
+	const pricingColumns = $derived.by(() => availablePricingTiers.map((tier) => tier.key));
+	const orderedPricingTiers = $derived.by(() => {
+		const byKey = new Map(availablePricingTiers.map((tier) => [tier.key, tier]));
+		return columnOrder.map((key) => byKey.get(key)).filter((tier): tier is PricingTierOption => Boolean(tier));
+	});
+	const tableGridStyle = $derived.by(() => {
+		const pricingTemplate = orderedPricingTiers.map((tier) => `${Math.max(50, columnWidths[tier.key] ?? 67)}px`).join(' ');
+		return `grid-template-columns: ${Math.max(120, itemColumnWidth)}px ${pricingTemplate || '67px'};`;
+	});
+	const orderedRegistrationCategories = $derived.by(() => {
+		const byId = new Map(priceCategories.map((category) => [category.id, category]));
+		return registrationColumnOrder
+			.map((key) => byId.get(key))
+			.filter((category): category is PatientCategoryConfig => Boolean(category));
+	});
+	const registrationGridStyle = $derived.by(() => {
+		const registrationTemplate = orderedRegistrationCategories
+			.map((category) => `${Math.max(50, registrationColumnWidths[category.id] ?? 67)}px`)
+			.join(' ');
+		return `grid-template-columns: ${Math.max(120, registrationItemColumnWidth)}px ${registrationTemplate || '67px'};`;
+	});
 
 	function buildEmptyPrices(categoryNames: string[]): Record<string, number> {
 		return Object.fromEntries(categoryNames.map((categoryName) => [categoryName, 0]));
@@ -223,12 +352,321 @@
 		return priceDrafts[priceDraftKey(charge.id, tier)] ?? String(charge.prices[tier] ?? 0);
 	}
 
+	function priceCellId(chargeId: string, tier: ChargeTier): string {
+		return `charge-cell-${chargeId}-${String(tier).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+	}
+
+	function regFeeCellId(insuranceId: string, categoryId: string): string {
+		return `reg-fee-cell-${insuranceId}-${categoryId}`;
+	}
+
 	function resetPriceDraft(chargeId: string, tier: ChargeTier) {
 		delete priceDrafts[priceDraftKey(chargeId, tier)];
 	}
 
+	function getRegFeeInputValue(comboKey: string): string {
+		return regFeeDrafts[comboKey] ?? String(registrationFees[comboKey] ?? 0);
+	}
+
+	function resetRegFeeDraft(comboKey: string) {
+		delete regFeeDrafts[comboKey];
+	}
+
+	function focusPriceCell(rowIndex: number, columnIndex: number) {
+		const charge = filteredCharges[rowIndex];
+		const tier = orderedPricingTiers[columnIndex];
+		if (!charge || !tier) {
+			return;
+		}
+		const target = document.getElementById(priceCellId(charge.id, tier.key)) as HTMLInputElement | null;
+		target?.focus();
+		target?.select();
+	}
+
+	function focusRegFeeCell(rowIndex: number, columnIndex: number): boolean {
+		const insurance = insuranceCategories[rowIndex];
+		const category = orderedRegistrationCategories[columnIndex];
+		if (!insurance || !category) {
+			return false;
+		}
+		const target = document.getElementById(regFeeCellId(insurance.id, category.id)) as HTMLInputElement | null;
+		if (!target) {
+			return false;
+		}
+		target.focus();
+		target.select();
+		return true;
+	}
+
+	function handlePriceCellKeydown(event: KeyboardEvent, rowIndex: number, columnIndex: number) {
+		if (event.altKey || event.ctrlKey || event.metaKey) {
+			return;
+		}
+
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			focusPriceCell(rowIndex, columnIndex - 1);
+			return;
+		}
+
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			focusPriceCell(rowIndex, columnIndex + 1);
+			return;
+		}
+
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			focusPriceCell(rowIndex - 1, columnIndex);
+			return;
+		}
+
+		if (event.key === 'ArrowDown' || event.key === 'Enter') {
+			event.preventDefault();
+			focusPriceCell(rowIndex + 1, columnIndex);
+			return;
+		}
+	}
+
+	function handleRegFeeCellKeydown(event: KeyboardEvent, rowIndex: number, columnIndex: number) {
+		if (event.altKey || event.ctrlKey || event.metaKey) {
+			return;
+		}
+
+		const attemptMove = (rowStep: number, columnStep: number) => {
+			let nextRow = rowIndex + rowStep;
+			let nextColumn = columnIndex + columnStep;
+			while (
+				nextRow >= 0 &&
+				nextColumn >= 0 &&
+				nextRow < insuranceCategories.length &&
+				nextColumn < orderedRegistrationCategories.length
+			) {
+				if (focusRegFeeCell(nextRow, nextColumn)) {
+					return;
+				}
+				nextRow += rowStep;
+				nextColumn += columnStep;
+			}
+		};
+
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			attemptMove(0, -1);
+			return;
+		}
+
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			attemptMove(0, 1);
+			return;
+		}
+
+		if (event.key === 'Tab') {
+			event.preventDefault();
+			attemptMove(0, event.shiftKey ? -1 : 1);
+			return;
+		}
+
+		if (event.key === 'ArrowUp') {
+			event.preventDefault();
+			attemptMove(-1, 0);
+			return;
+		}
+
+		if (event.key === 'ArrowDown' || event.key === 'Enter') {
+			event.preventDefault();
+			attemptMove(1, 0);
+		}
+	}
+
+	function moveColumn(fromKey: string, toKey: string) {
+		if (fromKey === toKey) {
+			return;
+		}
+		const fromIndex = columnOrder.indexOf(fromKey);
+		const toIndex = columnOrder.indexOf(toKey);
+		if (fromIndex === -1 || toIndex === -1) {
+			return;
+		}
+		const nextOrder = [...columnOrder];
+		const [moved] = nextOrder.splice(fromIndex, 1);
+		nextOrder.splice(toIndex, 0, moved);
+		columnOrder = nextOrder;
+	}
+
+	function moveRegistrationColumn(fromKey: string, toKey: string) {
+		if (fromKey === toKey) {
+			return;
+		}
+		const fromIndex = registrationColumnOrder.indexOf(fromKey);
+		const toIndex = registrationColumnOrder.indexOf(toKey);
+		if (fromIndex === -1 || toIndex === -1) {
+			return;
+		}
+		const nextOrder = [...registrationColumnOrder];
+		const [moved] = nextOrder.splice(fromIndex, 1);
+		nextOrder.splice(toIndex, 0, moved);
+		registrationColumnOrder = nextOrder;
+	}
+
+	function resetColumnDragState() {
+		draggedColumnKey = null;
+		dragOverColumnKey = null;
+	}
+
+	function resetRegistrationColumnDragState() {
+		draggedRegistrationColumnKey = null;
+		dragOverRegistrationColumnKey = null;
+	}
+
+	function handleColumnDragStart(event: DragEvent, key: string) {
+		draggedColumnKey = key;
+		dragOverColumnKey = key;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.dropEffect = 'move';
+			event.dataTransfer.setData('text/plain', key);
+		}
+	}
+
+	function handleColumnDragOver(event: DragEvent, key: string) {
+		event.preventDefault();
+		dragOverColumnKey = key;
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
+	function handleColumnDrop(event: DragEvent, key: string) {
+		event.preventDefault();
+		const fromKey = draggedColumnKey;
+		resetColumnDragState();
+		if (!fromKey) {
+			return;
+		}
+		moveColumn(fromKey, key);
+	}
+
+	function handleRegistrationColumnDragStart(event: DragEvent, key: string) {
+		draggedRegistrationColumnKey = key;
+		dragOverRegistrationColumnKey = key;
+		if (event.dataTransfer) {
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.dropEffect = 'move';
+			event.dataTransfer.setData('text/plain', key);
+		}
+	}
+
+	function handleRegistrationColumnDragOver(event: DragEvent, key: string) {
+		event.preventDefault();
+		dragOverRegistrationColumnKey = key;
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = 'move';
+		}
+	}
+
+	function handleRegistrationColumnDrop(event: DragEvent, key: string) {
+		event.preventDefault();
+		const fromKey = draggedRegistrationColumnKey;
+		resetRegistrationColumnDragState();
+		if (!fromKey) {
+			return;
+		}
+		moveRegistrationColumn(fromKey, key);
+	}
+
+	function startColumnResize(event: MouseEvent, key: string, width: number) {
+		event.preventDefault();
+		event.stopPropagation();
+		resizeState = { key, startX: event.clientX, startWidth: width };
+	}
+
+	function handleResizeMouseMove(event: MouseEvent) {
+		if (!resizeState) {
+			return;
+		}
+		const nextWidth = Math.max(
+			resizeState.key === '__item__' || resizeState.key === 'reg::__item__' ? 120 : 50,
+			resizeState.startWidth + (event.clientX - resizeState.startX)
+		);
+		if (resizeState.key === '__item__') {
+			itemColumnWidth = nextWidth;
+			return;
+		}
+		if (resizeState.key === 'reg::__item__') {
+			registrationItemColumnWidth = nextWidth;
+			return;
+		}
+		if (resizeState.key.startsWith('reg::')) {
+			const columnKey = resizeState.key.slice(5);
+			registrationColumnWidths = {
+				...registrationColumnWidths,
+				[columnKey]: nextWidth
+			};
+			return;
+		}
+		columnWidths = {
+			...columnWidths,
+			[resizeState.key]: nextWidth
+		};
+	}
+
+	function stopColumnResize() {
+		resizeState = null;
+	}
+
+	async function toggleSheetFullscreen() {
+		if (!sheetContainer) {
+			return;
+		}
+		if (document.fullscreenElement === sheetContainer) {
+			await document.exitFullscreen();
+			return;
+		}
+		await sheetContainer.requestFullscreen();
+	}
+
+	function handleFullscreenChange() {
+		isSheetFullscreen = document.fullscreenElement === sheetContainer;
+	}
+
+	function loadSheetLayout() {
+		try {
+			const raw = localStorage.getItem('mias-charge-sheet-layout-v1');
+			if (!raw) {
+				layoutPrefsReady = true;
+				return;
+			}
+			const parsed = JSON.parse(raw) as {
+				pricingOrder?: string[];
+				pricingWidths?: Record<string, number>;
+				pricingItemWidth?: number;
+				registrationOrder?: string[];
+				registrationWidths?: Record<string, number>;
+				registrationItemWidth?: number;
+			};
+			columnOrder = Array.isArray(parsed.pricingOrder) ? parsed.pricingOrder : [];
+			columnWidths = parsed.pricingWidths ?? {};
+			itemColumnWidth = typeof parsed.pricingItemWidth === 'number' ? parsed.pricingItemWidth : 180;
+			registrationColumnOrder = Array.isArray(parsed.registrationOrder) ? parsed.registrationOrder : [];
+			registrationColumnWidths = parsed.registrationWidths ?? {};
+			registrationItemColumnWidth = typeof parsed.registrationItemWidth === 'number' ? parsed.registrationItemWidth : 180;
+		} catch {
+			columnOrder = [];
+			columnWidths = {};
+			itemColumnWidth = 180;
+			registrationColumnOrder = [];
+			registrationColumnWidths = {};
+			registrationItemColumnWidth = 180;
+		} finally {
+			layoutPrefsReady = true;
+		}
+	}
+
 	onMount(() => {
 		if (auth.role !== 'ADMIN') { goto('/dashboard'); return; }
+		loadSheetLayout();
 		void loadCharges();
 	});
 
@@ -262,8 +700,9 @@
 			}
 			registrationFees = fees;
 			regFeeClinicMap = clinicMap;
-			
-			const nextPricingColumns = flattenPricingGroups(buildPricingGroups(chargeItems, categoryItems, insuranceItems));
+
+			const nextPricingColumns = buildPricingColumns(chargeItems, categoryItems, insuranceItems).map((tier) => tier.key);
+			syncColumnOrder(nextPricingColumns);
 			charges = chargeItems.map((charge) => mergeChargePrices(charge, nextPricingColumns));
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load charges';
@@ -271,6 +710,33 @@
 			loading = false;
 		}
 	}
+
+	$effect(() => {
+		syncColumnOrder(pricingColumns);
+		syncColumnWidths(pricingColumns);
+	});
+
+	$effect(() => {
+		syncRegistrationColumnOrder(priceCategories.map((category) => category.id));
+		syncRegistrationColumnWidths(priceCategories.map((category) => category.id));
+	});
+
+	$effect(() => {
+		if (!layoutPrefsReady) {
+			return;
+		}
+		localStorage.setItem(
+			'mias-charge-sheet-layout-v1',
+			JSON.stringify({
+				pricingOrder: columnOrder,
+				pricingWidths: columnWidths,
+				pricingItemWidth: itemColumnWidth,
+				registrationOrder: registrationColumnOrder,
+				registrationWidths: registrationColumnWidths,
+				registrationItemWidth: registrationItemColumnWidth
+			})
+		);
+	});
 
 	function updateChargeInState(updatedCharge: ChargeItem) {
 		const hydratedCharge = mergeChargePrices(updatedCharge, pricingColumns);
@@ -388,16 +854,19 @@
 		}
 	}
 
-	async function saveRegFee() {
-		if (!editingRegFee) return;
-
-		const nextPrice = Number(editingRegFee.value);
+	async function saveRegFeeEdit(insuranceId: string, categoryId: string) {
+		const key = `${insuranceId}::${categoryId}`;
+		const nextPrice = Number((regFeeDrafts[key] ?? String(registrationFees[key] ?? 0)).trim());
 		if (!Number.isFinite(nextPrice) || nextPrice < 0) {
 			toastStore.addToast('Fee must be a valid non-negative number', 'error');
 			return;
 		}
 
-		const key = `${editingRegFee.insuranceId}::${editingRegFee.categoryId}`;
+		if (nextPrice === (registrationFees[key] ?? 0)) {
+			resetRegFeeDraft(key);
+			return;
+		}
+
 		const clinicRef = regFeeClinicMap[key];
 		if (!clinicRef) {
 			toastStore.addToast('No clinic config found for this combination', 'error');
@@ -405,20 +874,24 @@
 		}
 
 		savingRegFee = true;
+		savingRegFeeKey = key;
 		try {
 			await insuranceCategoriesApi.saveClinicConfigByClinic(
-				editingRegFee.insuranceId,
+				insuranceId,
 				clinicRef.clinicId,
 				{ registration_fee: nextPrice, walk_in_type: clinicRef.walkInType },
 				clinicRef.walkInType,
 			);
 			registrationFees[key] = nextPrice;
-			editingRegFee = null;
+			resetRegFeeDraft(key);
 			toastStore.addToast('Registration fee updated', 'success');
 		} catch (e: any) {
 			toastStore.addToast(e.response?.data?.detail || 'Failed to update registration fee', 'error');
 		} finally {
 			savingRegFee = false;
+			if (savingRegFeeKey === key) {
+				savingRegFeeKey = null;
+			}
 		}
 	}
 
@@ -498,6 +971,9 @@
 
 </script>
 
+<svelte:window onmousemove={handleResizeMouseMove} onmouseup={stopColumnResize} />
+<svelte:document onfullscreenchange={handleFullscreenChange} />
+
 	{#if loading}
 		<div class="flex items-center justify-center py-12">
 			<div class="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -533,108 +1009,224 @@
 
 		<!-- Registration Fee Table -->
 		{#if activeCategory === 'REGISTRATION'}
-			<div
-				class="overflow-x-auto rounded-2xl"
-				style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06);"
-			>
-				<table class="w-full min-w-max">
-					<thead>
-						<tr style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);">
-							<th class="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200">Insurance Type</th>
-							{#each priceCategories as category}
-								<th class="px-4 py-3 text-center text-xs font-bold text-slate-700 uppercase tracking-wide border-b border-slate-200">{category.name}</th>
-							{/each}
-						</tr>
-					</thead>
-					<tbody>
-						{#if insuranceCategories.length === 0}
-							<tr>
-								<td colspan={priceCategories.length + 1} class="px-4 py-8 text-center text-slate-500 text-sm">
-									No insurance categories configured.
-								</td>
-							</tr>
-						{:else}
-							{#each insuranceCategories as insurance, i}
-								<tr class:border-t={i > 0} style="border-color: rgba(0,0,0,0.06);">
-									<td class="px-4 py-3 font-semibold text-slate-900 text-sm">{insurance.name}</td>
-									{#each priceCategories as category}
-									{@const isEditingThis = editingRegFee?.insuranceId === insurance.id && editingRegFee?.categoryId === category.id}
-									{@const isEligible = insurance.patient_categories?.some(pc => pc.id === category.id)}
-								{@const comboKey = `${insurance.id}::${category.id}`}
-								{@const hasConfig = comboKey in registrationFees}
-								<td class="px-4 py-3 text-center">
-									{#if !isEligible || !hasConfig}
-											<span class="text-slate-400 text-sm">N/A</span>
-										{:else if isEditingThis}
-											<div class="flex items-center justify-center gap-1">
-												<span class="text-xs font-semibold text-slate-500">₹</span>
-												<input
-													type="number"
-													min="0"
-													step="1"
-													class="number-field soft-field w-20 bg-white rounded px-2 py-1 text-sm font-semibold text-slate-800 outline-none text-center"
-													value={editingRegFee?.value ?? ''}
-													oninput={(event) => {
-														if (editingRegFee) {
-															editingRegFee.value = (event.currentTarget as HTMLInputElement).value;
-														}
-													}}
-													onkeydown={(event) => {
-														if (event.key === 'Enter') {
-															saveRegFee();
-														}
-														if (event.key === 'Escape') {
-															editingRegFee = null;
-														}
-													}}
-												/>
-												<button
-													onclick={saveRegFee}
-													class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
-													style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
-													disabled={savingRegFee}
-												>
-													<Check class="h-3.5 w-3.5" />
-												</button>
-												<button
-													onclick={() => editingRegFee = null}
-													class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
-													style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
-													disabled={savingRegFee}
-												>
-													<X class="h-3.5 w-3.5" />
-												</button>
+			<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
+				<button
+					type="button"
+					class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
+					aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
+					title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
+					onclick={() => void toggleSheetFullscreen()}
+				>
+					{#if isSheetFullscreen}
+						<Minimize2 class="h-4 w-4" />
+					{:else}
+						<Maximize2 class="h-4 w-4" />
+					{/if}
+				</button>
+				<div class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-none" style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+					<div class="min-w-max">
+						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100" style={registrationGridStyle}>
+						    <div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
+								<span class="truncate">Insurance</span>
+								<button
+									type="button"
+									class="column-resizer"
+									aria-label="Resize insurance column"
+									onmousedown={(event) => startColumnResize(event, 'reg::__item__', registrationItemColumnWidth)}
+								></button>
+							</div>
+							{#each orderedRegistrationCategories as category (category.id)}
+								<div
+									class={`charge-column-header relative flex min-h-[33px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedRegistrationColumnKey === category.id ? 'is-dragging' : ''} ${dragOverRegistrationColumnKey === category.id && draggedRegistrationColumnKey !== null && draggedRegistrationColumnKey !== category.id ? 'is-drop-target' : ''}`}
+									role="columnheader"
+									tabindex="0"
+									aria-label={`Reorder registration column ${category.name}`}
+									title={category.name}
+									draggable="true"
+									style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(category.color_primary, 0.12)});`}
+									ondragstart={(event) => handleRegistrationColumnDragStart(event, category.id)}
+									ondragover={(event) => handleRegistrationColumnDragOver(event, category.id)}
+									ondragenter={(event) => handleRegistrationColumnDragOver(event, category.id)}
+									ondrop={(event) => handleRegistrationColumnDrop(event, category.id)}
+									ondragend={resetRegistrationColumnDragState}
+								>
+									{#if showExpandedRegistrationHeader(category.id)}
+										<div class="flex flex-col items-center gap-1 px-1">
+											<div
+												class="mx-auto flex items-center justify-center text-black"
+												style={` width: 0px; height: 0px;`}
+											>
+											<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
 											</div>
-										{:else}
-											<button
-											onclick={() => editingRegFee = { insuranceId: insurance.id, categoryId: category.id, value: String(registrationFees[`${insurance.id}::${category.id}`] ?? 0) }}
-											class="px-4 py-2 text-sm font-semibold text-slate-800 rounded-lg cursor-pointer transition-colors hover:bg-slate-100"
-											style="background: linear-gradient(to bottom, rgba(248,250,252,0.96), rgba(241,245,249,0.92)); border: 1px solid rgba(148,163,184,0.18);"
+											<!-- <p class="text-[8px] font-black leading-tight text-slate-700">{category.name}</p> -->
+										</div>
+									{:else}
+										<!-- <div
+											class="mx-auto flex items-center justify-center border text-black"
+											style={` width: 25px; height: 25px;`}
 										>
-											₹{registrationFees[`${insurance.id}::${category.id}`] ?? 0}
-											</button>
-										{/if}
-									</td>
-								{/each}
-								</tr>
+											<span class="text-[8px] font-black leading-none">{compactLabel(category.name)}</span>
+										</div> -->
+										<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
+									{/if}
+									<button
+										type="button"
+										class="column-resizer"
+										aria-label={`Resize ${category.name} registration column`}
+										onmousedown={(event) => startColumnResize(event, `reg::${category.id}`, registrationColumnWidths[category.id] ?? 92)}
+									></button>
+								</div>
+							{/each}
+						</div>
+
+						{#if insuranceCategories.length === 0}
+							<div class="px-4 py-8 text-center text-slate-500 text-sm">No insurance categories configured.</div>
+						{:else}
+							{#each insuranceCategories as insurance, rowIndex}
+								{@const InsuranceIcon = insuranceIcons[insurance.icon_key]}
+								<div class="grid items-stretch border-b border-slate-300 group" style={registrationGridStyle}>
+									<div class="border-r border-slate-300 bg-white px-2 py-1.5">
+										<div class="flex items-center gap-2">
+											<div
+												class="flex items-center justify-center border text-white"
+												style={`background: linear-gradient(135deg, ${insurance.color_primary}, ${insurance.color_secondary}); border-color: ${withAlpha(insurance.color_secondary, 0.35)}; width: 18px; height: 18px;`}
+											>
+												{#if insurance.custom_badge_symbol}
+													<span class="text-[8px] font-black leading-none">{insurance.custom_badge_symbol.slice(0, 2).toUpperCase()}</span>
+												{:else}
+													<InsuranceIcon class="h-3 w-3" />
+												{/if}
+											</div>
+											<p class="truncate text-[10pt] font-semibold text-slate-900" title={insurance.name}>{insurance.name}</p>
+										</div>
+									</div>
+									{#each orderedRegistrationCategories as category (category.id)}
+										{@const isEligible = insurance.patient_categories?.some(pc => pc.id === category.id)}
+										{@const comboKey = `${insurance.id}::${category.id}`}
+										{@const hasConfig = comboKey in registrationFees}
+										<div class="border-r border-slate-300 bg-white">
+											{#if !isEligible || !hasConfig}
+												<div class="flex h-[33px] items-center justify-center px-1 text-[10pt] text-slate-400">N/A</div>
+											{:else}
+												<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingRegFeeKey === comboKey}>
+													<span class="text-[10pt] font-semibold leading-none text-slate-400">₹</span>
+													<input
+														id={regFeeCellId(insurance.id, category.id)}
+														type="number"
+														min="0"
+														step="1"
+														title={`${insurance.name} • ${category.name}`}
+														class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[10pt] font-semibold leading-none text-slate-800 outline-none"
+														value={getRegFeeInputValue(comboKey)}
+														disabled={savingRegFeeKey === comboKey}
+														oninput={(event) => {
+															regFeeDrafts[comboKey] = (event.currentTarget as HTMLInputElement).value;
+														}}
+														onblur={() => saveRegFeeEdit(insurance.id, category.id)}
+														onkeydown={(event) => {
+															handleRegFeeCellKeydown(event, rowIndex, orderedRegistrationCategories.findIndex((entry) => entry.id === category.id));
+															if (event.defaultPrevented) {
+																return;
+															}
+															if (event.key === 'Escape') {
+																event.preventDefault();
+																resetRegFeeDraft(comboKey);
+															}
+														}}
+													/>
+												</label>
+											{/if}
+										</div>
+									{/each}
+								</div>
 							{/each}
 						{/if}
-					</tbody>
-				</table>
+					</div>
+				</div>
 			</div>
 		{:else}
 		<!-- Pricing Table -->
+		<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
+		<button
+			type="button"
+			class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
+			aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
+			title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
+			onclick={() => void toggleSheetFullscreen()}
+		>
+			{#if isSheetFullscreen}
+				<Minimize2 class="h-4 w-4" />
+			{:else}
+				<Maximize2 class="h-4 w-4" />
+			{/if}
+		</button>
 		<div
-			class="overflow-x-auto overflow-y-hidden rounded-2xl"
-			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid rgba(0,0,0,0.06); -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;"
+			class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-none"
+			style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;"
 		>
 			<div class="min-w-max">
 				<!-- Table Header -->
-				<div class="sticky top-0 z-20 grid gap-1 border-b border-slate-200/80 px-2 py-2 backdrop-blur-sm" style={`background: linear-gradient(to bottom, rgba(241,245,249,0.96), rgba(226,232,240,0.94)); box-shadow: 0 1px 0 rgba(148,163,184,0.18); ${tableGridStyle}`}>
-					<div class="text-[10px] font-bold text-slate-700 uppercase tracking-[0.16em]">Item</div>
-					{#each pricingGroups as group (group.id)}
-						<div class="px-1 text-center text-[10px] font-bold uppercase tracking-[0.16em] text-slate-700">
-							{group.label}
+				<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100" style={tableGridStyle}>
+					<div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
+						<span class="truncate">Item</span>
+						<button
+							type="button"
+							class="column-resizer"
+							aria-label="Resize item column"
+							onmousedown={(event) => startColumnResize(event, '__item__', itemColumnWidth)}
+						></button>
+					</div>
+					{#each orderedPricingTiers as tier (tier.key)}
+						{@const InsuranceIcon = insuranceIcons[tier.insuranceIconKey]}
+						<div
+							class={`charge-column-header relative flex min-h-[33px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedColumnKey === tier.key ? 'is-dragging' : ''} ${dragOverColumnKey === tier.key && draggedColumnKey !== null && draggedColumnKey !== tier.key ? 'is-drop-target' : ''}`}
+							role="columnheader"
+							tabindex="0"
+							aria-label={`Reorder column ${tier.patientCategoryName} ${tier.insuranceName}`}
+							title={`${tier.patientCategoryName} • ${tier.insuranceName}`}
+							draggable="true"
+							style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(tier.patientColorPrimary, 0.12)});`}
+							ondragstart={(event) => handleColumnDragStart(event, tier.key)}
+							ondragover={(event) => handleColumnDragOver(event, tier.key)}
+							ondragenter={(event) => handleColumnDragOver(event, tier.key)}
+							ondrop={(event) => handleColumnDrop(event, tier.key)}
+							ondragend={resetColumnDragState}
+						>
+							{#if showExpandedColumnHeader(tier.key)}
+								<div class="flex flex-col items-center gap-1 px-1">
+									<div
+										class="mx-auto flex items-center justify-center text-black"
+										style={`width: 0px; height: 0px;`}
+									>
+										{#if tier.insuranceBadgeSymbol}
+											<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
+										{:else}
+											<InsuranceIcon class="h-3 w-3" />
+										{/if}
+									</div>
+									<p class="text-[8px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
+									<p class="text-[8px] leading-tight text-slate-500">{tier.insuranceName}</p>
+								</div>
+							{:else}
+								<div
+									class="mx-auto flex items-center justify-center border text-black"
+									style={`width: 18px; height: 18px;`}
+								>
+									{#if tier.insuranceBadgeSymbol}
+										<span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span>
+									{:else}
+										<InsuranceIcon class="h-3 w-3" />
+									{/if}
+								</div>
+								<!-- <div class="mx-auto mt-1 h-1 w-7" style={`background: linear-gradient(90deg, ${tier.patientColorPrimary}, ${tier.patientColorSecondary});`}></div> -->
+								<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{compactLabel(tier.patientCategoryName)}</p>
+							{/if}
+							<button
+								type="button"
+								class="column-resizer"
+								aria-label={`Resize ${tier.patientCategoryName} ${tier.insuranceName} column`}
+								onmousedown={(event) => startColumnResize(event, tier.key, columnWidths[tier.key] ?? 72)}
+							></button>
 						</div>
 					{/each}
 				</div>
@@ -647,14 +1239,10 @@
 				{:else}
 					{#each filteredCharges as charge, i (charge.id)}
 						{@const isEditingMeta = editingMetaId === charge.id}
-						<div
-							class="grid gap-1 px-2 py-1.5 items-start group"
-							class:border-t={i > 0}
-							style={`${tableGridStyle}${i > 0 ? ' border-color: rgba(0,0,0,0.06);' : ''}`}
-						>
-						<div>
+						<div class="grid items-stretch group border-b border-slate-300" style={tableGridStyle}>
+						<div class="border-r border-slate-300 bg-white">
 							{#if isEditingMeta}
-								<div class="space-y-1.5 rounded-lg border border-blue-200/70 bg-blue-50/55 p-2">
+								<div class="space-y-1 border border-blue-200/70 bg-blue-50/55 p-2">
 									<input
 										type="text"
 										class="soft-field w-full rounded-md px-2 py-1 text-xs font-semibold text-slate-900"
@@ -707,11 +1295,11 @@
 									</div>
 								</div>
 							{:else}
-								<div class="flex items-start gap-1.5">
+								<div class="flex items-start gap-1.5 px-2 py-1.5">
 									<div class="min-w-0 flex-1">
-										<p class="font-semibold leading-4 text-slate-900 text-[13px]">{charge.name}</p>
-										<div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-slate-500">
-											<span>{charge.item_code}</span>
+										<p class="truncate font-semibold leading-4 text-slate-900 text-[10pt]" title={charge.name}>{charge.name}</p>
+										<div class="mt-0.5 flex flex-wrap items-center gap-1 text-[10pt] text-slate-500">
+											<span class="truncate" title={charge.item_code}>{charge.item_code}</span>
 										</div>
 									</div>
 									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -731,55 +1319,43 @@
 								</div>
 							{/if}
 						</div>
-						{#each pricingGroups as group (group.id)}
-							<div class="min-w-0">
-								<div class="overflow-hidden rounded-lg border border-slate-200/80 bg-white/80">
-									{#if group.tiers.length === 0}
-										<div class="px-1.5 py-2 text-center text-[9px] font-semibold uppercase tracking-wide text-slate-400">
-											No plans
-										</div>
-									{:else}
-										{#each group.tiers as tier, tierIndex (tier.key)}
-											{@const inputKey = priceDraftKey(charge.id, tier.key)}
-											<div class:border-t={tierIndex > 0} class="grid grid-cols-[minmax(0,1fr)_68px] items-center gap-0.5 px-1 py-0.5" style="border-color: rgba(148,163,184,0.16);">
-												<div class="truncate text-[8px] font-semibold uppercase tracking-wide leading-none text-slate-500">
-													{tier.insuranceName}
-												</div>
-												<label class="flex h-6 items-center gap-0.5 rounded border border-slate-200 bg-slate-50/90 px-1" class:ring-1={savingPriceKey === inputKey} class:ring-blue-300={savingPriceKey === inputKey}>
-													<span class="text-[8px] font-semibold leading-none text-slate-400">₹</span>
-													<input
-														type="number"
-														min="0"
-														step="1"
-														class="compact-number-input h-full w-full min-w-0 bg-transparent text-right text-[9px] font-semibold leading-none text-slate-800 outline-none"
-														value={getPriceInputValue(charge, tier.key)}
-														disabled={savingPriceKey === inputKey}
-														oninput={(event) => {
-															priceDrafts[inputKey] = (event.currentTarget as HTMLInputElement).value;
-														}}
-														onblur={() => savePriceEdit(charge, tier.key)}
-														onkeydown={(event) => {
-															if (event.key === 'Enter') {
-																event.preventDefault();
-																void savePriceEdit(charge, tier.key);
-															}
-															if (event.key === 'Escape') {
-																event.preventDefault();
-																resetPriceDraft(charge.id, tier.key);
-															}
-														}}
-													/>
-												</label>
-											</div>
-										{/each}
-									{/if}
-								</div>
+						{#each orderedPricingTiers as tier, columnIndex (tier.key)}
+							{@const inputKey = priceDraftKey(charge.id, tier.key)}
+							<div class="min-w-0 border-r border-slate-300 bg-white">
+								<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingPriceKey === inputKey}>
+									<span class="text-[10pt] font-semibold leading-none text-slate-400">₹</span>
+									<input
+										id={priceCellId(charge.id, tier.key)}
+										type="number"
+										min="0"
+										step="1"
+										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
+										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[10pt] font-semibold leading-none text-slate-800 outline-none"
+										value={getPriceInputValue(charge, tier.key)}
+										disabled={savingPriceKey === inputKey}
+										oninput={(event) => {
+											priceDrafts[inputKey] = (event.currentTarget as HTMLInputElement).value;
+										}}
+										onblur={() => savePriceEdit(charge, tier.key)}
+										onkeydown={(event) => {
+											handlePriceCellKeydown(event, i, columnIndex);
+											if (event.defaultPrevented) {
+												return;
+											}
+											if (event.key === 'Escape') {
+												event.preventDefault();
+												resetPriceDraft(charge.id, tier.key);
+											}
+										}}
+									/>
+								</label>
 							</div>
 						{/each}
 						</div>
 					{/each}
 				{/if}
 			</div>
+		</div>
 		</div>
 		{/if}
 	{/if}
@@ -864,6 +1440,60 @@
 		box-shadow: none !important;
 		background: transparent !important;
 		border-radius: 0;
+	}
+
+	.charge-column-header {
+		cursor: grab;
+		user-select: none;
+		border-radius: 0;
+		transition:
+			transform 0.18s ease,
+			background-color 0.18s ease,
+			box-shadow 0.18s ease;
+	}
+
+	.charge-column-header:hover {
+		background: rgba(239, 246, 255, 0.95) !important;
+	}
+
+	.charge-column-header.is-dragging {
+		cursor: grabbing;
+		opacity: 0.65;
+		transform: scale(0.98);
+	}
+
+	.charge-column-header.is-drop-target {
+		background: rgba(219, 234, 254, 0.95) !important;
+		box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.35);
+	}
+
+	.column-resizer {
+		position: absolute;
+		top: 0;
+		right: -4px;
+		width: 8px;
+		height: 100%;
+		padding: 0;
+		border: 0;
+		background: transparent;
+		cursor: col-resize;
+		z-index: 2;
+	}
+
+	.column-resizer::after {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: 3px;
+		width: 1px;
+		background: rgba(148, 163, 184, 0.75);
+	}
+
+	.column-resizer:hover::after,
+	.column-resizer:focus-visible::after {
+		background: rgba(37, 99, 235, 0.9);
+		box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.18);
 	}
 
 	.number-field {

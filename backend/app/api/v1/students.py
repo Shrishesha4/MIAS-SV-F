@@ -374,8 +374,8 @@ async def get_assigned_patients(
             dob = a.patient.date_of_birth
             age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
         
-        # Get primary diagnosis from medical records or case records
-        primary_diagnosis = None
+        # Prefer the patient's synced primary diagnosis summary, then fall back to the latest case record.
+        primary_diagnosis = a.patient.primary_diagnosis
         diag_result = await db.execute(
             select(CaseRecord)
             .where(CaseRecord.patient_id == a.patient.id)
@@ -383,7 +383,7 @@ async def get_assigned_patients(
             .limit(1)
         )
         latest_record = diag_result.scalar_one_or_none()
-        if latest_record and latest_record.diagnosis:
+        if not primary_diagnosis and latest_record and latest_record.diagnosis:
             primary_diagnosis = latest_record.diagnosis
         
         patients.append({

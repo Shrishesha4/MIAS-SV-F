@@ -5,15 +5,18 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { attendanceApi, type AttendanceStatus } from '$lib/api/attendance';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { nurseApi } from '$lib/api/nurse';
+	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { getMenuItems } from '$lib/config/menuItems';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import NavBar from '$lib/components/layout/NavBar.svelte';
 	import SideMenu from '$lib/components/layout/SideMenu.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
-	import { LogOut, Search, Pin, PinOff } from 'lucide-svelte';
+	import { LogOut, Search, Pin, PinOff, Loader2, UserCheck, Building2 } from 'lucide-svelte';
 	import { page } from '$app/state';
 	import ToastContainer from '$lib/components/ui/ToastContainer.svelte';
 
@@ -26,6 +29,14 @@
 	let userName = $state('User');
 	let userIdDisplay = $state('');
 	let unreadNotifications = $state(0);
+	let attendanceStatus = $state<AttendanceStatus | null>(null);
+	let attendanceLoading = $state(false);
+	let attendanceSubmitting = $state(false);
+
+	// Clinic picker for student/faculty
+	let clinics = $state<ClinicInfo[]>([]);
+	let selectedClinicId = $state<string>('');
+	let clinicsLoading = $state(false);
 
 	// Floating sidebar state
 	let sidebarPinned = $state(false);
@@ -38,6 +49,26 @@
 	const currentPath = $derived(page.url.pathname);
 	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath);
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
+
+	// Show check-in modal only if not checked in and not skipped (admin/IP day2+)
+	const needsDailyCheckIn = $derived(
+		Boolean(attendanceStatus && !attendanceStatus.checked_in && !attendanceStatus.skip_modal)
+	);
+	// Student/faculty need to pick a clinic
+	const needsClinicPicker = $derived(
+		needsDailyCheckIn && (authState.role === 'STUDENT' || authState.role === 'FACULTY')
+	);
+	const attendanceCounts = $derived(
+		attendanceStatus?.counts ?? {
+			patients: 0,
+			students: 0,
+			faculty: 0,
+			nurses: 0,
+			reception: 0,
+			admins: 0,
+			total: 0
+		}
+	);
 
 	const filteredMenuItems = $derived(
 		sidebarSearchQuery.trim()
@@ -90,6 +121,49 @@
 		goto('/login');
 	}
 
+	async function loadAttendanceStatus() {
+		attendanceLoading = true;
+		try {
+			attendanceStatus = await attendanceApi.getTodayStatus();
+			// Load clinics if student/faculty needs to pick one
+			if (
+				attendanceStatus &&
+				!attendanceStatus.checked_in &&
+				!attendanceStatus.skip_modal &&
+				(authState.role === 'STUDENT' || authState.role === 'FACULTY')
+			) {
+				clinicsLoading = true;
+				try {
+					clinics = await clinicsApi.listClinics();
+					// Pre-select first active clinic
+					const activeClinics = clinics.filter(c => c.is_active);
+					if (activeClinics.length > 0) {
+						selectedClinicId = activeClinics[0].id;
+					}
+				} finally {
+					clinicsLoading = false;
+				}
+			}
+		} catch {
+			attendanceStatus = null;
+		} finally {
+			attendanceLoading = false;
+		}
+	}
+
+	async function submitDailyCheckIn() {
+		if (attendanceSubmitting) return;
+		// For student/faculty, require clinic selection
+		if (needsClinicPicker && !selectedClinicId) return;
+		attendanceSubmitting = true;
+		try {
+			const clinicId = needsClinicPicker ? selectedClinicId : undefined;
+			attendanceStatus = await attendanceApi.checkInToday(clinicId);
+		} finally {
+			attendanceSubmitting = false;
+		}
+	}
+
 	onMount(async () => {
 		const a = get(authStore);
 		if (!a.isAuthenticated) {
@@ -123,7 +197,6 @@
 				const currentPath = window.location.pathname;
 				if (!nurse.has_selected_station && currentPath !== '/nurse-setup') {
 					goto('/nurse-setup');
-					return;
 				}
 			} else if (a.role === 'ADMIN') {
 				userName = 'Administrator';
@@ -141,6 +214,7 @@
 		} catch {
 			// If API fails, use defaults
 		}
+		await loadAttendanceStatus();
 	});
 </script>
 
@@ -263,6 +337,92 @@
 	</div>
 
 	<ToastContainer />
+
+	{#if needsDailyCheckIn}
+		<AquaModal
+			title="Daily hospital check-in"
+			panelClass="sm:max-w-lg"
+			contentClass="p-5"
+		>
+			<div class="space-y-4">
+				<div class="rounded-2xl px-4 py-4" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid #93c5fd;">
+					<p class="text-sm font-semibold text-gray-900">Please mark today&apos;s hospital presence before continuing.</p>
+					<p class="mt-1 text-xs text-gray-600">
+						{#if needsClinicPicker}
+							Select the clinic you're working in today.
+						{:else}
+							Everyone checks in once each day so the hospital census stays accurate.
+						{/if}
+					</p>
+				</div>
+
+				{#if needsClinicPicker}
+					<!-- Clinic picker for student/faculty -->
+					<div>
+						<label class="block text-xs font-medium text-gray-700 mb-1.5">
+							<Building2 class="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
+							Select your clinic for today
+						</label>
+						{#if clinicsLoading}
+							<div class="flex items-center justify-center py-4">
+								<Loader2 class="w-5 h-5 text-blue-500 animate-spin" />
+							</div>
+						{:else}
+							<select
+								bind:value={selectedClinicId}
+								class="w-full rounded-xl px-4 py-3 text-sm outline-none"
+								style="background: #fff; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+							>
+								<option value="" disabled>Choose a clinic...</option>
+								{#each clinics.filter(c => c.is_active) as clinic}
+									<option value={clinic.id}>{clinic.name} ({clinic.department})</option>
+								{/each}
+							</select>
+						{/if}
+					</div>
+				{/if}
+
+				<div class="grid grid-cols-2 gap-3">
+					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
+						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Patients today</p>
+						<p class="mt-1 text-2xl font-bold text-blue-700">{attendanceCounts.patients}</p>
+					</div>
+					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
+						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Total present</p>
+						<p class="mt-1 text-2xl font-bold text-gray-900">{attendanceCounts.total}</p>
+					</div>
+				</div>
+
+				<div class="grid grid-cols-3 gap-2 text-center">
+					<div class="rounded-xl px-3 py-2" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
+						<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Students</p>
+						<p class="text-lg font-bold text-gray-800">{attendanceCounts.students}</p>
+					</div>
+					<div class="rounded-xl px-3 py-2" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
+						<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Faculty</p>
+						<p class="text-lg font-bold text-gray-800">{attendanceCounts.faculty}</p>
+					</div>
+					<div class="rounded-xl px-3 py-2" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
+						<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Nurses</p>
+						<p class="text-lg font-bold text-gray-800">{attendanceCounts.nurses}</p>
+					</div>
+				</div>
+
+				<button
+					class="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
+					style="background: linear-gradient(to bottom, #2563eb, #1d4ed8); box-shadow: 0 2px 6px rgba(29,78,216,0.35);"
+					onclick={submitDailyCheckIn}
+					disabled={attendanceSubmitting || (needsClinicPicker && !selectedClinicId)}
+				>
+					{#if attendanceSubmitting}
+						<Loader2 class="mr-2 inline h-4 w-4 animate-spin" /> Completing check-in
+					{:else}
+						<UserCheck class="mr-2 inline h-4 w-4" /> Mark me present for today
+					{/if}
+				</button>
+			</div>
+		</AquaModal>
+	{/if}
 
 	<!-- Mobile Overlay Menu -->
 	<div class="md:hidden">

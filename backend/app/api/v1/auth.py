@@ -12,6 +12,7 @@ from app.models.patient import Patient, EmergencyContact, Gender, InsurancePolic
 from app.models.department import Department
 from app.models.patient_category import PatientCategoryOption, get_default_patient_category_colors
 from app.models.programme import Programme
+from app.services.clinic_allocation import resolve_preferred_clinic
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -158,6 +159,11 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         if resolved_patient_category
         else get_default_patient_category_colors(resolved_category_name)
     )
+    preferred_clinic = await resolve_preferred_clinic(
+        db,
+        insurance_category_id=insurance_category.id if insurance_category else None,
+        patient_category_name=resolved_category_name,
+    )
 
     patient = Patient(
         id=patient_id,
@@ -176,6 +182,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         category=resolved_category_name,
         category_color_primary=category_color_primary,
         category_color_secondary=category_color_secondary,
+        clinic_id=preferred_clinic.id if preferred_clinic else None,
     )
     db.add(patient)
 

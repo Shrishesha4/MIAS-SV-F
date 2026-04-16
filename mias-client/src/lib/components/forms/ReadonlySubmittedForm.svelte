@@ -2,9 +2,13 @@
 	import type { FormFieldDefinition, UploadedFormFile } from '$lib/types/forms';
 	import { isUploadedFormFile, stringifyFormValue } from '$lib/utils/forms';
 
-	interface DisplayItem {
+	interface DisplayField extends FormFieldDefinition {
 		key: string;
 		label: string;
+	}
+
+	interface DisplayItem {
+		field: DisplayField;
 		text: string;
 		files: UploadedFormFile[];
 	}
@@ -51,8 +55,7 @@
 			if (!text && files.length === 0) continue;
 			usedKeys.add(field.key);
 			items.push({
-				key: field.key,
-				label: field.label,
+				field,
 				text,
 				files,
 			});
@@ -64,8 +67,11 @@
 			const files = collectUploadedFiles(value);
 			if (!text && files.length === 0) continue;
 			items.push({
-				key,
-				label: humanizeKey(key),
+				field: {
+					key,
+					label: humanizeKey(key),
+					type: 'textarea',
+				},
 				text,
 				files,
 			});
@@ -84,13 +90,16 @@
 	{#if displayItems.length === 0}
 		<p class="text-xs text-slate-500">{emptyText}</p>
 	{:else}
-		<div class="space-y-2.5">
-			{#each displayItems as item (item.key)}
-				<div class="rounded-md bg-white px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
-					<p class="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
+		<div class="space-y-3">
+			{#each displayItems as item (item.field.key)}
+				<div class="rounded-md bg-white px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+					<div class="mb-1 block text-sm font-medium text-gray-700">
+						{item.field.label}
+						{#if item.field.required}<span class="text-red-500">*</span>{/if}
+					</div>
 					{#if item.files.length > 0}
-						<div class="mt-1 flex flex-wrap gap-1.5">
-							{#each item.files as file, index (`${item.key}-${file.url}-${index}`)}
+						<div class="flex flex-wrap gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-2">
+							{#each item.files as file, index (`${item.field.key}-${file.url}-${index}`)}
 								<a
 									href={file.url}
 									target="_blank"
@@ -101,8 +110,33 @@
 								</a>
 							{/each}
 						</div>
+					{:else if item.field.type === 'textarea' || item.field.type === 'diagnosis'}
+						<textarea
+							rows={item.field.rows ?? 3}
+							disabled
+							class="block w-full resize-y rounded-md px-3 py-2 text-sm text-gray-700"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.95);"
+							value={item.text}
+						></textarea>
+					{:else if item.field.type === 'select'}
+						<select
+							disabled
+							class="block w-full rounded-md px-3 py-2 text-sm text-gray-700"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.95);"
+						>
+							<option value={item.text}>{item.text || `Select ${item.field.label}`}</option>
+						</select>
 					{:else}
-						<p class="mt-1 whitespace-pre-wrap break-words text-xs text-slate-700">{item.text}</p>
+						<input
+							type={item.field.type === 'number' ? 'number' : item.field.type === 'date' ? 'date' : item.field.type === 'email' ? 'email' : item.field.type === 'password' ? 'text' : item.field.type === 'tel' ? 'tel' : 'text'}
+							disabled
+							class="block w-full rounded-md px-3 py-2 text-sm text-gray-700"
+							style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.95);"
+							value={item.text}
+						/>
+					{/if}
+					{#if item.field.help_text}
+						<p class="mt-1 text-[11px] text-gray-500">{item.field.help_text}</p>
 					{/if}
 				</div>
 			{/each}

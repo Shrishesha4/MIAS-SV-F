@@ -914,7 +914,7 @@ async def get_unassigned_patients(
             .limit(1)
         )
         diagnosis = case_result.scalar_one_or_none()
-        patient_diagnoses[p.id] = diagnosis
+        patient_diagnoses[p.id] = p.primary_diagnosis or diagnosis
     
     return [
         {
