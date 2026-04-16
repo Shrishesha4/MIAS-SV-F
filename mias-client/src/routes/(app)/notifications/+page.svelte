@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { notificationCountStore } from '$lib/stores/notifications';
 	import { toastStore } from '$lib/stores/toast';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
@@ -9,7 +10,7 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
 		Bell, AlertCircle, CheckCircle, AlertTriangle, Info,
-		Filter, ChevronDown, ChevronRight, X
+		Filter, ChevronDown, ChevronRight, X, ArrowLeft
 	} from 'lucide-svelte';
 
 	const colorMap: Record<string, { bg: string; icon: string; light: string }> = {
@@ -64,6 +65,10 @@
 		return `${days}d ago`;
 	}
 
+	function syncUnreadCount(items: any[]) {
+		notificationCountStore.set(items.filter((n) => !n.is_read).length);
+	}
+
 	async function loadNotifications() {
 		try {
 			if (cachedRole === 'PATIENT') {
@@ -73,6 +78,7 @@
 			} else if (cachedRole === 'FACULTY') {
 				notifications = await facultyApi.getNotifications(cachedEntityId);
 			}
+			syncUnreadCount(notifications);
 		} catch (err) {
 			toastStore.addToast('Failed to load notifications', 'error');
 		}
@@ -87,6 +93,8 @@
 			} else if (cachedRole === 'FACULTY') {
 				await facultyApi.markNotificationsRead(cachedEntityId);
 			}
+			notifications = notifications.map((notification) => ({ ...notification, is_read: true }));
+			syncUnreadCount(notifications);
 			await loadNotifications();
 		} catch (err) {
 			toastStore.addToast('Failed to mark notifications as read', 'error');
@@ -110,6 +118,7 @@
 			} else if (role === 'ADMIN' || role === 'RECEPTION') {
 				// Admin and Reception roles don't have notifications
 				notifications = [];
+				syncUnreadCount([]);
 				loading = false;
 				return;
 			}
@@ -139,20 +148,32 @@
 			style="background-color: white; border-radius: 10px;
 				   box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
 				   border: 1px solid rgba(0,0,0,0.1);">
-			<div class="p-4 flex items-center justify-between"
+			<div class="p-4 flex items-center justify-between gap-3"
 				style="border-bottom: 1px solid rgba(0,0,0,0.06);">
-				<div class="flex items-center gap-2">
-					<Bell class="w-4 h-4 text-blue-700" />
-					<h2 class="font-semibold text-gray-800 text-sm">Notifications</h2>
-					{#if unreadCount > 0}
-						<span class="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
-							{unreadCount}
-						</span>
-					{/if}
+				<div class="flex items-center gap-2 min-w-0">
+					<button
+						class="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+						style="background: linear-gradient(to bottom, #ffffff, #f3f4f6);
+							   border: 1px solid rgba(0,0,0,0.08);
+							   box-shadow: 0 1px 2px rgba(0,0,0,0.06);"
+						onclick={() => window.history.back()}
+						aria-label="Go back"
+					>
+						<ArrowLeft class="w-4 h-4 text-gray-700" />
+					</button>
+					<div class="flex items-center gap-2 min-w-0">
+						<Bell class="w-4 h-4 text-blue-700" />
+						<h2 class="font-semibold text-gray-800 text-sm truncate">Notifications</h2>
+						{#if unreadCount > 0}
+							<span class="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+								{unreadCount}
+							</span>
+						{/if}
+					</div>
 				</div>
 				{#if unreadCount > 0}
 					<button
-						class="text-xs text-blue-600 font-medium cursor-pointer hover:text-blue-800"
+						class="text-xs text-blue-600 font-medium cursor-pointer hover:text-blue-800 shrink-0"
 						onclick={markAllRead}
 					>
 						Mark all as read

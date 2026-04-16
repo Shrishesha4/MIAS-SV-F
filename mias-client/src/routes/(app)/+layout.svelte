@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { cubicOut } from 'svelte/easing';
 	import { fade, fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
+	import { notificationCountStore } from '$lib/stores/notifications';
 	import { attendanceApi, type AttendanceStatus } from '$lib/api/attendance';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
@@ -28,7 +29,7 @@
 
 	let userName = $state('User');
 	let userIdDisplay = $state('');
-	let unreadNotifications = $state(0);
+	let unreadNotifications = $state(get(notificationCountStore));
 	let attendanceStatus = $state<AttendanceStatus | null>(null);
 	let attendanceLoading = $state(false);
 	let attendanceSubmitting = $state(false);
@@ -43,6 +44,9 @@
 	let sidebarHovered = $state(false);
 	let sidebarSearchQuery = $state('');
 	let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
+	const unsubscribeNotificationCount = notificationCountStore.subscribe((value) => {
+		unreadNotifications = value;
+	});
 
 	const sidebarOpen = $derived(sidebarPinned || sidebarHovered);
 
@@ -176,23 +180,24 @@
 				userName = patient.name;
 				userIdDisplay = patient.patient_id;
 				const notifs = await patientApi.getNotifications(patient.id);
-				unreadNotifications = notifs.filter((n: any) => !n.is_read).length;
+				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
 			} else if (a.role === 'STUDENT') {
 				const student = await studentApi.getMe();
 				userName = student.name;
 				userIdDisplay = student.student_id;
 				const notifs = await studentApi.getNotifications(student.id);
-				unreadNotifications = notifs.filter((n: any) => !n.is_read).length;
+				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
 			} else if (a.role === 'FACULTY') {
 				const faculty = await facultyApi.getMe();
 				userName = faculty.name;
 				userIdDisplay = faculty.faculty_id;
 				const notifs = await facultyApi.getNotifications(faculty.id);
-				unreadNotifications = notifs.filter((n: any) => !n.is_read).length;
+				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
 			} else if (a.role === 'NURSE') {
 				const nurse = await nurseApi.getMe();
 				userName = nurse.name;
 				userIdDisplay = nurse.nurse_id;
+				notificationCountStore.set(0);
 				// Redirect to station selection if not yet selected (but not if already on setup or station pages)
 				const currentPath = window.location.pathname;
 				if (!nurse.has_selected_station && currentPath !== '/nurse-setup') {
@@ -201,12 +206,14 @@
 			} else if (a.role === 'ADMIN') {
 				userName = 'Administrator';
 				userIdDisplay = 'ADMIN';
+				notificationCountStore.set(0);
 				if (window.location.pathname === '/dashboard') {
 					goto('/admin/clinics');
 				}
 			} else if (a.role === 'RECEPTION') {
 				userName = 'Reception';
 				userIdDisplay = 'RECEPTION';
+				notificationCountStore.set(0);
 				if (window.location.pathname === '/dashboard') {
 					goto('/reception');
 				}
@@ -215,6 +222,10 @@
 			// If API fails, use defaults
 		}
 		await loadAttendanceStatus();
+	});
+
+	onDestroy(() => {
+		unsubscribeNotificationCount();
 	});
 </script>
 

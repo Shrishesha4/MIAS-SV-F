@@ -1025,7 +1025,7 @@
 				</button>
 				<div class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-none" style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
 					<div class="min-w-max">
-						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100" style={registrationGridStyle}>
+						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100 shadow-[inset_0_-1px_0_rgba(203,213,225,1)]" style={registrationGridStyle}>
 						    <div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
 								<span class="truncate">Insurance</span>
 								<button

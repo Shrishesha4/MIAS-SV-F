@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { fade, scale, slide } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
@@ -72,8 +72,9 @@
 	interface Props {
 		patientId: string;
 		canEdit?: boolean;
+		onpatientupdate?: (patient: Patient) => void;
 	}
-	const { patientId, canEdit = true }: Props = $props();
+	const { patientId, canEdit = true, onpatientupdate }: Props = $props();
 	const pid = $derived(patientId);
 
 	const auth = get(authStore);
@@ -82,6 +83,13 @@
 	const studentEditAllowed = $derived(role !== 'STUDENT' || canEdit);
 	const interactiveClinicalAccess = $derived(role !== 'PATIENT' && (role !== 'STUDENT' || canEdit));
 	const canManagePatientProfile = $derived(role === 'FACULTY' || role === 'ADMIN' || (role === 'STUDENT' && canEdit));
+
+	// Notify parent when patient data changes
+	function notifyPatientUpdate() {
+		if (patient && onpatientupdate) {
+			onpatientupdate(patient);
+		}
+	}
 
 	function showReadOnlyToast() {
 		toastStore.addToast('This patient is not assigned to you. You can view details, but editing is disabled.', 'info');
@@ -94,6 +102,7 @@
 
 	function handlePatientOverviewUpdate(updatedPatient: Patient) {
 		patient = { ...patient, ...updatedPatient };
+		notifyPatientUpdate();
 	}
 
 	// ── Core data (reactive) ──────────────────────────────────────
@@ -505,11 +514,23 @@
 	const activeAlerts = $derived(
 		patient?.medical_alerts?.filter((a: any) => a.is_active !== false) ?? []
 	);
+	const DIAGNOSIS_AUTO_CLOSE_DELAY_MS = 5000;
+
+	function getDiagnosisEntryTimestamp(entry: PatientDiagnosisEntry) {
+		return Date.parse(entry.added_at || '') || 0;
+	}
+
 	const diagnosisEntries = $derived<PatientDiagnosisEntry[]>(
-		patient?.diagnosis_entries ?? []
+		[...(patient?.diagnosis_entries ?? [])].sort(
+			(a, b) => getDiagnosisEntryTimestamp(b) - getDiagnosisEntryTimestamp(a)
+		)
 	);
 	const activeDiagnosisEntries = $derived(
 		diagnosisEntries.filter((entry) => entry.is_active)
+	);
+	const latestActiveDiagnosisEntry = $derived(activeDiagnosisEntries[0] ?? null);
+	const latestDiagnosisLabel = $derived(
+		latestActiveDiagnosisEntry?.diagnosis || patient?.primary_diagnosis || ''
 	);
 	const alertPanelOpen = $derived(showAlertInput || showAlertHistory);
 	const diagnosisPanelOpen = $derived(showDiagnosisInput || showDiagnosisHistory);
@@ -1393,6 +1414,7 @@
 			});
 			// Refresh patient to get updated alerts
 			patient = await patientApi.getPatient(patient.id);
+			notifyPatientUpdate();
 			newAlertTitle = '';
 			showAlertInput = false;
 		} catch (err) { console.error('Failed to add alert', err); }
@@ -1406,12 +1428,14 @@
 		patient.medical_alerts = patient.medical_alerts.map((a: any) =>
 			a.id === alertId ? { ...a, is_active: false } : a
 		);
+		notifyPatientUpdate();
 		try {
 			await patientApi.removeMedicalAlert(patient.id, alertId);
 		} catch (err) {
 			console.error('Failed to remove alert', err);
 			// Revert on failure
 			patient = await patientApi.getPatient(patient.id);
+			notifyPatientUpdate();
 		}
 	}
 
@@ -1499,6 +1523,41 @@
 		});
 	}
 
+	let diagnosisAutoCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearDiagnosisAutoCloseTimer() {
+		if (diagnosisAutoCloseTimer) {
+			clearTimeout(diagnosisAutoCloseTimer);
+			diagnosisAutoCloseTimer = null;
+		}
+	}
+
+	function closeDiagnosisPanel() {
+		clearDiagnosisAutoCloseTimer();
+		showDiagnosisInput = false;
+		showDiagnosisHistory = false;
+		diagnosisSuggestions = [];
+		newDiagnosis = '';
+		selectedDiagnosisSuggestion = null;
+	}
+
+	function scheduleDiagnosisAutoClose() {
+		clearDiagnosisAutoCloseTimer();
+		if (!diagnosisPanelOpen) return;
+
+		diagnosisAutoCloseTimer = setTimeout(() => {
+			closeDiagnosisPanel();
+		}, DIAGNOSIS_AUTO_CLOSE_DELAY_MS);
+	}
+
+	function handleDiagnosisPointerEnter() {
+		clearDiagnosisAutoCloseTimer();
+	}
+
+	function handleDiagnosisPointerLeave() {
+		scheduleDiagnosisAutoClose();
+	}
+
 	async function addDiagnosis() {
 		if (!patient || !newDiagnosis.trim() || diagnosisSubmitting) return;
 		if (studentReadOnly) return;
@@ -1510,6 +1569,7 @@
 				icd_description: selectedDiagnosisSuggestion?.icd_description || undefined,
 			});
 			patient = await patientApi.getPatient(patient.id);
+			notifyPatientUpdate();
 			newDiagnosis = '';
 			selectedDiagnosisSuggestion = null;
 			diagnosisSuggestions = [];
@@ -1525,6 +1585,7 @@
 		try {
 			await patientApi.removePrimaryDiagnosisEntry(patient.id, entryId);
 			patient = await patientApi.getPatient(patient.id);
+			notifyPatientUpdate();
 		} catch (err) {
 			console.error('Failed to remove diagnosis', err);
 		} finally {
@@ -1534,12 +1595,11 @@
 
 	function toggleDiagnosisDetails() {
 		if (diagnosisPanelOpen) {
-			showDiagnosisInput = false;
-			showDiagnosisHistory = false;
-			diagnosisSuggestions = [];
+			closeDiagnosisPanel();
 			return;
 		}
 
+		clearDiagnosisAutoCloseTimer();
 		showDiagnosisHistory = true;
 	}
 
@@ -1550,12 +1610,17 @@
 		}
 
 		const nextState = !showDiagnosisInput;
+		clearDiagnosisAutoCloseTimer();
 		showDiagnosisInput = nextState;
 		newDiagnosis = '';
 		selectedDiagnosisSuggestion = null;
 		diagnosisSuggestions = [];
 		showDiagnosisHistory = nextState || showDiagnosisHistory;
 	}
+
+	onDestroy(() => {
+		clearDiagnosisAutoCloseTimer();
+	});
 </script>
 
 <div class="space-y-2.5 px-2.5 py-2.5">
@@ -1604,7 +1669,6 @@
 						onclick={toggleAlertDetails}>
 						<AlertTriangle class="h-4 w-4 text-red-500" />
 						<span class="text-[12px] font-black tracking-wide text-red-800">MEDICAL ALERTS</span>
-						<ChevronDown class="h-4 w-4 text-red-400 transition-transform duration-300 {alertPanelOpen ? 'rotate-180' : ''}" />
 					</button>
 					<div class="flex gap-2">
 						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
@@ -1670,14 +1734,16 @@
 			</div>
 
 			<div class="border-t border-slate-200/80 p-3.5 md:border-l md:border-t-0 md:p-4"
-				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));">
+				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));"
+				role="presentation"
+				onpointerenter={handleDiagnosisPointerEnter}
+				onpointerleave={handleDiagnosisPointerLeave}>
 				<div class="flex items-center justify-between gap-3">
 					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
 						type="button"
 						onclick={toggleDiagnosisDetails}>
 						<FileText class="h-4 w-4 text-blue-600" />
 						<span class="text-[12px] font-black tracking-wide text-blue-800">PRIMARY DIAGNOSIS</span>
-						<ChevronDown class="h-4 w-4 text-blue-400 transition-transform duration-300 {diagnosisPanelOpen ? 'rotate-180' : ''}" />
 					</button>
 					<div class="flex gap-2">
 						<button class="flex h-7.5 w-7.5 items-center justify-center rounded-full cursor-pointer"
@@ -1697,21 +1763,19 @@
 					</div>
 				</div>
 				<div class="mt-3">
-					{#if activeDiagnosisEntries.length > 0}
+					{#if latestActiveDiagnosisEntry}
 						<div class="flex flex-wrap gap-1.5">
-							{#each activeDiagnosisEntries as entry (entry.id)}
-								<span class="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-blue-700"
-									style="background: rgba(255,255,255,0.56); border: 1px solid rgba(59,130,246,0.16); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
-									{entry.diagnosis}
-									{#if studentEditAllowed}
-										<button class="cursor-pointer text-blue-400 hover:text-blue-600 leading-none disabled:opacity-50" onclick={() => removeDiagnosis(entry.id)} disabled={diagnosisSubmitting}>×</button>
-									{/if}
-								</span>
-							{/each}
+							<span class="inline-flex items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-blue-700"
+								style="background: rgba(255,255,255,0.56); border: 1px solid rgba(59,130,246,0.16); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
+								{latestActiveDiagnosisEntry.diagnosis}
+								{#if studentEditAllowed}
+									<button class="cursor-pointer text-blue-400 hover:text-blue-600 leading-none disabled:opacity-50" onclick={() => removeDiagnosis(latestActiveDiagnosisEntry.id)} disabled={diagnosisSubmitting}>×</button>
+								{/if}
+							</span>
 						</div>
 						<p class="mt-1.5 text-[11px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
-					{:else if patient.primary_diagnosis}
-						<p class="text-[15px] font-black leading-tight text-slate-800">{patient.primary_diagnosis}</p>
+					{:else if latestDiagnosisLabel}
+						<p class="text-[15px] font-black leading-tight text-slate-800">{latestDiagnosisLabel}</p>
 						<p class="mt-1.5 text-[11px] font-medium text-slate-500">Last updated by {patient.diagnosis_doctor || 'Student'}{patient.diagnosis_date ? ` • ${patient.diagnosis_date}` : ''}{patient.diagnosis_time ? ` ${patient.diagnosis_time}` : ''}</p>
 					{:else}
 						<p class="text-sm font-medium text-blue-300">No diagnosis recorded</p>
@@ -1757,16 +1821,27 @@
 															<p class="mt-1 text-[11px] text-rose-500">Removed by {entry.removed_by || 'Unknown'} • {formatDiagnosisAudit(entry.removed_at)}</p>
 														{/if}
 													</div>
-													<span class="text-[10px] px-1.5 py-0.5 rounded" style={`background: ${entry.is_active ? 'rgba(59,130,246,0.1)' : 'rgba(148,163,184,0.14)'}; color: ${entry.is_active ? '#2563eb' : '#64748b'};`}>
-														{entry.is_active ? 'Active' : 'Removed'}
-													</span>
+													<div class="flex items-center gap-1.5">
+														<span class="text-[10px] px-1.5 py-0.5 rounded" style={`background: ${entry.is_active ? 'rgba(59,130,246,0.1)' : 'rgba(148,163,184,0.14)'}; color: ${entry.is_active ? '#2563eb' : '#64748b'};`}>
+															{entry.is_active ? 'Active' : 'Removed'}
+														</span>
+														{#if studentEditAllowed && entry.is_active}
+															<button
+																class="cursor-pointer rounded-md px-1.5 py-0.5 text-[10px] font-semibold text-rose-500 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+																type="button"
+																onclick={() => removeDiagnosis(entry.id)}
+																disabled={diagnosisSubmitting}>
+																Remove
+															</button>
+														{/if}
+													</div>
 												</div>
 											</div>
 										{/each}
 									</div>
-								{:else if patient.primary_diagnosis}
+								{:else if latestDiagnosisLabel}
 									<div class="flex items-center gap-2 pl-2" in:fade={{ duration: 150 }} style="border-left: 2px solid #3b82f6;">
-										<p class="text-xs text-blue-700 flex-1">{patient.primary_diagnosis}</p>
+										<p class="text-xs text-blue-700 flex-1">{latestDiagnosisLabel}</p>
 										<span class="text-[10px] px-1.5 py-0.5 rounded" style="background: rgba(59,130,246,0.1); color: #2563eb;">Current</span>
 									</div>
 								{:else}
@@ -2034,66 +2109,102 @@
 				<p class="text-sm text-gray-400 text-center py-6">No case records yet</p>
 			{:else}
 				<div class="space-y-5">
-					{#each caseRecords as record}
-						{@const isApprovedRecord = !!record.approved_at}
-						{@const formDef = formByProcedure.get(record.procedure_name || '') || formByProcedure.get(record.type || '') || null}
-						{@const iconColor = formDef?.color || (record.status === 'APPROVED' ? '#22c55e' : '#f97316')}
-						{@const IconComponent = formDef?.icon ? (ICON_MAP[formDef.icon] ?? FileText) : FileText}
-						<div class="pb-5 border-b border-gray-100 last:border-0 last:pb-0">
-							<button
-								type="button"
-								class="mb-2 flex w-full items-center gap-3 text-left cursor-pointer rounded-xl px-1.5 py-1.5 transition-colors hover:bg-slate-50/80"
-								onclick={() => openCaseRecordEntry(record)}
-							>
-								<div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
-									style="background: {iconColor};">
-									<IconComponent class="w-5 h-5 text-white" />
-								</div>
-								<div class="flex-1">
-									<div class="flex items-center gap-2 flex-wrap">
-										<span class="font-semibold text-gray-800">{record.procedure_name || formDef?.name || 'Case Record'}</span>
-										{#if record.grade}
-											<span class="px-2 py-0.5 rounded text-xs font-bold"
-												style="background: {getGradeColor(record.grade)}15; color: {getGradeColor(record.grade)}; border: 1px solid {getGradeColor(record.grade)}30;">
-												Approved: {record.grade}
-											</span>
-										{/if}
-									</div>
-									<p class="text-xs text-gray-500">{formatCaseRecordDate(record.date)} · {record.department}</p>
-								</div>
-								<div class="flex h-8 w-8 items-center justify-center rounded-full bg-white/70 text-slate-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-									<Eye class="h-4 w-4" />
-								</div>
-							</button>
-							<div class="p-3 rounded-lg" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
-								{#if !(record.examination || record.findings || record.diagnosis || record.treatment_plan || record.treatment)}
-									<p class="text-sm text-amber-700"><strong>Status:</strong>Pending</p>
-								{/if}
-								<p class="text-sm text-gray-700"><strong>Findings:</strong> {record.examination || record.findings || '—'}</p>
-								<p class="text-sm text-gray-700 mt-1"><strong>Diagnosis:</strong> {record.diagnosis || '—'}</p>
-								<p class="text-sm text-gray-700 mt-1"><strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}</p>
-							</div>
+				{#each caseRecords as record}
+                {@const isApprovedRecord = !!record.approved_at}
+                {@const formDef = formByProcedure.get(record.procedure_name || '') || formByProcedure.get(record.type || '') || null}
+                {@const iconColor = formDef?.color || (record.status === 'APPROVED' ? '#22c55e' : '#f97316')}
+                {@const IconComponent = formDef?.icon ? (ICON_MAP[formDef.icon] ?? FileText) : FileText}
 
-							<div class="mt-2 pt-2 px-3 pb-2.5 rounded-lg flex items-start justify-between gap-2 text-xs"
-								style="background: linear-gradient(to bottom, rgba(239,246,255,0.9), rgba(219,234,254,0.7)); border: 1px solid rgba(147,197,253,0.3);">
-								<div class="flex flex-col gap-1">
-									<div class="flex items-center gap-1.5 text-gray-600">
-										<User class="h-3.5 w-3.5 shrink-0 text-blue-400" />
-										<span class="font-semibold text-blue-600">Provider:</span>
-										<span class="text-gray-700">{caseRecordRequesterName(record)}</span>
-									</div>
-									<div class="flex items-center gap-1.5 text-gray-600">
-										<Shield class="h-3.5 w-3.5 shrink-0" style="color: {isApprovedRecord ? '#16a34a' : '#ea580c'};" />
-										<span class="font-semibold text-blue-600">Approver:</span>
-										<span class="text-gray-700">{caseRecordApproverName(record)}</span>
-									</div>
-								</div>
-								{#if record.approved_at}
-									<span class="text-gray-400 text-right shrink-0">{formatCaseRecordDate(record.approved_at)}</span>
-								{/if}
-							</div>
-						</div>
-					{/each}
+                <div class="rounded-xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition">
+
+                  <!-- TOP SECTION -->
+                  <button
+                    type="button"
+                    class="w-full flex items-start gap-3 text-left px-4 py-3 bg-white hover:bg-slate-50/70 transition"
+                    onclick={() => openCaseRecordEntry(record)}
+                  >
+                    <div class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                      style="background: {iconColor};">
+                      <IconComponent class="w-5 h-5 text-white" />
+                    </div>
+
+                    <div class="flex-1">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-semibold text-gray-800">
+                          {record.procedure_name || formDef?.name || 'Case Record'}
+                        </span>
+
+                        {#if record.grade}
+                          <span class="px-2 py-0.5 rounded text-xs font-bold"
+                            style="background: {getGradeColor(record.grade)}15; color: {getGradeColor(record.grade)}; border: 1px solid {getGradeColor(record.grade)}30;">
+                            Approved: {record.grade}
+                          </span>
+                        {/if}
+                      </div>
+
+                      <p class="text-xs text-gray-500">
+                        {formatCaseRecordDate(record.date)} · {record.department}
+                      </p>
+                    </div>
+                  </button>
+
+                  <!-- MIDDLE (CONTENT) -->
+                  <div class="px-4 py-3 bg-gray-50 border-t border-gray-100">
+                    {#if !(record.examination || record.findings || record.diagnosis || record.treatment_plan || record.treatment)}
+                      <p class="text-sm text-amber-700">
+                        <strong>Status:</strong> Pending
+                      </p>
+                    {/if}
+
+                    <p class="text-sm text-gray-700">
+                      <strong>Findings:</strong> {record.examination || record.findings || '—'}
+                    </p>
+                    <p class="text-sm text-gray-700 mt-1">
+                      <strong>Diagnosis:</strong> {record.diagnosis || '—'}
+                    </p>
+                    <p class="text-sm text-gray-700 mt-1">
+                      <strong>Treatment:</strong> {record.treatment_plan || record.treatment || '—'}
+                    </p>
+                  </div>
+
+                  <!-- BOTTOM (BLUE TONE META) -->
+                  <div
+                    class="px-4 py-3 flex items-start justify-between gap-2 text-xs border-t"
+                    style="
+                      background: linear-gradient(
+                        to bottom,
+                        rgba(239,246,255,0.9),
+                        rgba(219,234,254,0.7)
+                      );
+                      border-color: rgba(147,197,253,0.25);
+                    "
+                  >
+                    <div class="flex flex-col gap-1">
+                      <div class="flex items-center gap-1.5 text-gray-600">
+                        <User class="h-3.5 w-3.5 text-blue-400" />
+                        <span class="font-semibold text-blue-600">Provider:</span>
+                        <span class="text-gray-700">{caseRecordRequesterName(record)}</span>
+                      </div>
+
+                      <div class="flex items-center gap-1.5 text-gray-600">
+                        <Shield
+                          class="h-3.5 w-3.5"
+                          style="color: {isApprovedRecord ? '#16a34a' : '#ea580c'};"
+                        />
+                        <span class="font-semibold text-blue-600">Approver:</span>
+                        <span class="text-gray-700">{caseRecordApproverName(record)}</span>
+                      </div>
+                    </div>
+
+                    {#if record.approved_at}
+                      <span class="text-gray-400 text-right shrink-0">
+                        {formatCaseRecordDate(record.approved_at)}
+                      </span>
+                    {/if}
+                  </div>
+
+                </div>
+              {/each}
 				</div>
 			{/if}
 		</AquaCard>

@@ -143,13 +143,13 @@
     min-width: 100%;
     padding: 0.28rem;
     border: 1px solid rgba(148, 163, 184, 0.2);
-    border-radius: 1.4rem;
+    border-radius: 1rem;
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.96)),
       radial-gradient(circle at top, rgba(96, 165, 250, 0.12), transparent 58%);
-    box-shadow:
+    /*box-shadow:
       0 8px 18px rgba(15, 23, 42, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.92);
+      inset 0 1px 0 rgba(255, 255, 255, 0.92);*/
   }
 
   .tab-slider {
@@ -157,17 +157,17 @@
     top: 0;
     left: 0;
     border: 1px solid rgba(29, 78, 216, 0.2);
-    border-radius: 1.1rem;
+    border-radius: 0.75rem;
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 60%, #1d4ed8 100%);
-    box-shadow:
+    /*box-shadow:
       0 10px 22px rgba(37, 99, 235, 0.22),
       inset 0 1px 0 rgba(255, 255, 255, 0.32),
-      inset 0 -1px 0 rgba(15, 23, 42, 0.12);
+      inset 0 -1px 0 rgba(15, 23, 42, 0.12);*/
     transition:
-      transform 320ms cubic-bezier(0.22, 1, 0.36, 1),
-      width 320ms cubic-bezier(0.22, 1, 0.36, 1),
-      height 320ms cubic-bezier(0.22, 1, 0.36, 1),
-      opacity 180ms ease;
+        transform 280ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        width 500ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        height 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 10ms ease;
     pointer-events: none;
   }
 

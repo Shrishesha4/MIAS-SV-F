@@ -18,19 +18,19 @@ export const patientMenuItems: MenuItem[] = [
 export const studentMenuItems: MenuItem[] = [
 	{ icon: Home, label: 'Dashboard', path: '/dashboard' },
 	{ icon: User, label: 'Profile', path: '/profile' },
-	{ icon: Users, label: 'Assigned Patients', path: '/patients' },
-	{ icon: Clipboard, label: 'Case Records', path: '/case-records' },
-	{ icon: Bed, label: 'Admissions', path: '/admissions' },
-	{ icon: Calendar, label: 'Clinic Sessions', path: '/clinic-sessions' },
+	// { icon: Users, label: 'Assigned Patients', path: '/patients' },
+	// { icon: Clipboard, label: 'Case Records', path: '/case-records' },
+	// { icon: Bed, label: 'Admissions', path: '/admissions' },
+	// { icon: Calendar, label: 'Clinic Sessions', path: '/clinic-sessions' },
 	{ icon: Bell, label: 'Notifications', path: '/notifications' },
 ];
 
 export const facultyMenuItems: MenuItem[] = [
 	{ icon: Home, label: 'Dashboard', path: '/dashboard' },
 	{ icon: User, label: 'Profile', path: '/profile' },
-	{ icon: CheckCircle, label: 'Approvals', path: '/approvals' },
+	// { icon: CheckCircle, label: 'Approvals', path: '/approvals' },
 	{ icon: GraduationCap, label: 'Students', path: '/students' },
-	{ icon: Bed, label: 'Admissions', path: '/admissions' },
+	// { icon: Bed, label: 'Admissions', path: '/admissions' },
 	{ icon: Calendar, label: 'Clinic', path: '/clinic-sessions' },
 	{ icon: Bell, label: 'Notifications', path: '/notifications' },
 ];

@@ -280,6 +280,66 @@
 		selectedPatient = selection;
 	}
 
+	// Handle patient updates from PatientProfile - sync with list
+	function handlePatientUpdate(updatedPatient: any) {
+		// Update in assignedPatients list
+		assignedPatients = assignedPatients.map(p => {
+			if (p.patient_db_id === updatedPatient.id || p.id === updatedPatient.id) {
+				return {
+					...p,
+					name: updatedPatient.name,
+					primary_diagnosis: updatedPatient.primary_diagnosis,
+					diagnosis_entries: updatedPatient.diagnosis_entries,
+					medical_alerts: updatedPatient.medical_alerts,
+					allergies: updatedPatient.allergies,
+				};
+			}
+			return p;
+		});
+		// Update in clinicPatients list
+		clinicPatients = clinicPatients.map(p => {
+			if (p.patient_db_id === updatedPatient.id) {
+				return {
+					...p,
+					patient_name: updatedPatient.name,
+				};
+			}
+			return p;
+		});
+		// Update in previousPatients list
+		previousPatients = previousPatients.map(p => {
+			if (p.patient_db_id === updatedPatient.id || p.id === updatedPatient.id) {
+				return {
+					...p,
+					name: updatedPatient.name,
+					primary_diagnosis: updatedPatient.primary_diagnosis,
+				};
+			}
+			return p;
+		});
+		// Update in facultyClinicPatients list
+		facultyClinicPatients = facultyClinicPatients.map(p => {
+			if (p.patient_db_id === updatedPatient.id) {
+				return {
+					...p,
+					patient_name: updatedPatient.name,
+				};
+			}
+			return p;
+		});
+		// Update in admittedPatients list
+		admittedPatients = admittedPatients.map(p => {
+			if (p.patient_db_id === updatedPatient.id || p.id === updatedPatient.id) {
+				return {
+					...p,
+					name: updatedPatient.name,
+					primary_diagnosis: updatedPatient.primary_diagnosis,
+				};
+			}
+			return p;
+		});
+	}
+
 	function formatDate(dateStr: string | null): string {
 		if (!dateStr) return '';
 		const d = new Date(dateStr);
@@ -813,7 +873,7 @@
 							onclick={() => selectedPatient = null}>
 							<X class="w-4 h-4 text-gray-500" />
 						</button> -->
-						<PatientProfile patientId={selectedPatient.id} canEdit={selectedPatient.canEdit} />
+						<PatientProfile patientId={selectedPatient.id} canEdit={selectedPatient.canEdit} onpatientupdate={handlePatientUpdate} />
 					</div>
 				{:else}
 					<!-- Empty State -->
