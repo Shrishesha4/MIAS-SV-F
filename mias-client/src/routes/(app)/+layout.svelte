@@ -393,18 +393,18 @@
 					</div>
 				{/if}
 
-				<div class="grid grid-cols-2 gap-3">
+				<div class="grid grid-cols-1 gap-3">
 					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
 						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Patients today</p>
 						<p class="mt-1 text-2xl font-bold text-blue-700">{attendanceCounts.patients}</p>
 					</div>
-					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
+					<!-- <div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
 						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Total present</p>
 						<p class="mt-1 text-2xl font-bold text-gray-900">{attendanceCounts.total}</p>
-					</div>
+					</div> -->
 				</div>
 
-				<div class="grid grid-cols-3 gap-2 text-center">
+				<!-- <div class="grid grid-cols-3 gap-2 text-center">
 					<div class="rounded-xl px-3 py-2" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.06);">
 						<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Students</p>
 						<p class="text-lg font-bold text-gray-800">{attendanceCounts.students}</p>
@@ -417,7 +417,7 @@
 						<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Nurses</p>
 						<p class="text-lg font-bold text-gray-800">{attendanceCounts.nurses}</p>
 					</div>
-				</div>
+				</div> -->
 
 				<button
 					class="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
@@ -428,7 +428,7 @@
 					{#if attendanceSubmitting}
 						<Loader2 class="mr-2 inline h-4 w-4 animate-spin" /> Completing check-in
 					{:else}
-						<UserCheck class="mr-2 inline h-4 w-4" /> Mark me present for today
+						<UserCheck class="mr-2 inline h-4 w-4" /> Check In
 					{/if}
 				</button>
 			</div>

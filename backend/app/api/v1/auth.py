@@ -13,6 +13,7 @@ from app.models.department import Department
 from app.models.patient_category import PatientCategoryOption, get_default_patient_category_colors
 from app.models.programme import Programme
 from app.services.clinic_allocation import resolve_preferred_clinic
+from app.services.clinic_intake import ensure_clinic_checkin
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -185,6 +186,15 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         clinic_id=preferred_clinic.id if preferred_clinic else None,
     )
     db.add(patient)
+
+    if preferred_clinic:
+        await ensure_clinic_checkin(
+            db,
+            patient=patient,
+            clinic=preferred_clinic,
+            appointment_datetime=datetime.utcnow(),
+            status="Scheduled",
+        )
 
     if insurance_category:
         db.add(

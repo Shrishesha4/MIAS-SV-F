@@ -456,51 +456,62 @@
 <AquaModal
 	title="Patient Profile & Activity"
 	onclose={onclose}
-	panelClass="max-w-none h-[calc(100dvh-24px)] max-h-[calc(100dvh-24px)] lg:h-auto lg:max-h-[90vh] lg:max-w-[min(1120px,92vw)]"
+	panelClass="max-w-none h-[calc(100dvh-12px)] max-h-[calc(100dvh-12px)] w-[calc(100vw-12px)] sm:h-[calc(100dvh-24px)] sm:max-h-[calc(100dvh-24px)] sm:w-full lg:h-auto lg:max-h-[90vh] lg:max-w-[min(1120px,92vw)]"
 	contentClass="p-0"
 >
 	{#snippet header()}
-		<div class="flex min-w-0 items-center gap-2.5">
+		<div class="flex min-w-0 items-center gap-2 sm:gap-2.5">
 			<PatientInsuranceAvatar
 				name={patient.name}
 				src={patient.photo}
-				size="md"
+				size="sm"
 				insurancePolicies={patient.insurance_policies}
 				patientCategory={patient.category}
 				patientCategoryColorPrimary={patient.category_color_primary}
 				patientCategoryColorSecondary={patient.category_color_secondary}
 			/>
 			<div class="min-w-0">
-				<p class="truncate text-lg font-black text-slate-900">{patient.name}</p>
-				<p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Patient Profile & Logs</p>
+				<p class="truncate text-base font-black text-slate-900 sm:text-lg">{patient.name}</p>
+				<p class="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700 sm:text-xs sm:tracking-[0.18em]">Patient Profile & Logs</p>
 			</div>
 		</div>
 	{/snippet}
 
 	<div class="flex h-full flex-col">
-		<div class="border-b border-slate-200 bg-white px-3 py-2.5">
-			<TabBar tabs={tabs} activeTab={activeTab} onchange={(tabId) => { activeTab = tabId as OverviewTab; }} ariaLabel="Patient profile tabs" />
+		<div class="border-b border-slate-200 bg-white px-2.5 py-2 sm:px-3 sm:py-2.5">
+			<div class="overflow-x-auto tabbar-scroll">
+				<div class="min-w-max">
+					<TabBar
+						tabs={tabs}
+						activeTab={activeTab}
+						onchange={(tabId) => { activeTab = tabId as OverviewTab; }}
+						variant="jiggle"
+						stretch={false}
+						ariaLabel="Patient profile tabs"
+					/>
+				</div>
+			</div>
 		</div>
 
-		<div class="flex-1 overflow-y-auto bg-slate-50/70 p-3.5 sm:p-4">
+		<div class="flex-1 overflow-y-auto bg-slate-50/70 p-3 sm:p-4">
 			{#if activeTab === 'information'}
-				<div class="space-y-4">
-					<div class="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+				<div class="space-y-3.5 sm:space-y-4">
+					<div class="rounded-[20px] border border-slate-200 bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.06)] sm:rounded-[24px] sm:p-4">
 						<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-							<div class="flex items-start gap-3.5">
+							<div class="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:gap-3.5 sm:text-left">
 								<div class="relative">
 									<div class="overflow-hidden rounded-full border-4 border-white shadow-lg">
 										{#if resolvedPhoto}
-											<img src={resolvedPhoto} alt={patient.name} class="h-24 w-24 object-cover" />
+											<img src={resolvedPhoto} alt={patient.name} class="h-20 w-20 object-cover sm:h-24 sm:w-24" />
 										{:else}
-											<div class="flex h-24 w-24 items-center justify-center bg-slate-200 text-2xl font-black text-slate-600">
+											<div class="flex h-20 w-20 items-center justify-center bg-slate-200 text-xl font-black text-slate-600 sm:h-24 sm:w-24 sm:text-2xl">
 												{patient.name.slice(0, 1).toUpperCase()}
 											</div>
 										{/if}
 									</div>
 									{#if editable}
 										<button
-											class="absolute bottom-1 right-1 flex h-8.5 w-8.5 items-center justify-center rounded-full border border-blue-200 bg-blue-600 text-white shadow-lg"
+											class="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-600 text-white shadow-lg sm:h-8.5 sm:w-8.5"
 											type="button"
 											onclick={() => photoInput?.click()}
 											disabled={photoUploading}
@@ -514,16 +525,15 @@
 										<input bind:this={photoInput} type="file" accept="image/*" class="hidden" onchange={handlePhotoUpload} />
 									{/if}
 								</div>
-								<div class="space-y-1.5">
+								<div class="min-w-0 space-y-1.5">
 									<div>
-										<h2 class="text-2xl font-black tracking-tight text-slate-900">{patient.name}</h2>
-										<p class="mt-0.5 text-base font-semibold text-slate-500">ID: {patient.patient_id}</p>
+										<h2 class="truncate text-xl font-black tracking-tight text-slate-900 sm:text-2xl">{patient.name}</h2>
+										<p class="mt-0.5 truncate text-sm font-semibold text-slate-500 sm:text-base">ID: {patient.patient_id}</p>
 									</div>
-									<p class="text-base font-semibold text-slate-700">{age ?? '—'}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
-									<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} />
-									{#if editable}
-										<p class="text-xs text-slate-500">Students and faculty can update the patient photo from here.</p>
-									{/if}
+									<p class="text-sm font-semibold text-slate-700 sm:text-base">{age ?? '—'}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
+									<div class="flex justify-center sm:justify-start">
+										<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} />
+									</div>
 								</div>
 							</div>
 						</div>
@@ -742,3 +752,14 @@
 		</div>
 	</div>
 </AquaModal>
+
+<style>
+	.tabbar-scroll {
+		-ms-overflow-style: none;
+		scrollbar-width: none;
+	}
+
+	.tabbar-scroll::-webkit-scrollbar {
+		display: none;
+	}
+</style>

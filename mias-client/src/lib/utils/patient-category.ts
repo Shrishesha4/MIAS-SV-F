@@ -3,6 +3,7 @@ const highlightedKeywords = ['ELITE', 'VIP', 'PRIME', 'PREMIUM'];
 export type PatientCategoryVisual = {
 	label: string;
 	background: string;
+	strokeColor: string;
 	borderColor: string;
 	glowColor: string;
 	haloColor: string;
@@ -77,6 +78,7 @@ export function getPatientCategoryVisual(
 	return {
 		label: formatPatientCategoryLabel(category),
 		background: `linear-gradient(135deg, ${colors.primary}, ${colors.secondary})`,
+		strokeColor: colors.primary,
 		borderColor: withAlpha(colors.primary, 0.44),
 		glowColor: withAlpha(colors.secondary, 0.34),
 		haloColor: withAlpha(colors.primary, 0.26),

@@ -16,6 +16,65 @@
         Building, Bed, User, Shield, Heart
     } from 'lucide-svelte';
 
+    type ApprovalCaseRecordDraft = {
+        type?: string;
+        procedure_name?: string;
+        procedure_description?: string;
+        doctor_name?: string;
+        description?: string;
+        department?: string;
+        findings?: string;
+        diagnosis?: string;
+        treatment?: string;
+        notes?: string;
+    };
+
+    type ApprovalAdmissionDraft = {
+        department?: string;
+        ward?: string;
+        bed_number?: string;
+        attending_doctor?: string;
+        reason?: string;
+        diagnosis?: string;
+        notes?: string;
+        referring_doctor?: string;
+        drug_allergy?: string;
+        chief_complaints?: string;
+        history_of_present_illness?: string;
+        medication_history?: string;
+        weight_admission?: string | number;
+        pain_score?: string | number;
+        physical_examination?: string;
+        provisional_diagnosis?: string;
+        proposed_plan?: string;
+        discharge_summary?: string;
+    };
+
+    type ApprovalMedicationDraft = {
+        id: string;
+        name?: string;
+        dosage?: string;
+        frequency?: string;
+        duration?: string;
+        timing?: string;
+        instructions?: string;
+        start_date?: string;
+        end_date?: string;
+    };
+
+    type ApprovalPrescriptionDraft = {
+        doctor?: string;
+        department?: string;
+        notes?: string;
+        medications: ApprovalMedicationDraft[];
+    };
+
+    type ApprovalDraft = {
+        case_record?: ApprovalCaseRecordDraft;
+        admission?: ApprovalAdmissionDraft;
+        prescription?: ApprovalPrescriptionDraft;
+    };
+
     // State
     let activeTab = $state('pending');
     let pendingApprovals: ApprovalItem[] = $state([]);
@@ -27,6 +86,7 @@
     let scores = $state<Record<string, number>>({});
     let approvalComments: Record<string, string> = $state({});
     let detailModal = $state<ApprovalItem | null>(null);
+    let approvalDrafts: Record<string, ApprovalDraft> = $state({});
 
     const tabs = [
         { id: 'pending', label: 'Pending Approvals' },
@@ -42,6 +102,38 @@
     };
 
     const scoreOptions = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+    const frequencyOptions = [
+        '1-0-1 (M/N)',
+        '1-1-1 (M/A/N)',
+        '0-0-1 (N)',
+        '1-0-0 (M)',
+        '0-1-0 (A)',
+        '1-1-0 (M/A)',
+        '0-1-1 (A/N)',
+        'As needed',
+        'Once daily',
+        'Twice daily',
+        'Three times daily',
+        'Four times daily',
+    ];
+
+    function addDraftMedication(approvalId: string) {
+        const draft = approvalDrafts[approvalId];
+        if (!draft?.prescription) return;
+        draft.prescription.medications = [
+            ...draft.prescription.medications,
+            { id: crypto.randomUUID(), name: '', dosage: '', frequency: '1-0-1 (M/N)', duration: '', timing: 'AFTER', instructions: '' },
+        ];
+        approvalDrafts = { ...approvalDrafts };
+    }
+
+    function removeDraftMedication(approvalId: string, index: number) {
+        const draft = approvalDrafts[approvalId];
+        if (!draft?.prescription) return;
+        draft.prescription.medications = draft.prescription.medications.filter((_, i) => i !== index);
+        approvalDrafts = { ...approvalDrafts };
+    }
 
     let isAdmissionType = $derived(approvalType === 'admissions');
     let usesScore = $derived(approvalType === 'case-records');
@@ -62,22 +154,136 @@
         return score === 0 ? 'F' : String(score);
     }
 
-    async function handleApprove(id: string) {
-        processingId = id;
+    function createApprovalDraft(approval: ApprovalItem): ApprovalDraft {
+        return {
+            case_record: approval.case_record
+                ? {
+                    type: approval.case_record.type || '',
+                    procedure_name: approval.case_record.procedure_name || '',
+                    procedure_description: approval.case_record.procedure_description || '',
+                    doctor_name: approval.case_record.doctor_name || '',
+                    description: approval.case_record.description || '',
+                    department: approval.case_record.department || '',
+                    findings: approval.case_record.findings || '',
+                    diagnosis: approval.case_record.diagnosis || '',
+                    treatment: approval.case_record.treatment || '',
+                    notes: approval.case_record.notes || '',
+                }
+                : undefined,
+            admission: approval.admission
+                ? {
+                    department: approval.admission.department || '',
+                    ward: approval.admission.ward || '',
+                    bed_number: approval.admission.bed_number || '',
+                    attending_doctor: approval.admission.attending_doctor || '',
+                    reason: approval.admission.reason || '',
+                    diagnosis: approval.admission.diagnosis || '',
+                    notes: approval.admission.notes || '',
+                    referring_doctor: approval.admission.referring_doctor || '',
+                    drug_allergy: approval.admission.drug_allergy || '',
+                    chief_complaints: approval.admission.chief_complaints || '',
+                    history_of_present_illness: approval.admission.history_of_present_illness || '',
+                    medication_history: approval.admission.medication_history || '',
+                    weight_admission: approval.admission.weight_admission || '',
+                    pain_score: approval.admission.pain_score || '',
+                    physical_examination: approval.admission.physical_examination || '',
+                    provisional_diagnosis: approval.admission.provisional_diagnosis || '',
+                    proposed_plan: approval.admission.proposed_plan || '',
+                    discharge_summary: approval.admission.discharge_summary || '',
+                }
+                : undefined,
+            prescription: approval.prescription
+                ? {
+                    doctor: approval.prescription.doctor || '',
+                    department: approval.prescription.department || '',
+                    notes: approval.prescription.notes || '',
+                    medications: (approval.prescription.medications || []).map((medication) => ({
+                        id: medication.id,
+                        name: medication.name || '',
+                        dosage: medication.dosage || '',
+                        frequency: medication.frequency || '1-0-1 (M/N)',
+                        duration: medication.duration || '',
+                        timing: (medication as any).timing || 'AFTER',
+                        instructions: medication.instructions || '',
+                        start_date: medication.start_date || '',
+                        end_date: medication.end_date || '',
+                    })),
+                }
+                : undefined,
+        };
+    }
+
+    function ensureApprovalDraft(approval: ApprovalItem): ApprovalDraft {
+        if (!approvalDrafts[approval.id]) {
+            approvalDrafts[approval.id] = createApprovalDraft(approval);
+            approvalDrafts = { ...approvalDrafts };
+        }
+        return approvalDrafts[approval.id];
+    }
+
+    function applyDraftToApprovalItem(approval: ApprovalItem): ApprovalItem {
+        const draft = approvalDrafts[approval.id];
+        if (!draft) return approval;
+
+        return {
+            ...approval,
+            case_record: approval.case_record && draft.case_record
+                ? { ...approval.case_record, ...draft.case_record }
+                : approval.case_record,
+            admission: approval.admission && draft.admission
+                ? { ...approval.admission, ...draft.admission }
+                : approval.admission,
+            prescription: approval.prescription && draft.prescription
+                ? {
+                    ...approval.prescription,
+                    ...draft.prescription,
+                    medications: draft.prescription.medications.map(m => ({
+                        id: m.id,
+                        name: m.name ?? '',
+                        dosage: m.dosage ?? '',
+                        frequency: m.frequency ?? '',
+                        duration: m.duration ?? '',
+                        instructions: m.instructions,
+                        start_date: m.start_date,
+                        end_date: m.end_date,
+                    })),
+                }
+                : approval.prescription,
+        };
+    }
+
+    function buildApprovalPayload(approval: ApprovalItem, status: 'APPROVED' | 'REJECTED') {
+        const usesScoreForApproval = approval.type === 'CASE_RECORD';
+        const score = getScore(approval.id);
+        const draft = approvalDrafts[approval.id];
+
+        return {
+            status,
+            score: usesScoreForApproval ? score : undefined,
+            grade: usesScoreForApproval ? formatScoreLabel(score) : undefined,
+            comments: approvalComments[approval.id] || (status === 'APPROVED' ? 'Approved' : 'Rejected'),
+            case_record_updates: draft?.case_record,
+            admission_updates: draft?.admission,
+            prescription_updates: draft?.prescription,
+        };
+    }
+
+    async function handleApprove(approval: ApprovalItem) {
+        processingId = approval.id;
         try {
-            const score = getScore(id);
-            await approvalsApi.processApproval(facultyId, id, {
-                status: 'APPROVED',
-                score: usesScore ? score : undefined,
-                grade: usesScore ? formatScoreLabel(score) : undefined,
-                comments: approvalComments[id] || 'Approved'
-            });
-            const item = pendingApprovals.find(a => a.id === id);
+            await approvalsApi.processApproval(facultyId, approval.id, buildApprovalPayload(approval, 'APPROVED'));
+            const item = pendingApprovals.find(a => a.id === approval.id);
             if (item) {
-                pendingApprovals = pendingApprovals.filter(a => a.id !== id);
-                historyApprovals = [{ ...item, status: 'APPROVED', score: usesScore ? score : undefined, processed_at: new Date().toISOString() }, ...historyApprovals];
+                const editedItem = applyDraftToApprovalItem(item);
+                pendingApprovals = pendingApprovals.filter(a => a.id !== approval.id);
+                historyApprovals = [{
+                    ...editedItem,
+                    status: 'APPROVED',
+                    score: approval.type === 'CASE_RECORD' ? getScore(approval.id) : undefined,
+                    processed_at: new Date().toISOString(),
+                }, ...historyApprovals];
             }
-            if (detailModal?.id === id) detailModal = null;
+            if (detailModal?.id === approval.id) detailModal = null;
         } catch (err) {
             toastStore.addToast('Failed to approve', 'error');
         } finally {
@@ -85,19 +291,17 @@
         }
     }
 
-    async function handleReject(id: string) {
-        processingId = id;
+    async function handleReject(approval: ApprovalItem) {
+        processingId = approval.id;
         try {
-            await approvalsApi.processApproval(facultyId, id, {
-                status: 'REJECTED',
-                comments: approvalComments[id] || 'Rejected'
-            });
-            const item = pendingApprovals.find(a => a.id === id);
+            await approvalsApi.processApproval(facultyId, approval.id, buildApprovalPayload(approval, 'REJECTED'));
+            const item = pendingApprovals.find(a => a.id === approval.id);
             if (item) {
-                pendingApprovals = pendingApprovals.filter(a => a.id !== id);
-                historyApprovals = [{ ...item, status: 'REJECTED', processed_at: new Date().toISOString() }, ...historyApprovals];
+                const editedItem = applyDraftToApprovalItem(item);
+                pendingApprovals = pendingApprovals.filter(a => a.id !== approval.id);
+                historyApprovals = [{ ...editedItem, status: 'REJECTED', processed_at: new Date().toISOString() }, ...historyApprovals];
             }
-            if (detailModal?.id === id) detailModal = null;
+            if (detailModal?.id === approval.id) detailModal = null;
         } catch (err) {
             toastStore.addToast('Failed to reject', 'error');
         } finally {
@@ -119,6 +323,7 @@
     }
 
     function openDetail(approval: ApprovalItem) {
+        ensureApprovalDraft(approval);
         detailModal = approval;
     }
 
@@ -403,7 +608,7 @@
                                         <button
                                             class="inline-flex min-w-32 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold cursor-pointer disabled:opacity-50"
                                             style="background: linear-gradient(to bottom, #fffbfb, #fff1f2); color: #dc2626; border: 1px solid rgba(248,113,113,0.24); box-shadow: 0 10px 18px rgba(248,113,113,0.08);"
-                                            onclick={() => handleReject(approval.id)}
+                                            onclick={() => handleReject(approval)}
                                             disabled={isProcessing}
                                         >
                                             <XCircle class="h-4 w-4" />
@@ -412,7 +617,7 @@
                                         <button
                                             class="inline-flex min-w-32 items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-50"
                                             style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 12px 22px rgba(34,197,94,0.24);"
-                                            onclick={() => handleApprove(approval.id)}
+                                            onclick={() => handleApprove(approval)}
                                             disabled={isProcessing}
                                         >
                                             <CheckCircle class="h-4 w-4" />
@@ -501,6 +706,7 @@
 <!-- Patient Record Detail Modal -->
 {#if detailModal}
     {@const approval = detailModal}
+    {@const draft = approvalDrafts[approval.id]}
     {@const currentScore = getScore(approval.id)}
     {@const isProcessing = processingId === approval.id}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -736,6 +942,262 @@
                     </div>
                 </div>
 
+                {#if draft}
+                    <div class="rounded-xl overflow-hidden" style="border: 1px solid rgba(0,0,0,0.08);">
+                        <div class="px-4 py-2.5" style="background: linear-gradient(to right, #f8fafc, #eef2ff);">
+                            <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                                <FileText class="w-4 h-4 text-blue-500" />
+                                Edit Submitted Details Before Decision
+                            </h4>
+                        </div>
+                        <div class="space-y-3 p-4">
+                            {#if approval.case_record && draft.case_record}
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Procedure</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.case_record.procedure_name} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Provider</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.case_record.doctor_name} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Description</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.description}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Procedure Details</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.procedure_description}></textarea>
+                                </div>
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Findings</p>
+                                        <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.findings}></textarea>
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Diagnosis</p>
+                                        <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.diagnosis}></textarea>
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Treatment</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.treatment}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Notes</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.case_record.notes}></textarea>
+                                </div>
+                            {:else if approval.admission && draft.admission}
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Department</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.department} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Attending Doctor</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.attending_doctor} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Ward</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.ward} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Bed Number</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.bed_number} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Reason for Admission</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.reason}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Diagnosis</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.diagnosis}></textarea>
+                                </div>
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">H/O Allergies</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.drug_allergy} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Current Medications</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.medication_history} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Chief Complaints</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.chief_complaints}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">History of Present Illness</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.history_of_present_illness}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Physical Examination</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.physical_examination}></textarea>
+                                </div>
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Weight</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.weight_admission} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Pain Score</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.pain_score} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Provisional Diagnosis</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="2" bind:value={draft.admission.provisional_diagnosis}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Proposed Care Plan</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.proposed_plan}></textarea>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Referring Doctor</p>
+                                    <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.admission.referring_doctor} />
+                                </div>
+                                {#if approval.type === 'DISCHARGE_SUMMARY'}
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Discharge Summary</p>
+                                        <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="4" bind:value={draft.admission.discharge_summary}></textarea>
+                                    </div>
+                                {/if}
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Notes</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="3" bind:value={draft.admission.notes}></textarea>
+                                </div>
+                            {:else if approval.prescription && draft.prescription}
+                                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Prescriber</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.prescription.doctor} />
+                                    </div>
+                                    <div>
+                                        <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Department</p>
+                                        <input class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300" bind:value={draft.prescription.department} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="mb-1 text-[10px] font-semibold uppercase text-gray-400">Prescription Notes</p>
+                                    <textarea class="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 resize-y focus:outline-none focus:ring-2 focus:ring-blue-300" rows="2" bind:value={draft.prescription.notes}></textarea>
+                                </div>
+                                <!-- Medications table — matches PrescriptionForm layout -->
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <div class="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                            Medications ({draft.prescription.medications.length})
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onclick={() => addDraftMedication(approval.id)}
+                                            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer transition-all hover:scale-105"
+                                            style="background: linear-gradient(to bottom, #a855f7, #9333ea); box-shadow: 0 2px 4px rgba(147,51,234,0.3);"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                            ADD DRUG
+                                        </button>
+                                    </div>
+
+                                    {#if draft.prescription.medications.length === 0}
+                                        <div class="text-center py-8 rounded-lg border-2 border-dashed border-gray-200 text-sm text-gray-400">
+                                            No medications. Click "ADD DRUG" to add one.
+                                        </div>
+                                    {:else}
+                                        <div class="overflow-x-auto -mx-1 px-1">
+                                            <div class="space-y-2" style="min-width: 800px;">
+                                                <!-- Table Header -->
+                                                <div
+                                                    class="grid gap-2 px-2 py-1.5 text-[10px] font-semibold text-gray-500 uppercase tracking-wider"
+                                                    style="grid-template-columns: 30px 1fr 0.8fr 0.6fr 1fr 0.8fr 1.2fr 30px;"
+                                                >
+                                                    <div>#</div>
+                                                    <div>Drug Name *</div>
+                                                    <div>Dosage</div>
+                                                    <div>Duration</div>
+                                                    <div>Frequency</div>
+                                                    <div>Timing</div>
+                                                    <div>Instructions</div>
+                                                    <div></div>
+                                                </div>
+
+                                                {#each draft.prescription.medications as medication, index (medication.id)}
+                                                    <div
+                                                        class="grid gap-2 p-2 rounded-lg items-center"
+                                                        style="grid-template-columns: 30px 1fr 0.8fr 0.6fr 1fr 0.8fr 1.2fr 30px; border: 1px solid rgba(0,0,0,0.08); background: white;"
+                                                    >
+                                                        <div class="text-xs text-gray-500 font-medium">{index + 1}</div>
+
+                                                        <input
+                                                            type="text"
+                                                            bind:value={medication.name}
+                                                            placeholder="Drug name"
+                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            bind:value={medication.dosage}
+                                                            placeholder="500mg"
+                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                        />
+                                                        <input
+                                                            type="text"
+                                                            bind:value={medication.duration}
+                                                            placeholder="7 days"
+                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                        />
+                                                        <select
+                                                            bind:value={medication.frequency}
+                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
+                                                        >
+                                                            {#each frequencyOptions as opt}
+                                                                <option value={opt}>{opt}</option>
+                                                            {/each}
+                                                        </select>
+                                                        <div class="flex gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onclick={() => (medication.timing = 'BEFORE')}
+                                                                class="flex-1 px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer"
+                                                                style={medication.timing === 'BEFORE'
+                                                                    ? 'background: rgba(59,130,246,0.1); color: #3b82f6; border: 1px solid #3b82f6;'
+                                                                    : 'background: rgba(0,0,0,0.03); color: #6b7280; border: 1px solid rgba(0,0,0,0.1);'}
+                                                            >BEFORE</button>
+                                                            <button
+                                                                type="button"
+                                                                onclick={() => (medication.timing = 'AFTER')}
+                                                                class="flex-1 px-2 py-1 rounded text-[10px] font-semibold transition-all cursor-pointer"
+                                                                style={medication.timing === 'AFTER'
+                                                                    ? 'background: rgba(59,130,246,0.1); color: #3b82f6; border: 1px solid #3b82f6;'
+                                                                    : 'background: rgba(0,0,0,0.03); color: #6b7280; border: 1px solid rgba(0,0,0,0.1);'}
+                                                            >AFTER</button>
+                                                        </div>
+                                                        <input
+                                                            type="text"
+                                                            bind:value={medication.instructions}
+                                                            placeholder="Instructions..."
+                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onclick={() => removeDraftMedication(approval.id, index)}
+                                                            class="flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 transition-colors cursor-pointer"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14H6L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M9 6V4h6v2"></path></svg>
+                                                        </button>
+                                                    </div>
+                                                {/each}
+                                            </div>
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
+                    </div>
+                {/if}
+
                 <!-- Submitted By -->
                 {#if approval.submitted_by}
                     <div class="rounded-xl p-3" style="background: rgba(139, 92, 246, 0.05); border: 1px solid rgba(139, 92, 246, 0.15);">
@@ -789,7 +1251,7 @@
                     <button
                         class="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold cursor-pointer disabled:opacity-50"
                         style="background: white; color: #dc2626; border: 2px solid #fecaca;"
-                        onclick={() => handleReject(approval.id)}
+                        onclick={() => handleReject(approval)}
                         disabled={isProcessing}
                     >
                         <XCircle class="w-4 h-4" />
@@ -798,7 +1260,7 @@
                     <button
                         class="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold cursor-pointer disabled:opacity-50"
                         style="background: linear-gradient(to bottom, #22c55e, #16a34a); border: 1px solid rgba(0,0,0,0.1);"
-                        onclick={() => handleApprove(approval.id)}
+                        onclick={() => handleApprove(approval)}
                         disabled={isProcessing}
                     >
                         <CheckCircle class="w-4 h-4" />

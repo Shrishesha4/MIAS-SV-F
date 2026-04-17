@@ -250,6 +250,7 @@
 	}
 
 	function syncColumnOrder(nextColumns: string[]) {
+		if (nextColumns.length === 0) return;
 		const existing = columnOrder.filter((key) => nextColumns.includes(key));
 		const missing = nextColumns.filter((key) => !existing.includes(key));
 		const nextOrder = [...existing, ...missing];
@@ -276,6 +277,7 @@
 	}
 
 	function syncRegistrationColumnOrder(nextColumns: string[]) {
+		if (nextColumns.length === 0) return;
 		const existing = registrationColumnOrder.filter((key) => nextColumns.includes(key));
 		const missing = nextColumns.filter((key) => !existing.includes(key));
 		const nextOrder = [...existing, ...missing];
@@ -1023,7 +1025,7 @@
 						<Maximize2 class="h-4 w-4" />
 					{/if}
 				</button>
-				<div class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-none" style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+				<div class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-xl" style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
 					<div class="min-w-max">
 						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100 shadow-[inset_0_-1px_0_rgba(203,213,225,1)]" style={registrationGridStyle}>
 						    <div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
@@ -1056,7 +1058,7 @@
 												class="mx-auto flex items-center justify-center text-black"
 												style={` width: 0px; height: 0px;`}
 											>
-											<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
+											<p class="mt-1 text-[10px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
 											</div>
 											<!-- <p class="text-[8px] font-black leading-tight text-slate-700">{category.name}</p> -->
 										</div>
@@ -1067,7 +1069,7 @@
 										>
 											<span class="text-[8px] font-black leading-none">{compactLabel(category.name)}</span>
 										</div> -->
-										<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
+										<p class="mt-1 text-[10px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{(category.name)}</p>
 									{/if}
 									<button
 										type="button"
@@ -1147,215 +1149,217 @@
 		{:else}
 		<!-- Pricing Table -->
 		<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
-		<button
-			type="button"
-			class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
-			aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
-			title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
-			onclick={() => void toggleSheetFullscreen()}
-		>
-			{#if isSheetFullscreen}
-				<Minimize2 class="h-4 w-4" />
-			{:else}
-				<Maximize2 class="h-4 w-4" />
-			{/if}
-		</button>
-		<div
-			class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-none"
-			style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;"
-		>
-			<div class="min-w-max">
-				<!-- Table Header -->
-				<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100" style={tableGridStyle}>
-					<div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
-						<span class="truncate">Item</span>
-						<button
-							type="button"
-							class="column-resizer"
-							aria-label="Resize item column"
-							onmousedown={(event) => startColumnResize(event, '__item__', itemColumnWidth)}
-						></button>
-					</div>
-					{#each orderedPricingTiers as tier (tier.key)}
-						{@const InsuranceIcon = insuranceIcons[tier.insuranceIconKey]}
-						<div
-							class={`charge-column-header relative flex min-h-[33px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedColumnKey === tier.key ? 'is-dragging' : ''} ${dragOverColumnKey === tier.key && draggedColumnKey !== null && draggedColumnKey !== tier.key ? 'is-drop-target' : ''}`}
-							role="columnheader"
-							tabindex="0"
-							aria-label={`Reorder column ${tier.patientCategoryName} ${tier.insuranceName}`}
-							title={`${tier.patientCategoryName} • ${tier.insuranceName}`}
-							draggable="true"
-							style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(tier.patientColorPrimary, 0.12)});`}
-							ondragstart={(event) => handleColumnDragStart(event, tier.key)}
-							ondragover={(event) => handleColumnDragOver(event, tier.key)}
-							ondragenter={(event) => handleColumnDragOver(event, tier.key)}
-							ondrop={(event) => handleColumnDrop(event, tier.key)}
-							ondragend={resetColumnDragState}
-						>
-							{#if showExpandedColumnHeader(tier.key)}
-								<div class="flex flex-col items-center gap-1 px-1">
-									<div
-										class="mx-auto flex items-center justify-center text-black"
-										style={`width: 0px; height: 0px;`}
-									>
-										{#if tier.insuranceBadgeSymbol}
-											<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
-										{:else}
-											<InsuranceIcon class="h-3 w-3" />
-										{/if}
-									</div>
-									<p class="text-[8px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
-									<p class="text-[8px] leading-tight text-slate-500">{tier.insuranceName}</p>
-								</div>
-							{:else}
-								<div
-									class="mx-auto flex items-center justify-center border text-black"
-									style={`width: 18px; height: 18px;`}
-								>
-									{#if tier.insuranceBadgeSymbol}
-										<span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span>
-									{:else}
-										<InsuranceIcon class="h-3 w-3" />
-									{/if}
-								</div>
-								<!-- <div class="mx-auto mt-1 h-1 w-7" style={`background: linear-gradient(90deg, ${tier.patientColorPrimary}, ${tier.patientColorSecondary});`}></div> -->
-								<p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{compactLabel(tier.patientCategoryName)}</p>
-							{/if}
-							<button
-								type="button"
-								class="column-resizer"
-								aria-label={`Resize ${tier.patientCategoryName} ${tier.insuranceName} column`}
-								onmousedown={(event) => startColumnResize(event, tier.key, columnWidths[tier.key] ?? 72)}
-							></button>
-						</div>
-					{/each}
-				</div>
+    		<button
+    			type="button"
+    			class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
+    			aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
+    			title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
+    			onclick={() => void toggleSheetFullscreen()}
+    		>
+    			{#if isSheetFullscreen}
+    				<Minimize2 class="h-4 w-4" />
+    			{:else}
+    				<Maximize2 class="h-4 w-4" />
+    			{/if}
+    		</button>
+    		<div
+    			class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-xl"
+    			style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;"
+    		>
+    			<div class="min-w-max">
+    				<!-- Table Header -->
+    				<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-gradient-to-b from-slate-200 to-slate-100 shadow-sm" style={tableGridStyle}>
+    					<div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
+    						<span class="truncate">Item</span>
+    						<button
+    							type="button"
+    							class="column-resizer"
+    							aria-label="Resize item column"
+    							onmousedown={(event) => startColumnResize(event, '__item__', itemColumnWidth)}
+    						></button>
+    					</div>
+    					{#each orderedPricingTiers as tier (tier.key)}
+    						{@const InsuranceIcon = insuranceIcons[tier.insuranceIconKey]}
+    						<div
+    							class={`charge-column-header relative flex min-h-[65px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedColumnKey === tier.key ? 'is-dragging' : ''} ${dragOverColumnKey === tier.key && draggedColumnKey !== null && draggedColumnKey !== tier.key ? 'is-drop-target' : ''}`}
+    							role="columnheader"
+    							tabindex="0"
+    							aria-label={`Reorder column ${tier.patientCategoryName} ${tier.insuranceName}`}
+    							title={`${tier.patientCategoryName} • ${tier.insuranceName}`}
+    							draggable="true"
+    							style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(tier.patientColorPrimary, 0.12)});`}
+    							ondragstart={(event) => handleColumnDragStart(event, tier.key)}
+    							ondragover={(event) => handleColumnDragOver(event, tier.key)}
+    							ondragenter={(event) => handleColumnDragOver(event, tier.key)}
+    							ondrop={(event) => handleColumnDrop(event, tier.key)}
+    							ondragend={resetColumnDragState}
+    						>
+    							{#if showExpandedColumnHeader(tier.key)}
+    								<div class="flex flex-col items-center gap-1 px-1">
+       									<div
+                                            class="mx-auto flex flex-col items-center justify-center text-black leading-tight"
+                                            style={`width: auto; height: auto;`}
+                                        >
+    										{#if tier.insuranceBadgeSymbol}
+    											<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
+    										{:else}
+    											<InsuranceIcon class="h-3 w-3" />
+    										{/if}
+    									</div>
+    									<p class="text-[11px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
+    									<p class="text-[9px] leading-tight text-slate-500">{tier.insuranceName}</p>
+    								</div>
+    							{:else}
+   								<div
+                                    class="mx-auto flex flex-col items-center justify-center text-black leading-tight"
+                                    style={`width: auto; height: auto;`}
+                                >
+    									{#if tier.insuranceBadgeSymbol}
+    										<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
+    										<p class="text-[8px] leading-tight text-slate-500">{tier.insuranceName}</p>
+    									{:else}
+    										<InsuranceIcon class="h-3 w-3" />
+    									{/if}
+    									<p class="text-[8px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
+    								</div>
+    								<!-- <div class="mx-auto mt-1 h-1 w-7" style={`background: linear-gradient(90deg, ${tier.patientColorPrimary}, ${tier.patientColorSecondary});`}></div> -->
+    								<!-- <p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{compactLabel(tier.patientCategoryName)}</p> -->
+    							{/if}
+    							<button
+    								type="button"
+    								class="column-resizer"
+    								aria-label={`Resize ${tier.patientCategoryName} ${tier.insuranceName} column`}
+    								onmousedown={(event) => startColumnResize(event, tier.key, columnWidths[tier.key] ?? 72)}
+    							></button>
+    						</div>
+    					{/each}
+    				</div>
 
-				<!-- Table Body -->
-				{#if filteredCharges.length === 0}
-					<div class="px-4 py-8 text-center text-slate-500 text-sm">
-						No charges in this category.
-					</div>
-				{:else}
-					{#each filteredCharges as charge, i (charge.id)}
-						{@const isEditingMeta = editingMetaId === charge.id}
-						<div class="grid items-stretch group border-b border-slate-300" style={tableGridStyle}>
-						<div class="border-r border-slate-300 bg-white">
-							{#if isEditingMeta}
-								<div class="space-y-1 border border-blue-200/70 bg-blue-50/55 p-2">
-									<input
-										type="text"
-										class="soft-field w-full rounded-md px-2 py-1 text-xs font-semibold text-slate-900"
-										style="background: rgba(255,255,255,0.95);"
-										bind:value={metaDraft.name}
-										placeholder="Title"
-									/>
-									<div class="grid grid-cols-[minmax(0,1fr)_96px] gap-1.5">
-										<input
-											type="text"
-											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
-											style="background: rgba(255,255,255,0.95);"
-											bind:value={metaDraft.item_code}
-											placeholder="Code"
-										/>
-										<select
-											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
-											style="background: rgba(255,255,255,0.95);"
-											bind:value={metaDraft.category}
-										>
-											<option value="CLINICAL">Clinical</option>
-											<option value="LABS">Labs</option>
-											<option value="ADMIN">Admin</option>
-										</select>
-									</div>
-									<input
-										type="text"
-										class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
-										style="background: rgba(255,255,255,0.95);"
-										bind:value={metaDraft.description}
-										placeholder="Description"
-									/>
-									<div class="flex items-center justify-end gap-1.5">
-										<button
-											onclick={() => saveMetaEdit(charge)}
-											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
-											disabled={savingMeta}
-										>
-											<Check class="h-3.5 w-3.5" />
-										</button>
-										<button
-											onclick={cancelMetaEdit}
-											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
-											disabled={savingMeta}
-										>
-											<X class="h-3.5 w-3.5" />
-										</button>
-									</div>
-								</div>
-							{:else}
-								<div class="flex items-start gap-1.5 px-2 py-1.5">
-									<div class="min-w-0 flex-1">
-										<p class="truncate font-semibold leading-4 text-slate-900 text-[10pt]" title={charge.name}>{charge.name}</p>
-										<div class="mt-0.5 flex flex-wrap items-center gap-1 text-[10pt] text-slate-500">
-											<span class="truncate" title={charge.item_code}>{charge.item_code}</span>
-										</div>
-									</div>
-									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
-											<Pencil class="w-3.5 h-3.5" />
-										</button>
-										<button onclick={() => toggleChargeActive(charge)} class="p-1 cursor-pointer disabled:opacity-60 {charge.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingChargeId === charge.id}>
-											<Power class="w-3.5 h-3.5" />
-										</button>
-										<!-- Delete charge action hidden until admin disable flow replaces hard delete UI. -->
-										<!--
-										<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
-											<Trash2 class="w-3.5 h-3.5" />
-										</button>
-										-->
-									</div>
-								</div>
-							{/if}
-						</div>
-						{#each orderedPricingTiers as tier, columnIndex (tier.key)}
-							{@const inputKey = priceDraftKey(charge.id, tier.key)}
-							<div class="min-w-0 border-r border-slate-300 bg-white">
-								<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingPriceKey === inputKey}>
-									<span class="text-[10pt] font-semibold leading-none text-slate-400">₹</span>
-									<input
-										id={priceCellId(charge.id, tier.key)}
-										type="number"
-										min="0"
-										step="1"
-										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
-										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[10pt] font-semibold leading-none text-slate-800 outline-none"
-										value={getPriceInputValue(charge, tier.key)}
-										disabled={savingPriceKey === inputKey}
-										oninput={(event) => {
-											priceDrafts[inputKey] = (event.currentTarget as HTMLInputElement).value;
-										}}
-										onblur={() => savePriceEdit(charge, tier.key)}
-										onkeydown={(event) => {
-											handlePriceCellKeydown(event, i, columnIndex);
-											if (event.defaultPrevented) {
-												return;
-											}
-											if (event.key === 'Escape') {
-												event.preventDefault();
-												resetPriceDraft(charge.id, tier.key);
-											}
-										}}
-									/>
-								</label>
-							</div>
-						{/each}
-						</div>
-					{/each}
-				{/if}
-			</div>
-		</div>
+    				<!-- Table Body -->
+    				{#if filteredCharges.length === 0}
+    					<div class="px-4 py-8 text-center text-slate-500 text-sm">
+    						No charges in this category.
+    					</div>
+    				{:else}
+    					{#each filteredCharges as charge, i (charge.id)}
+    						{@const isEditingMeta = editingMetaId === charge.id}
+    						<div class="grid items-stretch group border-b border-slate-200 even:bg-slate-50/60 hover:bg-blue-50/40 transition-colors" style={tableGridStyle}>
+        						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-gradient-to-b from-slate-200 to-slate-100 shadow-sm" style={tableGridStyle}>
+    							{#if isEditingMeta}
+    								<div class="space-y-1 border border-blue-200/70 bg-blue-50/55 p-2">
+    									<input
+    										type="text"
+    										class="soft-field w-full rounded-md px-2 py-1 text-xs font-semibold text-slate-900"
+    										style="background: rgba(255,255,255,0.95);"
+    										bind:value={metaDraft.name}
+    										placeholder="Title"
+    									/>
+    									<div class="grid grid-cols-[minmax(0,1fr)_96px] gap-1.5">
+    										<input
+    											type="text"
+    											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
+    											style="background: rgba(255,255,255,0.95);"
+    											bind:value={metaDraft.item_code}
+    											placeholder="Code"
+    										/>
+    										<select
+    											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
+    											style="background: rgba(255,255,255,0.95);"
+    											bind:value={metaDraft.category}
+    										>
+    											<option value="CLINICAL">Clinical</option>
+    											<option value="LABS">Labs</option>
+    											<option value="ADMIN">Admin</option>
+    										</select>
+    									</div>
+    									<input
+    										type="text"
+    										class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
+    										style="background: rgba(255,255,255,0.95);"
+    										bind:value={metaDraft.description}
+    										placeholder="Description"
+    									/>
+    									<div class="flex items-center justify-end gap-1.5">
+    										<button
+    											onclick={() => saveMetaEdit(charge)}
+    											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+    											style="background: linear-gradient(to bottom, #22c55e, #16a34a);"
+    											disabled={savingMeta}
+    										>
+    											<Check class="h-3.5 w-3.5" />
+    										</button>
+    										<button
+    											onclick={cancelMetaEdit}
+    											class="flex h-7 w-7 items-center justify-center rounded-full text-white cursor-pointer"
+    											style="background: linear-gradient(to bottom, #94a3b8, #64748b);"
+    											disabled={savingMeta}
+    										>
+    											<X class="h-3.5 w-3.5" />
+    										</button>
+    									</div>
+    								</div>
+    							{:else}
+    								<div class="flex items-start gap-1.5 px-2 py-1.5">
+    									<div class="min-w-0 flex-1">
+       										<p class="truncate font-medium leading-4 text-slate-900 text-[11pt]" title={charge.name}>{charge.name}</p>
+    										<div class="mt-0.5 flex flex-wrap items-center gap-1 text-[10px] text-slate-500">
+    											<span class="truncate" title={charge.item_code}>{charge.item_code}</span>
+    										</div>
+    									</div>
+    									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
+    											<Pencil class="w-3.5 h-3.5" />
+    										</button>
+    										<button onclick={() => toggleChargeActive(charge)} class="p-1 cursor-pointer disabled:opacity-60 {charge.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingChargeId === charge.id}>
+    											<Power class="w-3.5 h-3.5" />
+    										</button>
+    										<!-- Delete charge action hidden until admin disable flow replaces hard delete UI. -->
+    										<!--
+    										<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
+    											<Trash2 class="w-3.5 h-3.5" />
+    										</button>
+    										-->
+    									</div>
+    								</div>
+    							{/if}
+    						</div>
+    						{#each orderedPricingTiers as tier, columnIndex (tier.key)}
+    							{@const inputKey = priceDraftKey(charge.id, tier.key)}
+    							<div class="min-w-0 border-r border-slate-200 bg-white shadow-[inset_-1px_0_0_rgba(0,0,0,0.04)]">
+    								<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingPriceKey === inputKey}>
+    									<span class="text-[10pt] font-semibold leading-none text-slate-400">₹</span>
+    									<input
+    										id={priceCellId(charge.id, tier.key)}
+    										type="number"
+    										min="0"
+    										step="1"
+    										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
+    										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[11pt] font-semibold tracking-tight text-slate-900 tabular-nums outline-none"
+    										value={getPriceInputValue(charge, tier.key)}
+    										disabled={savingPriceKey === inputKey}
+    										oninput={(event) => {
+    											priceDrafts[inputKey] = (event.currentTarget as HTMLInputElement).value;
+    										}}
+    										onblur={() => savePriceEdit(charge, tier.key)}
+    										onkeydown={(event) => {
+    											handlePriceCellKeydown(event, i, columnIndex);
+    											if (event.defaultPrevented) {
+    												return;
+    											}
+    											if (event.key === 'Escape') {
+    												event.preventDefault();
+    												resetPriceDraft(charge.id, tier.key);
+    											}
+    										}}
+    									/>
+    								</label>
+    							</div>
+    						{/each}
+    						</div>
+    					{/each}
+    				{/if}
+    			</div>
+    		</div>
 		</div>
 		{/if}
 	{/if}

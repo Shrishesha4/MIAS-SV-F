@@ -1157,8 +1157,7 @@ async def submit_case_record_for_approval(
             id=str(uuid.uuid4()),
             faculty_id=faculty_id,
             type="APPROVAL_REQUEST",
-            title="New 
-            for Review",
+            title="New for Review",
             message=f"Case record for {patient_name} submitted by {student_name} requires your approval",
             is_read=False,
         )

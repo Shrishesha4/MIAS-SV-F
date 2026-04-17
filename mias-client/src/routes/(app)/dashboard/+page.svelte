@@ -220,7 +220,7 @@
 			return;
 		}
 		clinicSearch = clinicDisplayLabel(clinic);
-		clinicPatients = await studentApi.getClinicPatients(clinic.id);
+		clinicPatients = await studentApi.getClinicPatients(student.id, clinic.id);
 	}
 
 	function handleClinicSearchInput(query: string) {

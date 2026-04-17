@@ -91,7 +91,8 @@
 			.slice(0, 2) || '?'
 	);
 	const avatarShadow = $derived(
-        `box-shadow: 0 0 0 1px ${patientVisual.borderColor}, 0 0 0 ${config.ringSize}px ${patientVisual.haloColor}, 0 8px 12px -3px ${patientVisual.glowColor};`	);
+		`box-shadow: 0 0 0 3px ${patientVisual.strokeColor}, 0 2px 6px rgba(0,0,0,0.15);`
+	);
 </script>
 
 <div class={`relative shrink-0 ${config.frame}`} title={visual.label}>
@@ -102,7 +103,7 @@
 	>
 		{#if resolvedSrc}
 			<img src={resolvedSrc} alt={name} class="h-full w-full rounded-full object-cover" />
-			<div class="pointer-events-none absolute inset-0 rounded-full" style="box-shadow: inset 0 0 0 2px rgba(255,255,255,0.94);"></div>
+	
 		{:else}
 			<div class="flex h-full w-full items-center justify-center rounded-full font-black tracking-tight text-white">
 				{initials}

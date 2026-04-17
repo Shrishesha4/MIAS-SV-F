@@ -1,5 +1,6 @@
 import client from './client';
 import type { InsurancePolicy } from './types';
+import type { FormFieldDefinition } from '$lib/types/forms';
 
 export interface ApprovalItem {
   id: string;
@@ -39,8 +40,17 @@ export interface ApprovalItem {
     description: string;
     procedure_name: string;
     procedure_description: string;
+    form_name?: string;
+    form_description?: string;
+    form_fields?: FormFieldDefinition[];
+    form_values?: Record<string, unknown>;
     doctor_name: string;
     grade?: string;
+    department?: string;
+    findings?: string;
+    diagnosis?: string;
+    treatment?: string;
+    notes?: string;
     date: string;
     time: string;
   };
@@ -55,6 +65,15 @@ export interface ApprovalItem {
     referring_doctor?: string;
     status: string;
     notes?: string;
+    drug_allergy?: string;
+    chief_complaints?: string;
+    history_of_present_illness?: string;
+    medication_history?: string;
+    weight_admission?: string | number;
+    pain_score?: string | number;
+    physical_examination?: string;
+    provisional_diagnosis?: string;
+    proposed_plan?: string;
     discharge_summary?: string;
     admission_date: string;
   };
@@ -142,7 +161,15 @@ export const approvalsApi = {
   async processApproval(
     facultyId: string,
     approvalId: string,
-    data: { status: 'APPROVED' | 'REJECTED'; score?: number; grade?: string; comments?: string }
+    data: {
+      status: 'APPROVED' | 'REJECTED';
+      score?: number;
+      grade?: string;
+      comments?: string;
+      case_record_updates?: Record<string, unknown>;
+      admission_updates?: Record<string, unknown>;
+      prescription_updates?: Record<string, unknown>;
+    }
   ): Promise<void> {
     await client.put(`/faculty/${facultyId}/approvals/${approvalId}`, data);
   },

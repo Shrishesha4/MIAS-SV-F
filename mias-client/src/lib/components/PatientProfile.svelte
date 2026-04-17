@@ -1640,29 +1640,89 @@
 		</div>
 	{/if} -->
 
-	<div class="overflow-hidden rounded-[20px]"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(244,248,255,0.98)); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 6px 18px rgba(15,23,42,0.07), inset 0 1px 0 rgba(255,255,255,0.85);">
-		<div class="grid grid-cols-1 border-b border-slate-200/80 md:grid-cols-[1.05fr_1fr_1fr]">
-			<div class="p-3.5 md:p-4" style="background: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(247,250,255,0.92));">
-				<button class="flex w-full items-center gap-2.5 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
-					type="button"
-					onclick={openProfileOverviewModal}>
-					<PatientInsuranceAvatar name={patient.name} src={patient.photo} size="lg" insurancePolicies={patient.insurance_policies} patientCategory={patient.category} patientCategoryColorPrimary={patient.category_color_primary} patientCategoryColorSecondary={patient.category_color_secondary} />
-					<div class="min-w-0 flex-1">
-						<div class="flex items-center gap-1.5">
-							<h2 class="text-xl font-black leading-none tracking-tight text-slate-900">{patient.name}</h2>
-							<ChevronRight class="h-4.5 w-4.5 text-blue-500" />
-						</div>
-						<p class="mt-1 text-[10px] font-semibold tracking-wide text-slate-500">ID: {patient.patient_id}</p>
-						<p class="mt-1.5 text-[12px] font-semibold text-slate-700">{patientAge()}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
-						<p class="mt-1 text-[12px] text-slate-600">{patient.phone || '—'}</p>
-						<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} compact />
-					</div>
-				</button>
-			</div>
+	<div class="overflow-hidden rounded-[24px]"
+		style="background: linear-gradient(to bottom, rgba(255,255,255,0.99), rgba(241,245,255,0.98)); border: 1px solid rgba(148,163,184,0.24); box-shadow: 0 12px 30px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.88);">
+		<div class="lg:grid lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)_minmax(0,1.1fr)] lg:items-stretch">
+		<div class="bg-white/95 px-4 py-4 md:px-5 md:py-4 lg:min-w-0"
+			style="box-shadow: inset 0 -1px 0 rgba(226,232,240,0.9);">
+			<button class="flex w-full items-start gap-3.5 text-left cursor-pointer md:gap-4 lg:h-full lg:items-center" type="button" onclick={openProfileOverviewModal}>
+    			<div class="relative shrink-0">
+    				<PatientInsuranceAvatar
+    					name={patient.name}
+    					src={patient.photo}
+    					size="lg"
+    					insurancePolicies={patient.insurance_policies}
+    					patientCategory={patient.category}
+    					patientCategoryColorPrimary={patient.category_color_primary}
+    					patientCategoryColorSecondary={patient.category_color_secondary}
+    				/>
 
-			<div class="border-t border-slate-200/80 p-3.5 md:border-l md:border-t-0 md:p-4"
-				style="background: linear-gradient(135deg, rgba(254,242,242,0.95), rgba(254,226,226,0.82));">
+    				<!-- Badge -->
+    				<div class="absolute bottom-0 right-0 translate-x-1/4 translate-y-1/4">
+    					<span
+    						class="flex items-center justify-center rounded-full text-[10px] font-black leading-none shadow-sm"
+    						style="
+    							width: 22px;
+    							height: 22px;
+    							background: #ef4444; /* adjust per type */
+    							color: white;
+    							border: 2px solid white;
+    						"
+    					>
+       						<div class="min-w-0 lg:max-w-full">
+    							<InsuranceTypeBadges
+    								insurancePolicies={patient.insurance_policies}
+    								compact
+                                    variant='circle'
+    							/>
+    						</div>
+    					</span>
+    				</div>
+ 			    </div>
+
+				<div class="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+					<div class="min-w-0">
+						<div class="flex items-center gap-2">
+							<h2 class="truncate text-[22px] font-black leading-tight text-slate-900">
+								{patient.name}
+							</h2>
+						</div>
+
+						<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] font-semibold text-slate-600">
+							<span>{patientAge()}</span>
+							<span>{patient.gender || '—'}</span>
+							<span>{patient.blood_group || '—'}</span>
+						</div>
+
+						<!-- <p class="mt-2 text-sm text-slate-500">
+							{patient.phone || '—'}
+						</p> -->
+						<!-- <span class="mt-2 rounded-full px-3 py-1 text-[11px] font-black tracking-wide text-slate-600" -->
+						<span class="mt-2 text-sm text-slate-500">
+							ID: {patient.patient_id}
+						</span>
+					</div>
+
+					<!-- <div class="flex flex-wrap items-center gap-2 lg:max-w-[48%] lg:justify-end">
+						{#if patient.category}
+							<span class="rounded-full px-3 py-1 text-[11px] font-black tracking-wide"
+								style={`background: linear-gradient(to bottom, ${patient.category_color_secondary || 'rgba(219,234,254,0.9)'}, ${patient.category_color_primary || 'rgba(191,219,254,0.95)'}); color: ${patient.category_color_primary ? '#0f172a' : '#1e3a8a'}; border: 1px solid rgba(59,130,246,0.18);`}>
+								{patient.category}
+							</span>
+						{/if}
+						<div class="min-w-0 lg:max-w-full">
+							<InsuranceTypeBadges
+								insurancePolicies={patient.insurance_policies}
+								compact
+							/>
+						</div>
+					</div> -->
+				</div>
+			</button>
+		</div>
+
+			<div class="border-t border-rose-200/70 px-4 py-3.5 md:px-5 lg:min-w-0 lg:border-l lg:border-t-0"
+				style="background: linear-gradient(135deg, rgba(254,242,242,0.96), rgba(254,226,226,0.86));">
 				<div class="flex items-center justify-between gap-3">
 					<button class="flex min-w-0 items-center gap-2 text-left cursor-pointer transition-transform duration-200 hover:-translate-y-0.5"
 						type="button"
@@ -1733,7 +1793,7 @@
 				{/if}
 			</div>
 
-			<div class="border-t border-slate-200/80 p-3.5 md:border-l md:border-t-0 md:p-4"
+			<div class="border-t border-blue-200/70 px-4 py-3.5 md:px-5 lg:min-w-0 lg:border-l lg:border-t-0"
 				style="background: linear-gradient(135deg, rgba(219,234,254,0.96), rgba(191,219,254,0.82));"
 				role="presentation"
 				onpointerenter={handleDiagnosisPointerEnter}
@@ -1851,11 +1911,12 @@
 						{/if}
 					</div>
 				{/if}
-			</div>
 		</div>
 
-		<div class="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5"
-			style="background: linear-gradient(to right, rgba(239,246,255,0.98), rgba(226,238,252,0.96));">
+		</div>
+
+		<div class="flex flex-col gap-3 border-t border-blue-200/70 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-5"
+			style="background: linear-gradient(to right, rgba(239,246,255,0.98), rgba(226,238,252,0.96)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.7);">
 			<div class="flex min-w-0 items-center gap-2.5">
 				<ClipboardList class="h-5 w-5 shrink-0 text-blue-600" />
 				<div class="flex min-w-0 flex-wrap items-center gap-2.5">

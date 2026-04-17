@@ -400,8 +400,11 @@ async def admin_create_user(
             raise HTTPException(status_code=400, detail="Date of birth must be in YYYY-MM-DD format")
 
         from app.models.patient import Gender
+        from app.services.clinic_allocation import resolve_preferred_clinic
+        from app.services.clinic_intake import ensure_clinic_checkin
 
-        db.add(Patient(
+        resolved_category = normalize_patient_category_name(data.category) or await get_default_patient_category_name(db)
+        new_patient = Patient(
             id=str(uuid.uuid4()),
             patient_id=_generate_patient_id(),
             user_id=user_id,
@@ -419,8 +422,29 @@ async def admin_create_user(
             diagnosis_doctor=data.diagnosis_doctor,
             diagnosis_date=data.diagnosis_date,
             diagnosis_time=data.diagnosis_time,
-            category=normalize_patient_category_name(data.category) or await get_default_patient_category_name(db),
-        ))
+            category=resolved_category,
+        )
+        db.add(new_patient)
+
+        preferred_clinic = await resolve_preferred_clinic(
+            db,
+            insurance_category_id=None,
+            patient_category_name=resolved_category,
+        )
+        if not preferred_clinic:
+            from app.models.student import Clinic
+            clinic_result = await db.execute(
+                select(Clinic).where(Clinic.is_active == True).limit(1)
+            )
+            preferred_clinic = clinic_result.scalar_one_or_none()
+        if preferred_clinic:
+            await ensure_clinic_checkin(
+                db,
+                patient=new_patient,
+                clinic=preferred_clinic,
+                appointment_datetime=datetime.utcnow(),
+                status="Scheduled",
+            )
     elif role == UserRole.STUDENT:
         if data.year is None or data.semester is None or not data.program:
             raise HTTPException(status_code=400, detail="Year, semester, and program are required for students")

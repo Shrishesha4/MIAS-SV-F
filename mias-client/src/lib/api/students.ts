@@ -148,8 +148,8 @@ export const studentApi = {
     return response.data;
   },
 
-  async getClinicPatients(clinicId: string): Promise<ClinicPatient[]> {
-    const response = await client.get(`/students/clinic/${clinicId}/patients`);
+  async getClinicPatients(studentId: string, clinicId: string): Promise<ClinicPatient[]> {
+    const response = await client.get(`/students/${studentId}/clinic/${clinicId}/patients`);
     return response.data;
   },
 

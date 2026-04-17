@@ -440,10 +440,19 @@ async def get_pending_approvals(
                 "description": a.case_record.description,
                 "procedure_name": a.case_record.procedure_name,
                 "procedure_description": a.case_record.procedure_description,
+                "form_name": a.case_record.form_name,
+                "form_description": a.case_record.form_description,
+                "form_fields": a.case_record.form_fields,
+                "form_values": a.case_record.form_values,
                 "doctor_name": a.case_record.doctor_name or a.case_record.provider,
                 "student_id": a.case_record.student_id,
                 "patient_id": a.case_record.patient_id,
                 "grade": a.case_record.grade,
+                "department": a.case_record.department,
+                "findings": a.case_record.findings,
+                "diagnosis": a.case_record.diagnosis,
+                "treatment": a.case_record.treatment,
+                "notes": a.case_record.notes,
                 "date": a.case_record.date.isoformat() if a.case_record.date else None,
                 "time": a.case_record.time,
             } if a.case_record else None,
@@ -458,6 +467,15 @@ async def get_pending_approvals(
                 "referring_doctor": a.admission.referring_doctor,
                 "status": a.admission.status,
                 "notes": a.admission.notes,
+                "drug_allergy": a.admission.drug_allergy,
+                "chief_complaints": a.admission.chief_complaints,
+                "history_of_present_illness": a.admission.history_of_present_illness,
+                "medication_history": a.admission.medication_history,
+                "weight_admission": a.admission.weight_admission,
+                "pain_score": a.admission.pain_score,
+                "physical_examination": a.admission.physical_examination,
+                "provisional_diagnosis": a.admission.provisional_diagnosis,
+                "proposed_plan": a.admission.proposed_plan,
                 "discharge_summary": a.admission.discharge_summary,
                 "admission_date": a.admission.admission_date.isoformat() if a.admission.admission_date else None,
             } if a.admission else None,
@@ -582,6 +600,7 @@ async def process_approval(
         .options(
             selectinload(Approval.case_record),
             selectinload(Approval.admission),
+            selectinload(Approval.prescription).selectinload(Prescription.medications),
         )
         .where(Approval.id == approval_id)
         .where(Approval.faculty_id == faculty_id)
@@ -594,6 +613,9 @@ async def process_approval(
     new_status = body.get("status", "APPROVED")
     score = body.get("score")
     grade = body.get("grade")
+    case_record_updates = body.get("case_record_updates") or {}
+    admission_updates = body.get("admission_updates") or {}
+    prescription_updates = body.get("prescription_updates") or {}
     if approval.approval_type == ApprovalType.CASE_RECORD and score is not None:
         if not isinstance(score, int) or score < 0 or score > 10:
             raise HTTPException(status_code=400, detail="Case record score must be between F and 10")
@@ -609,6 +631,24 @@ async def process_approval(
 
     # Update the case record status
     if approval.case_record:
+        for field in [
+            "type",
+            "description",
+            "procedure_name",
+            "procedure_description",
+            "form_name",
+            "form_description",
+            "form_fields",
+            "form_values",
+            "department",
+            "findings",
+            "diagnosis",
+            "treatment",
+            "notes",
+            "time",
+        ]:
+            if field in case_record_updates:
+                setattr(approval.case_record, field, case_record_updates[field])
         approval.case_record.status = "Approved" if new_status == "APPROVED" else "Rejected"
         approval.case_record.approved_by = faculty_name
         approval.case_record.approved_at = datetime.utcnow().isoformat()
@@ -617,13 +657,65 @@ async def process_approval(
             if new_status == "APPROVED"
             else None
         )
+        approval.case_record.last_modified_by = faculty_name
+        approval.case_record.last_modified_at = datetime.utcnow()
 
     # Update the admission status
     if approval.admission:
+        for field in [
+            "department",
+            "ward",
+            "bed_number",
+            "attending_doctor",
+            "reason",
+            "diagnosis",
+            "notes",
+            "referring_doctor",
+            "drug_allergy",
+            "chief_complaints",
+            "history_of_present_illness",
+            "medication_history",
+            "weight_admission",
+            "pain_score",
+            "physical_examination",
+            "provisional_diagnosis",
+            "proposed_plan",
+            "discharge_summary",
+        ]:
+            if field in admission_updates:
+                setattr(approval.admission, field, admission_updates[field])
         if new_status == "APPROVED":
             approval.admission.status = "Active"
         else:
             approval.admission.status = "Rejected"
+
+    if approval.prescription:
+        for field in ["doctor", "department", "notes", "status"]:
+            if field in prescription_updates:
+                setattr(approval.prescription, field, prescription_updates[field])
+
+        medications_data = prescription_updates.get("medications") or []
+        if medications_data:
+            medications_by_id = {
+                medication.id: medication
+                for medication in (approval.prescription.medications or [])
+            }
+            for med_data in medications_data:
+                medication_id = med_data.get("id")
+                medication = medications_by_id.get(medication_id)
+                if not medication:
+                    continue
+                for field in [
+                    "name",
+                    "dosage",
+                    "frequency",
+                    "duration",
+                    "instructions",
+                    "start_date",
+                    "end_date",
+                ]:
+                    if field in med_data:
+                        setattr(medication, field, med_data[field])
 
     await db.commit()
     return {"message": "Approval processed", "status": approval.status.value}
