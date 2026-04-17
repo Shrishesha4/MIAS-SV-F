@@ -45,6 +45,7 @@ export interface FormDefinitionPayload {
 	is_active?: boolean;
 	icon?: string | null;
 	color?: string | null;
+	allowed_roles?: string[] | null;
 }
 
 export interface FormCategoryPayload {
@@ -107,6 +108,11 @@ export const formsApi = {
 		const response = await client.post('/forms/uploads', formData, {
 			headers: { 'Content-Type': 'multipart/form-data' },
 		});
+		return response.data;
+	},
+
+	async getLookupOptions(source: string): Promise<{ value: string; label: string }[]> {
+		const response = await client.get(`/forms/lookup-options/${source}`);
 		return response.data;
 	},
 };

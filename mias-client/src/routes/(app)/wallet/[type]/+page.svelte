@@ -5,6 +5,8 @@
 	import { walletApi } from '$lib/api/wallet';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
+	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import {
 		Wallet, ArrowUp, ArrowDown, CreditCard, ChevronDown, ChevronUp,
 		Plus, Building, FileText, Clock, X
@@ -19,6 +21,15 @@
 	let loading = $state(true);
 	let expandedTxnId = $state<string | null>(null);
 	let filterType = $state<'ALL' | 'CREDIT' | 'DEBIT'>('ALL');
+	let patientId = $state('');
+
+	// Self-topup
+	let topupOpen = $state(false);
+	let topupAmount = $state('');
+	let topupMethod = $state('Online');
+	let topupRef = $state('');
+	let topupLoading = $state(false);
+	const paymentMethods = ['Online', 'UPI', 'Net Banking', 'Card'];
 
 	const transactions = $derived(
 		allTransactions.filter(t => t.wallet_type === walletType)
@@ -38,23 +49,54 @@
 		filterType === 'ALL' ? transactions : transactions.filter(t => t.type === filterType)
 	);
 
+	async function reload() {
+		const wt = walletType === 'PHARMACY' ? 'pharmacy' : 'hospital';
+		const [txns, bal] = await Promise.all([
+			patientApi.getWalletTransactions(patientId, wt as 'hospital' | 'pharmacy'),
+			walletApi.getBalance(patientId, wt as 'hospital' | 'pharmacy'),
+		]);
+		allTransactions = txns;
+		walletBalance = bal;
+	}
+
 	onMount(async () => {
 		if (!redirectIfUnauthorized(['PATIENT'])) return;
 		try {
 			const patient = await patientApi.getCurrentPatient();
-			const wt = walletType === 'PHARMACY' ? 'pharmacy' : 'hospital';
-			const [txns, bal] = await Promise.all([
-				patientApi.getWalletTransactions(patient.id, wt as 'hospital' | 'pharmacy'),
-				walletApi.getBalance(patient.id, wt as 'hospital' | 'pharmacy'),
-			]);
-			allTransactions = txns;
-			walletBalance = bal;
+			patientId = patient.id;
+			await reload();
 		} catch (err) {
 			toastStore.addToast('Failed to load wallet data', 'error');
 		} finally {
 			loading = false;
 		}
 	});
+
+	async function submitTopup() {
+		const amt = parseFloat(topupAmount);
+		if (!amt || amt <= 0) {
+			toastStore.addToast('Enter valid amount', 'error');
+			return;
+		}
+		topupLoading = true;
+		try {
+			await walletApi.selfTopup({
+				wallet_type: walletType as 'HOSPITAL' | 'PHARMACY',
+				amount: amt,
+				payment_method: topupMethod,
+				reference_id: topupRef,
+			});
+			toastStore.addToast(`₹${amt} added successfully`, 'success');
+			topupOpen = false;
+			topupAmount = '';
+			topupRef = '';
+			await reload();
+		} catch {
+			toastStore.addToast('Top-up failed', 'error');
+		} finally {
+			topupLoading = false;
+		}
+	}
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
@@ -107,6 +149,16 @@
 						<p class="text-[10px] text-blue-200">Debits</p>
 						<p class="text-sm font-semibold">₹{totalDebit.toLocaleString('en-IN')}</p>
 					</div>
+				</div>
+				<div class="ml-auto">
+					<button
+						class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all"
+						style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);"
+						onclick={() => { topupOpen = true; topupAmount = ''; topupRef = ''; }}
+					>
+						<Plus class="w-3.5 h-3.5" />
+						Add Funds
+					</button>
 				</div>
 			</div>
 		</div>
@@ -334,3 +386,56 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Self Topup Modal -->
+{#if topupOpen}
+	<AquaModal title="Add Funds — {walletType === 'HOSPITAL' ? 'Hospital' : 'Pharmacy'} Wallet" onclose={() => topupOpen = false}>
+		<div class="p-5 space-y-4">
+			<div class="rounded-xl px-4 py-3" style="background: #eff6ff; border: 1px solid #bfdbfe;">
+				<p class="text-sm font-semibold text-blue-900">Add money to your {walletType === 'HOSPITAL' ? 'Hospital' : 'Pharmacy'} wallet</p>
+				<p class="text-xs text-blue-700 mt-0.5">Funds added here can be used for medical services and procedures.</p>
+			</div>
+
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Amount (₹)</label>
+				<input
+					type="number"
+					placeholder="0.00"
+					bind:value={topupAmount}
+					min="1"
+					step="0.01"
+					class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+					style="background: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+				/>
+			</div>
+
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Payment Method</label>
+				<select
+					bind:value={topupMethod}
+					class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+					style="background: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+				>
+					{#each paymentMethods as m}
+						<option value={m}>{m}</option>
+					{/each}
+				</select>
+			</div>
+
+			<div>
+				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Transaction Reference (optional)</label>
+				<input
+					type="text"
+					placeholder="e.g. UPI ref no."
+					bind:value={topupRef}
+					class="w-full px-4 py-3 rounded-xl text-sm outline-none"
+					style="background: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
+				/>
+			</div>
+
+			<AquaButton onclick={submitTopup} loading={topupLoading} fullWidth variant="primary">
+				Add {topupAmount ? `₹${parseFloat(topupAmount || '0').toLocaleString('en-IN')}` : 'Funds'}
+			</AquaButton>
+		</div>
+	</AquaModal>
+{/if}

@@ -283,6 +283,9 @@ async def create_patient_case_record(
             creator_name = stu.name
 
     now = datetime.utcnow()
+    price = body.get("price")
+    price_val = float(price) if price and float(price) > 0 else None
+
     record = CaseRecord(
         id=str(uuid.uuid4()),
         patient_id=patient_id,
@@ -313,14 +316,37 @@ async def create_patient_case_record(
         created_by_role=user.role.value,
         last_modified_by=creator_name,
         last_modified_at=now,
+        price=price_val,
     )
     db.add(record)
+
+    # Deduct from hospital wallet if price provided
+    wallet_deducted = False
+    if price_val:
+        txn = WalletTransaction(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            wallet_type=WalletType.HOSPITAL,
+            date=now,
+            time=now.strftime("%H:%M"),
+            description=f"Procedure: {body.get('procedure', 'Examination')} by {creator_name}",
+            amount=price_val,
+            type=TransactionType.DEBIT,
+            department=body.get("department"),
+            provider=creator_name,
+            reference_number=record.id,
+        )
+        db.add(txn)
+        wallet_deducted = True
+
     await db.commit()
 
     return {
         "id": record.id,
         "status": record.status,
         "created_by_name": record.created_by_name,
+        "price": float(record.price) if record.price else None,
+        "wallet_deducted": wallet_deducted,
     }
 
 

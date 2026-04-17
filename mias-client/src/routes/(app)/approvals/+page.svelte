@@ -10,6 +10,8 @@
     import Avatar from '$lib/components/ui/Avatar.svelte';
     import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
     import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
+    import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
+    import type { FormFieldDefinition } from '$lib/types/forms';
     import {
         CheckCircle, XCircle, Clock, ClipboardList, AlertTriangle,
         FileText, Eye, Calendar, Stethoscope, ChevronLeft, X,
@@ -27,6 +29,8 @@
         diagnosis?: string;
         treatment?: string;
         notes?: string;
+        form_fields?: FormFieldDefinition[];
+        form_values?: Record<string, any>;
     };
 
     type ApprovalAdmissionDraft = {
@@ -168,6 +172,10 @@
                     diagnosis: approval.case_record.diagnosis || '',
                     treatment: approval.case_record.treatment || '',
                     notes: approval.case_record.notes || '',
+                    form_fields: approval.case_record.form_fields || undefined,
+                    form_values: approval.case_record.form_values
+                        ? { ...approval.case_record.form_values as Record<string, any> }
+                        : undefined,
                 }
                 : undefined,
             admission: approval.admission

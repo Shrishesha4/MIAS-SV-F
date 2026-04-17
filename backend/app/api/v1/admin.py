@@ -30,6 +30,7 @@ from app.models.medical_record import MedicalRecord
 from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
 from app.models.nurse import Nurse
+from app.models.billing import Billing
 from app.core.security import get_password_hash
 from app.models.lab import ChargePrice
 from app.services.charge_sync import sync_charge_price_categories
@@ -342,6 +343,9 @@ class AdminCreateUserRequest(BaseModel):
     ward: Optional[str] = None
     shift: Optional[str] = None
 
+    # BILLING fields
+    counter_name: Optional[str] = None
+
 
 def _generate_patient_id():
     return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
@@ -354,6 +358,9 @@ def _generate_faculty_id():
 
 def _generate_nurse_id():
     return f"NR{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+def _generate_billing_id():
+    return f"BL{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
 @router.post("/users", status_code=201)
@@ -495,6 +502,17 @@ async def admin_create_user(
             has_selected_station=0,
         ))
     # ADMIN and RECEPTION roles: no extra profile record needed
+    elif role == UserRole.BILLING:
+        db.add(Billing(
+            id=str(uuid.uuid4()),
+            billing_id=_generate_billing_id(),
+            user_id=user_id,
+            name=name,
+            phone=data.phone,
+            email=email,
+            counter_name=data.counter_name,
+        ))
+    # ADMIN and RECEPTION: no extra profile record needed
 
     await db.commit()
     return {"message": f"User {data.username} created successfully", "user_id": user_id}

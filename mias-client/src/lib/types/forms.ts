@@ -29,7 +29,10 @@ export type FormFieldType =
 	| 'email'
 	| 'password'
 	| 'tel'
-	| 'diagnosis';
+	| 'diagnosis'
+	| 'department_select'
+	| 'faculty_select'
+	| 'clinic_select';
 
 export type FormSection = string;
 
@@ -151,6 +154,7 @@ export interface FormDefinition {
 	is_active: boolean;
 	icon?: string | null;
 	color?: string | null;
+	allowed_roles?: string[] | null;
 	created_at: string | null;
 	updated_at: string | null;
 }

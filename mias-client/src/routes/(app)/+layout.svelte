@@ -11,6 +11,7 @@
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
 	import { nurseApi } from '$lib/api/nurse';
+	import { billingApi } from '$lib/api/billing';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { getMenuItems } from '$lib/config/menuItems';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -51,7 +52,7 @@
 	const sidebarOpen = $derived(sidebarPinned || sidebarHovered);
 
 	const currentPath = $derived(page.url.pathname);
-	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath);
+	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath.startsWith('/billing') ? '/billing' : currentPath);
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
 
 	// Show check-in modal only if not checked in and not skipped (admin/IP day2+)
@@ -217,6 +218,19 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/reception');
 				}
+			} else if (a.role === 'BILLING') {
+				try {
+					const billing = await billingApi.getMe();
+					userName = billing.name;
+					userIdDisplay = billing.counter_name || billing.billing_id;
+				} catch {
+					userName = 'Billing';
+					userIdDisplay = 'BILLING';
+				}
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/billing');
+				}
 			}
 		} catch {
 			// If API fails, use defaults
@@ -325,7 +339,7 @@
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
 	<div class="flex flex-col min-h-screen">
 		<NavBar
-			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception'}
+			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing'}
 			notificationCount={unreadNotifications}
 			onmenuclick={() => sideMenuOpen = true}
 			onmenuenter={handleTriggerEnter}

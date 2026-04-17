@@ -12,7 +12,13 @@
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
-	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis'];
+	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis', 'department_select', 'faculty_select', 'clinic_select'];
+
+	const fieldTypeLabels: Record<string, string> = {
+		department_select: 'DEPARTMENT (DB)',
+		faculty_select: 'FACULTY (DB)',
+		clinic_select: 'CLINIC (DB)',
+	};
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
 		ADMISSION: 'ADMISSION',
@@ -48,6 +54,9 @@
 	let formEditorIsActive = $state(true);
 	let formEditorIcon = $state('');
 	let formEditorColor = $state('');
+	let formEditorAllowedRoles: string[] = $state([]);
+	let formEditorDepartment = $state('');
+	let formEditorProcedureName = $state('');
 	let formEditorFields: FormFieldDefinition[] = $state([]);
 	let formEditorRules: FormRule[] = $state([]);
 	let selectedFieldIndex = $state(0);
@@ -242,6 +251,9 @@
 		formEditorIsActive = true;
 		formEditorIcon = '';
 		formEditorColor = '';
+		formEditorAllowedRoles = [];
+		formEditorDepartment = '';
+		formEditorProcedureName = '';
 		formEditorFields = [];
 		formEditorRules = [];
 		selectedFieldIndex = 0;
@@ -282,6 +294,9 @@
 		formEditorIsActive = form.is_active;
 		formEditorIcon = form.icon || '';
 		formEditorColor = form.color || '';
+		formEditorAllowedRoles = form.allowed_roles ? [...form.allowed_roles] : [];
+		formEditorDepartment = form.department || '';
+		formEditorProcedureName = form.procedure_name || '';
 		formEditorFields = (form.fields.length > 0 ? form.fields : [createEmptyField()]).map((field) => ({
 			...field,
 			type: normalizeFieldType(field.type)
@@ -618,12 +633,15 @@
 			name: formEditorName.trim(),
 			section: formEditorSection,
 			form_type: formEditorType || formEditorSection,
+			department: formEditorDepartment.trim() || undefined,
+			procedure_name: formEditorProcedureName.trim() || undefined,
 			fields: nextFields,
 			rules: formEditorRules.length > 0 ? formEditorRules : undefined,
 			sort_order: formEditorSortOrder,
 			is_active: formEditorIsActive,
 			icon: formEditorIcon.trim() || null,
 			color: formEditorColor.trim() || null,
+			allowed_roles: formEditorAllowedRoles.length > 0 ? formEditorAllowedRoles : null,
 		};
 
 		savingForm = true;
@@ -768,6 +786,29 @@
 				</select>
 			</div>
 
+			{#if formEditorType === 'CASE_RECORD'}
+				<span class="header-inline-divider" aria-hidden="true"></span>
+				<div class="header-inline-group">
+					<p class="header-inline-label">Department</p>
+					<input
+						class="inline-select"
+						style="width: 120px;"
+						placeholder="e.g. Oral Surgery"
+						bind:value={formEditorDepartment}
+					/>
+				</div>
+				<span class="header-inline-divider" aria-hidden="true"></span>
+				<div class="header-inline-group">
+					<p class="header-inline-label">Procedure</p>
+					<input
+						class="inline-select"
+						style="width: 120px;"
+						placeholder="e.g. Extraction"
+						bind:value={formEditorProcedureName}
+					/>
+				</div>
+			{/if}
+
 			<span class="header-inline-divider" aria-hidden="true"></span>
 
 			<div class="header-inline-group">
@@ -794,6 +835,31 @@
 				/>
 				{#if formEditorColor}
 					<button type="button" onclick={() => formEditorColor = ''} class="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer">✕</button>
+				{/if}
+			</div>
+
+			<span class="header-inline-divider" aria-hidden="true"></span>
+
+			<div class="header-inline-group" style="align-items: center; gap: 4px; flex-wrap: wrap;">
+				<p class="header-inline-label">Access</p>
+				{#each ['FACULTY', 'STUDENT', 'NURSE', 'RECEPTION', 'PATIENT'] as role}
+					<button
+						type="button"
+						class="px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors"
+						style={formEditorAllowedRoles.includes(role)
+							? 'background: #3b82f6; color: white; border: 1px solid #2563eb;'
+							: 'background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;'}
+						onclick={() => {
+							if (formEditorAllowedRoles.includes(role)) {
+								formEditorAllowedRoles = formEditorAllowedRoles.filter(r => r !== role);
+							} else {
+								formEditorAllowedRoles = [...formEditorAllowedRoles, role];
+							}
+						}}
+					>{role}</button>
+				{/each}
+				{#if formEditorAllowedRoles.length > 0}
+					<button type="button" onclick={() => formEditorAllowedRoles = []} class="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer ml-1">✕ All</button>
 				{/if}
 			</div>
 
@@ -1376,7 +1442,7 @@
 											onchange={(event) => updateFieldType(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}
 										>
 											{#each fieldTypes as fieldType}
-												<option value={fieldType}>{fieldType.toUpperCase()}</option>
+												<option value={fieldType}>{fieldTypeLabels[fieldType] ?? fieldType.toUpperCase()}</option>
 											{/each}
 										</select>
 									</div>

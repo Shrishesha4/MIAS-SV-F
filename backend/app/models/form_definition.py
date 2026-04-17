@@ -26,5 +26,6 @@ class FormDefinition(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     icon = Column(String, nullable=True)   # lucide icon name e.g. "Stethoscope"
     color = Column(String, nullable=True)  # hex color e.g. "#f97316"
+    allowed_roles = Column(JSON, nullable=True)  # e.g. ["FACULTY","STUDENT"] or null = all roles
     created_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Enum as SQLEnum, JSON
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Enum as SQLEnum, JSON, Numeric
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -56,6 +56,7 @@ class CaseRecord(Base):
     created_by_role = Column(String, nullable=True)  # STUDENT or FACULTY
     last_modified_by = Column(String, nullable=True)  # Name of last person to modify
     last_modified_at = Column(DateTime, nullable=True)
+    price = Column(Numeric(10, 2), nullable=True)  # Procedure price deducted from wallet
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     patient = relationship("Patient", back_populates="case_records")

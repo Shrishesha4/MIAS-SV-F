@@ -33,6 +33,7 @@ from app.core.security import get_password_hash
 from app.services.charge_sync import sync_charge_sources
 from app.services.form_categories import ensure_form_categories, infer_form_section
 from app.services.patient_categories import ensure_patient_categories
+from app.models.lab import ChargeItem, ChargePrice
 
 
 def uid() -> str:
@@ -924,6 +925,13 @@ async def seed():
             ))
 
         # ── Form Definitions ─────────────────────────────
+        # Role mappings: CASE_RECORD/LABORATORY → STUDENT+FACULTY; ADMINISTRATIVE → FACULTY+ADMIN; ADMISSION_INTAKE → STUDENT+FACULTY
+        FORM_ROLE_MAP = {
+            "CASE_RECORD": ["STUDENT", "FACULTY"],
+            "LABORATORY": ["STUDENT", "FACULTY"],
+            "ADMISSION_INTAKE": ["STUDENT", "FACULTY"],
+            "ADMINISTRATIVE": ["FACULTY", "ADMIN"],
+        }
         for form_def in FORM_DEFINITIONS_DATA:
             normalized_fields = []
             for field in form_def["fields"]:
@@ -955,6 +963,7 @@ async def seed():
                 is_active=form_def.get("is_active", True),
                 icon=form_def.get("icon") or icon,
                 color=form_def.get("color") or color,
+                allowed_roles=FORM_ROLE_MAP.get(form_def["form_type"]),
             ))
 
         # Flush to get IDs
@@ -974,9 +983,10 @@ async def seed():
         faculty_map = {f.faculty_id: f for f in all_faculty}
 
         # ── Student-Patient Assignments ──────────────────
-        # Assign 3-4 patients to each student (round-robin with overlap)
+        # Active assignments: 2 patients per student (round-robin)
+        # Completed (previous) assignments: 1 older patient per student for Previous tab testing
         for i, s in enumerate(all_students):
-            for j in range(3):
+            for j in range(2):
                 pat_idx = (i * 2 + j) % len(all_patients)
                 p = all_patients[pat_idx]
                 db.add(StudentPatientAssignment(
@@ -986,6 +996,16 @@ async def seed():
                     assigned_date=datetime.utcnow() - timedelta(days=random.randint(5, 30)),
                     status="Active",
                 ))
+            # Add one completed (previous) assignment per student
+            prev_pat_idx = (i * 2 + 2) % len(all_patients)
+            prev_patient = all_patients[prev_pat_idx]
+            db.add(StudentPatientAssignment(
+                id=uid(),
+                student_id=s.id,
+                patient_id=prev_patient.id,
+                assigned_date=datetime.utcnow() - timedelta(days=random.randint(30, 60)),
+                status="Completed",
+            ))
         # ── Sample Vitals for first 5 patients ──────────
         for p in all_patients[:5]:
             for day_offset in range(10):
@@ -1588,6 +1608,31 @@ async def seed():
                 ))
 
         await sync_charge_sources(db)
+        await db.flush()
+
+        # ── Seed charge prices for all form definitions ──
+        # So non-admin users can see forms (price-gating requires price > 0)
+        form_charge_items_result = await db.execute(
+            select(ChargeItem).where(ChargeItem.source_type == "form_definition")
+        )
+        form_charge_items = form_charge_items_result.scalars().all()
+        seed_tiers = ["Classic", "Prime", "Elite", "Community"]
+        base_prices = {"CASE_RECORD": 500, "LABORATORY": 300, "ADMISSION_INTAKE": 200, "ADMINISTRATIVE": 100}
+        for item in form_charge_items:
+            # Determine price based on form type via item name matching
+            price_val = 500  # default
+            for ftype, base in base_prices.items():
+                if ftype.lower() in (item.name or "").lower() or ftype.lower() in (item.category.value if item.category else "").lower():
+                    price_val = base
+                    break
+            for tier in seed_tiers:
+                db.add(ChargePrice(
+                    id=uid(),
+                    item_id=item.id,
+                    tier=tier,
+                    price=Decimal(str(price_val)),
+                ))
+
         await db.commit()
 
     # ── Print credentials ────────────────────────────────

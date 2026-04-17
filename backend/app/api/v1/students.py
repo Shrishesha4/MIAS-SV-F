@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
 import uuid
@@ -411,9 +411,21 @@ async def get_student_case_records(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(CaseRecord).where(CaseRecord.student_id == student_id)
+    # If filtering by a specific patient, show all records for that patient
+    # (any student can see all case records for a patient they're viewing)
     if patient_id:
-        query = query.where(CaseRecord.patient_id == patient_id)
+        query = select(CaseRecord).where(CaseRecord.patient_id == patient_id)
+    else:
+        # No patient filter: show records created by this student OR for their assigned patients
+        assigned_patient_ids = select(StudentPatientAssignment.patient_id).where(
+            and_(
+                StudentPatientAssignment.student_id == student_id,
+                StudentPatientAssignment.status == "Active",
+            )
+        )
+        query = select(CaseRecord).where(
+            (CaseRecord.student_id == student_id) | (CaseRecord.patient_id.in_(assigned_patient_ids))
+        )
     result = await db.execute(
         query.options(selectinload(CaseRecord.approval).selectinload(Approval.faculty)).order_by(CaseRecord.date.desc())
     )
@@ -997,6 +1009,7 @@ async def get_previous_patients(
 
     patient_ids = list({assignment.patient_id for assignment in assignments})
     admissions_by_patient: dict[str, list[Admission]] = {}
+    case_record_counts: dict[str, int] = {}
     if patient_ids:
         admission_result = await db.execute(
             select(Admission)
@@ -1010,6 +1023,17 @@ async def get_previous_patients(
         admissions = admission_result.scalars().all()
         for admission in admissions:
             admissions_by_patient.setdefault(admission.patient_id, []).append(admission)
+
+        # Count case records per patient for this student
+        cr_result = await db.execute(
+            select(CaseRecord.patient_id, func.count(CaseRecord.id).label("cnt"))
+            .where(
+                CaseRecord.patient_id.in_(patient_ids),
+                CaseRecord.student_id == student_id,
+            )
+            .group_by(CaseRecord.patient_id)
+        )
+        case_record_counts = {row.patient_id: row.cnt for row in cr_result}
 
     assignments_by_patient: dict[str, list[StudentPatientAssignment]] = {}
     for assignment in assignments:
@@ -1069,6 +1093,8 @@ async def get_previous_patients(
             ),
             **serialize_patient_badge_context(a.patient),
             "insurance_policies": serialize_patient_insurance(a.patient),
+            "case_record_count": case_record_counts.get(a.patient.id, 0),
+            "total_admissions": len(admissions_by_patient.get(a.patient.id, [])),
         })
     patients.sort(
         key=lambda patient: patient["discharge_date"] or patient["assigned_date"] or "",

@@ -1,8 +1,8 @@
 - need to do
 
-    [  ] ask insurance type again when requesting admission
     [  ] need custom form fields like departments selector or select from data from the db, like teachers
-    [  ] form disabling capability to certain patient types
+    [  ] ask insurance type again when requesting admission
+    [  ] form role access capability to user types
     [  ] only make form visible after entering price in chargemaster
     [  ] faculty should be able to edit case record request from student
     [  ] prescription edit window to match the add prescription window

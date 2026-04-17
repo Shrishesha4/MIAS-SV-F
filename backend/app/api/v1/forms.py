@@ -6,13 +6,18 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import cast, exists, select, type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_role
 from app.database import get_db
+from app.models.department import Department
+from app.models.faculty import Faculty
 from app.models.form_category import FormCategoryOption
 from app.models.form_definition import FormDefinition
+from app.models.lab import ChargeItem, ChargePrice
+from app.models.student import Clinic
 from app.models.user import User, UserRole
 from app.services.form_categories import ensure_form_categories, infer_form_section, normalize_form_section_name
 
@@ -50,6 +55,7 @@ class FormDefinitionPayload(BaseModel):
     is_active: bool = True
     icon: Optional[str] = None
     color: Optional[str] = None
+    allowed_roles: Optional[list[str]] = None
 
 
 class FormCategoryPayload(BaseModel):
@@ -115,6 +121,18 @@ ALLOWED_FIELD_TYPES = {
     "email",
     "password",
     "tel",
+    "diagnosis",
+    # Dynamic DB-backed select types
+    "department_select",
+    "faculty_select",
+    "clinic_select",
+}
+
+# Maps dynamic field types to their DB source
+DYNAMIC_FIELD_SOURCES = {
+    "department_select": "departments",
+    "faculty_select": "faculty",
+    "clinic_select": "clinics",
 }
 
 
@@ -199,6 +217,7 @@ def _serialize_form(form: FormDefinition) -> dict:
         "fields": normalized_fields,
         "sort_order": form.sort_order,
         "is_active": form.is_active,
+        "allowed_roles": form.allowed_roles,
         "created_at": form.created_at.isoformat() if form.created_at else None,
         "updated_at": form.updated_at.isoformat() if form.updated_at else None,
     }
@@ -364,6 +383,32 @@ async def update_form_category(
     return _serialize_form_category(category)
 
 
+@router.get("/lookup-options/{source}")
+async def get_lookup_options(
+    source: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return {value, label} options for dynamic form field types."""
+    if source == "departments":
+        result = await db.execute(
+            select(Department).where(Department.is_active == True).order_by(Department.name)
+        )
+        return [{"value": d.id, "label": d.name} for d in result.scalars()]
+    elif source == "faculty":
+        result = await db.execute(
+            select(Faculty).order_by(Faculty.name)
+        )
+        return [{"value": f.id, "label": f"{f.name} ({f.department})"} for f in result.scalars()]
+    elif source == "clinics":
+        result = await db.execute(
+            select(Clinic).where(Clinic.is_active == True).order_by(Clinic.name)
+        )
+        return [{"value": c.id, "label": f"{c.name} ({c.department})"} for c in result.scalars()]
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown lookup source: {source}")
+
+
 @router.get("")
 async def list_forms(
     form_type: Optional[str] = Query(None),
@@ -387,6 +432,25 @@ async def list_forms(
         query = query.where(FormDefinition.procedure_name == procedure_name)
     if not include_inactive or user.role != UserRole.ADMIN:
         query = query.where(FormDefinition.is_active == True)
+
+    # Non-admin: filter by allowed_roles (null = all roles allowed)
+    if user.role != UserRole.ADMIN:
+        user_role_str = user.role.value if hasattr(user.role, 'value') else str(user.role)
+        query = query.where(
+            (FormDefinition.allowed_roles == None) |
+            (cast(FormDefinition.allowed_roles, JSONB).contains([user_role_str]))
+        )
+        # Only show forms that have at least one non-zero charge price
+        has_price = exists(
+            select(ChargePrice.id)
+            .join(ChargeItem, ChargeItem.id == ChargePrice.item_id)
+            .where(
+                ChargeItem.source_type == "form_definition",
+                ChargeItem.source_id == FormDefinition.id,
+                ChargePrice.price > 0,
+            )
+        )
+        query = query.where(has_price)
 
     query = query.order_by(
         FormDefinition.section,
@@ -433,6 +497,7 @@ async def create_form_definition(
         is_active=payload.is_active,
         icon=payload.icon or None,
         color=payload.color or None,
+        allowed_roles=payload.allowed_roles,
     )
     db.add(form)
     await db.flush()
@@ -483,6 +548,7 @@ async def update_form_definition(
     form.is_active = payload.is_active
     form.icon = payload.icon or None
     form.color = payload.color or None
+    form.allowed_roles = payload.allowed_roles
 
     await db.flush()
     await db.refresh(form)

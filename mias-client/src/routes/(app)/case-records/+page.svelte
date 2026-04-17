@@ -42,6 +42,7 @@
 	let diagnosisSuggestions: DiagnosisSuggestion[] = $state([]);
 	let diagnosisLoading = $state(false);
 	let selectedFacultyId = $state('');
+	let casePrice = $state('');
 
 	const mergedProcedureMap = $derived(
 		mergeProcedureMaps(procedures, buildCaseRecordProcedureMap(caseRecordForms))
@@ -304,6 +305,7 @@
 				form_name: selectedForm?.name,
 				form_description: selectedForm?.description || undefined,
 				time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+				price: casePrice ? parseFloat(casePrice) : undefined,
 			});
 			showCreateModal = false;
 			toastStore.addToast('Case record submitted. summary pending.', 'success');
@@ -608,6 +610,26 @@
 							<option value={faculty.id}>{faculty.name} ({faculty.department})</option>
 						{/each}
 					</select>
+				</div>
+
+				<!-- Procedure Price -->
+				<div>
+					<label for="cr-price" class="block text-sm font-medium text-gray-700 mb-1">
+						Procedure Cost (₹) <span class="text-gray-400 font-normal text-xs">— optional, deducted from patient's hospital wallet</span>
+					</label>
+					<input
+						id="cr-price"
+						type="number"
+						min="0"
+						step="0.01"
+						placeholder="0.00"
+						bind:value={casePrice}
+						class="block w-full px-3 py-2 rounded-md text-sm"
+						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+					/>
+					{#if casePrice && parseFloat(casePrice) > 0}
+						<p class="text-xs text-orange-600 mt-1">₹{parseFloat(casePrice).toLocaleString('en-IN')} will be deducted from patient's Hospital wallet on submission.</p>
+					{/if}
 				</div>
 			{/if}
 

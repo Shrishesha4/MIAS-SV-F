@@ -197,7 +197,7 @@
 			rowId: patient.assignment_id ?? patient.id,
 			patient_id: patient.patient_id,
 			name: patient.name,
-			canEdit: true,
+			canEdit: patient.status === 'Active',
 		};
 	}
 
@@ -833,25 +833,43 @@
 							</div>
 						{:else}
 							{#each previousPatients as ap}
-								<button
-									class="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
-									class:bg-blue-50={selectedPatient?.rowId === (ap.assignment_id ?? ap.id)}
-									onclick={() => openStudentPatient(toAssignedSelection(ap))}
-								>
-									<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
-									<div class="flex-1 min-w-0">
-										<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
-										<p class="text-xs text-gray-500 truncate">{ap.patient_id} · {ap.primary_diagnosis || 'No diagnosis'}</p>
-										{#if formatSessionWindow(ap) || ap.department}
-											<p class="text-[11px] text-gray-400 truncate">
-												{formatSessionWindow(ap) || 'Previous session'}{ap.department ? ` · ${ap.department}` : ''}
-											</p>
-										{/if}
-										<InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
-									</div>
-									<ChevronRight class="w-4 h-4 text-gray-400 shrink-0" />
-								</button>
-							{/each}
+<button
+class="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
+class:bg-blue-50={selectedPatient?.rowId === (ap.assignment_id ?? ap.id)}
+onclick={() => openStudentPatient(toAssignedSelection(ap))}
+>
+<PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
+<div class="flex-1 min-w-0">
+<p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
+<p class="text-xs text-gray-500 truncate">{ap.patient_id}{ap.age ? ` · ${ap.age}y` : ''}{ap.gender ? ` · ${ap.gender}` : ''}</p>
+<p class="text-xs text-gray-500 truncate">{ap.primary_diagnosis || 'No diagnosis'}</p>
+<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+{#if ap.discharge_date}
+<span class="text-[11px] text-gray-400">Discharged {new Date(ap.discharge_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+{:else if ap.assigned_date}
+<span class="text-[11px] text-gray-400">Session {new Date(ap.assigned_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+{/if}
+{#if ap.department}
+<span class="text-[11px] text-gray-400">· {ap.department}</span>
+{/if}
+</div>
+<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+{#if ap.case_record_count > 0}
+<span class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background: rgba(59,130,246,0.1); color: #2563eb;">
+<FileText class="w-2.5 h-2.5" />{ap.case_record_count} record{ap.case_record_count !== 1 ? 's' : ''}
+</span>
+{/if}
+{#if ap.total_admissions > 0}
+<span class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background: rgba(16,185,129,0.1); color: #059669;">
+<Bed class="w-2.5 h-2.5" />{ap.total_admissions} admission{ap.total_admissions !== 1 ? 's' : ''}
+</span>
+{/if}
+</div>
+<InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
+</div>
+<ChevronRight class="w-4 h-4 text-gray-400 shrink-0 mt-1" />
+</button>
+{/each}
 							{#if previousPatients.length === 0}
 								<div class="flex flex-col items-center justify-center py-16 text-center px-4">
 									<Clock class="w-8 h-8 text-gray-300 mb-2" />

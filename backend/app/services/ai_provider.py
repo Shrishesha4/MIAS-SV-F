@@ -330,6 +330,8 @@ def build_case_record_user_prompt(
     form_name: str | None,
     form_description: str | None,
     form_values: dict[str, Any],
+    prior_records: list[dict[str, Any]] | None = None,
+    diagnosis_history: list[dict[str, Any]] | None = None,
 ) -> str:
     patient_age = None
     if patient.date_of_birth:
@@ -339,9 +341,13 @@ def build_case_record_user_prompt(
         )
 
     allergies = [allergy.allergen for allergy in (patient.allergies or [])]
-    alerts = [alert.title for alert in (patient.medical_alerts or []) if alert.is_active]
+    alerts = [
+        {"title": alert.title, "severity": alert.severity}
+        for alert in (patient.medical_alerts or [])
+        if alert.is_active
+    ]
 
-    context = {
+    context: dict[str, Any] = {
         "patient": {
             "name": patient.name,
             "patient_id": patient.patient_id,
@@ -365,6 +371,12 @@ def build_case_record_user_prompt(
         },
     }
 
+    if diagnosis_history:
+        context["diagnosis_history"] = diagnosis_history
+
+    if prior_records:
+        context["prior_case_records"] = prior_records
+
     return _stringify_context(context)
 
 
@@ -376,6 +388,8 @@ async def generate_case_record_draft(
     form_name: str | None,
     form_description: str | None,
     form_values: dict[str, Any],
+    prior_records: list[dict[str, Any]] | None = None,
+    diagnosis_history: list[dict[str, Any]] | None = None,
 ) -> dict[str, str]:
     config = await get_enabled_provider_settings(db)
     system_prompt = config.system_prompt or DEFAULT_SYSTEM_PROMPT
@@ -386,6 +400,8 @@ async def generate_case_record_draft(
         form_name=form_name,
         form_description=form_description,
         form_values=form_values,
+        prior_records=prior_records,
+        diagnosis_history=diagnosis_history,
     )
     response = await request_structured_completion(config, system_prompt, user_prompt)
 
