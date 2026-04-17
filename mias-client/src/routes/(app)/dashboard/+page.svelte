@@ -20,12 +20,12 @@
 	import { isHighlightedPatientCategory } from '$lib/utils/patient-category';
 	import {
 		HeartPulse, FileText, Pill, Activity, TestTube, Wallet,
-		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight,
+		Bed, Calendar, Crown, Shield, AlertTriangle, ChevronRight, ChevronDown,
 		GraduationCap, Users, CheckCircle, Clipboard, User,
 		Award, BarChart3, RefreshCw, ArrowRight, Building,
 		Phone, Mail, MessageSquare, CheckCircle2, Clock, CircleDot,
 		PhoneCall, Hospital, ClipboardList, FileCheck, Save,
-		Eye, X, LogIn, LogOut
+		Eye, X, LogIn, LogOut, Stethoscope, ExternalLink
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -64,6 +64,8 @@
 	let showAllPatients = $state(false);
 	let previousPatients: any[] = $state([]);
 	let previousPatientsLoading = $state(false);
+	let expandedPrevPatient = $state<string | null>(null);
+	let prevPatientDetails = $state<Record<string, { admissions: any[]; caseRecords: any[]; loading: boolean }>>({});
 	let checkingIn = $state(false);
 	let checkingOut = $state(false);
 
@@ -199,6 +201,28 @@
 			name: patient.name,
 			canEdit: patient.status === 'Active',
 		};
+	}
+
+	async function togglePrevPatient(ap: any) {
+		const key = ap.assignment_id ?? ap.id;
+		if (expandedPrevPatient === key) {
+			expandedPrevPatient = null;
+			return;
+		}
+		expandedPrevPatient = key;
+		if (!prevPatientDetails[key]) {
+			prevPatientDetails[key] = { admissions: [], caseRecords: [], loading: true };
+			try {
+				const patDbId = ap.patient_db_id ?? ap.id;
+				const [admissions, caseRecords] = await Promise.all([
+					patientApi.getAdmissions(patDbId).catch(() => []),
+					studentApi.getCaseRecords(student.id, patDbId).catch(() => []),
+				]);
+				prevPatientDetails[key] = { admissions, caseRecords, loading: false };
+			} catch {
+				prevPatientDetails[key] = { admissions: [], caseRecords: [], loading: false };
+			}
+		}
 	}
 
 	function toClinicSelection(patient: ClinicPatient): StudentPatientSelection | null {
@@ -833,27 +857,32 @@
 							</div>
 						{:else}
 							{#each previousPatients as ap}
+{@const key = ap.assignment_id ?? ap.id}
+{@const isExpanded = expandedPrevPatient === key}
+{@const details = prevPatientDetails[key]}
+<div class="border-b border-gray-100">
+<!-- Card Header — tap to expand -->
 <button
-class="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer border-b border-gray-50 hover:bg-gray-50"
-class:bg-blue-50={selectedPatient?.rowId === (ap.assignment_id ?? ap.id)}
-onclick={() => openStudentPatient(toAssignedSelection(ap))}
+class="w-full flex items-start gap-3 px-4 py-3 text-left transition-colors cursor-pointer hover:bg-gray-50"
+class:bg-blue-50={isExpanded}
+onclick={() => togglePrevPatient(ap)}
 >
 <PatientInsuranceAvatar name={ap.name} src={ap.photo} size="sm" insurancePolicies={ap.insurance_policies} patientCategory={ap.category} patientCategoryColorPrimary={ap.category_color_primary} patientCategoryColorSecondary={ap.category_color_secondary} />
 <div class="flex-1 min-w-0">
 <p class="font-semibold text-gray-800 text-sm">{ap.name}</p>
-<p class="text-xs text-gray-500 truncate">{ap.patient_id}{ap.age ? ` · ${ap.age}y` : ''}{ap.gender ? ` · ${ap.gender}` : ''}</p>
-<p class="text-xs text-gray-500 truncate">{ap.primary_diagnosis || 'No diagnosis'}</p>
-<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+<p class="text-xs text-gray-500">{ap.patient_id}{ap.age ? ` · ${ap.age}y` : ''}{ap.gender ? ` · ${ap.gender}` : ''}{ap.blood_group ? ` · ${ap.blood_group}` : ''}</p>
+<p class="text-xs text-gray-500 truncate mt-0.5">{ap.primary_diagnosis || 'No diagnosis recorded'}</p>
+<div class="flex items-center gap-1.5 mt-1 flex-wrap">
 {#if ap.discharge_date}
-<span class="text-[11px] text-gray-400">Discharged {new Date(ap.discharge_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+<span class="inline-flex items-center gap-0.5 text-[10px] text-gray-400"><Calendar class="w-2.5 h-2.5" /> Discharged {new Date(ap.discharge_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
 {:else if ap.assigned_date}
-<span class="text-[11px] text-gray-400">Session {new Date(ap.assigned_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
+<span class="inline-flex items-center gap-0.5 text-[10px] text-gray-400"><Calendar class="w-2.5 h-2.5" /> {new Date(ap.assigned_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}</span>
 {/if}
 {#if ap.department}
-<span class="text-[11px] text-gray-400">· {ap.department}</span>
+<span class="text-[10px] text-gray-400">· {ap.department}</span>
 {/if}
 </div>
-<div class="flex items-center gap-1.5 mt-0.5 flex-wrap">
+<div class="flex items-center gap-1.5 mt-1 flex-wrap">
 {#if ap.case_record_count > 0}
 <span class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium" style="background: rgba(59,130,246,0.1); color: #2563eb;">
 <FileText class="w-2.5 h-2.5" />{ap.case_record_count} record{ap.case_record_count !== 1 ? 's' : ''}
@@ -864,11 +893,109 @@ onclick={() => openStudentPatient(toAssignedSelection(ap))}
 <Bed class="w-2.5 h-2.5" />{ap.total_admissions} admission{ap.total_admissions !== 1 ? 's' : ''}
 </span>
 {/if}
-</div>
 <InsuranceTypeBadges insurancePolicies={ap.insurance_policies} compact maxVisible={2} />
 </div>
-<ChevronRight class="w-4 h-4 text-gray-400 shrink-0 mt-1" />
+</div>
+<div class="shrink-0 mt-1 transition-transform duration-200" class:rotate-180={isExpanded}>
+<ChevronDown class="w-4 h-4 text-gray-400" />
+</div>
 </button>
+
+<!-- Expanded Detail Section -->
+{#if isExpanded}
+<div class="px-4 pb-4 space-y-3" style="background: #f8faff;">
+{#if details?.loading}
+<div class="flex items-center justify-center py-4">
+<div class="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin"></div>
+</div>
+{:else}
+<!-- Open Full Profile Button -->
+<button
+class="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold cursor-pointer mt-1"
+style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(37,99,235,0.35);"
+onclick={(e) => { e.stopPropagation(); openStudentPatient(toAssignedSelection(ap)); }}
+>
+<ExternalLink class="w-3.5 h-3.5" /> View Full Profile
+</button>
+
+<!-- Admissions -->
+{#if details?.admissions?.length}
+<div>
+<p class="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+<Bed class="w-3 h-3" /> Admissions ({details.admissions.length})
+</p>
+<div class="space-y-1.5">
+{#each details.admissions as adm}
+<div class="rounded-lg px-3 py-2 border" style="background: white; border-color: rgba(0,0,0,0.08);">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0">
+<p class="text-xs font-semibold text-gray-700">{adm.ward || adm.department || 'Ward —'}</p>
+<p class="text-[11px] text-gray-500 mt-0.5 truncate">{adm.diagnosis || adm.admission_reason || '—'}</p>
+<p class="text-[10px] text-gray-400 mt-0.5">
+{adm.admission_date ? new Date(adm.admission_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
+{#if adm.discharge_date}
+→ {new Date(adm.discharge_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })}
+{:else}
+· Active
+{/if}
+</p>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium"
+style="{adm.status === 'Discharged' ? 'background:rgba(16,185,129,0.1);color:#059669' : adm.status === 'Active' ? 'background:rgba(59,130,246,0.1);color:#2563eb' : 'background:rgba(156,163,175,0.15);color:#6b7280'}"
+>{adm.status}</span>
+</div>
+</div>
+{/each}
+</div>
+</div>
+{:else}
+<p class="text-[11px] text-gray-400 text-center py-1 flex items-center justify-center gap-1"><Bed class="w-3 h-3" /> No admissions</p>
+{/if}
+
+<!-- Case Records -->
+{#if details?.caseRecords?.length}
+<div>
+<p class="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+<FileText class="w-3 h-3" /> Case Records ({details.caseRecords.length})
+</p>
+<div class="space-y-1.5">
+{#each details.caseRecords as cr}
+<div class="rounded-lg px-3 py-2 border" style="background: white; border-color: rgba(0,0,0,0.08);">
+<div class="flex items-start justify-between gap-2">
+<div class="min-w-0 flex-1">
+<p class="text-xs font-semibold text-gray-700 truncate">{cr.procedure_name || cr.form_name || cr.type || 'Case Record'}</p>
+{#if cr.description}
+<p class="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{cr.description}</p>
+{/if}
+{#if cr.findings}
+<p class="text-[11px] text-gray-500 mt-0.5"><span class="font-medium">Findings:</span> {cr.findings}</p>
+{/if}
+{#if cr.diagnosis}
+<p class="text-[11px] text-gray-500 mt-0.5"><span class="font-medium">Dx:</span> {cr.diagnosis}</p>
+{/if}
+{#if cr.treatment}
+<p class="text-[11px] text-gray-500 mt-0.5"><span class="font-medium">Tx:</span> {cr.treatment}</p>
+{/if}
+<p class="text-[10px] text-gray-400 mt-0.5">
+{cr.date ? new Date(cr.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
+{cr.department ? ` · ${cr.department}` : ''}
+</p>
+</div>
+<span class="text-[10px] px-1.5 py-0.5 rounded-full shrink-0 font-medium"
+style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#059669' : cr.status === 'PENDING' ? 'background:rgba(245,158,11,0.1);color:#d97706' : 'background:rgba(156,163,175,0.15);color:#6b7280'}"
+>{cr.status || 'Draft'}</span>
+</div>
+</div>
+{/each}
+</div>
+</div>
+{:else}
+<p class="text-[11px] text-gray-400 text-center py-1 flex items-center justify-center gap-1"><FileText class="w-3 h-3" /> No case records</p>
+{/if}
+{/if}
+</div>
+{/if}
+</div>
 {/each}
 							{#if previousPatients.length === 0}
 								<div class="flex flex-col items-center justify-center py-16 text-center px-4">
