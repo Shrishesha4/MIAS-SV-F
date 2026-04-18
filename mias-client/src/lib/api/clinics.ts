@@ -144,4 +144,7 @@ export const clinicsApi = {
   async deleteClinic(clinicId: string): Promise<void> {
     await client.delete(`/clinics/${clinicId}`);
   },
+  async listClinicsPublic(): Promise<Pick<ClinicInfo, 'id' | 'name' | 'block' | 'clinic_type' | 'department' | 'location' | 'faculty_name'>[]> {
+    return (await client.get('/clinics/public')).data;
+  },
 };

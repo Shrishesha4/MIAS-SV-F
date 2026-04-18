@@ -4,6 +4,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
+	import { browser } from '$app/environment';
 	import { authStore } from '$lib/stores/auth';
 	import { notificationCountStore } from '$lib/stores/notifications';
 	import { attendanceApi, type AttendanceStatus } from '$lib/api/attendance';
@@ -236,15 +237,17 @@
 			// If API fails, use defaults
 		}
 		await loadAttendanceStatus();
+		if (browser) document.body.classList.add('app-layout-active');
 	});
 
 	onDestroy(() => {
 		unsubscribeNotificationCount();
+		if (browser) document.body.classList.remove('app-layout-active');
 	});
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="min-h-screen">
+<div class="min-h-screen lg:h-dvh lg:overflow-hidden">
 	<!-- Desktop: Floating sidebar backdrop (when pinned/hovered) -->
 	{#if sidebarOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -337,7 +340,7 @@
 	</aside>
 
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
-	<div class="flex flex-col min-h-screen">
+	<div class="flex flex-col min-h-screen lg:h-dvh lg:overflow-hidden">
 		<NavBar
 			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing'}
 			notificationCount={unreadNotifications}
@@ -346,7 +349,7 @@
 			onmenuleave={handleTriggerLeave}
 		/>
 
-		<main class="flex-1 pb-4">
+		<main class="flex-1 min-h-0 pb-4 lg:pb-0 lg:overflow-y-auto">
 			<div class="content-container">
 				{#key pageTransitionKey}
 					<div
@@ -467,6 +470,13 @@
 		width: min(100%, 448px);
 		margin-left: auto;
 		margin-right: auto;
+	}
+
+	@media (min-width: 1024px) {
+		:global(body.app-layout-active) {
+			overflow: hidden;
+			height: 100dvh;
+		}
 	}
 
 	/* ── Floating sidebar panel ────────────────────────── */

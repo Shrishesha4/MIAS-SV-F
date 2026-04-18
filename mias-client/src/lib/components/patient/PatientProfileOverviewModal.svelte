@@ -451,305 +451,541 @@
 		alertHistory = initialAlertHistory;
 		void loadSupplementalData();
 	});
+
+	// ── Redesigned modal state ──────────────────────────────────────────────
+	let selectedWallet = $state<'HOSPITAL' | 'PHARMACY'>('HOSPITAL');
+	let insuranceView = $state<'list' | 'add'>('list');
+	let claimsView = $state<'list' | 'new'>('list');
+	let selectedClaim = $state<any | null>(null);
+
+	let addInsCarrier = $state('');
+	let addInsPolicyNum = $state('');
+	let addInsCoverage = $state('');
+	let addInsValidUntil = $state('');
+	let savingIns = $state(false);
+
+	let newClaimDesc = $state('');
+	let newClaimAmount = $state('');
+	let newClaimEmail = $state('');
+	let newClaimDetails = $state('');
+
+	let mappedEmail = $state(patient.email || '');
+	let claimReply = $state('');
+	let claims = $state<any[]>([]);
+
+	const selectedWalletTxns = $derived(
+		selectedWallet === 'HOSPITAL' ? hospitalTransactions : pharmacyTransactions
+	);
+	const selectedWalletBalance = $derived(
+		selectedWallet === 'HOSPITAL' ? hospitalBalance : pharmacyBalance
+	);
+
+	function isInsuranceActive(policy: any): boolean {
+		if (!policy.valid_until) return true;
+		return new Date(policy.valid_until) >= new Date();
+	}
+
+	async function handleAddInsurance() {
+		if (!addInsCarrier.trim() || !addInsPolicyNum.trim()) {
+			toastStore.addToast('Carrier name and policy number are required', 'error');
+			return;
+		}
+		savingIns = true;
+		try {
+			await patientApi.addInsurancePolicy(patient.id, {
+				provider: addInsCarrier,
+				policy_number: addInsPolicyNum,
+				valid_until: addInsValidUntil || undefined,
+				coverage_type: addInsCoverage || undefined,
+			});
+			onpatientupdated?.({ ...patient });
+			addInsCarrier = ''; addInsPolicyNum = ''; addInsCoverage = ''; addInsValidUntil = '';
+			insuranceView = 'list';
+			toastStore.addToast('Insurance policy added', 'success');
+		} catch {
+			toastStore.addToast('Failed to add insurance policy', 'error');
+		} finally {
+			savingIns = false;
+		}
+	}
+
+	function handleNewClaim() {
+		if (!newClaimDesc.trim() || !newClaimAmount.trim()) {
+			toastStore.addToast('Description and amount are required', 'error');
+			return;
+		}
+		const clmNum = claims.length + 1;
+		const clmId = `CLM-${String(clmNum).padStart(3, '0')}`;
+		const claim = {
+			id: clmId,
+			description: newClaimDesc,
+			amount: parseFloat(newClaimAmount),
+			email: newClaimEmail,
+			details: newClaimDetails,
+			status: 'PENDING',
+			date: new Date().toISOString().split('T')[0],
+			provider: patient.insurance_policies?.[0]?.provider || 'Insurance',
+			messages: [
+				{
+					from: 'SYSTEM',
+					subject: `Claim Submission: ${clmId}`,
+					body: `Initial claim submission for patient ${patient.patient_id}. Amount: ₹${parseFloat(newClaimAmount).toLocaleString('en-IN')}.`,
+					timestamp: new Date().toISOString(),
+				},
+			],
+		};
+		const emailTo = newClaimEmail;
+		const body = newClaimDetails || newClaimDesc;
+		claims = [...claims, claim];
+		newClaimDesc = ''; newClaimAmount = ''; newClaimEmail = ''; newClaimDetails = '';
+		claimsView = 'list';
+		if (emailTo) {
+			window.open(`mailto:${emailTo}?subject=Insurance Claim: ${clmId}&body=${encodeURIComponent(body)}`, '_blank');
+		}
+		toastStore.addToast(`Claim ${clmId} submitted`, 'success');
+	}
+
+	function sendClaimReply() {
+		if (!claimReply.trim() || !selectedClaim) return;
+		const msg = {
+			from: 'ME',
+			subject: `RE: ${selectedClaim.id}`,
+			body: claimReply.trim(),
+			timestamp: new Date().toISOString(),
+		};
+		const updated = { ...selectedClaim, messages: [...selectedClaim.messages, msg] };
+		claims = claims.map((c) => (c.id === updated.id ? updated : c));
+		selectedClaim = updated;
+		claimReply = '';
+	}
 </script>
 
 <AquaModal
-	title="Patient Profile & Activity"
 	onclose={onclose}
-	panelClass="max-w-none h-[calc(100dvh-12px)] max-h-[calc(100dvh-12px)] w-[calc(100vw-12px)] sm:h-[calc(100dvh-24px)] sm:max-h-[calc(100dvh-24px)] sm:w-full lg:h-auto lg:max-h-[90vh] lg:max-w-[min(1120px,92vw)]"
+	panelClass="sm:max-w-[580px]"
 	contentClass="p-0"
 >
 	{#snippet header()}
-		<div class="flex min-w-0 items-center gap-2 sm:gap-2.5">
-			<PatientInsuranceAvatar
-				name={patient.name}
-				src={patient.photo}
-				size="sm"
-				insurancePolicies={patient.insurance_policies}
-				patientCategory={patient.category}
-				patientCategoryColorPrimary={patient.category_color_primary}
-				patientCategoryColorSecondary={patient.category_color_secondary}
-			/>
-			<div class="min-w-0">
-				<p class="truncate text-base font-black text-slate-900 sm:text-lg">{patient.name}</p>
-				<p class="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700 sm:text-xs sm:tracking-[0.18em]">Patient Profile & Logs</p>
-			</div>
-		</div>
-	{/snippet}
-
-	<div class="flex h-full flex-col">
-		<div class="border-b border-slate-200 bg-white px-2.5 py-2 sm:px-3 sm:py-2.5">
-			<div class="overflow-x-auto tabbar-scroll">
-				<div class="min-w-max">
-					<TabBar
-						tabs={tabs}
-						activeTab={activeTab}
-						onchange={(tabId) => { activeTab = tabId as OverviewTab; }}
-						variant="jiggle"
-						stretch={false}
-						ariaLabel="Patient profile tabs"
-					/>
-				</div>
-			</div>
-		</div>
-
-		<div class="flex-1 overflow-y-auto bg-slate-50/70 p-3 sm:p-4">
-			{#if activeTab === 'information'}
-				<div class="space-y-3.5 sm:space-y-4">
-					<div class="rounded-[20px] border border-slate-200 bg-white p-3.5 shadow-[0_10px_24px_rgba(15,23,42,0.06)] sm:rounded-[24px] sm:p-4">
-						<div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-							<div class="flex flex-col items-center gap-3 text-center sm:flex-row sm:items-start sm:gap-3.5 sm:text-left">
-								<div class="relative">
-									<div class="overflow-hidden rounded-full border-4 border-white shadow-lg">
-										{#if resolvedPhoto}
-											<img src={resolvedPhoto} alt={patient.name} class="h-20 w-20 object-cover sm:h-24 sm:w-24" />
-										{:else}
-											<div class="flex h-20 w-20 items-center justify-center bg-slate-200 text-xl font-black text-slate-600 sm:h-24 sm:w-24 sm:text-2xl">
-												{patient.name.slice(0, 1).toUpperCase()}
-											</div>
-										{/if}
-									</div>
-									{#if editable}
-										<button
-											class="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border border-blue-200 bg-blue-600 text-white shadow-lg sm:h-8.5 sm:w-8.5"
-											type="button"
-											onclick={() => photoInput?.click()}
-											disabled={photoUploading}
-										>
-											{#if photoUploading}
-												<div class="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
-											{:else}
-												<ImagePlus class="h-3.5 w-3.5" />
-											{/if}
-										</button>
-										<input bind:this={photoInput} type="file" accept="image/*" class="hidden" onchange={handlePhotoUpload} />
-									{/if}
-								</div>
-								<div class="min-w-0 space-y-1.5">
-									<div>
-										<h2 class="truncate text-xl font-black tracking-tight text-slate-900 sm:text-2xl">{patient.name}</h2>
-										<p class="mt-0.5 truncate text-sm font-semibold text-slate-500 sm:text-base">ID: {patient.patient_id}</p>
-									</div>
-									<p class="text-sm font-semibold text-slate-700 sm:text-base">{age ?? '—'}, {patient.gender || '—'}, Blood: {patient.blood_group || '—'}</p>
-									<div class="flex justify-center sm:justify-start">
-										<InsuranceTypeBadges insurancePolicies={patient.insurance_policies} />
-									</div>
-								</div>
-							</div>
-						</div>
+		{#if selectedClaim}
+			<div class="flex flex-1 items-center justify-between gap-2">
+				<div class="flex items-center gap-2.5">
+					<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600">
+						<FileText class="h-4.5 w-4.5 text-white" />
 					</div>
-
-					<div class="grid gap-4 xl:grid-cols-2">
-						<div class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-							<div class="border-b border-slate-200 bg-slate-100/80 px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-600">Demographics</div>
-							<div class="space-y-2.5 p-3.5">
-								{#each [
-									['Full Name', patient.name],
-									['Patient ID', patient.patient_id],
-									['Date of Birth', patient.date_of_birth ? `${formatDate(patient.date_of_birth)}${age !== null ? ` (${age}Y)` : ''}` : '—'],
-								] as item}
-									<div class="flex items-center justify-between rounded-xl border border-slate-200 px-3.5 py-3">
-										<p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">{item[0]}</p>
-										<p class="text-base font-black text-slate-900">{item[1] || '—'}</p>
-									</div>
-								{/each}
-							</div>
-						</div>
-
-						<div class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-							<div class="border-b border-slate-200 bg-slate-100/80 px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-600">Medical & Contact</div>
-							<div class="space-y-2.5 p-3.5">
-								{#each [
-									['Gender', patient.gender],
-									['Blood Group', patient.blood_group],
-									['Contact', patient.phone],
-									['Email', patient.email],
-									['Primary Diagnosis', patient.primary_diagnosis],
-								] as item}
-									<div class="flex items-center justify-between rounded-xl border border-slate-200 px-3.5 py-3">
-										<p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">{item[0]}</p>
-										<p class="text-right text-base font-black text-slate-900">{item[1] || '—'}</p>
-									</div>
-								{/each}
-							</div>
-						</div>
-					</div>
-
-					<div class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-						<div class="border-b border-slate-200 bg-slate-100/80 px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-600">Residential Address</div>
-						<div class="p-4 text-base font-semibold text-slate-800">{patient.address || 'No address recorded'}</div>
+					<div class="min-w-0">
+						<p class="truncate text-[15px] font-black text-slate-900">Claim Communication: {selectedClaim.id}</p>
+						<p class="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{selectedClaim.provider}</p>
 					</div>
 				</div>
-			{:else if activeTab === 'insurance'}
-				<div class="space-y-3.5">
-					{#if (patient.insurance_policies || []).length === 0}
-						<div class="rounded-[20px] border border-slate-200 bg-white px-5 py-10 text-center text-sm text-slate-400 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-							No insurance policies linked to this patient.
-						</div>
-					{:else}
-						{#each patient.insurance_policies || [] as policy (policy.id)}
-							<div class="rounded-[20px] border border-slate-200 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-								<div class="flex flex-wrap items-start justify-between gap-2.5">
-									<div>
-										<p class="text-xl font-black text-slate-900">{policy.provider}</p>
-										<p class="mt-0.5 text-xs font-semibold text-slate-500">Policy #{policy.policy_number}</p>
-									</div>
-									<InsuranceTypeBadges insurancePolicies={[policy]} />
-								</div>
-								<div class="mt-3.5 grid gap-2.5 md:grid-cols-3">
-									<div class="rounded-xl border border-slate-200 px-3.5 py-2.5">
-										<p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Coverage</p>
-										<p class="mt-1 text-base font-bold text-slate-900">{policy.coverage_type || '—'}</p>
-									</div>
-									<div class="rounded-xl border border-slate-200 px-3.5 py-2.5">
-										<p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Valid Until</p>
-										<p class="mt-1 text-base font-bold text-slate-900">{formatDate(policy.valid_until)}</p>
-									</div>
-									<div class="rounded-xl border border-slate-200 px-3.5 py-2.5">
-										<p class="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Insurance Category</p>
-										<p class="mt-1 text-base font-bold text-slate-900">{patient.category || '—'}</p>
-									</div>
-								</div>
+				<button
+					type="button"
+					onclick={() => (selectedClaim = null)}
+					class="shrink-0 rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white"
+					style="background: linear-gradient(to bottom, #4d90fe, #1a56db);"
+				>Exit to Profile</button>
+			</div>
+		{:else}
+			<div class="flex items-center gap-2.5">
+				<div class="relative shrink-0">
+					<div class="h-11 w-11 overflow-hidden rounded-full border-2 border-white shadow-md">
+						{#if resolvedPhoto}
+							<img src={resolvedPhoto} alt={patient.name} class="h-full w-full object-cover" />
+						{:else}
+							<div class="flex h-full w-full items-center justify-center bg-blue-100 text-base font-black text-blue-600">
+								{patient.name.slice(0, 1).toUpperCase()}
 							</div>
-						{/each}
+						{/if}
+					</div>
+					{#if editable}
+						<button
+							class="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow"
+							type="button"
+							onclick={() => photoInput?.click()}
+							disabled={photoUploading}
+						>
+							{#if photoUploading}
+								<div class="h-2 w-2 animate-spin rounded-full border border-white border-t-transparent"></div>
+							{:else}
+								<ImagePlus class="h-2.5 w-2.5" />
+							{/if}
+						</button>
+						<input bind:this={photoInput} type="file" accept="image/*" class="hidden" onchange={handlePhotoUpload} />
 					{/if}
 				</div>
-			{:else if activeTab === 'transactions'}
-				<div class="space-y-3.5">
-					<div class="grid gap-3.5 lg:grid-cols-2">
-						{#each [
-							{ label: 'Hospital Wallet', icon: CreditCard, balance: hospitalBalance },
-							{ label: 'Pharmacy Wallet', icon: BadgeIndianRupee, balance: pharmacyBalance },
-						] as walletCard}
-							<div class="rounded-[20px] border border-slate-200 bg-gradient-to-br from-blue-600 to-blue-700 p-4 text-white shadow-[0_12px_24px_rgba(37,99,235,0.2)]">
-								<div class="flex items-center justify-between">
-									<div>
-										<p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-100">{walletCard.label}</p>
-										<p class="mt-1.5 text-2xl font-black">{formatCurrency(walletCard.balance?.balance)}</p>
-									</div>
-									<walletCard.icon class="h-7 w-7 text-blue-100" />
-								</div>
-								<div class="mt-4 grid grid-cols-2 gap-2.5 text-sm">
-									<div class="rounded-xl bg-white/10 px-3 py-2.5">
-										<p class="text-xs text-blue-100">Credits</p>
-										<p class="mt-1 font-black">{formatCurrency(walletCard.balance?.total_credits)}</p>
-									</div>
-									<div class="rounded-xl bg-white/10 px-3 py-2.5">
-										<p class="text-xs text-blue-100">Debits</p>
-										<p class="mt-1 font-black">{formatCurrency(walletCard.balance?.total_debits)}</p>
-									</div>
-								</div>
+				<div>
+					<p class="text-[17px] font-black leading-tight text-slate-900">{patient.name}</p>
+					<p class="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">Patient Profile &amp; Wallet</p>
+				</div>
+			</div>
+		{/if}
+	{/snippet}
+
+	<div class="flex flex-col">
+		<!-- Tab bar -->
+		{#if !selectedClaim}
+			<div class="flex border-b border-slate-200 bg-white">
+				{#each [
+					{ id: 'information', label: 'INFORMATION' },
+					{ id: 'insurance', label: 'INSURANCE' },
+					{ id: 'transactions', label: 'TRANSACTIONS' },
+				] as tab}
+					<button
+						type="button"
+						onclick={() => (activeTab = tab.id as OverviewTab)}
+						class="relative px-4 py-3.5 text-[11px] tracking-[0.12em] transition-colors"
+						style={activeTab === tab.id ? 'color: #2563eb; font-weight: 800;' : 'color: #9ca3af; font-weight: 600;'}
+					>
+						{tab.label}
+						{#if activeTab === tab.id}
+							<span class="absolute inset-x-2 bottom-0 h-0.5 rounded-t-full bg-blue-600"></span>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
+
+		<!-- Scrollable content -->
+		<div class="overflow-y-auto px-5 py-4" style="max-height: calc(85vh - 180px);">
+			{#if selectedClaim}
+				<!-- Claim communication view -->
+				<div class="space-y-3 pb-16">
+					{#each selectedClaim.messages as msg, i (i)}
+						<div class="rounded-xl border border-slate-200 bg-white p-4">
+							<div class="mb-2 flex items-start justify-between gap-2">
+								<p class="text-[10px] font-black uppercase tracking-[0.14em] text-blue-600">
+									{msg.from === 'SYSTEM' ? 'System' : msg.from === 'ME' ? 'You' : msg.from}
+								</p>
+								<p class="shrink-0 text-[10px] font-medium text-slate-400">
+									{new Date(msg.timestamp).toLocaleString([], { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+								</p>
 							</div>
-						{/each}
+							<p class="text-sm font-black text-slate-900">{msg.subject}</p>
+							<p class="mt-1 text-sm text-slate-700">{msg.body}</p>
+						</div>
+					{/each}
+				</div>
+
+			{:else if activeTab === 'information'}
+				<div class="space-y-4 pb-2">
+					<!-- DEMOGRAPHICS -->
+					<div>
+						<p class="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Demographics</p>
+						<div class="overflow-hidden rounded-xl border border-slate-200">
+							{#each [
+								['FULL NAME', patient.name, true],
+								['PATIENT ID', patient.patient_id, false],
+								['DATE OF BIRTH', patient.date_of_birth ? `${patient.date_of_birth}${age !== null ? ` (${age}Y)` : ''}` : '—', false],
+							] as [label, value, highlight], i}
+								<div class="flex items-center justify-between px-4 py-3 {i > 0 ? 'border-t border-slate-100' : ''}">
+									<p class="text-[11px] font-bold uppercase tracking-[0.12em] {highlight ? 'text-blue-600' : 'text-slate-500'}">{label}</p>
+									<p class="text-sm font-bold text-slate-900">{value || '—'}</p>
+								</div>
+							{/each}
+						</div>
 					</div>
 
-					<div class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-						<div class="border-b border-slate-200 px-4 py-3 text-xs font-black uppercase tracking-[0.18em] text-slate-600">All Transactions</div>
-						<div class="max-h-[46vh] overflow-y-auto p-3.5">
-							{#if transactionsLoading}
-								<div class="py-12 text-center text-slate-400">Loading transactions…</div>
-							{:else if combinedTransactions.length === 0}
-								<div class="py-12 text-center text-slate-400">No transactions found.</div>
+					<!-- MEDICAL & CONTACT -->
+					<div>
+						<p class="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Medical &amp; Contact</p>
+						<div class="overflow-hidden rounded-xl border border-slate-200">
+							{#each [
+								['GENDER', patient.gender],
+								['BLOOD GROUP', patient.blood_group],
+								['CONTACT', patient.phone],
+							] as [label, value], i}
+								<div class="flex items-center justify-between px-4 py-3 {i > 0 ? 'border-t border-slate-100' : ''}">
+									<p class="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+									<p class="text-sm font-bold text-slate-900">{value || '—'}</p>
+								</div>
+							{/each}
+						</div>
+					</div>
+
+					<!-- RESIDENTIAL ADDRESS -->
+					<div>
+						<p class="mb-2 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">Residential Address</p>
+						<div class="rounded-xl border border-slate-200 px-4 py-3">
+							<p class="text-sm font-medium text-slate-700">{patient.address || 'No address recorded'}</p>
+						</div>
+					</div>
+
+					<!-- CURRENT WALLET BALANCE -->
+					<div class="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3.5">
+						<div>
+							<p class="text-[10px] font-black uppercase tracking-[0.14em] text-blue-600">Current Wallet Balance</p>
+							<p class="mt-1 text-2xl font-black text-blue-900">
+								{#if transactionsLoading}
+									<span class="text-base text-slate-400">Loading…</span>
+								{:else}
+									₹ {Number(hospitalBalance?.balance || 0).toLocaleString('en-IN')}
+								{/if}
+							</p>
+						</div>
+						<button
+							type="button"
+							onclick={() => (activeTab = 'transactions')}
+							class="rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wide text-white"
+							style="background: linear-gradient(to bottom, #4d90fe, #1a56db); box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+						>View Ledger</button>
+					</div>
+				</div>
+
+			{:else if activeTab === 'insurance'}
+				<div class="space-y-4 pb-2">
+					{#if insuranceView === 'add'}
+						<!-- Add insurance inline form -->
+						<div>
+							<div class="mb-3 flex items-center justify-between">
+								<p class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Insurance Coverage</p>
+								<button type="button" onclick={() => (insuranceView = 'list')} class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db);">Cancel</button>
+							</div>
+							<div class="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+								<div class="grid grid-cols-2 gap-3">
+									<div>
+										<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Carrier Name</p>
+										<input bind:value={addInsCarrier} placeholder="e.g. Apollo Munich" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+									</div>
+									<div>
+										<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Policy Number</p>
+										<input bind:value={addInsPolicyNum} placeholder="e.g. POL-12345" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+									</div>
+									<div>
+										<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Coverage Amount</p>
+										<input bind:value={addInsCoverage} placeholder="e.g. ₹ 3,00,000" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+									</div>
+									<div>
+										<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Valid Until</p>
+										<input type="date" bind:value={addInsValidUntil} class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+									</div>
+								</div>
+								<div class="flex justify-end">
+									<button type="button" onclick={handleAddInsurance} disabled={savingIns} class="rounded-xl px-6 py-2.5 text-sm font-black uppercase tracking-wide text-white disabled:opacity-50" style="background: #16a34a;">
+										{savingIns ? 'Saving…' : 'Save Insurance'}
+									</button>
+								</div>
+							</div>
+						</div>
+					{:else}
+						<!-- Insurance coverage list -->
+						<div>
+							<div class="mb-3 flex items-center justify-between">
+								<p class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Insurance Coverage</p>
+								<button type="button" onclick={() => (insuranceView = 'add')} class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db);">Add Insurance</button>
+							</div>
+							{#if (patient.insurance_policies || []).length === 0}
+								<div class="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-400">No insurance policies linked.</div>
 							{:else}
-								<div class="space-y-2.5">
-									{#each combinedTransactions as transaction (transaction.id)}
-										<div class="rounded-xl border border-slate-200 px-3.5 py-3.5">
-											<div class="flex flex-wrap items-start justify-between gap-2.5">
-												<div>
-													<p class="text-sm font-black text-slate-900">{transaction.description}</p>
-													<p class="mt-0.5 text-xs font-medium text-slate-500">{transaction.walletLabel} • {formatDate(`${transaction.date}T${transaction.time || '00:00:00'}`)}</p>
+								<div class="space-y-3">
+									{#each patient.insurance_policies as policy (policy.id)}
+										{@const active = isInsuranceActive(policy)}
+										<div class="rounded-xl border p-4 {active ? 'border-blue-100 bg-blue-50/30' : 'border-slate-200 bg-white'}">
+											<div class="mb-3 flex items-center justify-between">
+												<div class="flex items-center gap-2">
+													<div class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 {active ? 'border-blue-600 bg-blue-600' : 'border-slate-300'}">
+														{#if active}<div class="h-2 w-2 rounded-full bg-white"></div>{/if}
+													</div>
+													<p class="text-sm font-black text-slate-900">{policy.provider}</p>
 												</div>
-												<div class={`rounded-lg px-2.5 py-1 text-xs font-black ${transaction.type === 'CREDIT' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-													{transaction.type} • {formatCurrency(transaction.amount)}
-												</div>
+												<span class="rounded px-2 py-0.5 text-[10px] font-black uppercase tracking-wide {active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}">{active ? 'Active' : 'Expired'}</span>
 											</div>
-											<div class="mt-2.5 grid gap-1.5 text-xs text-slate-600 md:grid-cols-2">
-												{#if transaction.payment_method}<p><span class="font-semibold text-slate-700">Method:</span> {transaction.payment_method}</p>{/if}
-												{#if transaction.department}<p><span class="font-semibold text-slate-700">Department:</span> {transaction.department}</p>{/if}
-												{#if transaction.provider}<p><span class="font-semibold text-slate-700">Provider:</span> {transaction.provider}</p>{/if}
-												{#if transaction.reference_number}<p><span class="font-semibold text-slate-700">Reference:</span> {transaction.reference_number}</p>{/if}
-												{#if transaction.notes}<p class="md:col-span-2"><span class="font-semibold text-slate-700">Notes:</span> {transaction.notes}</p>{/if}
+											<div class="grid grid-cols-2 gap-2 text-xs">
+												<div>
+													<p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Policy Number</p>
+													<p class="mt-0.5 font-bold text-slate-800">{policy.policy_number}</p>
+												</div>
+												<div>
+													<p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Coverage</p>
+													<p class="mt-0.5 font-bold text-slate-800">{policy.coverage_type || '—'}</p>
+												</div>
+												<div>
+													<p class="text-[10px] font-bold uppercase tracking-wide text-slate-400">Valid Until</p>
+													<p class="mt-0.5 font-bold text-slate-800">{formatDate(policy.valid_until)}</p>
+												</div>
 											</div>
 										</div>
 									{/each}
 								</div>
 							{/if}
 						</div>
-					</div>
-				</div>
-			{:else}
-				<div class="space-y-3.5">
-					<div class="grid gap-2.5 rounded-[20px] border border-slate-200 bg-white p-3.5 shadow-[0_8px_20px_rgba(15,23,42,0.05)] md:grid-cols-[160px_200px_1fr]">
+
+						<!-- Email mapping -->
 						<div>
-							<label for="profile-log-type" class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Filter by type</label>
-							<select id="profile-log-type" bind:value={logTypeFilter} class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none">
-								{#each ['ALL', 'CASE_RECORD', 'VITAL', 'PRESCRIPTION', 'PRESCRIPTION_REQUEST', 'REPORT', 'ADMISSION', 'DIAGNOSIS', 'ALERT'] as type}
-									<option value={type}>{type === 'ALL' ? 'All entries' : type.replaceAll('_', ' ')}</option>
-								{/each}
-							</select>
-						</div>
-						<div>
-							<label for="profile-log-actor" class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Filter by actor</label>
-							<select id="profile-log-actor" bind:value={logActorFilter} class="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 outline-none">
-								{#each actorOptions as actor}
-									<option value={actor}>{actor === 'ALL' ? 'All actors' : actor}</option>
-								{/each}
-							</select>
-						</div>
-						<div>
-							<label for="profile-log-search" class="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Search details</label>
-							<div class="relative mt-1.5">
-								<Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-								<input id="profile-log-search" bind:value={logSearch} class="w-full rounded-xl border border-slate-200 px-9 py-2 text-sm font-medium text-slate-700 outline-none" placeholder="Search actor, diagnosis, notes, medications, findings..." />
+							<p class="mb-3 text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Email Mapping &amp; Communications</p>
+							<div class="rounded-xl border border-slate-200 bg-white p-4">
+								<p class="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">Mapped Patient Email Address</p>
+								<div class="flex gap-2">
+									<input bind:value={mappedEmail} class="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none" placeholder="patient@example.com" />
+									<button type="button" class="rounded-lg px-4 py-2 text-xs font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db);">Update</button>
+								</div>
 							</div>
 						</div>
-					</div>
 
-					<div class="flex items-center justify-between px-1">
-						<p class="text-xs font-semibold text-slate-500">{filteredLogs.length} matching log entr{filteredLogs.length === 1 ? 'y' : 'ies'}</p>
-						<p class="text-xs font-semibold text-slate-500">Newest first</p>
-					</div>
-
-					{#if logsLoading && filteredLogs.length === 0}
-						<div class="rounded-[24px] border border-slate-200 bg-white px-6 py-12 text-center text-slate-400 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">Loading logs…</div>
-					{:else if filteredLogs.length === 0}
-						<div class="rounded-[24px] border border-slate-200 bg-white px-6 py-12 text-center text-slate-400 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">No entries match the current filters.</div>
-					{:else}
-						<div class="space-y-3">
-							{#each filteredLogs as entry (entry.id)}
-								<div class="rounded-[20px] border border-slate-200 bg-white p-4 shadow-[0_8px_20px_rgba(15,23,42,0.05)]">
-									<div class="flex flex-wrap items-start justify-between gap-2.5">
-										<div class="min-w-0">
-											<div class="flex flex-wrap items-center gap-1.5">
-												<span class="rounded-full bg-blue-50 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-blue-700">{entry.type.replaceAll('_', ' ')}</span>
-												<p class="text-xs font-semibold text-slate-500">{formatDateTime(entry.timestamp)}</p>
-											</div>
-											<p class="mt-1.5 text-lg font-black text-slate-900">{entry.title}</p>
-											<p class="mt-0.5 text-sm font-semibold text-slate-600">{entry.summary || 'No summary available'}</p>
+						<!-- Claims -->
+						<div>
+							{#if claimsView === 'new'}
+								<div>
+									<div class="mb-3 flex items-center justify-between">
+										<p class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Claims History &amp; Submission</p>
+										<button type="button" onclick={() => (claimsView = 'list')} class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db);">Cancel</button>
+									</div>
+									<div class="space-y-3 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+										<div>
+											<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Claim Description</p>
+											<input bind:value={newClaimDesc} placeholder="e.g. Physical Therapy Session" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
 										</div>
-										<div class="rounded-xl bg-slate-100 px-2.5 py-1.5 text-right">
-											<p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Actor</p>
-											<p class="text-sm font-bold text-slate-800">{entry.actor || 'Unknown'}</p>
+										<div class="grid grid-cols-2 gap-3">
+											<div>
+												<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Amount</p>
+												<input bind:value={newClaimAmount} type="number" placeholder="e.g. ₹ 5,000" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+											</div>
+											<div>
+												<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Recipient Email (Insurance)</p>
+												<input bind:value={newClaimEmail} type="email" placeholder="claims@insurer.in" class="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none" />
+											</div>
+										</div>
+										<div>
+											<p class="mb-1 text-[10px] font-black uppercase tracking-wide text-blue-700">Submission Details (Email Body)</p>
+											<textarea bind:value={newClaimDetails} placeholder="Enter detailed notes for the insurance provider..." rows={4} class="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"></textarea>
+										</div>
+										<div class="flex justify-end">
+											<button type="button" onclick={handleNewClaim} class="rounded-xl px-6 py-2.5 text-sm font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db); box-shadow: 0 2px 6px rgba(37,99,235,0.3);">Submit via Email</button>
 										</div>
 									</div>
-
-									{#if entry.details.length > 0}
-										<div class="mt-3 grid gap-2.5 md:grid-cols-2">
-											{#each entry.details as detail (`${entry.id}-${detail.label}`)}
-												<div class="rounded-xl border border-slate-200 px-3.5 py-2.5">
-													<p class="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">{detail.label}</p>
-													<p class="mt-1 whitespace-pre-wrap text-xs font-medium leading-5 text-slate-800">{detail.value}</p>
-												</div>
-											{/each}
-										</div>
-									{/if}
 								</div>
-							{/each}
+							{:else}
+								<div class="flex items-center justify-between mb-3">
+									<p class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">Claims History &amp; Submission</p>
+									<button type="button" onclick={() => (claimsView = 'new')} class="rounded-lg px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-white" style="background: linear-gradient(to bottom, #4d90fe, #1a56db);">New Claim</button>
+								</div>
+								{#if claims.length === 0}
+									<div class="rounded-xl border border-slate-200 px-4 py-8 text-center text-sm text-slate-400">No claims submitted yet.</div>
+								{:else}
+									<div class="space-y-2.5">
+										{#each claims as claim (claim.id)}
+											<button type="button" onclick={() => (selectedClaim = claim)} class="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 text-left transition-colors hover:bg-slate-50">
+												<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50">
+													<FileText class="h-4 w-4 text-blue-600" />
+												</div>
+												<div class="min-w-0 flex-1">
+													<p class="text-sm font-black text-slate-900">{claim.description}</p>
+													<p class="mt-0.5 text-xs text-slate-400">{claim.id} • {claim.date} • {claim.provider}</p>
+												</div>
+												<div class="shrink-0 text-right">
+													<p class="text-sm font-black text-slate-900">₹ {claim.amount.toLocaleString('en-IN')}</p>
+													<p class="mt-0.5 text-[10px] font-black uppercase tracking-wide {claim.status === 'APPROVED' ? 'text-green-600' : claim.status === 'REJECTED' ? 'text-red-600' : 'text-orange-500'}">{claim.status}</p>
+												</div>
+											</button>
+										{/each}
+									</div>
+								{/if}
+							{/if}
 						</div>
 					{/if}
 				</div>
+
+			{:else if activeTab === 'transactions'}
+				<div class="space-y-4 pb-2">
+					<!-- Wallet toggle cards -->
+					<div class="grid grid-cols-2 gap-3">
+						{#each [
+							{ type: 'HOSPITAL' as const, label: 'General Wallet', balance: hospitalBalance, icon: CreditCard, activeGrad: 'linear-gradient(135deg, #3b82f6, #1d4ed8)' },
+							{ type: 'PHARMACY' as const, label: 'Pharmacy Wallet', balance: pharmacyBalance, icon: Pill, activeGrad: 'linear-gradient(135deg, #a855f7, #7c3aed)' },
+						] as w}
+							<button
+								type="button"
+								onclick={() => (selectedWallet = w.type)}
+								class="relative rounded-xl border p-3.5 text-left transition-all"
+								style={selectedWallet === w.type
+									? `background: ${w.activeGrad}; border-color: transparent;`
+									: 'background: white; border-color: rgb(226 232 240);'}
+							>
+								<div class="mb-1.5 flex items-center justify-between">
+									<p class="text-[10px] font-black uppercase tracking-[0.12em] {selectedWallet === w.type ? 'text-white/80' : 'text-slate-500'}">{w.label}</p>
+									<div class="flex items-center gap-1.5">
+										{#if selectedWallet === w.type}
+											<span class="flex h-5 w-5 items-center justify-center rounded-full bg-white/25 text-xs font-black text-white">+</span>
+										{/if}
+										<w.icon class="h-4 w-4 {selectedWallet === w.type ? 'text-white/70' : 'text-slate-400'}" />
+									</div>
+								</div>
+								<p class="text-lg font-black {selectedWallet === w.type ? 'text-white' : 'text-slate-900'}">
+									{#if transactionsLoading}—{:else}₹ {Number(w.balance?.balance || 0).toLocaleString('en-IN')}{/if}
+								</p>
+							</button>
+						{/each}
+					</div>
+
+					<!-- Ledger table -->
+					<div>
+						<div class="mb-3 flex items-center justify-between">
+							<p class="text-[11px] font-black uppercase tracking-[0.14em] text-slate-700">
+								{selectedWallet === 'HOSPITAL' ? 'General' : 'Pharmacy'} Ledger
+							</p>
+							<button type="button" class="flex items-center gap-1 text-xs font-bold text-blue-600">
+								<span>↓</span> Print Statement
+							</button>
+						</div>
+						<div class="overflow-hidden rounded-xl border border-slate-200">
+							{#if transactionsLoading}
+								<div class="py-12 text-center text-sm text-slate-400">Loading transactions…</div>
+							{:else if selectedWalletTxns.length === 0}
+								<div class="py-12 text-center text-sm text-slate-400">No transactions for this wallet.</div>
+							{:else}
+								<div class="grid grid-cols-[110px_1fr_90px] border-b border-slate-100 bg-slate-50 px-4 py-2.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+									<span>Date</span>
+									<span>Description</span>
+									<span class="text-right">Amount</span>
+								</div>
+								{#each selectedWalletTxns as txn (txn.id)}
+									<div class="grid grid-cols-[110px_1fr_90px] items-center border-b border-slate-100 px-4 py-3 last:border-b-0">
+										<p class="text-xs font-medium text-slate-600">{String(txn.date ?? '').split('T')[0] || '—'}</p>
+										<div class="min-w-0 pr-2">
+											<p class="truncate text-sm font-bold text-slate-900">{txn.description}</p>
+											{#if txn.reference_number || txn.id}
+												<p class="mt-0.5 text-[10px] font-medium text-slate-400">{txn.reference_number || String(txn.id).slice(0, 8).toUpperCase()}</p>
+											{/if}
+										</div>
+										<p class="text-right text-sm font-black {txn.type === 'CREDIT' ? 'text-emerald-600' : 'text-rose-600'}">
+											{txn.type === 'CREDIT' ? '+' : '-'}₹{Math.abs(Number(txn.amount)).toLocaleString('en-IN')}
+										</p>
+									</div>
+								{/each}
+							{/if}
+						</div>
+					</div>
+				</div>
 			{/if}
 		</div>
+
+		<!-- Footer -->
+		{#if selectedClaim}
+			<!-- Claim reply footer -->
+			<div class="shrink-0 border-t border-slate-200 bg-white px-5 py-3">
+				<div class="flex gap-2">
+					<textarea
+						bind:value={claimReply}
+						placeholder="Type your reply to the insurance company..."
+						rows={2}
+						class="flex-1 resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none"
+					></textarea>
+					<button
+						type="button"
+						onclick={sendClaimReply}
+						class="self-end rounded-xl px-4 py-2.5 text-[11px] font-black uppercase tracking-wide text-white"
+						style="background: linear-gradient(to bottom, #4d90fe, #1a56db); box-shadow: 0 2px 6px rgba(37,99,235,0.3); min-width: 90px;"
+					>Send Reply</button>
+				</div>
+			</div>
+		{:else}
+			<div class="shrink-0 border-t border-slate-200 px-5 py-4" style="background: #f8f9fb; border-radius: 16px">
+				<button
+					type="button"
+					onclick={onclose}
+					class="w-full rounded-xl py-3 text-sm font-black uppercase tracking-[0.1em] text-white"
+					style="background: linear-gradient(to bottom, #4d90fe, #1a56db); box-shadow: 0 2px 8px rgba(37,99,235,0.3);"
+				>Close Profile</button>
+			</div>
+		{/if}
 	</div>
 </AquaModal>
 

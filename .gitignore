@@ -33,6 +33,8 @@ Thumbs.db
 
 # Environment variables
 *.env.*
+.env
+.env.*
 
 mockui/
 viana-mias-frontend-main/

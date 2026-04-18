@@ -2,7 +2,7 @@ import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import selectinload
 from typing import List
 from datetime import datetime, timedelta
@@ -22,7 +22,7 @@ from app.models.medical_record import MedicalRecord
 from app.models.admission import Admission
 from app.models.faculty import Faculty
 from app.models.report import Report
-from app.models.wallet import WalletTransaction, WalletType, TransactionType
+from app.models.wallet import WalletTransaction, WalletType, TransactionType, PatientWallet
 from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import Approval, CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
@@ -337,6 +337,30 @@ async def create_patient_case_record(
             reference_number=record.id,
         )
         db.add(txn)
+        # Atomically deduct from stored balance (raises 400 if insufficient)
+        hosp_wallet = (await db.execute(
+            select(PatientWallet)
+            .where(PatientWallet.patient_id == patient_id)
+            .where(PatientWallet.wallet_type == WalletType.HOSPITAL)
+        )).scalar_one_or_none()
+        if hosp_wallet is None:
+            hosp_wallet = PatientWallet(
+                id=str(uuid.uuid4()),
+                patient_id=patient_id,
+                wallet_type=WalletType.HOSPITAL,
+                balance=0,
+            )
+            db.add(hosp_wallet)
+            await db.flush()
+        new_bal = float(hosp_wallet.balance) - price_val
+        if new_bal < 0:
+            raise HTTPException(status_code=400, detail="Insufficient hospital wallet balance")
+        await db.execute(
+            update(PatientWallet)
+            .where(PatientWallet.patient_id == patient_id)
+            .where(PatientWallet.wallet_type == WalletType.HOSPITAL)
+            .values(balance=new_bal, updated_at=now)
+        )
         wallet_deducted = True
 
     await db.commit()
@@ -1363,24 +1387,13 @@ async def get_patient_dashboard(
                 "instructions": m.instructions,
             })
     
-    # Get wallet balances
-    for wt in [WalletType.HOSPITAL, WalletType.PHARMACY]:
-        credit_result = await db.execute(
-            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
-            .where(WalletTransaction.patient_id == patient_id)
-            .where(WalletTransaction.wallet_type == wt)
-            .where(WalletTransaction.type == TransactionType.CREDIT)
-        )
-        debit_result = await db.execute(
-            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
-            .where(WalletTransaction.patient_id == patient_id)
-            .where(WalletTransaction.wallet_type == wt)
-            .where(WalletTransaction.type == TransactionType.DEBIT)
-        )
-        if wt == WalletType.HOSPITAL:
-            hospital_balance = float(credit_result.scalar() or 0) - float(debit_result.scalar() or 0)
-        else:
-            pharmacy_balance = float(credit_result.scalar() or 0) - float(debit_result.scalar() or 0)
+    # Get wallet balances — O(1) from stored balance table
+    wallet_rows = (await db.execute(
+        select(PatientWallet).where(PatientWallet.patient_id == patient_id)
+    )).scalars().all()
+    wallet_map = {w.wallet_type: float(w.balance) for w in wallet_rows}
+    hospital_balance = wallet_map.get(WalletType.HOSPITAL, 0.0)
+    pharmacy_balance = wallet_map.get(WalletType.PHARMACY, 0.0)
     
     # Get last visit date (most recent admission or record)
     last_visit = None

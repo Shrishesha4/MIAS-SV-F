@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr
 import uuid
 
 from app.database import get_db
-from app.api.deps import require_role
+from app.api.deps import require_role, invalidate_user_cache
 from app.models.user import User, UserRole
 from app.models.patient import Patient
 from app.models.patient_category import PatientCategoryOption
@@ -229,6 +229,7 @@ async def block_user(
         raise HTTPException(status_code=400, detail="Cannot block yourself")
     target.is_active = False
     await db.commit()
+    await invalidate_user_cache(user_id)
     return {"message": f"User {target.username} has been blocked", "is_active": False}
 
 
@@ -244,6 +245,7 @@ async def unblock_user(
         raise HTTPException(status_code=404, detail="User not found")
     target.is_active = True
     await db.commit()
+    await invalidate_user_cache(user_id)
     return {"message": f"User {target.username} has been unblocked", "is_active": True}
 
 

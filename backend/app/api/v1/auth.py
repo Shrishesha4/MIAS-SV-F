@@ -166,6 +166,20 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
         patient_category_name=resolved_category_name,
     )
 
+    # Override with explicit clinic if provided (e.g. from clinic QR registration)
+    if request.preferred_clinic_id:
+        from app.models.student import Clinic as ClinicModel
+        explicit_clinic = (
+            await db.execute(
+                select(ClinicModel).where(
+                    ClinicModel.id == request.preferred_clinic_id,
+                    ClinicModel.is_active == True,
+                )
+            )
+        ).scalar_one_or_none()
+        if explicit_clinic:
+            preferred_clinic = explicit_clinic
+
     patient = Patient(
         id=patient_id,
         patient_id=display_patient_id,

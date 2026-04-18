@@ -71,6 +71,7 @@ class RegisterRequest(BaseModel):
     email: str
     role: UserRoleEnum
     patient_data: Optional[PatientDataCreate] = None
+    preferred_clinic_id: Optional[str] = None
 
 
 class RegisterResponse(BaseModel):

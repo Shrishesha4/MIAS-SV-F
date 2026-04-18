@@ -2,15 +2,56 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
+	import { browser } from '$app/environment';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { insuranceCategoriesApi, type InsuranceCategory, type WalkInType } from '$lib/api/insuranceCategories';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { Building2, PencilLine, Plus, Settings, Trash2 } from 'lucide-svelte';
+	import { Building2, PencilLine, Plus, Settings, QrCode, Download, Copy, ExternalLink } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const clinicTypeOptions = ['IP', 'OP', 'ER'];
+
+	// ─── QR Modal ──────────────────────────────────────────
+	let qrClinic = $state<ClinicInfo | null>(null);
+	let showQrModal = $state(false);
+	let qrDataUrl = $state('');
+
+	function clinicRegUrl(clinic: ClinicInfo): string {
+		if (!browser) return '';
+		return `${window.location.origin}/register/clinic/${clinic.id}`;
+	}
+
+	async function openQrModal(clinic: ClinicInfo) {
+		qrClinic = clinic;
+		showQrModal = true;
+		qrDataUrl = '';
+		const url = clinicRegUrl(clinic);
+		try {
+			const QRCode = (await import('qrcode')).default;
+			qrDataUrl = await QRCode.toDataURL(url, {
+				width: 400,
+				margin: 2,
+				color: { dark: '#0f172a', light: '#ffffff' },
+			});
+		} catch { qrDataUrl = ''; }
+	}
+
+	function downloadQr() {
+		if (!qrDataUrl || !qrClinic) return;
+		const a = document.createElement('a');
+		a.href = qrDataUrl;
+		a.download = `${qrClinic.name.replace(/\s+/g, '-')}-registration-qr.png`;
+		a.click();
+	}
+
+	function copyLink() {
+		if (!qrClinic) return;
+		navigator.clipboard.writeText(clinicRegUrl(qrClinic));
+		toastStore.addToast('Link copied', 'success');
+	}
+
 
 	// Walk-in types - fetched dynamically
 	let walkInTypes = $state<WalkInType[]>([]);
@@ -607,6 +648,14 @@
 							</button>
 						{/if}							<button
 								type="button"
+								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-emerald-50"
+								title="Registration QR code"
+								onclick={() => openQrModal(item.clinic)}
+							>
+								<QrCode class="h-4 w-4 text-emerald-500" />
+							</button>
+							<button
+								type="button"
 								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-slate-100"
 								title="Edit clinic"
 								onclick={() => openEditModal(item.clinic)}
@@ -900,4 +949,48 @@
 			</div>
 		</div>
 	</AquaModal>
+{/if}
+
+{#if showQrModal && qrClinic}
+<AquaModal title="Registration QR Code" onclose={() => showQrModal = false} panelClass="sm:max-w-[400px]">
+<div class="flex flex-col items-center gap-4 py-2">
+<div class="flex h-12 w-12 items-center justify-center rounded-2xl" style="background: linear-gradient(to bottom, #3b82f6, #1d4ed8); box-shadow: 0 4px 14px rgba(29,78,216,0.3);">
+<Building2 class="h-6 w-6 text-white" />
+</div>
+<div class="text-center">
+<p class="text-base font-bold text-slate-900">{qrClinic.name}</p>
+<p class="text-xs text-slate-500 mt-0.5">{qrClinic.department}</p>
+</div>
+
+{#if qrDataUrl}
+<div class="rounded-2xl overflow-hidden border border-slate-200 p-2 bg-white">
+<img src={qrDataUrl} alt="QR code" class="w-[240px] h-[240px]" />
+</div>
+{:else}
+<div class="w-[240px] h-[240px] rounded-2xl bg-slate-100 flex items-center justify-center">
+<div class="w-8 h-8 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+</div>
+{/if}
+
+<div class="w-full rounded-xl px-3 py-2 text-center" style="background: #f0f4fa; border: 1px solid rgba(0,0,0,0.08);">
+<p class="text-[10px] font-mono text-slate-500 break-all">{clinicRegUrl(qrClinic)}</p>
+</div>
+
+<div class="flex w-full gap-2">
+<button type="button" onclick={copyLink} class="flex flex-1 items-center justify-center gap-2 rounded-[999px] py-2.5 text-sm font-semibold text-slate-700 cursor-pointer" style="background: #f0f4fa; border: 1px solid rgba(0,0,0,0.1);">
+<Copy class="h-4 w-4" />
+Copy Link
+</button>
+<button type="button" onclick={downloadQr} disabled={!qrDataUrl} class="flex flex-1 items-center justify-center gap-2 rounded-[999px] py-2.5 text-sm font-semibold text-white cursor-pointer disabled:opacity-50" style="background: linear-gradient(to bottom, #4d90fe, #1d4ed8); box-shadow: 0 3px 10px rgba(29,78,216,0.28);">
+<Download class="h-4 w-4" />
+Download
+</button>
+</div>
+
+<a href={clinicRegUrl(qrClinic)} target="_blank" rel="noopener noreferrer" class="flex items-center gap-1.5 text-xs font-semibold text-blue-500 hover:underline">
+<ExternalLink class="h-3.5 w-3.5" />
+Open registration page
+</a>
+</div>
+</AquaModal>
 {/if}

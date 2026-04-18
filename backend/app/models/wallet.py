@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Numeric, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import Column, String, DateTime, Numeric, Text, ForeignKey, Enum as SQLEnum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
@@ -14,6 +14,25 @@ class WalletType(str, enum.Enum):
 class TransactionType(str, enum.Enum):
     CREDIT = "CREDIT"
     DEBIT = "DEBIT"
+
+
+class PatientWallet(Base):
+    """Stored running balance per patient per wallet type.
+
+    Single source of truth for balance (O(1) read).
+    Updated atomically via SQL UPDATE ... SET balance = balance + delta
+    on every topup or debit — never recomputed from transactions.
+    """
+    __tablename__ = "patient_wallets"
+    __table_args__ = (UniqueConstraint("patient_id", "wallet_type"),)
+
+    id = Column(String, primary_key=True)
+    patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
+    wallet_type = Column(SQLEnum(WalletType), nullable=False)
+    balance = Column(Numeric(12, 2), nullable=False, default=0)
+    updated_at = Column(DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow())
+
+    patient = relationship("Patient", back_populates="wallets")
 
 
 class WalletTransaction(Base):

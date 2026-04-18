@@ -21,35 +21,43 @@ def upgrade() -> None:
     # Add BILLING to user role enum
     op.execute("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'BILLING'")
 
-    # Create billing_users table
-    op.create_table(
-        "billing_users",
-        sa.Column("id", sa.String(), nullable=False),
-        sa.Column("billing_id", sa.String(), nullable=False),
-        sa.Column("user_id", sa.String(), nullable=False),
-        sa.Column("name", sa.String(), nullable=False),
-        sa.Column("counter_name", sa.String(), nullable=True),
-        sa.Column("phone", sa.String(), nullable=True),
-        sa.Column("email", sa.String(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=True),
-        sa.Column("updated_at", sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("billing_id"),
-        sa.UniqueConstraint("user_id"),
-    )
-    op.create_index("ix_billing_users_billing_id", "billing_users", ["billing_id"])
-    op.create_index("ix_billing_users_user_id", "billing_users", ["user_id"])
+    # Create billing_users table (idempotent)
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS billing_users (
+            id VARCHAR NOT NULL,
+            billing_id VARCHAR NOT NULL,
+            user_id VARCHAR NOT NULL,
+            name VARCHAR NOT NULL,
+            counter_name VARCHAR,
+            phone VARCHAR,
+            email VARCHAR,
+            created_at TIMESTAMP WITHOUT TIME ZONE,
+            updated_at TIMESTAMP WITHOUT TIME ZONE,
+            PRIMARY KEY (id),
+            FOREIGN KEY(user_id) REFERENCES users (id),
+            UNIQUE (billing_id),
+            UNIQUE (user_id)
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_billing_users_billing_id ON billing_users (billing_id)")
+    op.execute("CREATE INDEX IF NOT EXISTS ix_billing_users_user_id ON billing_users (user_id)")
 
-    # Add price column to case_records
-    op.add_column(
-        "case_records",
-        sa.Column("price", sa.Numeric(10, 2), nullable=True),
-    )
+    # Add price column to case_records (idempotent)
+    bind = op.get_bind()
+    cols = [row[0] for row in bind.execute(
+        sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='case_records'")
+    )]
+    if "price" not in cols:
+        op.add_column("case_records", sa.Column("price", sa.Numeric(10, 2), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("case_records", "price")
-    op.drop_index("ix_billing_users_user_id", table_name="billing_users")
-    op.drop_index("ix_billing_users_billing_id", table_name="billing_users")
-    op.drop_table("billing_users")
+    bind = op.get_bind()
+    cols = [row[0] for row in bind.execute(
+        sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='case_records'")
+    )]
+    if "price" in cols:
+        op.drop_column("case_records", "price")
+    op.execute("DROP INDEX IF EXISTS ix_billing_users_user_id")
+    op.execute("DROP INDEX IF EXISTS ix_billing_users_billing_id")
+    op.execute("DROP TABLE IF EXISTS billing_users")

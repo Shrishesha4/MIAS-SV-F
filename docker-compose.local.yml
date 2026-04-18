@@ -1,0 +1,88 @@
+# Local dev overrides — applied on top of docker-compose.yml for MacBook Air spec
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up
+
+services:
+  db:
+    # Low-memory postgres for local dev
+    command: >
+      postgres
+      -p 5432
+      -c listen_addresses='*'
+      -c max_connections=100
+      -c shared_buffers=256MB
+      -c effective_cache_size=768MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=100
+
+  redis:
+    command: >
+      redis-server
+      --port 6379
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+
+  pgbouncer:
+    # pgbouncer/pgbouncer only publishes amd64 — Rosetta 2 handles it on Apple Silicon
+    platform: linux/amd64
+    environment:
+      DATABASES_HOST: db
+      DATABASES_PORT: "5432"
+      DATABASES_USER: mias
+      DATABASES_PASSWORD: ${POSTGRES_PASSWORD:-mias_secret}
+      DATABASES_DBNAME: mias_mp
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "100"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "20"
+      PGBOUNCER_LISTEN_PORT: "5432"
+      PGBOUNCER_LISTEN_ADDR: "0.0.0.0"
+      # "any" accepts any password from client without userlist — safe inside Docker network
+      PGBOUNCER_AUTH_TYPE: any
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      PGBOUNCER_SERVER_RESET_QUERY: DISCARD ALL
+
+  backend:
+    # No sysctls/ulimits on macOS Docker Desktop (unsupported)
+    sysctls: {}
+    ulimits: {}
+    environment:
+      # Connect directly to PostgreSQL — bypasses PgBouncer in dev.
+      # PgBouncer transaction mode is incompatible with asyncpg prepared statements;
+      # with only 5 workers locally there's no need for a bouncer.
+      DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@db:5432/mias_mp
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-mias-dev-secret-CHANGE-IN-PRODUCTION}
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 7
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:5173","http://localhost:5174","http://localhost:3000"]}'
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-200}
+      DEBUG: "${DEBUG:-true}"
+      # MacBook Air: 5 workers — enough for dev, leaves CPU for IDE/browser
+      WEB_CONCURRENCY: "${WEB_CONCURRENCY:-5}"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    # Lighter nginx for local
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+      - uploads_data:/app/uploads:ro
+    ulimits: {}
+
+  backend-worker:
+    environment:
+      DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@db:5432/mias_mp
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy

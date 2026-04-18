@@ -71,6 +71,7 @@ class Patient(Base):
     appointments = relationship("Appointment", back_populates="patient")
     notifications = relationship("PatientNotification", back_populates="patient")
     wallet_transactions = relationship("WalletTransaction", back_populates="patient")
+    wallets = relationship("PatientWallet", back_populates="patient")
     assigned_students = relationship("StudentPatientAssignment", back_populates="patient")
     case_records = relationship("CaseRecord", back_populates="patient")
     nurse_orders = relationship("NurseOrder", back_populates="patient")

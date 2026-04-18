@@ -1,3 +1,4 @@
+import json
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,9 +6,12 @@ from sqlalchemy import select
 
 from app.database import get_db
 from app.core.security import decode_token
+from app.core.redis_client import get_redis
 from app.models.user import User, UserRole
 
 security = HTTPBearer()
+
+_USER_CACHE_TTL = 300  # 5 minutes
 
 
 async def get_current_user(
@@ -24,6 +28,29 @@ async def get_current_user(
         )
 
     user_id = payload.get("sub")
+
+    # Try Redis cache first
+    redis = await get_redis()
+    cache_key = f"user:{user_id}"
+    cached = await redis.get(cache_key)
+    if cached:
+        data = json.loads(cached)
+        if not data.get("is_active"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found or inactive",
+            )
+        # Reconstruct a lightweight User-like object from cache
+        user = User(
+            id=data["id"],
+            username=data["username"],
+            role=UserRole(data["role"]),
+            is_active=data["is_active"],
+            email=data.get("email"),
+        )
+        return user
+
+    # Cache miss — hit DB
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
 
@@ -33,7 +60,26 @@ async def get_current_user(
             detail="User not found or inactive",
         )
 
+    # Populate cache
+    await redis.set(
+        cache_key,
+        json.dumps({
+            "id": user.id,
+            "username": user.username,
+            "role": user.role.value,
+            "is_active": user.is_active,
+            "email": user.email,
+        }),
+        ex=_USER_CACHE_TTL,
+    )
+
     return user
+
+
+async def invalidate_user_cache(user_id: str) -> None:
+    """Call after any mutation to a User row (block/unblock/role change)."""
+    redis = await get_redis()
+    await redis.delete(f"user:{user_id}")
 
 
 def require_role(*roles: UserRole):

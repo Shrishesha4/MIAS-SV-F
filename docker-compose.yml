@@ -4,26 +4,37 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: mias
-      POSTGRES_PASSWORD: mias_secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mias_secret}
       POSTGRES_DB: mias_mp
       PGPORT: 5432
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # PostgreSQL performance tuning for 2000+ concurrent users
+    # Tuned for 20-core / 64GB RAM / NVMe SSD production server
     command: >
       postgres
       -p 5432
       -c listen_addresses='*'
-      -c max_connections=200
-      -c shared_buffers=256MB
-      -c effective_cache_size=768MB
-      -c work_mem=4MB
-      -c maintenance_work_mem=64MB
+      -c max_connections=400
+      -c shared_buffers=16GB
+      -c effective_cache_size=48GB
+      -c work_mem=40MB
+      -c maintenance_work_mem=4GB
       -c checkpoint_completion_target=0.9
-      -c wal_buffers=16MB
-      -c default_statistics_target=100
+      -c wal_buffers=128MB
+      -c min_wal_size=4GB
+      -c max_wal_size=16GB
+      -c default_statistics_target=500
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=400
+      -c max_worker_processes=40
+      -c max_parallel_workers=20
+      -c max_parallel_workers_per_gather=8
+      -c max_parallel_maintenance_workers=8
+      -c jit=off
+      -c enable_partitionwise_join=on
+      -c enable_partitionwise_aggregate=on
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mias -d mias_mp -p 5432 || exit 1"]
       interval: 5s
@@ -37,9 +48,49 @@ services:
       - "6379:6379"
     volumes:
       - redisdata:/data
-    command: redis-server --port 6379 --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    # 4GB cache — enough for full user session cache + rate-limit counters
+    command: >
+      redis-server
+      --port 6379
+      --appendonly yes
+      --maxmemory 4gb
+      --maxmemory-policy allkeys-lru
+      --tcp-backlog 511
+      --tcp-keepalive 300
+      --hz 20
+      --activerehashing yes
+      --lazyfree-lazy-eviction yes
     healthcheck:
       test: ["CMD", "redis-cli", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pgbouncer:
+    image: pgbouncer/pgbouncer:latest
+    restart: unless-stopped
+    environment:
+      DATABASES_HOST: db
+      DATABASES_PORT: "5432"
+      DATABASES_USER: mias
+      DATABASES_PASSWORD: ${POSTGRES_PASSWORD:-mias_secret}
+      DATABASES_DBNAME: mias_mp
+      PGBOUNCER_POOL_MODE: transaction
+      PGBOUNCER_MAX_CLIENT_CONN: "2000"
+      PGBOUNCER_DEFAULT_POOL_SIZE: "150"
+      PGBOUNCER_LISTEN_PORT: "5432"
+      PGBOUNCER_LISTEN_ADDR: "0.0.0.0"
+      PGBOUNCER_AUTH_TYPE: any
+      PGBOUNCER_IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      PGBOUNCER_SERVER_RESET_QUERY: DISCARD ALL
+      PGBOUNCER_SERVER_LIFETIME: "3600"
+      PGBOUNCER_SERVER_IDLE_TIMEOUT: "600"
+      PGBOUNCER_QUERY_WAIT_TIMEOUT: "120"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432 || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -53,21 +104,77 @@ services:
       - "8000:8000"
     volumes:
       - uploads_data:/app/uploads
+    sysctls:
+      net.core.somaxconn: 65535
+      net.ipv4.tcp_tw_reuse: 1
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
     environment:
-      DATABASE_URL: postgresql://mias:mias_secret@db:5432/mias_mp
+      DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@pgbouncer:5432/mias_mp
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET_KEY: mias-super-secret-jwt-key-change-in-production-256bit
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-mias-dev-secret-CHANGE-IN-PRODUCTION}
       JWT_ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 30
       REFRESH_TOKEN_EXPIRE_DAYS: 7
-      CORS_ORIGINS: '["http://localhost:5173","http://localhost:5174","http://localhost:3000", "http://100.97.3.102:5173", "https://health.vianasoft.com", "https://vhealth.saveetha.com"]'
-      RATE_LIMIT_PER_MINUTE: 200
-      DEBUG: "false"
+      CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:5173","http://localhost:5174","http://localhost:3000"]}'
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-500}
+      DEBUG: "${DEBUG:-false}"
+      # 20-core host: (2×20)+1 = 41 workers
+      # 41 workers × (5 pool + 15 overflow) = 820 max app-side → PgBouncer handles
+      WEB_CONCURRENCY: "${WEB_CONCURRENCY:-41}"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
     depends_on:
-      db:
+      pgbouncer:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  backend-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: python scripts/run_worker.py
+    volumes:
+      - uploads_data:/app/uploads
+    environment:
+      DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@pgbouncer:5432/mias_mp
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-mias-dev-secret-CHANGE-IN-PRODUCTION}
+      JWT_ALGORITHM: HS256
+      DEBUG: "${DEBUG:-false}"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - uploads_data:/app/uploads:ro
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   pgdata:

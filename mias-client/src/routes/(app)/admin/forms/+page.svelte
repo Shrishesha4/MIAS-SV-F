@@ -8,7 +8,10 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Trash2, X } from 'lucide-svelte';
+	import { FileText, GripVertical, Icon, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Trash2, X } from 'lucide-svelte';
+	import IconPicker from '$lib/components/ui/IconPicker.svelte';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
+	import { LUCIDE_ICONS } from '$lib/data/lucideIcons';
 
 	const auth = get(authStore);
 
@@ -65,6 +68,7 @@
 	let formEditorSortOrder = $state(0);
 	let formEditorIsActive = $state(true);
 	let formEditorIcon = $state('');
+	let showIconPicker = $state(false);
 	let formEditorColor = $state('');
 	let formEditorAllowedRoles: string[] = $state([]);
 	let formEditorDepartment = $state('');
@@ -137,6 +141,8 @@
 			.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
 		return activeCategories.length > 0 ? activeCategories.map((category) => category.name) : defaultSections;
 	});
+
+	const sectionTabItems = $derived(sectionTabs.map((s) => ({ id: s, label: s })));
 
 	const filteredForms = $derived.by(() => {
 		return formDefinitions.filter((form) => resolveFormSection(form) === activeSection);
@@ -893,13 +899,23 @@
 
 			<div class="header-inline-group">
 				<p class="header-inline-label">Icon</p>
-				<input
-					class="inline-select"
-					style="width: 110px;"
-					placeholder="e.g. Stethoscope"
-					bind:value={formEditorIcon}
-					title="Lucide icon name (optional)"
-				/>
+				<button
+					type="button"
+					onclick={() => (showIconPicker = true)}
+					class="inline-select flex items-center gap-1.5 text-left"
+					style="width: 120px; cursor: pointer;"
+					title="Pick Lucide icon"
+				>
+					{#if formEditorIcon}
+						{@const iconData = LUCIDE_ICONS.find(i => i.name === formEditorIcon)}
+						{#if iconData}
+							<Icon iconNode={iconData.node} size={14} color="#2563eb" />
+						{/if}
+						<span class="truncate text-xs font-semibold text-blue-700">{formEditorIcon}</span>
+					{:else}
+						<span class="text-slate-400">Pick icon…</span>
+					{/if}
+				</button>
 			</div>
 
 			<span class="header-inline-divider" aria-hidden="true"></span>
@@ -981,25 +997,27 @@
 	</div>
 
 	<div class="flex flex-wrap items-center gap-2">
-		<div class="form-tab-scroll form-tab-shell">
-			<div class="form-tab-row" role="tablist" aria-label="Form category navigation">
-				{#each sectionTabs as section}
-					<button
-						type="button"
-						class="form-tab-btn"
-						class:is-active={activeSection === section}
-						role="tab"
-						aria-selected={activeSection === section}
-						onclick={() => {
-							activeSection = section;
-							categoryMenu = null;
-						}}
-						oncontextmenu={(event) => openCategoryContextMenu(event, section)}
-					>
-						{section}
-					</button>
-				{/each}
-			</div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="min-w-0 flex-1"
+			oncontextmenu={(event) => {
+				const btn = (event.target as HTMLElement).closest('[role="tab"]');
+				if (btn) {
+					const tabId = sectionTabs[Array.from(btn.parentElement?.querySelectorAll('[role="tab"]') ?? []).indexOf(btn)];
+					if (tabId) openCategoryContextMenu(event, tabId);
+				}
+			}}
+		>
+			<TabBar
+				tabs={sectionTabItems}
+				activeTab={activeSection}
+				variant="jiggle"
+				ariaLabel="Form category navigation"
+				onchange={(id) => {
+					activeSection = id as typeof activeSection;
+					categoryMenu = null;
+				}}
+			/>
 		</div>
 		<button
 			type="button"
@@ -1696,7 +1714,34 @@
 			<div class="grid gap-3 sm:grid-cols-2">
 				<div>
 					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Icon (Lucide name)</p>
-					<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Stethoscope" bind:value={formEditorIcon} />
+					<div class="flex items-center gap-2">
+						{#if formEditorIcon}
+							{@const iconData = LUCIDE_ICONS.find(i => i.name === formEditorIcon)}
+							{#if iconData}
+								<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe);">
+									<Icon iconNode={iconData.node} size={18} color="#2563eb" />
+								</div>
+							{/if}
+						{/if}
+						<button
+							type="button"
+							onclick={() => (showIconPicker = true)}
+							class="flex flex-1 items-center gap-2 rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50"
+						>
+							{#if formEditorIcon}
+								<span class="font-semibold text-blue-700">{formEditorIcon}</span>
+							{:else}
+								<span class="text-slate-400">Pick icon...</span>
+							{/if}
+							{#if formEditorIcon}
+								<button
+									type="button"
+									onclick={(e) => { e.stopPropagation(); formEditorIcon = ''; }}
+									class="ml-auto text-slate-400 hover:text-slate-700"
+								>✕</button>
+							{/if}
+						</button>
+					</div>
 				</div>
 				<div>
 					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Color</p>
@@ -1751,6 +1796,14 @@
 			</button>
 		</div>
 	</AquaModal>
+{/if}
+
+{#if showIconPicker}
+	<IconPicker
+		value={formEditorIcon}
+		onselect={(name) => { formEditorIcon = name; }}
+		onclose={() => (showIconPicker = false)}
+	/>
 {/if}
 
 {#if showCategoryEditor}

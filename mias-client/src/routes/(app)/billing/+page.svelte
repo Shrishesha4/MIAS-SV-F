@@ -122,19 +122,14 @@
 	}
 </script>
 
-<div class="min-h-screen" style="background: #c8d0de;">
+<div class="min-h-screen" >
 
 	<!-- Header Bar -->
-	<div class="px-4 py-3 flex items-center justify-between"
-		style="background: linear-gradient(to bottom, #e8eef8, #d4ddef);
-		       border-bottom: 1px solid rgba(0,0,0,0.12);
-		       box-shadow: 0 1px 4px rgba(0,0,0,0.12);">
+	<div class="px-4 py-3 flex items-center justify-between">
 		<div>
-			<h1 class="text-xl font-bold text-gray-900">Billing &amp; Cashier</h1>
-			<p class="text-xs text-gray-500">Manage patient wallets and cash collections</p>
+			<h1 class="text-xl font-bold text-gray-900"></h1>
 		</div>
 		<div class="flex items-center gap-2">
-			<!-- Tab Buttons -->
 			<button
 				class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold cursor-pointer transition-all"
 				class:text-white={activeTab === 'CASHIER'}
@@ -157,25 +152,12 @@
 				<BarChart3 class="w-3.5 h-3.5" />
 				<span>Reports</span>
 			</button>
-
-			<!-- Profile Chip -->
-			<div class="flex items-center gap-2 px-3 py-1.5 rounded-xl"
-				style="background: white; border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-				<div class="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold"
-					style="background: linear-gradient(to bottom, #3b82f6, #1d4ed8);">
-					{(profile?.name ?? 'B')[0].toUpperCase()}
-				</div>
-				<div class="text-right">
-					<p class="text-xs font-semibold text-gray-800 leading-tight">{profile?.counter_name ?? 'Counter'}</p>
-					<p class="text-[10px] font-semibold leading-tight" style="color: #16a34a;">ONLINE</p>
-				</div>
-			</div>
 		</div>
 	</div>
 
 	{#if activeTab === 'CASHIER'}
 		<!-- Cashier Layout: left panel + right panel -->
-		<div class="flex gap-3 p-4 h-[calc(100vh-72px)]">
+		<div class="flex gap-3 p-4 pt-0 h-[calc(100vh-72px)]">
 
 			<!-- Left: Patient Search Panel -->
 			<div class="w-72 shrink-0 rounded-xl overflow-hidden flex flex-col"

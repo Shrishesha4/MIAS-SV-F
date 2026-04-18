@@ -54,7 +54,7 @@
 	const contentSlide = { y: 24, duration: 360, opacity: 0.12, easing: quintOut };
 </script>
 
-<div class="pb-2 lg:min-h-screen lg:pb-6">
+<div class="lg:h-screen lg:overflow-hidden lg:pb-0 pb-2">
 	<div class="mx-auto flex max-w-md flex-col gap-3 px-4 pt-3 md:max-w-4xl md:px-6 lg:min-h-[86vh] lg:max-w-[1370px] lg:grid lg:grid-cols-[255px_minmax(0,1fr)] lg:gap-3 lg:px-5 lg:pt-4">
 		{#if navItems.length > 0}
 			<aside class="hidden lg:block lg:h-[86vh] lg:self-start">
@@ -161,9 +161,9 @@
 				</div>
 			{/if}
 
-			<div class="admin-content-shell hidden min-h-[99vh] overflow-visible rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);" in:fade={{ duration: 180 }} out:fade={{ duration: 130 }}>
+			<div class="admin-content-shell sticky top-4 hidden h-[86vh] max-h-[86vh] overflow-hidden rounded-[18px] border lg:flex lg:flex-col" style="border-color: rgba(132,150,175,0.2); background: linear-gradient(to bottom, rgba(235,241,248,0.88), rgba(221,230,240,0.92)); box-shadow: 0 10px 24px rgba(95,113,136,0.12), inset 0 1px 0 rgba(255,255,255,0.84);" in:fade={{ duration: 180 }} out:fade={{ duration: 130 }}>
 				{#if children}
-					<div class="admin-content-panel min-w-0 flex-1 px-6 py-5">
+					<div class="admin-content-panel min-w-0 flex-1 overflow-y-auto px-6 py-5">
 						{@render children()}
 					</div>
 				{/if}

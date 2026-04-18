@@ -88,4 +88,11 @@
 			display: none !important;
 		}
 	}
+
+	@media (min-width: 1024px) {
+		:global(body.admin-layout-active) {
+			overflow: hidden;
+			height: 100dvh;
+		}
+	}
 </style>

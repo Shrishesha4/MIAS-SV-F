@@ -6,35 +6,54 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 
 from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.wallet import WalletTransaction, WalletType, TransactionType
+from app.models.wallet import WalletTransaction, WalletType, TransactionType, PatientWallet
 from app.models.patient import Patient
 
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
 
 
-async def _calc_balance(db: AsyncSession, patient_id: str, wt: WalletType) -> dict:
-    credits = float(
-        (await db.execute(
-            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
-            .where(WalletTransaction.patient_id == patient_id)
-            .where(WalletTransaction.wallet_type == wt)
-            .where(WalletTransaction.type == TransactionType.CREDIT)
-        )).scalar() or 0
+async def _get_or_create_wallet(db: AsyncSession, patient_id: str, wt: WalletType) -> PatientWallet:
+    """Return existing PatientWallet row, creating it (balance=0) if absent."""
+    wallet = (await db.execute(
+        select(PatientWallet)
+        .where(PatientWallet.patient_id == patient_id)
+        .where(PatientWallet.wallet_type == wt)
+    )).scalar_one_or_none()
+    if wallet is None:
+        wallet = PatientWallet(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            wallet_type=wt,
+            balance=0,
+        )
+        db.add(wallet)
+        await db.flush()
+    return wallet
+
+
+async def _apply_delta(
+    db: AsyncSession,
+    patient_id: str,
+    wt: WalletType,
+    delta: float,          # positive = credit, negative = debit
+) -> float:
+    """Atomically update stored balance, returning new balance."""
+    wallet = await _get_or_create_wallet(db, patient_id, wt)
+    new_balance = float(wallet.balance) + delta
+    if new_balance < 0:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    await db.execute(
+        update(PatientWallet)
+        .where(PatientWallet.patient_id == patient_id)
+        .where(PatientWallet.wallet_type == wt)
+        .values(balance=new_balance, updated_at=datetime.utcnow())
     )
-    debits = float(
-        (await db.execute(
-            select(func.coalesce(func.sum(WalletTransaction.amount), 0))
-            .where(WalletTransaction.patient_id == patient_id)
-            .where(WalletTransaction.wallet_type == wt)
-            .where(WalletTransaction.type == TransactionType.DEBIT)
-        )).scalar() or 0
-    )
-    return {"balance": credits - debits, "total_credits": credits, "total_debits": debits}
+    return new_balance
 
 
 @router.get("/balance/{patient_id}/{wallet_type}")
@@ -45,8 +64,9 @@ async def get_wallet_balance(
     db: AsyncSession = Depends(get_db),
 ):
     wt = WalletType.HOSPITAL if wallet_type.upper() == "HOSPITAL" else WalletType.PHARMACY
-    bal = await _calc_balance(db, patient_id, wt)
-    return {"patient_id": patient_id, "wallet_type": wallet_type.upper(), **bal}
+    wallet = await _get_or_create_wallet(db, patient_id, wt)
+    balance = float(wallet.balance)
+    return {"patient_id": patient_id, "wallet_type": wallet_type.upper(), "balance": balance}
 
 
 @router.get("/patients/search")
@@ -90,8 +110,8 @@ async def get_patient_wallet_summary(
     db: AsyncSession = Depends(get_db),
 ):
     """Get both wallet balances + recent transactions for a patient."""
-    hosp = await _calc_balance(db, patient_id, WalletType.HOSPITAL)
-    phar = await _calc_balance(db, patient_id, WalletType.PHARMACY)
+    hosp_wallet = await _get_or_create_wallet(db, patient_id, WalletType.HOSPITAL)
+    phar_wallet = await _get_or_create_wallet(db, patient_id, WalletType.PHARMACY)
 
     txn_result = await db.execute(
         select(WalletTransaction)
@@ -102,8 +122,8 @@ async def get_patient_wallet_summary(
     txns = txn_result.scalars().all()
 
     return {
-        "hospital": hosp,
-        "pharmacy": phar,
+        "hospital": {"balance": float(hosp_wallet.balance)},
+        "pharmacy": {"balance": float(phar_wallet.balance)},
         "transactions": [
             {
                 "id": t.id,
@@ -143,6 +163,7 @@ async def topup_wallet(
 
     wt = WalletType.HOSPITAL if request.wallet_type.upper() == "HOSPITAL" else WalletType.PHARMACY
     tt = TransactionType.CREDIT if request.transaction_type.upper() == "CREDIT" else TransactionType.DEBIT
+    delta = request.amount if tt == TransactionType.CREDIT else -request.amount
 
     now = datetime.utcnow()
     txn = WalletTransaction(
@@ -158,9 +179,9 @@ async def topup_wallet(
         reference_number=request.reference_id or None,
     )
     db.add(txn)
+    new_balance = await _apply_delta(db, request.patient_id, wt, delta)
     await db.commit()
 
-    bal = await _calc_balance(db, request.patient_id, wt)
     return {
         "id": txn.id,
         "patient_id": request.patient_id,
@@ -168,7 +189,7 @@ async def topup_wallet(
         "amount": request.amount,
         "transaction_type": request.transaction_type.upper(),
         "description": txn.description,
-        "new_balance": bal["balance"],
+        "new_balance": new_balance,
     }
 
 
@@ -208,12 +229,12 @@ async def patient_self_topup(
         reference_number=request.reference_id or None,
     )
     db.add(txn)
+    new_balance = await _apply_delta(db, patient.id, wt, request.amount)
     await db.commit()
 
-    bal = await _calc_balance(db, patient.id, wt)
     return {
         "id": txn.id,
         "wallet_type": request.wallet_type.upper(),
         "amount": request.amount,
-        "new_balance": bal["balance"],
+        "new_balance": new_balance,
     }

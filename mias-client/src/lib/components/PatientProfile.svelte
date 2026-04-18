@@ -1683,7 +1683,7 @@
 				<div class="flex min-w-0 flex-1 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
 					<div class="min-w-0">
 						<div class="flex items-center gap-2">
-							<h2 class="truncate text-[22px] font-black leading-tight text-slate-900">
+							<h2 class="text-[22px] font-extrabold leading-tight text-slate-900">
 								{patient.name}
 							</h2>
 						</div>
@@ -1940,7 +1940,7 @@
 
 			{#if currentAdmission && interactiveClinicalAccess}
 				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-1.5 text-[13px] font-black tracking-wide text-blue-600">
-					REVIEW & VITALS <ChevronRight class="h-4 w-4" />
+					REVIEW <ChevronRight class="h-4 w-4" />
 				</a>
 			{:else if pendingAdmission && role === 'STUDENT' && canEdit}
 				<button class="shrink-0 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-bold cursor-not-allowed"

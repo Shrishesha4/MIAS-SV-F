@@ -597,7 +597,7 @@
 
 	{:else if role === 'STUDENT' && student}
 		<!-- Student Dashboard - Master Detail -->
-		<div class="flex gap-0 md:gap-4" style="min-height: calc(100vh - 7rem);">
+		<div class="flex gap-0 md:gap-4 overflow-hidden" style="height: calc(100dvh - 4rem);">
 			<!-- Left Panel: Patient List -->
 			<div class="w-full md:w-80 lg:w-96 flex flex-col shrink-0 rounded-xl overflow-hidden"
 				style="background: white; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.08);">

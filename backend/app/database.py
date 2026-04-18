@@ -7,15 +7,20 @@ DATABASE_URL = settings.DATABASE_URL.replace(
     "postgresql://", "postgresql+asyncpg://"
 )
 
-# Production-ready connection pool configuration
+# Production pool — PgBouncer (transaction mode) sits in front.
+# 41 workers × (5 pool + 15 overflow) = 820 max app-side conns.
+# PgBouncer holds 150 real DB connections and multiplexes the rest.
 engine = create_async_engine(
     DATABASE_URL,
     echo=settings.DEBUG,
-    pool_size=20,           # Base connections per worker
-    max_overflow=30,        # Extra connections under load
-    pool_pre_ping=True,     # Verify connections are alive
-    pool_recycle=300,       # Recycle connections every 5 min
-    pool_timeout=30,        # Timeout waiting for connection
+    pool_size=5,            # Base per worker; kept small — PgBouncer buffers spikes
+    max_overflow=15,        # Spike headroom per worker
+    pool_pre_ping=True,     # Drop stale connections immediately
+    pool_recycle=1800,      # Recycle every 30 min (PgBouncer server_lifetime=3600)
+    pool_timeout=15,        # Fail fast — PgBouncer queue handles waiting
+    # PgBouncer transaction mode doesn't support prepared statements;
+    # disable asyncpg statement cache entirely.
+    connect_args={"statement_cache_size": 0},
 )
 
 AsyncSessionLocal = async_sessionmaker(

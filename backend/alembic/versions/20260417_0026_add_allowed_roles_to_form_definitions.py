@@ -18,11 +18,21 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "form_definitions",
-        sa.Column("allowed_roles", sa.JSON(), nullable=True),
-    )
+    bind = op.get_bind()
+    cols = [row[0] for row in bind.execute(
+        sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='form_definitions'")
+    )]
+    if "allowed_roles" not in cols:
+        op.add_column(
+            "form_definitions",
+            sa.Column("allowed_roles", sa.JSON(), nullable=True),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("form_definitions", "allowed_roles")
+    bind = op.get_bind()
+    cols = [row[0] for row in bind.execute(
+        sa.text("SELECT column_name FROM information_schema.columns WHERE table_name='form_definitions'")
+    )]
+    if "allowed_roles" in cols:
+        op.drop_column("form_definitions", "allowed_roles")

@@ -34,6 +34,30 @@ def normalize_clinic_access_mode(value: Optional[str], default: str = "WALK_IN")
     return normalized_value
 
 
+@router.get("/public")
+async def list_clinics_public(db: AsyncSession = Depends(get_db)):
+    """Public endpoint — list active clinics for QR registration pages (no auth required)."""
+    result = await db.execute(
+        select(Clinic)
+        .options(selectinload(Clinic.faculty))
+        .where(Clinic.is_active == True)
+        .order_by(Clinic.name)
+    )
+    clinics = result.scalars().all()
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "block": c.block,
+            "clinic_type": c.clinic_type,
+            "department": c.department,
+            "location": c.location,
+            "faculty_name": c.faculty.name if c.faculty else None,
+        }
+        for c in clinics
+    ]
+
+
 @router.get("")
 async def list_clinics(
     user: User = Depends(get_current_user),

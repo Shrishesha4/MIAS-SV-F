@@ -6,6 +6,7 @@ export interface RegisterData {
   password: string;
   email: string;
   role: 'PATIENT';
+  preferred_clinic_id?: string;
   patient_data?: {
     name: string;
     date_of_birth: string;
