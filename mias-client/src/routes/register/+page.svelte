@@ -28,6 +28,10 @@
 	let patientPhoto = $state('');
 	let photoCaptureInput = $state<HTMLInputElement>();
 	let photoGalleryInput = $state<HTMLInputElement>();
+	let showCameraModal = $state(false);
+	let cameraStream = $state<MediaStream | null>(null);
+	let cameraVideoEl = $state<HTMLVideoElement | null>(null);
+	let cameraFacing = $state<'environment' | 'user'>('environment');
 	let pendingPhotoSrc = $state('');
 	let cropImage = $state<HTMLImageElement | null>(null);
 	let showPhotoCropper = $state(false);
@@ -350,6 +354,65 @@
 		error = '';
 	}
 
+	async function openCamera() {
+		if (!navigator.mediaDevices?.getUserMedia) {
+			// fallback: use file input with capture attribute
+			photoCaptureInput?.click();
+			return;
+		}
+		try {
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+				audio: false
+			});
+			cameraStream = stream;
+			showCameraModal = true;
+		} catch {
+			// permission denied or no camera — fall back
+			photoCaptureInput?.click();
+		}
+	}
+
+	function stopCamera() {
+		cameraStream?.getTracks().forEach(t => t.stop());
+		cameraStream = null;
+		showCameraModal = false;
+	}
+
+	async function flipCamera() {
+		cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment';
+		cameraStream?.getTracks().forEach(t => t.stop());
+		try {
+			cameraStream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+				audio: false
+			});
+		} catch { stopCamera(); }
+	}
+
+	function snapPhoto() {
+		const video = cameraVideoEl;
+		if (!video) return;
+		const canvas = document.createElement('canvas');
+		canvas.width = video.videoWidth || 640;
+		canvas.height = video.videoHeight || 480;
+		canvas.getContext('2d')!.drawImage(video, 0, 0);
+		const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+		stopCamera();
+		openPhotoCropperFromDataUrl(dataUrl);
+	}
+
+	function bindCameraStream(node: HTMLVideoElement, stream: MediaStream | null) {
+		cameraVideoEl = node;
+		if (stream) node.srcObject = stream;
+		return {
+			update(newStream: MediaStream | null) {
+				node.srcObject = newStream;
+			},
+			destroy() { cameraVideoEl = null; }
+		};
+	}
+
 	async function handlePhotoSelection(event: Event) {
 		const input = event.currentTarget as HTMLInputElement;
 		const file = input.files?.[0];
@@ -638,7 +701,7 @@
 									type="button"
 									class="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-xs font-semibold text-white cursor-pointer transition-opacity hover:opacity-90"
 									style="background: linear-gradient(to bottom, #4d90fe, #3b7aed); box-shadow: 0 2px 8px rgba(59,122,237,0.28);"
-									onclick={() => photoCaptureInput?.click()}
+									onclick={() => openCamera()}
 								>
 									<Camera class="h-3.5 w-3.5" />
 									Take
@@ -1316,6 +1379,42 @@
 						</button>
 					</div>
 				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if showCameraModal && cameraStream}
+		<div class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black">
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video
+				use:bindCameraStream={cameraStream}
+				autoplay
+				playsinline
+				class="w-full max-h-[calc(100dvh-140px)] object-cover"
+			></video>
+			<div class="absolute inset-x-0 bottom-0 flex items-center justify-between px-8 py-6 bg-gradient-to-t from-black/80 to-transparent">
+				<button
+					type="button"
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-white/20 text-white cursor-pointer"
+					onclick={stopCamera}
+					aria-label="Cancel"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+				</button>
+				<button
+					type="button"
+					class="w-16 h-16 rounded-full border-4 border-white bg-white/30 cursor-pointer hover:bg-white/50 transition-colors"
+					onclick={snapPhoto}
+					aria-label="Take photo"
+				></button>
+				<button
+					type="button"
+					class="w-11 h-11 flex items-center justify-center rounded-full bg-white/20 text-white cursor-pointer"
+					onclick={flipCamera}
+					aria-label="Flip camera"
+				>
+					<RotateCcw class="w-5 h-5" />
+				</button>
 			</div>
 		</div>
 	{/if}
