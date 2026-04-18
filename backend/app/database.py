@@ -1,30 +1,28 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from app.config import settings
-import uuid
 
 # Convert sync URL to async
 DATABASE_URL = settings.DATABASE_URL.replace(
     "postgresql://", "postgresql+asyncpg://"
 )
 
-# Production pool — PgBouncer (transaction mode) sits in front.
-# 41 workers × (5 pool + 15 overflow) = 820 max app-side conns.
-# PgBouncer holds 150 real DB connections and multiplexes the rest.
+# Session-mode PgBouncer: each SQLAlchemy pool connection maps to one persistent
+# server connection. Prepared statements, advisory locks, and SET work correctly.
+# Pool sizing: workers × (pool_size + max_overflow) must stay under pgbouncer
+# default_pool_size (150). Auto-worker count = (2×CPU)+1; set WEB_CONCURRENCY to override.
 engine = create_async_engine(
     DATABASE_URL,
     echo=settings.DEBUG,
-    pool_size=5,            # Base per worker; kept small — PgBouncer buffers spikes
-    max_overflow=15,        # Spike headroom per worker
-    pool_pre_ping=False,    # Disabled — pgbouncer handles health checks; pre_ping creates prepared stmts that conflict with pgbouncer transaction mode
+    pool_size=3,            # Real DB connections per worker (session mode: permanent mapping)
+    max_overflow=7,         # Burst headroom; workers×(3+7)=70 max, well under pgbouncer's 150
+    pool_pre_ping=True,     # Drop stale connections immediately
     pool_recycle=1800,      # Recycle every 30 min (PgBouncer server_lifetime=3600)
     pool_timeout=15,        # Fail fast — PgBouncer queue handles waiting
     # PgBouncer transaction mode doesn't support prepared statements;
     # disable asyncpg statement cache entirely.
-    connect_args={
-        "statement_cache_size": 0,
-        "prepared_statement_name_func": lambda: f"ps_{uuid.uuid4().hex}",
-    },
+    # pgbouncer session mode: each asyncpg connection maps permanently to one server
+    # connection, so prepared statements work normally. No special connect_args needed.
 )
 
 AsyncSessionLocal = async_sessionmaker(
