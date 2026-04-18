@@ -11,6 +11,18 @@
 	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Trash2, X } from 'lucide-svelte';
 
 	const auth = get(authStore);
+
+	// Portal action: moves node to document.body to escape any stacking context
+	function portal(node: HTMLElement): { destroy(): void } {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				if (node.parentNode === document.body) {
+					document.body.removeChild(node);
+				}
+			}
+		};
+	}
 	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
 	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis', 'department_select', 'faculty_select', 'clinic_select'];
 
@@ -1322,7 +1334,7 @@
 
 {#if showFormEditor}
 	<!-- Form Studio Editor — full screen custom modal -->
-	<div class="fixed inset-0 flex items-start sm:items-center justify-center pt-14 sm:pt-4 px-3 pb-3 sm:p-4"
+	<div use:portal class="fixed inset-0 flex items-center justify-center p-4"
 		style="background: rgba(15,23,42,0.18); backdrop-filter: blur(4px); z-index: 9999;">
 		<div class="absolute inset-0" onclick={resetFormEditor}></div>
 		<div class="relative flex flex-col rounded-[20px] overflow-hidden w-full"
