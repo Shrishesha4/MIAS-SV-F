@@ -1370,16 +1370,15 @@
 			{/if}
 
 			<!-- ── SCROLLABLE 3-COLUMN CONTENT ── -->
-			<div class="flex-1 overflow-hidden min-h-0" style="background: #f3f6fb;">
-				<div class="h-full min-h-0 grid gap-4 p-4 overflow-hidden" style="grid-template-columns: 260px minmax(0,1fr) minmax(0,1.1fr);">
+			<div class="flex-1 min-h-0 flex gap-4 p-4" style="background: #f3f6fb; overflow-y: hidden; overflow-x: auto;">
 
-					<!-- Fields Overview -->
-					<div class="studio-card p-3.5 flex flex-col overflow-hidden">
-						<div class="mb-3 shrink-0">
+				<!-- Fields Overview -->
+				<div class="studio-card p-3.5 flex flex-col overflow-hidden" style="width: 260px; min-width: 260px; min-height: 0;">
+					<div class="mb-3 shrink-0">
 							<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Fields Overview</p>
 							<p class="mt-1 text-xs text-slate-500">Drag to reorder. Tap a row to edit.</p>
 						</div>
-						<div class="flex-1 overflow-y-auto space-y-1.5 pr-1" role="list" aria-label="Form fields">
+					<div class="flex-1 overflow-y-auto space-y-1.5 pr-1" role="list" aria-label="Form fields">
 							{#each formEditorFields as field, index (getEditorFieldId(field, index))}
 								<div
 									class={`drag-sort-row ${selectedFieldIndex === index ? 'is-selected' : ''} ${draggedFieldIndex === index ? 'is-dragging' : ''} ${dragOverFieldIndex === index && draggedFieldIndex !== null && draggedFieldIndex !== index ? 'is-drop-target' : ''}`}
@@ -1414,8 +1413,8 @@
 						</div>
 					</div>
 
-					<!-- Selected Field Editor -->
-					<div class="studio-card p-3.5 overflow-y-auto">
+				<!-- Selected Field Editor -->
+				<div class="studio-card p-3.5 overflow-y-auto" style="flex: 1; min-width: 0; min-height: 0;">
 						{#if selectedField}
 							{@const availableFields = getAvailableConditionFields(selectedFieldIndex)}
 							<div class="mb-3 flex items-start justify-between gap-3">
@@ -1564,8 +1563,8 @@
 						{/if}
 					</div>
 
-					<!-- Live Preview -->
-					<div class="studio-card p-3.5 overflow-y-auto">
+				<!-- Live Preview -->
+				<div class="studio-card p-3.5 overflow-y-auto" style="flex: 1.1; min-width: 0; min-height: 0;">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
 								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Live Preview</p>
@@ -1587,9 +1586,8 @@
 								<div class="flex h-full items-center justify-center text-center text-sm text-slate-500 py-10">Add at least one field to render the preview.</div>
 							{/if}
 						</div>
-					</div>
-
 				</div>
+
 			</div>
 
 			<!-- ── FIXED BOTTOM SAVE BAR ── -->
