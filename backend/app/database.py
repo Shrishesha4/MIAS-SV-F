@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from app.config import settings
+import uuid
 
 # Convert sync URL to async
 DATABASE_URL = settings.DATABASE_URL.replace(
@@ -15,12 +16,15 @@ engine = create_async_engine(
     echo=settings.DEBUG,
     pool_size=5,            # Base per worker; kept small — PgBouncer buffers spikes
     max_overflow=15,        # Spike headroom per worker
-    pool_pre_ping=True,     # Drop stale connections immediately
+    pool_pre_ping=False,    # Disabled — pgbouncer handles health checks; pre_ping creates prepared stmts that conflict with pgbouncer transaction mode
     pool_recycle=1800,      # Recycle every 30 min (PgBouncer server_lifetime=3600)
     pool_timeout=15,        # Fail fast — PgBouncer queue handles waiting
     # PgBouncer transaction mode doesn't support prepared statements;
     # disable asyncpg statement cache entirely.
-    connect_args={"statement_cache_size": 0},
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"ps_{uuid.uuid4().hex}",
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(
