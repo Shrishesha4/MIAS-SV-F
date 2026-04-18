@@ -76,7 +76,9 @@
 	let isEditingFormName = $state(false);
 	let formNameInput = $state<HTMLInputElement | null>(null);
 	let savingForm = $state(false);
+	let savingSettings = $state(false);
 	let formSaveError = $state('');
+	let settingsSaveError = $state('');
 	let showFormSettingsModal = $state(false);
 	let showCategoryEditor = $state(false);
 	let categoryName = $state('');
@@ -343,6 +345,7 @@
 		previewValues = {};
 		activeSection = formEditorSection;
 		// do NOT set showFormEditor = true — only open settings
+		settingsSaveError = '';
 		showFormSettingsModal = true;
 	}
 
@@ -698,6 +701,45 @@
 			formSaveError = error?.response?.data?.detail || 'Failed to save configuration';
 		} finally {
 			savingForm = false;
+		}
+	}
+
+	async function saveFormSettings() {
+		if (!editingFormId) return;
+		if (!formEditorName.trim()) {
+			settingsSaveError = 'Form name is required';
+			return;
+		}
+		const nextFields = serializeFields();
+		if (nextFields.length === 0) {
+			settingsSaveError = 'Form must have at least one field';
+			return;
+		}
+		const payload: FormDefinitionPayload = {
+			name: formEditorName.trim(),
+			section: formEditorSection,
+			form_type: formEditorType || formEditorSection,
+			department: formEditorDepartment.trim() || undefined,
+			procedure_name: formEditorProcedureName.trim() || undefined,
+			fields: nextFields,
+			rules: formEditorRules.length > 0 ? formEditorRules : undefined,
+			sort_order: formEditorSortOrder,
+			is_active: formEditorIsActive,
+			icon: formEditorIcon.trim() || null,
+			color: formEditorColor.trim() || null,
+			allowed_roles: formEditorAllowedRoles.length > 0 ? formEditorAllowedRoles : null,
+		};
+		savingSettings = true;
+		settingsSaveError = '';
+		try {
+			await formsApi.updateForm(editingFormId, payload);
+			toastStore.addToast('Settings saved', 'success');
+			showFormSettingsModal = false;
+			await loadFormStudio();
+		} catch (error: any) {
+			settingsSaveError = error?.response?.data?.detail || 'Failed to save settings';
+		} finally {
+			savingSettings = false;
 		}
 	}
 
@@ -1364,7 +1406,7 @@
 				</div>
 				<button
 					type="button"
-					onclick={() => (showFormSettingsModal = true)}
+					onclick={() => { settingsSaveError = ''; showFormSettingsModal = true; }}
 					class="w-9 h-9 flex items-center justify-center rounded-full border cursor-pointer transition-colors hover:bg-blue-50"
 					style="border-color: rgba(37,99,235,0.25);"
 					title="Form settings"
@@ -1701,8 +1743,11 @@
 					<span class={`toggle-switch ${formEditorIsActive ? 'is-on' : ''}`} aria-hidden="true"><span class="toggle-thumb"></span></span>
 				</button>
 			</div>
-			<button type="button" onclick={() => showFormSettingsModal = false} class="w-full rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
-				Done
+			{#if settingsSaveError}
+				<p class="text-xs text-red-500 text-center -mt-1">{settingsSaveError}</p>
+			{/if}
+			<button type="button" onclick={saveFormSettings} disabled={savingSettings} class="w-full rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
+				{savingSettings ? 'Saving…' : 'Save Settings'}
 			</button>
 		</div>
 	</AquaModal>
