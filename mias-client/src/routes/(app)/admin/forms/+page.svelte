@@ -8,7 +8,7 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Trash2 } from 'lucide-svelte';
+	import { FileText, GripVertical, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Trash2, X } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
@@ -65,6 +65,7 @@
 	let formNameInput = $state<HTMLInputElement | null>(null);
 	let savingForm = $state(false);
 	let formSaveError = $state('');
+	let showFormSettingsModal = $state(false);
 	let showCategoryEditor = $state(false);
 	let categoryName = $state('');
 	let savingCategory = $state(false);
@@ -306,6 +307,31 @@
 		previewValues = {};
 		activeSection = formEditorSection;
 		showFormEditor = true;
+	}
+
+	function openSettingsOnly(form: FormDefinition) {
+		resetFormEditor();
+		editingFormId = form.id;
+		formEditorSection = resolveFormSection(form);
+		formEditorType = form.form_type;
+		formEditorName = form.name;
+		formEditorSortOrder = form.sort_order || 0;
+		formEditorIsActive = form.is_active;
+		formEditorIcon = form.icon || '';
+		formEditorColor = form.color || '';
+		formEditorAllowedRoles = form.allowed_roles ? [...form.allowed_roles] : [];
+		formEditorDepartment = form.department || '';
+		formEditorProcedureName = form.procedure_name || '';
+		formEditorFields = (form.fields.length > 0 ? form.fields : [createEmptyField()]).map((field) => ({
+			...field,
+			type: normalizeFieldType(field.type)
+		}));
+		formEditorRules = form.rules ? [...form.rules] : [];
+		selectedFieldIndex = 0;
+		previewValues = {};
+		activeSection = formEditorSection;
+		// do NOT set showFormEditor = true — only open settings
+		showFormSettingsModal = true;
 	}
 
 	function addFormField() {
@@ -977,39 +1003,50 @@
 			<p class="mt-1.5 text-xs text-slate-400">Create one from the button above and it will appear here.</p>
 		</div>
 	{:else}
-		<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+		<div class="space-y-2">
 			{#each filteredForms as form}
-				<div class="rounded-[18px] border border-slate-200 p-3.5" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 20px rgba(15,23,42,0.05); opacity: {form.is_active ? 1 : 0.72};">
-					<div class="flex items-start justify-between gap-3">
-						<div>
-							<p class="text-[9px] font-bold uppercase tracking-[0.14em] text-blue-600">{resolveFormSection(form)}</p>
-							<h3 class="mt-1 text-sm font-bold text-slate-900">{form.name}</h3>
+				<div class="flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-colors"
+					style="background: white; border-color: rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.05); opacity: {form.is_active ? 1 : 0.7};">
+					<!-- Icon -->
+					<div class="w-12 h-12 rounded-[12px] flex items-center justify-center shrink-0"
+						style="background: linear-gradient(135deg, #3b82f6, #2563eb); box-shadow: 0 4px 12px rgba(37,99,235,0.3);">
+						<FileText class="w-6 h-6 text-white" />
+					</div>
+					<!-- Info -->
+					<div class="flex-1 min-w-0">
+						<h3 class="font-bold text-slate-900 text-sm">{form.name}</h3>
+						<p class="text-[11px] font-bold text-slate-400 uppercase tracking-wide mt-0.5">{form.fields.length} FIELDS</p>
+						<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">
+							<span class="text-[10px] font-bold px-2 py-0.5 rounded"
+								style="background: rgba(37,99,235,0.1); color: #2563eb;">{resolveFormSection(form)}</span>
+							{#if form.allowed_roles?.length}
+								<span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded"
+									style="background: rgba(16,185,129,0.1); color: #059669; border: 1px solid rgba(16,185,129,0.2);">
+									🛡 {form.allowed_roles.length} ROLE{form.allowed_roles.length !== 1 ? 'S' : ''}
+								</span>
+							{/if}
+							{#if !form.is_active}
+								<span class="text-[10px] font-bold px-2 py-0.5 rounded"
+									style="background: rgba(148,163,184,0.15); color: #64748b;">INACTIVE</span>
+							{/if}
 						</div>
-						<span class="rounded-full px-2.5 py-1 text-[10px] font-bold" style="background: {form.is_active ? 'rgba(37,99,235,0.1)' : 'rgba(148,163,184,0.12)'}; color: {form.is_active ? '#2563eb' : '#64748b'};">
-							{form.is_active ? 'ACTIVE' : 'INACTIVE'}
-						</span>
 					</div>
-
-					<div class="mt-2.5 space-y-1 text-xs text-slate-500">
-						<p>{form.fields.length} fields configured</p>
-						<p>Type: {form.form_type}</p>
-					</div>
-
-					<div class="mt-3 flex items-center gap-2">
+					<!-- Actions -->
+					<div class="flex items-center gap-2 shrink-0">
 						<button
-							onclick={() => openEditFormEditor(form)}
-							class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-semibold cursor-pointer"
-							style="background: linear-gradient(to bottom, #ffffff, #eff6ff); color: #2563eb; border: 1px solid rgba(59,130,246,0.18);"
+							onclick={() => openSettingsOnly(form)}
+							class="w-9 h-9 flex items-center justify-center rounded-full border cursor-pointer transition-colors hover:bg-slate-100"
+							style="border-color: rgba(0,0,0,0.12);"
+							title="Form settings"
 						>
-							<Pencil class="h-3.5 w-3.5" />
-							Edit
+							<Settings class="w-4.5 h-4.5 text-slate-400" />
 						</button>
 						<button
-							onclick={() => toggleFormActive(form)}
-							class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer"
-							style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); color: #475569; border: 1px solid rgba(148,163,184,0.24);"
+							onclick={() => openEditFormEditor(form)}
+							class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold text-white cursor-pointer"
+							style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 4px 10px rgba(37,99,235,0.3);"
 						>
-							<Power class="inline-block h-3.5 w-3.5" />
+							Edit
 						</button>
 					</div>
 				</div>
@@ -1017,48 +1054,6 @@
 		</div>
 	{/if}
 </div>
-
-{#if showCategoryEditor}
-	<AquaModal
-		header={formCategoryHeader}
-		onclose={resetCategoryEditor}
-		panelClass="sm:max-w-[420px]"
-		contentClass="p-0"
-	>
-		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb);">
-			{#if categorySaveError}
-				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{categorySaveError}</div>
-			{/if}
-
-			<div>
-				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category Name</p>
-				<input
-					type="text"
-					placeholder="e.g. RADIOLOGY"
-					class="w-full rounded-[14px] border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-					bind:value={categoryName}
-				/>
-				<p class="mt-2 text-xs text-slate-500">The new tab becomes available immediately in the forms studio and in form creation.</p>
-			</div>
-
-			<button
-				type="button"
-				onclick={saveFormCategory}
-				disabled={savingCategory}
-				class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60"
-				style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
-			>
-				{#if savingCategory}
-					<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />
-					Creating...
-				{:else}
-					Create Category
-				{/if}
-			</button>
-		</div>
-	</AquaModal>
-{/if}
 
 <style>
 	.form-tab-scroll {
@@ -1326,28 +1321,65 @@
 </style>
 
 {#if showFormEditor}
-	<AquaModal
-		header={formEditorHeader}
-		onclose={resetFormEditor}
-		panelClass="sm:max-w-[1320px]"
-		contentClass="p-0"
-	>
-		<div class="px-3.5 py-3.5 md:px-4 md:py-4" style="background: #f3f6fb; max-height: calc(100vh - 8rem);">
+	<!-- Form Studio Editor — full screen custom modal -->
+	<div class="fixed inset-0 flex items-start sm:items-center justify-center pt-14 sm:pt-4 px-3 pb-3 sm:p-4"
+		style="background: rgba(15,23,42,0.18); backdrop-filter: blur(4px); z-index: 9999;">
+		<div class="absolute inset-0" onclick={resetFormEditor}></div>
+		<div class="relative flex flex-col rounded-[20px] overflow-hidden w-full"
+			style="background: white; box-shadow: 0 -8px 40px rgba(0,0,0,0.22); border: 1px solid rgba(0,0,0,0.1); max-height: calc(100dvh - 4rem); max-width: 1320px;">
+
+			<!-- ── TOP BAR ── -->
+			<div class="flex items-center gap-3 px-4 py-3 shrink-0 border-b"
+				style="background: linear-gradient(to bottom, #f0f5ff, #e6eeff); border-color: rgba(37,99,235,0.18);">
+				<span class="text-[10px] font-black tracking-[0.22em] text-blue-700 uppercase shrink-0 hidden sm:inline">FORM STUDIO</span>
+				<div class="flex-1 min-w-0">
+					{#if isEditingFormName}
+						<input
+							bind:this={formNameInput}
+							bind:value={formEditorName}
+							onblur={stopEditingFormName}
+							onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); stopEditingFormName(); } if (e.key === 'Escape') { e.preventDefault(); isEditingFormName = false; } }}
+							class="rounded-[10px] border border-blue-300 px-3 py-1.5 text-sm font-bold text-slate-900 outline-none"
+							style="background: rgba(255,255,255,0.96); max-width: 300px;"
+							placeholder="Untitled form"
+						/>
+					{:else}
+						<button type="button" onclick={startEditingFormName}
+							class="text-sm font-bold text-slate-900 hover:text-blue-700 cursor-pointer truncate max-w-[220px] sm:max-w-[340px] text-left">
+							{formEditorName || 'Untitled Form'}
+						</button>
+					{/if}
+				</div>
+				<button
+					type="button"
+					onclick={() => (showFormSettingsModal = true)}
+					class="w-9 h-9 flex items-center justify-center rounded-full border cursor-pointer transition-colors hover:bg-blue-50"
+					style="border-color: rgba(37,99,235,0.25);"
+					title="Form settings"
+				>
+					<Settings class="w-4 h-4 text-blue-600" />
+				</button>
+				<button type="button" onclick={resetFormEditor}
+					class="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer hover:bg-slate-100 transition-colors">
+					<X class="w-5 h-5 text-slate-500" />
+				</button>
+			</div>
+
 			{#if formSaveError}
-				<div class="mb-4 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
+				<div class="shrink-0 mx-4 mt-3 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
 			{/if}
 
-			<div class="space-y-4 overflow-y-auto pr-1">
-				<div class="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_minmax(0,1.1fr)]">
-					<div class="studio-card p-3.5">
-						<div class="mb-3 flex items-center justify-between gap-3">
-							<div>
-								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Fields Overview</p>
-								<p class="mt-1 text-xs text-slate-500">Drag to reorder. Tap a row to edit.</p>
-							</div>
-						</div>
+			<!-- ── SCROLLABLE 3-COLUMN CONTENT ── -->
+			<div class="flex-1 overflow-hidden min-h-0" style="background: #f3f6fb;">
+				<div class="h-full min-h-0 grid gap-4 p-4 overflow-hidden" style="grid-template-columns: 260px minmax(0,1fr) minmax(0,1.1fr);">
 
-						<div class="space-y-1.5" role="list" aria-label="Form fields">
+					<!-- Fields Overview -->
+					<div class="studio-card p-3.5 flex flex-col overflow-hidden">
+						<div class="mb-3 shrink-0">
+							<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Fields Overview</p>
+							<p class="mt-1 text-xs text-slate-500">Drag to reorder. Tap a row to edit.</p>
+						</div>
+						<div class="flex-1 overflow-y-auto space-y-1.5 pr-1" role="list" aria-label="Form fields">
 							{#each formEditorFields as field, index (getEditorFieldId(field, index))}
 								<div
 									class={`drag-sort-row ${selectedFieldIndex === index ? 'is-selected' : ''} ${draggedFieldIndex === index ? 'is-dragging' : ''} ${dragOverFieldIndex === index && draggedFieldIndex !== null && draggedFieldIndex !== index ? 'is-drop-target' : ''}`}
@@ -1362,34 +1394,28 @@
 										type="button"
 										class="flex min-w-0 flex-1 items-center gap-2.5 text-left cursor-pointer"
 										title={field.key || slugify(field.label) || `field_${index + 1}`}
-										onclick={() => {
-											selectedFieldIndex = index;
-											resetOptionDragState();
-										}}
+										onclick={() => { selectedFieldIndex = index; resetOptionDragState(); }}
 									>
-										<span class="drag-handle" aria-hidden="true">
-											<GripVertical class="h-3.5 w-3.5" />
-										</span>
+										<span class="drag-handle" aria-hidden="true"><GripVertical class="h-3.5 w-3.5" /></span>
 										<span class="truncate text-sm font-semibold" style={`color: ${selectedFieldIndex === index ? '#0f172a' : '#334155'};`}>
 											{field.label || `Untitled field ${index + 1}`}
 										</span>
 									</button>
 								</div>
 							{/each}
-
 							<button
 								type="button"
 								onclick={addFormField}
 								class="w-full rounded-[12px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
 								style="background: rgba(255,255,255,0.55);"
 							>
-								<Plus class="mr-1.5 inline-block h-3.5 w-3.5" />
-								Add Field
+								<Plus class="mr-1.5 inline-block h-3.5 w-3.5" />Add Field
 							</button>
 						</div>
 					</div>
 
-					<div class="studio-card p-3.5">
+					<!-- Selected Field Editor -->
+					<div class="studio-card p-3.5 overflow-y-auto">
 						{#if selectedField}
 							{@const availableFields = getAvailableConditionFields(selectedFieldIndex)}
 							<div class="mb-3 flex items-start justify-between gap-3">
@@ -1403,92 +1429,39 @@
 									class="inline-flex items-center gap-1.5 rounded-[10px] border border-red-200 px-3 py-1.5 text-[11px] font-bold text-red-600 cursor-pointer"
 									style="background: #fff5f5; box-shadow: 0 4px 10px rgba(239,68,68,0.08);"
 								>
-									<Trash2 class="h-3.5 w-3.5" />
-									Remove
+									<Trash2 class="h-3.5 w-3.5" />Remove
 								</button>
 							</div>
-
 							<div class="space-y-3">
 								<div class="grid gap-3 md:grid-cols-2">
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Label</p>
-										<input
-											type="text"
-											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-											value={selectedField.label}
-											oninput={(event) => updateFieldLabel(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
-										/>
+										<input type="text" class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);" value={selectedField.label} oninput={(event) => updateFieldLabel(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)} />
 									</div>
-
-									<!-- <div>
-										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Key</p>
-										<input
-											type="text"
-											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none"
-											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-											value={selectedField.key}
-											oninput={(event) => updateFieldKey(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
-										/>
-										<p class="mt-1 text-[11px] text-slate-500">Auto-normalized to lowercase underscore format.</p>
-									</div> -->
-
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Type</p>
-										<select
-											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer"
-											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-											value={selectedField.type}
-											onchange={(event) => updateFieldType(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}
-										>
+										<select class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);" value={selectedField.type} onchange={(event) => updateFieldType(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}>
 											{#each fieldTypes as fieldType}
 												<option value={fieldType}>{fieldTypeLabels[fieldType] ?? fieldType.toUpperCase()}</option>
 											{/each}
 										</select>
 									</div>
-
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Required</p>
-										<button
-											type="button"
-											role="switch"
-											aria-checked={selectedField.required}
-											aria-label="Toggle required field"
-											onclick={() => updateFieldRequired(selectedFieldIndex, !selectedField.required)}
-											class="toggle-switch-shell w-full justify-between cursor-pointer"
-										>
-											<span class="text-sm font-bold" style={`color: ${selectedField.required ? '#1d4ed8' : '#64748b'};`}>
-												{selectedField.required ? 'Required' : 'Optional'}
-											</span>
-											<span class={`toggle-switch ${selectedField.required ? 'is-on' : ''}`} aria-hidden="true">
-												<span class="toggle-thumb"></span>
-											</span>
+										<button type="button" role="switch" aria-checked={selectedField.required} aria-label="Toggle required field" onclick={() => updateFieldRequired(selectedFieldIndex, !selectedField.required)} class="toggle-switch-shell w-full justify-between cursor-pointer">
+											<span class="text-sm font-bold" style={`color: ${selectedField.required ? '#1d4ed8' : '#64748b'};`}>{selectedField.required ? 'Required' : 'Optional'}</span>
+											<span class={`toggle-switch ${selectedField.required ? 'is-on' : ''}`} aria-hidden="true"><span class="toggle-thumb"></span></span>
 										</button>
 									</div>
 								</div>
-
 								<div>
 									<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Placeholder</p>
-									<input
-										type="text"
-										class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-										style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-										value={selectedField.placeholder || ''}
-										oninput={(event) => updateFieldProperty(selectedFieldIndex, 'placeholder', (event.currentTarget as HTMLInputElement).value)}
-									/>
+									<input type="text" class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);" value={selectedField.placeholder || ''} oninput={(event) => updateFieldProperty(selectedFieldIndex, 'placeholder', (event.currentTarget as HTMLInputElement).value)} />
 								</div>
-
 								<div>
 									<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Help Text</p>
-									<textarea
-										rows="2"
-										class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none resize-y"
-										style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-										value={selectedField.help_text || ''}
-										oninput={(event) => updateFieldProperty(selectedFieldIndex, 'help_text', (event.currentTarget as HTMLTextAreaElement).value)}
-									></textarea>
+									<textarea rows="2" class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none resize-y" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);" value={selectedField.help_text || ''} oninput={(event) => updateFieldProperty(selectedFieldIndex, 'help_text', (event.currentTarget as HTMLTextAreaElement).value)}></textarea>
 								</div>
-
 								{#if selectedField.type === 'select'}
 									<div class="studio-subcard p-3">
 										<div class="flex items-center justify-between gap-3">
@@ -1496,188 +1469,85 @@
 												<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Options</p>
 												<p class="mt-1 text-xs text-slate-500">Each option is its own row. Drag to reorder.</p>
 											</div>
-											<button
-												type="button"
-												onclick={() => addFieldOption(selectedFieldIndex)}
-												class="rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
-												style="background: #ffffff; box-shadow: 0 4px 10px rgba(15,23,42,0.06);"
-											>
-												<Plus class="mr-1 inline-block h-3.5 w-3.5" />
-												Add Option
+											<button type="button" onclick={() => addFieldOption(selectedFieldIndex)} class="rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer" style="background: #ffffff; box-shadow: 0 4px 10px rgba(15,23,42,0.06);">
+												<Plus class="mr-1 inline-block h-3.5 w-3.5" />Add Option
 											</button>
 										</div>
-
 										{#if (selectedField.options?.length ?? 0) > 0}
 											<div class="mt-3 space-y-2" role="list" aria-label="Select field options">
 												{#each selectedField.options ?? [] as option, optionIndex (optionIndex)}
-													<div
-														class={`drag-sort-row ${draggedOptionIndex === optionIndex ? 'is-dragging' : ''} ${dragOverOptionIndex === optionIndex && draggedOptionIndex !== null && draggedOptionIndex !== optionIndex ? 'is-drop-target' : ''}`}
-														role="listitem"
-														draggable="true"
-														ondragstart={(event) => handleOptionDragStart(event, optionIndex)}
-														ondragover={(event) => handleOptionDragOver(event, optionIndex)}
-														ondrop={(event) => handleOptionDrop(event, selectedFieldIndex, optionIndex)}
-														ondragend={resetOptionDragState}
-													>
-														<span class="drag-handle" aria-hidden="true">
-															<GripVertical class="h-3.5 w-3.5" />
-														</span>
-														<input
-															type="text"
-															placeholder={`Option ${optionIndex + 1}`}
-															class="min-w-0 flex-1 rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-															style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-															value={option}
-															oninput={(event) => updateFieldOption(selectedFieldIndex, optionIndex, (event.currentTarget as HTMLInputElement).value)}
-														/>
-														<button
-															type="button"
-															onclick={() => removeFieldOption(selectedFieldIndex, optionIndex)}
-															class="flex h-9 w-9 items-center justify-center rounded-full text-red-500 cursor-pointer hover:bg-red-50"
-															aria-label="Remove option"
-														>
-															<Trash2 class="h-3.5 w-3.5" />
-														</button>
+													<div class={`drag-sort-row ${draggedOptionIndex === optionIndex ? 'is-dragging' : ''} ${dragOverOptionIndex === optionIndex && draggedOptionIndex !== null && draggedOptionIndex !== optionIndex ? 'is-drop-target' : ''}`} role="listitem" draggable="true" ondragstart={(event) => handleOptionDragStart(event, optionIndex)} ondragover={(event) => handleOptionDragOver(event, optionIndex)} ondrop={(event) => handleOptionDrop(event, selectedFieldIndex, optionIndex)} ondragend={resetOptionDragState}>
+														<span class="drag-handle" aria-hidden="true"><GripVertical class="h-3.5 w-3.5" /></span>
+														<input type="text" placeholder={`Option ${optionIndex + 1}`} class="min-w-0 flex-1 rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: #ffffff;" value={option} oninput={(event) => updateFieldOption(selectedFieldIndex, optionIndex, (event.currentTarget as HTMLInputElement).value)} />
+														<button type="button" onclick={() => removeFieldOption(selectedFieldIndex, optionIndex)} class="flex h-9 w-9 items-center justify-center rounded-full text-red-500 cursor-pointer hover:bg-red-50" aria-label="Remove option"><Trash2 class="h-3.5 w-3.5" /></button>
 													</div>
 												{/each}
 											</div>
 										{:else}
-											<button
-												type="button"
-												onclick={() => addFieldOption(selectedFieldIndex)}
-												class="mt-3 w-full rounded-[10px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
-												style="background: rgba(255,255,255,0.55);"
-											>
-												Add first option
-											</button>
+											<button type="button" onclick={() => addFieldOption(selectedFieldIndex)} class="mt-3 w-full rounded-[10px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer" style="background: rgba(255,255,255,0.55);">Add first option</button>
 										{/if}
 									</div>
 								{/if}
-
 								{#if selectedField.type === 'textarea'}
 									<div>
 										<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Rows</p>
-										<input
-											type="number"
-											min="1"
-											class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-											style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-											value={selectedField.rows ?? 3}
-											oninput={(event) => {
-												const parsed = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10);
-												updateFieldProperty(selectedFieldIndex, 'rows', Number.isFinite(parsed) && parsed > 0 ? parsed : undefined);
-											}}
-										/>
+										<input type="number" min="1" class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: #ffffff;" value={selectedField.rows ?? 3} oninput={(event) => { const parsed = Number.parseInt((event.currentTarget as HTMLInputElement).value, 10); updateFieldProperty(selectedFieldIndex, 'rows', Number.isFinite(parsed) && parsed > 0 ? parsed : undefined); }} />
 									</div>
 								{/if}
-
 								{#if selectedField.type === 'file'}
 									<div class="grid gap-3 md:grid-cols-2">
 										<div>
 											<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Accepted Types</p>
-											<input
-												type="text"
-												placeholder=".pdf,.jpg,image/*"
-												class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-												style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
-												value={selectedField.accept || ''}
-												oninput={(event) => updateFieldProperty(selectedFieldIndex, 'accept', (event.currentTarget as HTMLInputElement).value)}
-											/>
+											<input type="text" placeholder=".pdf,.jpg,image/*" class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: #ffffff;" value={selectedField.accept || ''} oninput={(event) => updateFieldProperty(selectedFieldIndex, 'accept', (event.currentTarget as HTMLInputElement).value)} />
 										</div>
-
 										<div>
 											<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Upload Mode</p>
-											<button
-												type="button"
-												role="switch"
-												aria-checked={selectedField.multiple}
-												aria-label="Toggle multiple file uploads"
-												onclick={() => updateFieldProperty(selectedFieldIndex, 'multiple', !selectedField.multiple)}
-												class="toggle-switch-shell w-full justify-between cursor-pointer"
-											>
-												<span class="text-sm font-bold" style={`color: ${selectedField.multiple ? '#1d4ed8' : '#64748b'};`}>
-													{selectedField.multiple ? 'Multiple Files' : 'Single File'}
-												</span>
-												<span class={`toggle-switch ${selectedField.multiple ? 'is-on' : ''}`} aria-hidden="true">
-													<span class="toggle-thumb"></span>
-												</span>
+											<button type="button" role="switch" aria-checked={selectedField.multiple} aria-label="Toggle multiple file uploads" onclick={() => updateFieldProperty(selectedFieldIndex, 'multiple', !selectedField.multiple)} class="toggle-switch-shell w-full justify-between cursor-pointer">
+												<span class="text-sm font-bold" style={`color: ${selectedField.multiple ? '#1d4ed8' : '#64748b'};`}>{selectedField.multiple ? 'Multiple Files' : 'Single File'}</span>
+												<span class={`toggle-switch ${selectedField.multiple ? 'is-on' : ''}`} aria-hidden="true"><span class="toggle-thumb"></span></span>
 											</button>
 										</div>
 									</div>
 								{/if}
-
 								<div class="studio-subcard p-3">
-									<div class="mb-3">
-										<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Visibility Logic</p>
-									</div>
-
+									<p class="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Visibility Logic</p>
 									{#if availableFields.length === 0}
 										<p class="rounded-[14px] border border-slate-200 bg-white px-3 py-3 text-xs text-slate-500">Add a field before this one if you want to make it conditional.</p>
 									{:else}
 										<div class="space-y-3">
 											<div>
 												<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Show Field When</p>
-												<select
-													class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer"
-													style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-													value={selectedField.condition?.field ?? ''}
-													onchange={(event) => {
-														const value = (event.currentTarget as HTMLSelectElement).value;
-														if (!value) {
-															clearFieldCondition(selectedFieldIndex);
-															return;
-														}
-														updateFieldConditionField(selectedFieldIndex, value);
-													}}
-												>
+												<select class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={selectedField.condition?.field ?? ''} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; if (!value) { clearFieldCondition(selectedFieldIndex); return; } updateFieldConditionField(selectedFieldIndex, value); }}>
 													<option value="">Always show</option>
 													{#each availableFields as fieldOption}
 														<option value={fieldOption.key}>{fieldOption.label}</option>
 													{/each}
 												</select>
 											</div>
-
 											{#if selectedField.condition?.field}
 												{@const controllingField = availableFields.find((fieldOption) => fieldOption.key === selectedField.condition?.field)}
 												<div class="grid gap-3 md:grid-cols-2">
 													<div>
 														<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Operator</p>
-														<select
-															class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer"
-															style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-															value={selectedField.condition.operator}
-															onchange={(event) => updateFieldConditionOperator(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value as FieldCondition['operator'])}
-														>
+														<select class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={selectedField.condition.operator} onchange={(event) => updateFieldConditionOperator(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value as FieldCondition['operator'])}>
 															<option value="not_empty">is filled</option>
 															<option value="empty">is empty</option>
 															<option value="eq">equals</option>
 															<option value="ne">not equals</option>
 														</select>
 													</div>
-
 													{#if selectedField.condition.operator === 'eq' || selectedField.condition.operator === 'ne'}
 														<div>
 															<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Value</p>
 															{#if controllingField && controllingField.options.length > 0}
-																<select
-																	class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer"
-																	style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-																	value={String(selectedField.condition.value ?? '')}
-																	onchange={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}
-																>
+																<select class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} onchange={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}>
 																	<option value="">Pick a value</option>
 																	{#each controllingField.options as option}
 																		<option value={option}>{option}</option>
 																	{/each}
 																</select>
 															{:else}
-																<input
-																	type="text"
-																	class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none"
-																	style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
-																	value={String(selectedField.condition.value ?? '')}
-																	oninput={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)}
-																/>
+																<input type="text" class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} oninput={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)} />
 															{/if}
 														</div>
 													{/if}
@@ -1694,48 +1564,36 @@
 						{/if}
 					</div>
 
-					<div class="studio-card p-3.5">
+					<!-- Live Preview -->
+					<div class="studio-card p-3.5 overflow-y-auto">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
 								<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Live Preview</p>
 								<p class="mt-1 text-xs text-slate-500">Type into the preview to test placeholders and conditional visibility.</p>
 							</div>
-							<button
-								type="button"
-								onclick={() => (previewValues = {})}
-								class="inline-flex items-center gap-1.5 rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer"
-								style="background: #ffffff; box-shadow: 0 4px 10px rgba(15,23,42,0.06);"
-							>
-								<RotateCcw class="h-3.5 w-3.5" />
-								Reset
+							<button type="button" onclick={() => (previewValues = {})} class="inline-flex items-center gap-1.5 rounded-[10px] border border-slate-300 px-3 py-1.5 text-[11px] font-bold text-slate-600 cursor-pointer" style="background: #ffffff;">
+								<RotateCcw class="h-3.5 w-3.5" />Reset
 							</button>
 						</div>
-
 						{#if previewSchema.duplicates.length > 0}
 							<div class="mb-3 rounded-[14px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-								Duplicate field keys detected: {previewSchema.duplicates.join(', ')}. The preview is still rendered with temporary fallback keys, but saving will be blocked until the keys are unique.
+								Duplicate field keys: {previewSchema.duplicates.join(', ')}. Save blocked until resolved.
 							</div>
 						{/if}
-
-						<div class="rounded-[12px] border border-slate-300 p-3" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.06); min-height: 420px;">
+						<div class="rounded-[12px] border border-slate-300 p-3" style="background: #ffffff; min-height: 200px;">
 							{#if previewSchema.fields.length > 0}
-								<div class="space-y-3">
-									<DynamicFormRenderer
-										fields={previewSchema.fields}
-										rules={formEditorRules}
-										bind:values={previewValues}
-										idPrefix="form-studio-preview"
-									/>
-								</div>
+								<DynamicFormRenderer fields={previewSchema.fields} rules={formEditorRules} bind:values={previewValues} idPrefix="form-studio-preview" />
 							{:else}
-								<div class="flex h-full items-center justify-center text-center text-sm text-slate-500">
-									Add at least one field to render the preview.
-								</div>
+								<div class="flex h-full items-center justify-center text-center text-sm text-slate-500 py-10">Add at least one field to render the preview.</div>
 							{/if}
 						</div>
 					</div>
-				</div>
 
+				</div>
+			</div>
+
+			<!-- ── FIXED BOTTOM SAVE BAR ── -->
+			<div class="shrink-0 px-4 py-3 border-t" style="background: linear-gradient(to bottom, #f0f5ff, #e6eeff); border-color: rgba(37,99,235,0.15);">
 				<button
 					onclick={saveFormDefinition}
 					disabled={savingForm}
@@ -1743,13 +1601,122 @@
 					style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
 				>
 					{#if savingForm}
-						<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />
-						Saving...
+						<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />Saving...
 					{:else}
 						Save Configuration
 					{/if}
 				</button>
 			</div>
+
+		</div>
+	</div>
+{/if}
+
+{#if showFormSettingsModal}
+	<AquaModal title="Form Settings" onclose={() => (showFormSettingsModal = false)} panelClass="sm:max-w-[560px]" contentClass="p-0">
+		<div class="space-y-4 px-4 py-4">
+			<div class="grid gap-3 sm:grid-cols-2">
+				<div>
+					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category</p>
+					<select class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer" style="background: white;" bind:value={formEditorSection} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; formEditorSection = value; if (!editingFormId) { formEditorType = value; } else { formEditorType = formEditorType || value; } }}>
+						{#each sectionTabs as section}
+							<option value={section}>{section}</option>
+						{/each}
+					</select>
+				</div>
+				<div>
+					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Sort Order</p>
+					<input type="number" min="0" class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: white;" bind:value={formEditorSortOrder} />
+				</div>
+			</div>
+			{#if formEditorSection === 'CLINICAL' || formEditorType === 'CASE_RECORD'}
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div>
+						<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Department</p>
+						<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Oral Surgery" bind:value={formEditorDepartment} />
+					</div>
+					<div>
+						<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Procedure Name</p>
+						<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Extraction" bind:value={formEditorProcedureName} />
+					</div>
+				</div>
+			{/if}
+			<div class="grid gap-3 sm:grid-cols-2">
+				<div>
+					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Icon (Lucide name)</p>
+					<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Stethoscope" bind:value={formEditorIcon} />
+				</div>
+				<div>
+					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Color</p>
+					<div class="flex items-center gap-2">
+						<input type="color" class="w-10 h-10 rounded-lg border cursor-pointer p-0.5" style="border-color: rgba(0,0,0,0.15);" value={formEditorColor || '#6b7280'} oninput={(e) => formEditorColor = (e.currentTarget as HTMLInputElement).value} />
+						{#if formEditorColor}
+							<button type="button" onclick={() => formEditorColor = ''} class="text-xs text-slate-500 hover:text-slate-800 cursor-pointer">✕ Clear</button>
+						{/if}
+					</div>
+				</div>
+			</div>
+			<div>
+				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Access Roles</p>
+				<p class="mb-2 text-xs text-slate-500">Select which roles can see this form. Leave empty to show to all roles.</p>
+				<div class="flex flex-wrap gap-2">
+					{#each ['FACULTY', 'STUDENT', 'NURSE', 'RECEPTION', 'PATIENT'] as role}
+						<button
+							type="button"
+							class="px-3 py-1.5 rounded-full text-xs font-bold cursor-pointer transition-colors"
+							style={formEditorAllowedRoles.includes(role)
+								? 'background: #3b82f6; color: white; border: 1px solid #2563eb;'
+								: 'background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0;'}
+							onclick={() => {
+								if (formEditorAllowedRoles.includes(role)) {
+									formEditorAllowedRoles = formEditorAllowedRoles.filter(r => r !== role);
+								} else {
+									formEditorAllowedRoles = [...formEditorAllowedRoles, role];
+								}
+							}}
+						>{role}</button>
+					{/each}
+					{#if formEditorAllowedRoles.length > 0}
+						<button type="button" onclick={() => formEditorAllowedRoles = []} class="text-xs text-slate-400 hover:text-slate-600 cursor-pointer px-2 py-1">✕ Clear all</button>
+					{/if}
+				</div>
+			</div>
+			<div class="flex items-center justify-between pt-1">
+				<div>
+					<p class="text-sm font-bold text-slate-800">Active</p>
+					<p class="text-xs text-slate-500">Visible to users in the system</p>
+				</div>
+				<button type="button" role="switch" aria-checked={formEditorIsActive} onclick={() => (formEditorIsActive = !formEditorIsActive)} class="toggle-switch-shell cursor-pointer">
+					<span class="text-sm font-bold" style={`color: ${formEditorIsActive ? '#1d4ed8' : '#64748b'};`}>{formEditorIsActive ? 'Active' : 'Inactive'}</span>
+					<span class={`toggle-switch ${formEditorIsActive ? 'is-on' : ''}`} aria-hidden="true"><span class="toggle-thumb"></span></span>
+				</button>
+			</div>
+			<button type="button" onclick={() => showFormSettingsModal = false} class="w-full rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
+				Done
+			</button>
+		</div>
+	</AquaModal>
+{/if}
+
+{#if showCategoryEditor}
+	<AquaModal
+		header={formCategoryHeader}
+		onclose={resetCategoryEditor}
+		panelClass="sm:max-w-[420px]"
+		contentClass="p-0"
+	>
+		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb);">
+			{#if categorySaveError}
+				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{categorySaveError}</div>
+			{/if}
+			<div>
+				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category Name</p>
+				<input type="text" placeholder="e.g. RADIOLOGY" class="w-full rounded-[14px] border border-slate-300 px-3.5 py-2.5 text-sm font-semibold text-slate-800 outline-none" style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);" bind:value={categoryName} />
+				<p class="mt-2 text-xs text-slate-500">The new tab becomes available immediately in the forms studio and in form creation.</p>
+			</div>
+			<button type="button" onclick={saveFormCategory} disabled={savingCategory} class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);">
+				{#if savingCategory}<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />Creating...{:else}Create Category{/if}
+			</button>
 		</div>
 	</AquaModal>
 {/if}
