@@ -75,6 +75,47 @@ export interface MrdExportJob {
 	error: string;
 }
 
+export interface CensusData {
+	from_date: string;
+	to_date: string;
+	op_count: number;
+	ip_count: number;
+	ot_procedures: number;
+	births: number;
+	deaths: number;
+	investigations: number;
+	discharges: number;
+	total: number;
+}
+
+export interface CensusPatient {
+	id: string;
+	patient_id: string;
+	name: string;
+	age: number;
+	diagnosis: string;
+	department: string;
+	date: string;
+	time: string;
+	status?: string;
+}
+
+export interface DepartmentRow {
+	department: string;
+	op: number;
+	ip: number;
+	ot: number;
+	inv_total: number;
+	discharges: number;
+}
+
+export interface DepartmentBreakdown {
+	departments: DepartmentRow[];
+	total: number;
+}
+
+export type CensusCategory = 'op' | 'ip' | 'ot' | 'births' | 'deaths' | 'investigations' | 'discharges';
+
 export const mrdApi = {
 	async getHealth(): Promise<MrdHealthResponse> {
 		const res = await client.get('/mrd/health');
@@ -165,6 +206,32 @@ export const mrdApi = {
 
 	async getExport(jobId: string): Promise<MrdExportJob> {
 		const res = await client.get(`/mrd/exports/${jobId}`);
+		return res.data;
+	},
+
+	async getCensus(params: { from_date: string; to_date: string }): Promise<CensusData> {
+		const res = await client.get('/mrd/census', { params });
+		return res.data;
+	},
+
+	async getCensusPatients(params: {
+		category: CensusCategory;
+		from_date: string;
+		to_date: string;
+		department?: string;
+		cursor?: string;
+		page_size?: number;
+	}): Promise<{ items: CensusPatient[]; total: number; category: string }> {
+		const { category, ...rest } = params;
+		const res = await client.get(`/mrd/census/${category}/patients`, { params: rest });
+		return res.data;
+	},
+
+	async getDepartmentBreakdown(params: {
+		from_date: string;
+		to_date: string;
+	}): Promise<DepartmentBreakdown> {
+		const res = await client.get('/mrd/census/department-breakdown', { params });
 		return res.data;
 	},
 };

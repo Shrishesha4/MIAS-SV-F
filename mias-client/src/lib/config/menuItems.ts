@@ -61,6 +61,8 @@ export const otManagerMenuItems: MenuItem[] = [
 ];
 
 export const mrdMenuItems: MenuItem[] = [
+	{ icon: Home, label: 'Dashboard', path: '/mrd/dashboard' },
+	{ icon: BarChart3, label: 'Census', path: '/mrd/census' },
 	{ icon: Archive, label: 'Records', path: '/mrd/records' },
 	{ icon: Search, label: 'Patients', path: '/mrd/patients' },
 	{ icon: Download, label: 'Exports', path: '/mrd/exports' },

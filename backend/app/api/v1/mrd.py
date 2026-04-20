@@ -23,10 +23,12 @@ from app.core.mrd_governance import (
 )
 from app.database import get_analytics_db, get_db
 from app.models.admission import Admission
-from app.models.medical_record import MedicalFinding, MedicalImage, MedicalRecord
+from app.models.medical_record import MedicalFinding, MedicalImage, MedicalRecord, RecordType
+from app.models.operation_theater import OTBooking, OTStatus
 from app.models.patient import Patient
 from app.models.prescription import Prescription, PrescriptionMedication
 from app.models.report import Report, ReportFinding, ReportImage
+from app.models.student import ClinicAppointment, Clinic
 from app.models.user import User, UserRole
 
 router = APIRouter(prefix="/mrd", tags=["MRD"])
@@ -180,6 +182,436 @@ async def mrd_health(
             status="unavailable",
             analytics_db_connected=False,
         )
+
+
+# ── Census Dashboard ─────────────────────────────────────────────────
+
+
+def _date_to_dt_range(from_date: date, to_date: date):
+    """Convert date pair to datetime range for queries."""
+    return (
+        datetime.combine(from_date, datetime.min.time()),
+        datetime.combine(to_date, datetime.max.time()),
+    )
+
+
+@router.get("/census", summary="Census counts for MRD dashboard")
+async def get_census(
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+):
+    """Return aggregate counts: OP, IP, OT, births, deaths, investigations, discharges."""
+    if (to_date - from_date).days > _MAX_TIME_SPAN_DAYS:
+        raise HTTPException(400, "Date range exceeds 366 days")
+
+    filters = {"from_date": str(from_date), "to_date": str(to_date)}
+    from_dt, to_dt = _date_to_dt_range(from_date, to_date)
+
+    async def query(db):
+        # OP COUNT — completed clinic appointments
+        op_res = await db.execute(
+            select(func.count(ClinicAppointment.id)).where(
+                ClinicAppointment.appointment_date.between(from_dt, to_dt),
+                ClinicAppointment.status == "Completed",
+            )
+        )
+        op_count = op_res.scalar() or 0
+
+        # IP COUNT — admissions in range (active or discharged during range)
+        ip_res = await db.execute(
+            select(func.count(Admission.id)).where(
+                Admission.admission_date.between(from_dt, to_dt),
+                Admission.status.in_(["Active", "Discharged", "Transferred"]),
+            )
+        )
+        ip_count = ip_res.scalar() or 0
+
+        # OT PROCEDURES — completed OT bookings
+        ot_res = await db.execute(
+            select(func.count(OTBooking.id)).where(
+                OTBooking.date.between(str(from_date), str(to_date)),
+                OTBooking.status == OTStatus.COMPLETED,
+            )
+        )
+        ot_count = ot_res.scalar() or 0
+
+        # BIRTHS — admissions with birth-related diagnosis
+        birth_res = await db.execute(
+            select(func.count(Admission.id)).where(
+                Admission.admission_date.between(from_dt, to_dt),
+                func.lower(Admission.diagnosis).op("SIMILAR TO")(
+                    "%(birth|deliver|lscs|caesarean|c-section|newborn|neonatal)%"
+                ),
+            )
+        )
+        births = birth_res.scalar() or 0
+
+        # DEATHS — discharged with death-related summary
+        death_res = await db.execute(
+            select(func.count(Admission.id)).where(
+                Admission.discharge_date.between(from_dt, to_dt),
+                Admission.status == "Discharged",
+                func.lower(func.coalesce(Admission.discharge_summary, "")).op("SIMILAR TO")(
+                    "%(death|expired|demise|brought dead|doa)%"
+                ),
+            )
+        )
+        deaths = death_res.scalar() or 0
+
+        # INVESTIGATIONS — reports (non-pending)
+        inv_res = await db.execute(
+            select(func.count(Report.id)).where(
+                Report.date.between(from_dt, to_dt),
+            )
+        )
+        investigations = inv_res.scalar() or 0
+
+        # DISCHARGES — admissions discharged in date range
+        dis_res = await db.execute(
+            select(func.count(Admission.id)).where(
+                Admission.discharge_date.between(from_dt, to_dt),
+                Admission.status == "Discharged",
+            )
+        )
+        discharges = dis_res.scalar() or 0
+
+        return {
+            "from_date": str(from_date),
+            "to_date": str(to_date),
+            "op_count": op_count,
+            "ip_count": ip_count,
+            "ot_procedures": ot_count,
+            "births": births,
+            "deaths": deaths,
+            "investigations": investigations,
+            "discharges": discharges,
+            "total": op_count + ip_count + ot_count + births + deaths + investigations + discharges,
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/census", filters, query
+    )
+
+
+def _empty_dept_row(dept: str) -> dict:
+    return {
+        "department": dept,
+        "op": 0, "ip": 0, "ot": 0,
+        "inv_total": 0, "discharges": 0,
+    }
+
+
+@router.get("/census/department-breakdown", summary="Department-wise activity breakdown")
+async def get_department_breakdown(
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+):
+    """Hospital-wide activity breakdown by department."""
+    if (to_date - from_date).days > _MAX_TIME_SPAN_DAYS:
+        raise HTTPException(400, "Date range exceeds 366 days")
+
+    from_dt, to_dt = _date_to_dt_range(from_date, to_date)
+    filters = {"from_date": str(from_date), "to_date": str(to_date)}
+
+    async def query(db):
+        # OP by department (clinic department)
+        op_stmt = (
+            select(Clinic.department, func.count(ClinicAppointment.id))
+            .join(Clinic, ClinicAppointment.clinic_id == Clinic.id)
+            .where(
+                ClinicAppointment.appointment_date.between(from_dt, to_dt),
+                ClinicAppointment.status == "Completed",
+            )
+            .group_by(Clinic.department)
+        )
+        op_rows = (await db.execute(op_stmt)).all()
+
+        # IP by department
+        ip_stmt = (
+            select(Admission.department, func.count(Admission.id))
+            .where(
+                Admission.admission_date.between(from_dt, to_dt),
+                Admission.status.in_(["Active", "Discharged", "Transferred"]),
+            )
+            .group_by(Admission.department)
+        )
+        ip_rows = (await db.execute(ip_stmt)).all()
+
+        # Investigations by department
+        inv_stmt = (
+            select(Report.department, func.count(Report.id))
+            .where(Report.date.between(from_dt, to_dt))
+            .group_by(Report.department)
+        )
+        inv_rows = (await db.execute(inv_stmt)).all()
+
+        # Discharges by department
+        dis_stmt = (
+            select(Admission.department, func.count(Admission.id))
+            .where(
+                Admission.discharge_date.between(from_dt, to_dt),
+                Admission.status == "Discharged",
+            )
+            .group_by(Admission.department)
+        )
+        dis_rows = (await db.execute(dis_stmt)).all()
+
+        # Merge into department map
+        depts: dict[str, dict] = {}
+        for dept, count in op_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["op"] = count
+        for dept, count in ip_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["ip"] = count
+        for dept, count in inv_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["inv_total"] = count
+        for dept, count in dis_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["discharges"] = count
+
+        # Calculate grand totals
+        rows = sorted(depts.values(), key=lambda r: r["department"])
+        grand = _empty_dept_row("Grand Total")
+        for r in rows:
+            for k in grand:
+                if k != "department" and isinstance(grand[k], int):
+                    grand[k] += r.get(k, 0)
+        rows.append(grand)
+
+        return {"departments": rows, "total": len(rows) - 1}
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/census/department-breakdown", filters, query
+    )
+
+
+@router.get("/census/{category}/patients", summary="Patient list for a census category")
+async def get_census_patients(
+    category: str,
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    department: Optional[str] = Query(None),
+    cursor: Optional[str] = None,
+    page_size: int = Query(50, ge=1, le=200),
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+):
+    """Return patient records for a specific census category."""
+    valid_categories = {"op", "ip", "ot", "births", "deaths", "investigations", "discharges"}
+    if category not in valid_categories:
+        raise HTTPException(400, f"Invalid category. Must be one of: {valid_categories}")
+    if (to_date - from_date).days > _MAX_TIME_SPAN_DAYS:
+        raise HTTPException(400, "Date range exceeds 366 days")
+
+    from_dt, to_dt = _date_to_dt_range(from_date, to_date)
+    filters = {
+        "category": category, "from_date": str(from_date), "to_date": str(to_date),
+        "department": department, "cursor": cursor, "page_size": page_size,
+    }
+
+    async def query(db):
+        items = []
+
+        if category == "op":
+            stmt = (
+                select(ClinicAppointment, Patient, Clinic)
+                .join(Patient, ClinicAppointment.patient_id == Patient.id)
+                .join(Clinic, ClinicAppointment.clinic_id == Clinic.id)
+                .where(
+                    ClinicAppointment.appointment_date.between(from_dt, to_dt),
+                    ClinicAppointment.status == "Completed",
+                )
+            )
+            if department:
+                stmt = stmt.where(Clinic.department == department)
+            stmt = stmt.order_by(ClinicAppointment.appointment_date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for appt, pat, clinic in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": pat.primary_diagnosis or "",
+                    "department": clinic.department,
+                    "date": str(appt.appointment_date),
+                    "time": appt.appointment_time or "",
+                })
+
+        elif category == "ip":
+            stmt = (
+                select(Admission, Patient)
+                .join(Patient, Admission.patient_id == Patient.id)
+                .where(
+                    Admission.admission_date.between(from_dt, to_dt),
+                    Admission.status.in_(["Active", "Discharged", "Transferred"]),
+                )
+            )
+            if department:
+                stmt = stmt.where(Admission.department == department)
+            stmt = stmt.order_by(Admission.admission_date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for adm, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": adm.diagnosis or "",
+                    "department": adm.department,
+                    "date": str(adm.admission_date),
+                    "time": "",
+                    "status": adm.status,
+                })
+
+        elif category == "ot":
+            stmt = (
+                select(OTBooking, Patient)
+                .join(Patient, OTBooking.patient_id == Patient.id)
+                .where(
+                    OTBooking.date.between(str(from_date), str(to_date)),
+                    OTBooking.status == OTStatus.COMPLETED,
+                )
+            )
+            stmt = stmt.order_by(OTBooking.date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for booking, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": booking.procedure,
+                    "department": "",
+                    "date": booking.date,
+                    "time": booking.start_time,
+                })
+
+        elif category == "births":
+            stmt = (
+                select(Admission, Patient)
+                .join(Patient, Admission.patient_id == Patient.id)
+                .where(
+                    Admission.admission_date.between(from_dt, to_dt),
+                    func.lower(Admission.diagnosis).op("SIMILAR TO")(
+                        "%(birth|deliver|lscs|caesarean|c-section|newborn|neonatal)%"
+                    ),
+                )
+            )
+            if department:
+                stmt = stmt.where(Admission.department == department)
+            stmt = stmt.order_by(Admission.admission_date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for adm, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": adm.diagnosis or "",
+                    "department": adm.department,
+                    "date": str(adm.admission_date),
+                    "time": "",
+                })
+
+        elif category == "deaths":
+            stmt = (
+                select(Admission, Patient)
+                .join(Patient, Admission.patient_id == Patient.id)
+                .where(
+                    Admission.discharge_date.between(from_dt, to_dt),
+                    Admission.status == "Discharged",
+                    func.lower(func.coalesce(Admission.discharge_summary, "")).op("SIMILAR TO")(
+                        "%(death|expired|demise|brought dead|doa)%"
+                    ),
+                )
+            )
+            if department:
+                stmt = stmt.where(Admission.department == department)
+            stmt = stmt.order_by(Admission.discharge_date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for adm, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": adm.diagnosis or "",
+                    "department": adm.department,
+                    "date": str(adm.discharge_date),
+                    "time": "",
+                })
+
+        elif category == "investigations":
+            stmt = (
+                select(Report, Patient)
+                .join(Patient, Report.patient_id == Patient.id)
+                .where(Report.date.between(from_dt, to_dt))
+            )
+            if department:
+                stmt = stmt.where(Report.department == department)
+            stmt = stmt.order_by(Report.date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for rpt, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": f"{rpt.title} - {rpt.department}",
+                    "department": rpt.department,
+                    "date": str(rpt.date),
+                    "time": rpt.time or "",
+                    "status": rpt.status.value if rpt.status else "",
+                })
+
+        elif category == "discharges":
+            stmt = (
+                select(Admission, Patient)
+                .join(Patient, Admission.patient_id == Patient.id)
+                .where(
+                    Admission.discharge_date.between(from_dt, to_dt),
+                    Admission.status == "Discharged",
+                )
+            )
+            if department:
+                stmt = stmt.where(Admission.department == department)
+            stmt = stmt.order_by(Admission.discharge_date.desc()).limit(page_size)
+            result = await db.execute(stmt)
+            for adm, pat in result.all():
+                items.append({
+                    "id": pat.id,
+                    "patient_id": pat.patient_id,
+                    "name": pat.name,
+                    "age": _calc_age(pat.date_of_birth),
+                    "diagnosis": adm.diagnosis or "",
+                    "department": adm.department,
+                    "date": str(adm.discharge_date),
+                    "time": "",
+                })
+
+        return {"items": items, "total": len(items), "category": category}
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, f"/mrd/census/{category}/patients", filters, query
+    )
+
+
+def _calc_age(dob) -> int:
+    """Calculate age from date of birth."""
+    if not dob:
+        return 0
+    today = date.today()
+    return today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+
 
 
 # ── Patient Search ───────────────────────────────────────────────────
