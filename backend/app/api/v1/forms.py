@@ -440,14 +440,14 @@ async def list_forms(
             (FormDefinition.allowed_roles == None) |
             (cast(FormDefinition.allowed_roles, JSONB).contains([user_role_str]))
         )
-        # Only show forms that have at least one non-zero charge price
+        # Only show forms that have at least one configured charge price (including free / ₹0)
         has_price = exists(
             select(ChargePrice.id)
             .join(ChargeItem, ChargeItem.id == ChargePrice.item_id)
             .where(
                 ChargeItem.source_type == "form_definition",
                 ChargeItem.source_id == FormDefinition.id,
-                ChargePrice.price > 0,
+                ChargePrice.price >= 0,
             )
         )
         query = query.where(has_price)

@@ -326,8 +326,8 @@
 		return `grid-template-columns: ${Math.max(120, registrationItemColumnWidth)}px ${registrationTemplate || '67px'};`;
 	});
 
-	function buildEmptyPrices(categoryNames: string[]): Record<string, number> {
-		return Object.fromEntries(categoryNames.map((categoryName) => [categoryName, 0]));
+	function buildEmptyPrices(categoryNames: string[]): Record<string, number | null> {
+		return Object.fromEntries(categoryNames.map((categoryName) => [categoryName, null]));
 	}
 
 	function mergeChargePrices(charge: ChargeItem, categoryNames: string[]): ChargeItem {
@@ -351,7 +351,15 @@
 	}
 
 	function getPriceInputValue(charge: ChargeItem, tier: ChargeTier): string {
-		return priceDrafts[priceDraftKey(charge.id, tier)] ?? String(charge.prices[tier] ?? 0);
+		const draft = priceDrafts[priceDraftKey(charge.id, tier)];
+		if (draft !== undefined) return draft;
+		const price = charge.prices[tier];
+		if (price === null || price === undefined) return '';
+		return String(price);
+	}
+
+	function isPriceSet(charge: ChargeItem, tier: ChargeTier): boolean {
+		return charge.prices[tier] !== null && charge.prices[tier] !== undefined;
 	}
 
 	function priceCellId(chargeId: string, tier: ChargeTier): string {
@@ -820,13 +828,21 @@
 
 	async function savePriceEdit(charge: ChargeItem, tier: ChargeTier) {
 		const draftKey = priceDraftKey(charge.id, tier);
-		const nextPrice = Number((priceDrafts[draftKey] ?? String(charge.prices[tier] ?? 0)).trim());
+		const rawValue = (priceDrafts[draftKey] ?? getPriceInputValue(charge, tier)).trim();
+		// Empty input on an unset price — no change needed
+		if (rawValue === '' && !isPriceSet(charge, tier)) {
+			resetPriceDraft(charge.id, tier);
+			return;
+		}
+		// Empty input on a set price — treat as clearing (set to 0)
+		const nextPrice = rawValue === '' ? 0 : Number(rawValue);
 		if (!Number.isFinite(nextPrice) || nextPrice < 0) {
 			toastStore.addToast('Price must be a valid non-negative number', 'error');
 			return;
 		}
 
-		if (nextPrice === (charge.prices[tier] ?? 0)) {
+		const currentPrice = charge.prices[tier];
+		if (nextPrice === (currentPrice ?? null) || (currentPrice !== null && nextPrice === currentPrice)) {
 			resetPriceDraft(charge.id, tier);
 			return;
 		}
@@ -905,7 +921,7 @@
 			category: activeCategory,
 			description: '',
 			is_active: true,
-			prices: buildEmptyPrices(pricingColumns)
+			prices: Object.fromEntries(pricingColumns.map((c) => [c, 0]))
 		};
 		chargeModal = true;
 	}
@@ -1325,16 +1341,19 @@
     						</div>
     						{#each orderedPricingTiers as tier, columnIndex (tier.key)}
     							{@const inputKey = priceDraftKey(charge.id, tier.key)}
-    							<div class="min-w-0 border-r border-slate-200 bg-white shadow-[inset_-1px_0_0_rgba(0,0,0,0.04)]">
+    							{@const priceIsSet = isPriceSet(charge, tier.key) || priceDrafts[inputKey] !== undefined}
+    							<div class="min-w-0 border-r border-slate-200 shadow-[inset_-1px_0_0_rgba(0,0,0,0.04)]" style="background: {priceIsSet ? '#fff' : '#f8fafc'};">
     								<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingPriceKey === inputKey}>
-    									<span class="text-[10pt] font-semibold leading-none text-slate-400">₹</span>
+    									<span class="text-[10pt] font-semibold leading-none" style="color: {priceIsSet ? '#94a3b8' : '#cbd5e1'};">{priceIsSet ? '₹' : ''}</span>
     									<input
     										id={priceCellId(charge.id, tier.key)}
     										type="number"
     										min="0"
     										step="1"
+    										placeholder="–"
     										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
-    										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[11pt] font-semibold tracking-tight text-slate-900 tabular-nums outline-none"
+    										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[11pt] font-semibold tracking-tight tabular-nums outline-none placeholder:text-slate-300 placeholder:font-normal"
+    										style="color: {priceIsSet ? '#0f172a' : '#94a3b8'};"
     										value={getPriceInputValue(charge, tier.key)}
     										disabled={savingPriceKey === inputKey}
     										oninput={(event) => {

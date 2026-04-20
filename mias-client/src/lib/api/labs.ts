@@ -106,7 +106,7 @@ export interface ChargeItem {
 	source_type?: string;
 	source_id?: string;
 	is_active: boolean;
-	prices: Record<string, number>;
+	prices: Record<string, number | null>;
 }
 
 export interface CreateChargeItemRequest {
