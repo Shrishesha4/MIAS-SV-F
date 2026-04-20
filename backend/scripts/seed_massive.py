@@ -988,6 +988,331 @@ async def _seed_supplementary(db, now, start_date):
             print(f"    ✓ {len(session_records):,} clinic sessions")
             del session_records
 
+    # ── Phase 11: Departments ────────────────────────────────────────────
+    dept_exists = (await db.execute(text("SELECT COUNT(*) FROM departments"))).scalar()
+    if dept_exists >= 30:
+        print("\n  ⏭️  Phase 11: Departments already seeded. Skipping.")
+    else:
+        print("\n  🏥 Phase 11: Seeding departments...")
+        # Build unique codes by using initials + disambiguation
+        used_codes: set[str] = set()
+        dept_records = []
+        for i, dept_name in enumerate(DEPARTMENTS):
+            # Generate code from initials of words
+            words = dept_name.replace("&", "").split()
+            code = "".join(w[0] for w in words if w).upper()
+            if len(code) < 2:
+                code = dept_name[:4].upper().replace(" ", "")
+            while code in used_codes:
+                code = code + dept_name[len(code) % len(dept_name)].upper()
+            used_codes.add(code)
+            dept_records.append({
+                "id": uid(), "name": dept_name,
+                "code": code,
+                "description": f"{dept_name} department at Saveetha Medical College",
+                "head_faculty_id": faculty_ids[i % len(faculty_ids)] if faculty_ids else None,
+                "is_active": True,
+            })
+        # Insert one by one to handle partial conflicts gracefully
+        inserted = 0
+        for rec in dept_records:
+            try:
+                nested = await db.begin_nested()
+                await db.execute(text(
+                    "INSERT INTO departments (id, name, code, description, head_faculty_id, is_active) "
+                    "VALUES (:id, :name, :code, :description, :head_faculty_id, :is_active)"
+                ), rec)
+                await nested.commit()
+                inserted += 1
+            except Exception:
+                await nested.rollback()
+        await db.commit()
+        print(f"    ✓ {inserted}/{len(dept_records)} departments inserted")
+
+    # ── Phase 12: Patient categories + Insurance categories ───────────
+    ins_exists = (await db.execute(text("SELECT COUNT(*) FROM insurance_categories"))).scalar()
+    if ins_exists >= 3:
+        print("\n  ⏭️  Phase 12: Insurance categories already seeded. Skipping.")
+    else:
+        print("\n  🛡️ Phase 12: Seeding insurance & patient categories...")
+
+        # Ensure patient categories exist (should already be 4 from startup)
+        pat_cat_r = await db.execute(text("SELECT id, name FROM patient_category_options"))
+        pat_cats = {r[1].lower(): r[0] for r in pat_cat_r.fetchall()}
+        if not pat_cats:
+            print("    ⚠️  No patient categories found. Skipping insurance.")
+        else:
+            INSURANCE_DEFS = [
+                {
+                    "name": "Self Pay",
+                    "description": "Direct self-pay registration and billing without insurer mediation.",
+                    "icon_key": "wallet", "custom_badge_symbol": None,
+                    "color_primary": "#FB7185", "color_secondary": "#E11D48",
+                    "sort_order": 0,
+                    "patient_categories": ["Classic", "Prime", "Elite", "Community"],
+                },
+                {
+                    "name": "Private Insurance",
+                    "description": "Commercial and employer-backed insurance plans with standard approvals.",
+                    "icon_key": "shield", "custom_badge_symbol": None,
+                    "color_primary": "#60A5FA", "color_secondary": "#1D4ED8",
+                    "sort_order": 1,
+                    "patient_categories": ["Classic", "Prime", "Elite"],
+                },
+                {
+                    "name": "CM Scheme",
+                    "description": "Government-sponsored beneficiary coverage for subsidized care workflows.",
+                    "icon_key": "landmark", "custom_badge_symbol": "CM",
+                    "color_primary": "#34D399", "color_secondary": "#0F766E",
+                    "sort_order": 2,
+                    "patient_categories": ["Classic", "Community"],
+                },
+            ]
+
+            ins_cat_ids = {}
+            for ins in INSURANCE_DEFS:
+                ins_id = uid()
+                ins_cat_ids[ins["name"]] = ins_id
+                await db.execute(text(
+                    "INSERT INTO insurance_categories (id, name, description, icon_key, "
+                    "custom_badge_symbol, color_primary, color_secondary, is_active, sort_order) "
+                    "VALUES (:id, :name, :desc, :icon, :badge, :cp, :cs, true, :so)"
+                ), {
+                    "id": ins_id, "name": ins["name"], "desc": ins["description"],
+                    "icon": ins["icon_key"], "badge": ins.get("custom_badge_symbol"),
+                    "cp": ins["color_primary"], "cs": ins["color_secondary"],
+                    "so": ins["sort_order"],
+                })
+                # Link to patient categories
+                for pc_name in ins["patient_categories"]:
+                    pc_id = pat_cats.get(pc_name.lower())
+                    if pc_id:
+                        await db.execute(text(
+                            "INSERT INTO insurance_patient_category_association "
+                            "(insurance_category_id, patient_category_id) VALUES (:ins, :pc) "
+                            "ON CONFLICT DO NOTHING"
+                        ), {"ins": ins_id, "pc": pc_id})
+
+            await db.commit()
+            print(f"    ✓ {len(INSURANCE_DEFS)} insurance categories with patient category links")
+
+    # ── Phase 13: Form definitions + Charge items & prices ────────────
+    form_exists = (await db.execute(text("SELECT COUNT(*) FROM form_definitions"))).scalar()
+    if form_exists >= 5:
+        print("\n  ⏭️  Phase 13: Form definitions already seeded. Skipping.")
+    else:
+        print("\n  📋 Phase 13: Seeding form definitions & charge items...")
+
+        FORM_DEFS = [
+            ("internal-medicine-history-physical", "History & Physical Examination",
+             "Complete initial history and physical assessment", "CASE_RECORD", "CLINICAL",
+             "Internal Medicine", "General Examination", 1),
+            ("internal-medicine-progress-note", "Progress Note",
+             "Daily progress documentation for admitted patients", "CASE_RECORD", "CLINICAL",
+             "Internal Medicine", "Progress Note", 2),
+            ("cardiology-cardiac-assessment", "Cardiac Assessment",
+             "Comprehensive cardiac evaluation", "CASE_RECORD", "CLINICAL",
+             "Cardiology", "Cardiac Evaluation", 3),
+            ("pediatrics-growth-development", "Growth & Development Assessment",
+             "Pediatric growth monitoring and developmental milestones", "CASE_RECORD", "CLINICAL",
+             "Pediatrics", "Well Child Visit", 4),
+            ("pediatrics-acute-illness", "Pediatric Acute Illness",
+             "Assessment for acute pediatric presentations", "CASE_RECORD", "CLINICAL",
+             "Pediatrics", "Acute Care", 5),
+            ("cardiology-hypertension-review", "Hypertension Follow-up",
+             "Follow-up assessment for hypertensive patients", "CASE_RECORD", "CLINICAL",
+             "Cardiology", "BP Monitoring Review", 6),
+            ("internal-medicine-diabetes-follow-up", "Diabetes Management Review",
+             "Follow-up for diabetic patients with glycemic control assessment", "CASE_RECORD", "CLINICAL",
+             "Internal Medicine", "Diabetes Review", 7),
+            ("cardiology-heart-failure-review", "Heart Failure Follow-up",
+             "Monitoring for patients with congestive heart failure", "CASE_RECORD", "CLINICAL",
+             "Cardiology", "Heart Failure Review", 8),
+            ("admission-initial-assessment-form", "Admission Initial Assessment Form",
+             "Default nursing and clinical intake assessment", "ADMISSION_INTAKE", "ADMISSION",
+             None, None, 0),
+            ("administrative-patient-registration-intake", "Patient Registration Intake",
+             "Front-desk intake form for new and returning patient registration", "ADMINISTRATIVE", "ADMINISTRATIVE",
+             None, None, 0),
+            ("laboratory-basic-panel-request", "Basic Lab Panel Request",
+             "Laboratory requisition template for baseline workups", "LABORATORY", "LABORATORY",
+             "Pathology", "Basic Panel", 0),
+            # Additional forms for more departments
+            ("orthopedics-fracture-assessment", "Fracture Assessment",
+             "Initial fracture assessment and management plan", "CASE_RECORD", "CLINICAL",
+             "Orthopedics", "Fracture Assessment", 9),
+            ("neurology-neuro-exam", "Neurological Examination",
+             "Comprehensive neurological assessment", "CASE_RECORD", "CLINICAL",
+             "Neurology", "Neuro Exam", 10),
+            ("dermatology-skin-assessment", "Skin Lesion Assessment",
+             "Dermatological evaluation and classification", "CASE_RECORD", "CLINICAL",
+             "Dermatology", "Skin Assessment", 11),
+            ("ent-hearing-assessment", "ENT & Hearing Assessment",
+             "ENT examination with audiological evaluation", "CASE_RECORD", "CLINICAL",
+             "ENT", "ENT Exam", 12),
+            ("gynecology-antenatal-checkup", "Antenatal Checkup",
+             "Routine antenatal monitoring and evaluation", "CASE_RECORD", "CLINICAL",
+             "Gynecology", "Antenatal Checkup", 13),
+            ("psychiatry-mental-status", "Mental Status Examination",
+             "Comprehensive psychiatric evaluation", "CASE_RECORD", "CLINICAL",
+             "Psychiatry", "Mental Status Exam", 14),
+            ("pulmonology-respiratory-assessment", "Respiratory Assessment",
+             "Pulmonary function and respiratory evaluation", "CASE_RECORD", "CLINICAL",
+             "Pulmonology", "Respiratory Assessment", 15),
+            ("gastro-gi-assessment", "GI Assessment",
+             "Gastrointestinal evaluation and workup", "CASE_RECORD", "CLINICAL",
+             "Gastroenterology", "GI Assessment", 16),
+            ("nephrology-renal-assessment", "Renal Function Assessment",
+             "Kidney function evaluation and CKD staging", "CASE_RECORD", "CLINICAL",
+             "Nephrology", "Renal Assessment", 17),
+            ("surgery-pre-op-assessment", "Pre-operative Assessment",
+             "Surgical pre-operative clearance and evaluation", "CASE_RECORD", "CLINICAL",
+             "General Surgery", "Pre-op Assessment", 18),
+            ("emergency-triage-form", "Emergency Triage Form",
+             "Emergency department initial triage assessment", "CASE_RECORD", "CLINICAL",
+             "Emergency Medicine", "Triage", 19),
+            ("urology-assessment", "Urological Assessment",
+             "Urological evaluation and management plan", "CASE_RECORD", "CLINICAL",
+             "Urology", "Urological Assessment", 20),
+        ]
+
+        GENERIC_FIELDS = [
+            {"key": "chief_complaint", "label": "Chief Complaint", "type": "textarea", "required": True},
+            {"key": "history", "label": "History of Present Illness", "type": "textarea", "required": True},
+            {"key": "examination", "label": "Examination Findings", "type": "textarea", "required": True},
+            {"key": "diagnosis", "label": "Provisional Diagnosis", "type": "text", "required": True},
+            {"key": "plan", "label": "Treatment Plan", "type": "textarea", "required": True},
+        ]
+
+        SECTION_ICONS = {
+            "CLINICAL": ("Stethoscope", "#2563EB"),
+            "ADMISSION": ("ClipboardList", "#2563EB"),
+            "LABORATORY": ("FlaskConical", "#7C3AED"),
+            "ADMINISTRATIVE": ("ClipboardList", "#0F766E"),
+        }
+
+        ROLE_MAP = {
+            "CASE_RECORD": ["STUDENT", "FACULTY"],
+            "LABORATORY": ["STUDENT", "FACULTY"],
+            "ADMISSION_INTAKE": ["STUDENT", "FACULTY"],
+            "ADMINISTRATIVE": ["FACULTY", "ADMIN"],
+        }
+
+        import json
+        form_records = []
+        for slug, name, desc, form_type, section, dept, proc, sort in FORM_DEFS:
+            icon, color = SECTION_ICONS.get(section, ("FileText", "#6B7280"))
+            form_records.append({
+                "id": uid(), "slug": slug, "name": name,
+                "description": desc, "form_type": form_type,
+                "section": section, "department": dept,
+                "procedure_name": proc,
+                "fields": json.dumps(GENERIC_FIELDS),
+                "sort_order": sort, "is_active": True,
+                "icon": icon, "color": color,
+                "allowed_roles": json.dumps(ROLE_MAP.get(form_type, ["STUDENT", "FACULTY"])),
+                "created_at": now, "updated_at": now,
+            })
+
+        await execute_batch(db,
+            "INSERT INTO form_definitions (id, slug, name, description, form_type, section, "
+            "department, procedure_name, fields, sort_order, is_active, icon, color, allowed_roles, "
+            "created_at, updated_at) "
+            "VALUES (:id, :slug, :name, :description, :form_type, :section, :department, "
+            ":procedure_name, :fields, :sort_order, :is_active, :icon, :color, :allowed_roles, "
+            ":created_at, :updated_at) "
+            "ON CONFLICT (slug) DO NOTHING",
+            form_records, "Form Definitions")
+        await db.commit()
+        print(f"    ✓ {len(form_records)} form definitions")
+
+        # ── Charge items from form definitions ────────────────────────
+        # Each form becomes a charge item so pricing can be configured
+        charge_records = []
+        for slug, name, desc, form_type, section, dept, proc, sort in FORM_DEFS:
+            cat_map = {"CLINICAL": "CLINICAL", "ADMISSION": "CLINICAL",
+                       "LABORATORY": "LABS", "ADMINISTRATIVE": "ADMIN"}
+            charge_cat = cat_map.get(section, "CLINICAL")
+            charge_records.append({
+                "id": uid(), "item_code": slug.upper().replace("-", "_"),
+                "name": name, "category": charge_cat,
+                "description": desc, "source_type": "form_definition",
+                "source_id": slug, "is_active": True,
+                "created_at": now, "updated_at": now,
+            })
+
+        await execute_batch(db,
+            "INSERT INTO charge_items (id, item_code, name, category, description, "
+            "source_type, source_id, is_active, created_at, updated_at) "
+            "VALUES (:id, :item_code, :name, :category, :description, "
+            ":source_type, :source_id, :is_active, :created_at, :updated_at) "
+            "ON CONFLICT DO NOTHING",
+            charge_records, "Charge Items")
+        await db.commit()
+        print(f"    ✓ {len(charge_records)} charge items")
+
+        # ── Charge prices per (insurance × patient_category) tier ─────
+        ins_r = await db.execute(text(
+            "SELECT ic.id, ic.name, pco.name as pc_name "
+            "FROM insurance_categories ic "
+            "JOIN insurance_patient_category_association ipca ON ic.id = ipca.insurance_category_id "
+            "JOIN patient_category_options pco ON pco.id = ipca.patient_category_id"
+        ))
+        tier_combos = [(r[0], r[1], r[2]) for r in ins_r.fetchall()]
+
+        if tier_combos:
+            items_r = await db.execute(text("SELECT id, category FROM charge_items"))
+            all_items = [(r[0], r[1]) for r in items_r.fetchall()]
+
+            base_prices = {"CLINICAL": 500, "LABS": 300, "ADMIN": 100}
+            ins_mult = {"Self Pay": 1.0, "Private Insurance": 0.6, "CM Scheme": 0.3}
+            cat_mult = {"Elite": 2.0, "Prime": 1.5, "Classic": 1.0, "Community": 0.5}
+
+            price_records = []
+            for item_id, item_cat in all_items:
+                base = base_prices.get(item_cat, 500)
+                seen = set()
+                for _, ins_name, pc_name in tier_combos:
+                    tier_key = f"{ins_name} - {pc_name}"
+                    if tier_key in seen:
+                        continue
+                    seen.add(tier_key)
+                    im = ins_mult.get(ins_name, 1.0)
+                    cm = cat_mult.get(pc_name, 1.0)
+                    final = max(10, round(base * im * cm, 2))
+                    price_records.append({
+                        "id": uid(), "item_id": item_id,
+                        "tier": tier_key, "price": final,
+                    })
+
+            await execute_batch(db,
+                "INSERT INTO charge_prices (id, item_id, tier, price) "
+                "VALUES (:id, :item_id, :tier, :price) "
+                "ON CONFLICT DO NOTHING",
+                price_records, "Charge Prices")
+            await db.commit()
+            print(f"    ✓ {len(price_records):,} charge prices")
+        else:
+            print("    ⚠️  No insurance-category combos found; skipping charge prices")
+
+    # ── Phase 14: Form categories (auto-derive from form_definitions) ─
+    fc_exists = (await db.execute(text("SELECT COUNT(*) FROM form_category_options WHERE is_system = true"))).scalar()
+    if fc_exists >= 4:
+        print("\n  ⏭️  Phase 14: Form categories already seeded. Skipping.")
+    else:
+        print("\n  📂 Phase 14: Ensuring form categories...")
+        FORM_CATS = [
+            ("CLINICAL", 0), ("ADMISSION", 1), ("LABORATORY", 2), ("ADMINISTRATIVE", 3),
+        ]
+        for cat_name, sort in FORM_CATS:
+            await db.execute(text(
+                "INSERT INTO form_category_options (id, name, sort_order, is_active, is_system) "
+                "VALUES (:id, :name, :sort, true, true) "
+                "ON CONFLICT (name) DO NOTHING"
+            ), {"id": uid(), "name": cat_name, "sort": sort})
+        await db.commit()
+        print(f"    ✓ {len(FORM_CATS)} form categories")
+
     print("\n  ✅ Supplementary seed phases complete.")
 
 

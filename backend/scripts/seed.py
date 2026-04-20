@@ -1265,6 +1265,7 @@ async def seed():
                 print("Default admin login: a / a\n")
                 return
 
+        patient_categories = await ensure_patient_categories(db)
         patient_category_seed_map = {
             str(item["name"]).casefold(): item
             for item in PATIENT_CATEGORY_SEED_DATA
