@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import json
+import logging
 import re
 from typing import Any
 from uuid import uuid4
@@ -12,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ai_provider import AIProviderSettings, AIProviderType
 from app.models.patient import Patient
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_PROVIDER_MODELS: dict[AIProviderType, str] = {
@@ -169,19 +172,23 @@ def _extract_text_content(content: Any) -> str:
 def _parse_json_payload(raw_text: str) -> dict[str, Any]:
     cleaned = raw_text.strip()
     if not cleaned:
+        logger.error("AI provider returned empty response")
         raise AIProviderError("The AI provider returned an empty response")
+
+    logger.debug("Raw AI response (first 500 chars): %s", cleaned[:500])
 
     # Strip markdown code fences that models often add despite being told not to
     fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```", cleaned)
     if fence_match:
         cleaned = fence_match.group(1).strip()
+        logger.debug("Stripped markdown fences, result (first 500 chars): %s", cleaned[:500])
 
     try:
         parsed = json.loads(cleaned)
         if isinstance(parsed, dict):
             return parsed
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as e:
+        logger.warning("Initial JSON parse failed: %s", e)
 
     start = cleaned.find("{")
     end = cleaned.rfind("}")
@@ -190,9 +197,10 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any]:
             parsed = json.loads(cleaned[start:end + 1])
             if isinstance(parsed, dict):
                 return parsed
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning("Fallback JSON parse failed: %s", e)
 
+    logger.error("Failed to parse AI response as JSON. Full response: %s", raw_text[:2000])
     raise AIProviderError("The AI provider response was not valid JSON")
 
 
@@ -200,6 +208,7 @@ async def _call_openai_compatible(
     config: AIProviderSettings,
     system_prompt: str,
     user_prompt: str,
+    max_tokens: int | None = None,
 ) -> str:
     default_base_url = (
         "https://api.openai.com/v1"
@@ -211,7 +220,7 @@ async def _call_openai_compatible(
     payload = {
         "model": config.model,
         "temperature": config.temperature,
-        "max_tokens": 800,
+        "max_tokens": max_tokens or 800,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -238,12 +247,13 @@ async def _call_anthropic(
     config: AIProviderSettings,
     system_prompt: str,
     user_prompt: str,
+    max_tokens: int | None = None,
 ) -> str:
     base_url = (config.base_url or "https://api.anthropic.com").rstrip("/")
     url = f"{base_url}/v1/messages"
     payload = {
         "model": config.model,
-        "max_tokens": 800,
+        "max_tokens": max_tokens or 800,
         "temperature": config.temperature,
         "system": system_prompt,
         "messages": [
@@ -268,6 +278,7 @@ async def _call_gemini(
     config: AIProviderSettings,
     system_prompt: str,
     user_prompt: str,
+    max_tokens: int | None = None,
 ) -> str:
     base_url = (config.base_url or "https://generativelanguage.googleapis.com/v1beta").rstrip("/")
     url = f"{base_url}/models/{config.model}:generateContent"
@@ -282,6 +293,7 @@ async def _call_gemini(
         ],
         "generationConfig": {
             "temperature": config.temperature,
+            "maxOutputTokens": max_tokens or 800,
             "responseMimeType": "application/json",
         },
     }
@@ -304,14 +316,15 @@ async def request_structured_completion(
     config: AIProviderSettings,
     system_prompt: str,
     user_prompt: str,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
     try:
         if config.provider in {AIProviderType.OPENAI, AIProviderType.OPENAI_COMPATIBLE}:
-            raw_text = await _call_openai_compatible(config, system_prompt, user_prompt)
+            raw_text = await _call_openai_compatible(config, system_prompt, user_prompt, max_tokens=max_tokens)
         elif config.provider == AIProviderType.ANTHROPIC:
-            raw_text = await _call_anthropic(config, system_prompt, user_prompt)
+            raw_text = await _call_anthropic(config, system_prompt, user_prompt, max_tokens=max_tokens)
         elif config.provider == AIProviderType.GEMINI:
-            raw_text = await _call_gemini(config, system_prompt, user_prompt)
+            raw_text = await _call_gemini(config, system_prompt, user_prompt, max_tokens=max_tokens)
         else:
             raise AIProviderError(f"Unsupported AI provider: {config.provider.value}")
     except httpx.HTTPStatusError as exc:

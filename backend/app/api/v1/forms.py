@@ -616,6 +616,8 @@ FORM_GENERATION_SYSTEM_PROMPT = (
 
 class FormGeneratePayload(BaseModel):
     description: str = Field(..., min_length=3, max_length=500)
+    existing_fields: list[dict[str, Any]] | None = Field(default=None, description="Current fields to refine")
+    form_name: str | None = Field(default=None, description="Current form name for context")
 
 
 @router.post("/generate")
@@ -630,11 +632,28 @@ async def generate_form_definition(
     except AIProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    # Build user prompt — include existing fields for refinement if provided
+    if payload.existing_fields and len(payload.existing_fields) > 0:
+        existing_summary = json.dumps(
+            [{"key": f.get("key"), "label": f.get("label"), "type": f.get("type")} for f in payload.existing_fields],
+            indent=2
+        )
+        user_prompt = (
+            f"Current form name: {payload.form_name or 'Untitled'}\n"
+            f"Current fields:\n{existing_summary}\n\n"
+            f"User request: {payload.description.strip()}\n\n"
+            "Refine this form based on the request. You may add, remove, or modify fields. "
+            "Return the complete updated form definition."
+        )
+    else:
+        user_prompt = f"Generate a medical/dental form for: {payload.description.strip()}"
+
     try:
         result = await request_structured_completion(
             config,
             FORM_GENERATION_SYSTEM_PROMPT,
-            f"Generate a medical/dental form for: {payload.description.strip()}",
+            user_prompt,
+            max_tokens=4000,
         )
     except AIProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

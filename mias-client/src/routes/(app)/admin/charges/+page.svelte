@@ -226,20 +226,9 @@
 						isLegacy: true
 					});
 				} else {
-					tiers.push({
-						key: existingTierKey,
-						insuranceId: null,
-						insuranceName: existingTierKey,
-						insuranceIconKey: 'off',
-						insuranceBadgeSymbol: null,
-						insuranceColorPrimary: '#94A3B8',
-						insuranceColorSecondary: '#475569',
-						patientCategoryId: null,
-						patientCategoryName: 'Other',
-						patientColorPrimary: '#94A3B8',
-						patientColorSecondary: '#475569',
-						isLegacy: true
-					});
+					// Skip unknown legacy tiers that can't be matched
+					// These are orphaned price entries without proper category mapping
+					continue;
 				}
 
 				seenTierKeys.add(normalizedTierKey);
@@ -1025,23 +1014,38 @@
 			</div>
 		{/if} -->
 
+		<!-- Unified Sheet Container for Fullscreen -->
+		<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
+			{#if isSheetFullscreen}
+				<div class="mb-3 flex items-center justify-between">
+					<p class="text-xs font-semibold text-slate-500 tracking-wide uppercase">Charge Master</p>
+					<TabBar
+						tabs={categoryTabs}
+						activeTab={activeCategory}
+						variant="jiggle"
+						stretch={false}
+						ariaLabel="Charge master categories"
+						onchange={(id) => activeCategory = id as ChargeCategory}
+					/>
+				</div>
+			{/if}
+			<button
+				type="button"
+				class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
+				aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
+				title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
+				onclick={() => void toggleSheetFullscreen()}
+			>
+				{#if isSheetFullscreen}
+				<Minimize2 class="h-4 w-4" />
+				{:else}
+					<Maximize2 class="h-4 w-4" />
+				{/if}
+			</button>
+
 		<!-- Registration Fee Table -->
 		{#if activeCategory === 'REGISTRATION'}
-			<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
-				<button
-					type="button"
-					class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
-					aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
-					title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
-					onclick={() => void toggleSheetFullscreen()}
-				>
-					{#if isSheetFullscreen}
-						<Minimize2 class="h-4 w-4" />
-					{:else}
-						<Maximize2 class="h-4 w-4" />
-					{/if}
-				</button>
-				<div class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-xl" style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+			<div class={`overflow-x-auto border border-slate-300 bg-white rounded-xl ${isSheetFullscreen ? 'overflow-y-auto max-h-[calc(100vh-80px)]' : 'overflow-y-hidden'}`} style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
 					<div class="min-w-max">
 						<div class="sticky top-0 z-20 grid items-stretch border-b border-slate-300 bg-slate-100 shadow-[inset_0_-1px_0_rgba(203,213,225,1)]" style={registrationGridStyle}>
 						    <div class="relative flex items-center overflow-hidden border-r border-slate-300 px-2 py-1 text-[10pt] font-bold text-slate-700 uppercase tracking-[0.14em]">
@@ -1161,25 +1165,10 @@
 						{/if}
 					</div>
 				</div>
-			</div>
 		{:else}
 		<!-- Pricing Table -->
-		<div bind:this={sheetContainer} class={`relative pt-2 ${isSheetFullscreen ? 'h-full w-full bg-white p-3' : ''}`}>
-    		<button
-    			type="button"
-    			class={`absolute z-30 flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 ${isSheetFullscreen ? 'right-0 top-0' : '-right-2 -top-2'}`}
-    			aria-label={isSheetFullscreen ? 'Exit fullscreen sheet view' : 'Open sheet view in fullscreen'}
-    			title={isSheetFullscreen ? 'Exit fullscreen' : 'Open fullscreen'}
-    			onclick={() => void toggleSheetFullscreen()}
-    		>
-    			{#if isSheetFullscreen}
-    				<Minimize2 class="h-4 w-4" />
-    			{:else}
-    				<Maximize2 class="h-4 w-4" />
-    			{/if}
-    		</button>
     		<div
-    			class="overflow-x-auto overflow-y-hidden border border-slate-300 bg-white rounded-xl"
+    			class={`overflow-x-auto border border-slate-300 bg-white rounded-xl ${isSheetFullscreen ? 'overflow-y-auto max-h-[calc(100vh-80px)]' : 'overflow-y-hidden'}`}
     			style="-webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;"
     		>
     			<div class="min-w-max">
@@ -1352,7 +1341,7 @@
     										step="1"
     										placeholder="–"
     										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
-    										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-right text-[11pt] font-semibold tracking-tight tabular-nums outline-none placeholder:text-slate-300 placeholder:font-normal"
+    										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-center text-[11pt] font-semibold tracking-tight tabular-nums outline-none placeholder:text-slate-300 placeholder:font-normal"
     										style="color: {priceIsSet ? '#0f172a' : '#94a3b8'};"
     										value={getPriceInputValue(charge, tier.key)}
     										disabled={savingPriceKey === inputKey}
@@ -1379,8 +1368,8 @@
     				{/if}
     			</div>
     		</div>
-		</div>
 		{/if}
+		</div>
 	{/if}
 
 {#if chargeModal}

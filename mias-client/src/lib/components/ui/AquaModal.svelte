@@ -43,6 +43,7 @@
     panelClass?: string;
     panelStyle?: string;
     contentClass?: string;
+    zIndex?: number;
     children: Snippet;
   }
 
@@ -55,6 +56,7 @@
     panelClass = 'sm:max-w-md',
     panelStyle = '',
     contentClass = 'p-4',
+    zIndex = 200,
     children
   }: Props = $props();
 
@@ -84,8 +86,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     use:portal
-    class="fixed left-0 top-0 z-[200] flex h-[100dvh] w-screen items-end justify-center p-3 sm:items-center sm:p-4 motion-overlay"
-    style="background-color: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);"
+    class="fixed left-0 top-0 flex h-[100dvh] w-screen items-end justify-center p-3 sm:items-center sm:p-4 motion-overlay"
+    style="background-color: rgba(15, 23, 42, 0.14); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); z-index: {zIndex};"
     onkeydown={(e) => e.key === 'Escape' && handleClose()}
     transition:fade={{ duration: 180 }}
   >

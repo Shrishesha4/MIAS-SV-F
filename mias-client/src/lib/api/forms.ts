@@ -116,8 +116,19 @@ export const formsApi = {
 		return response.data;
 	},
 
-	async generateForm(description: string): Promise<{ name: string; description: string | null; fields: FormFieldDefinition[] }> {
-		const response = await client.post<{ name: string; description: string | null; fields: FormFieldDefinition[] }>('/forms/generate', { description });
+	async generateForm(
+		description: string,
+		existingFields?: Partial<FormFieldDefinition>[],
+		formName?: string
+	): Promise<{ name: string; description: string | null; fields: FormFieldDefinition[] }> {
+		const response = await client.post<{ name: string; description: string | null; fields: FormFieldDefinition[] }>(
+			'/forms/generate',
+			{
+				description,
+				existing_fields: existingFields && existingFields.length > 0 ? existingFields : null,
+				form_name: formName || null
+			}
+		);
 		return response.data;
 	},
 };

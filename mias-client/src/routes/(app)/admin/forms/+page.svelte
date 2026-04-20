@@ -832,14 +832,17 @@
 			generateError = 'Please describe what this form is for';
 			return;
 		}
-		const hasExistingWork = formEditorName.trim() || formEditorFields.some(f => f.label.trim());
-		if (hasExistingWork && !confirm('This will replace current fields and name. Continue?')) {
-			return;
-		}
+		const hasExistingFields = formEditorFields.some(f => f.label.trim() || f.key.trim());
+		
 		generating = true;
 		generateError = '';
 		try {
-			const result = await formsApi.generateForm(generateDescription.trim());
+			// Pass existing fields for refinement if any exist
+			const result = await formsApi.generateForm(
+				generateDescription.trim(),
+				hasExistingFields ? formEditorFields : undefined,
+				formEditorName.trim() || undefined
+			);
 			formEditorName = result.name || formEditorName || 'Generated Form';
 			formEditorFields = (result.fields || []).map(f => ({
 				...f,
@@ -847,12 +850,19 @@
 			}));
 			selectedFieldIndex = 0;
 			previewValues = {};
+			generateDescription = ''; // Clear for next refinement
 			closeGeneratePrompt();
-			toastStore.addToast(`Generated ${formEditorFields.length} fields`, 'success');
+			toastStore.addToast(
+				hasExistingFields 
+					? `Refined form: ${formEditorFields.length} fields` 
+					: `Generated ${formEditorFields.length} fields`,
+				'success'
+			);
+			// Ensure editor stays open
 			if (generateContext === 'settings') {
 				showFormSettingsModal = false;
-				showFormEditor = true;
 			}
+			showFormEditor = true;
 		} catch (error: any) {
 			generateError = error?.response?.data?.detail || 'Failed to generate form. Check AI provider settings.';
 		} finally {
@@ -1925,22 +1935,28 @@
 {/if}
 
 {#if showGeneratePrompt}
-	<AquaModal title="AI Form Generator" onclose={closeGeneratePrompt} panelClass="sm:max-w-[480px]" contentClass="p-0">
-		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #faf5ff, #f3e8ff);">
+	{@const isRefining = formEditorFields.some(f => f.label.trim() || f.key.trim())}
+	<AquaModal title={isRefining ? "Refine Form with AI" : "AI Form Generator"} onclose={closeGeneratePrompt} panelClass="sm:max-w-[480px]" contentClass="p-0" zIndex={10000}>
+		<div class="space-y-4 px-4 py-4 rounded-b-[20px]" style="background: linear-gradient(to bottom, #faf5ff, #f3e8ff);">
 			{#if generateError}
 				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{generateError}</div>
 			{/if}
+			{#if isRefining}
+				<div class="rounded-[12px] border border-purple-200 bg-purple-50 px-3.5 py-2.5 text-xs text-purple-700">
+					<strong>Refining {formEditorFields.length} existing fields.</strong> Describe changes: add fields, remove fields, modify types, etc.
+				</div>
+			{/if}
 			<div>
-				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">Describe Your Form</p>
+				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">{isRefining ? 'Describe Changes' : 'Describe Your Form'}</p>
 				<textarea
 					rows="3"
-					placeholder="e.g. Patient intake form for orthodontics department with chief complaint, medical history, and dental examination findings"
+					placeholder={isRefining ? "e.g. Add a field for allergies, remove phone number, make email required" : "e.g. Patient intake form for orthodontics department with chief complaint, medical history, and dental examination findings"}
 					class="w-full rounded-[14px] border border-purple-300 px-3.5 py-2.5 text-sm text-slate-800 outline-none resize-y"
 					style="background: linear-gradient(to bottom, #ffffff, #faf5ff); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
 					bind:value={generateDescription}
 					onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runGenerate(); } }}
 				></textarea>
-				<p class="mt-2 text-xs text-slate-500">The AI will generate form fields based on your description. Press <kbd class="px-1 py-0.5 rounded bg-slate-200 text-[10px] font-bold">⌘ Enter</kbd> to submit.</p>
+				<p class="mt-2 text-xs text-slate-500">Press <kbd class="px-1 py-0.5 rounded bg-slate-200 text-[10px] font-bold">⌘ Enter</kbd> to submit.</p>
 			</div>
 			<button
 				type="button"
@@ -1950,9 +1966,9 @@
 				style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 10px 20px rgba(109,40,217,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
 			>
 				{#if generating}
-					<Loader2 class="h-4 w-4 animate-spin" />Generating...
+					<Loader2 class="h-4 w-4 animate-spin" />{isRefining ? 'Refining...' : 'Generating...'}
 				{:else}
-					<Sparkles class="h-4 w-4" />Generate Form
+					<Sparkles class="h-4 w-4" />{isRefining ? 'Refine Form' : 'Generate Form'}
 				{/if}
 			</button>
 		</div>
