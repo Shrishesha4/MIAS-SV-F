@@ -37,6 +37,7 @@ from app.services.patient_categories import ensure_patient_categories
 from app.models.lab import ChargeItem, ChargePrice
 from app.models.wallet import PatientWallet, WalletTransaction, WalletType, TransactionType, TransactionItem
 from app.models.operation_theater import OperationTheater, OTBooking, OTStatus
+from app.models.report import Report, ReportFinding, ReportStatus
 
 
 def uid() -> str:
@@ -767,6 +768,471 @@ FORM_DEFINITIONS_DATA = [
 ]
 
 
+
+async def _seed_bulk(db):
+    """Generate bulk data: 40 patients, 7 doctors, 11 students, 5 nurses, etc."""
+    def name_from_index(i: int) -> str:
+        """Generate A, B, ..., Z, AA, AB, ..., AZ, BA, ..."""
+        if i < 26:
+            return chr(65 + i)
+        first = chr(65 + (i // 26) - 1)
+        second = chr(65 + (i % 26))
+        return f"{first}{second}"
+
+    BULK_DEPARTMENTS = [
+        "Internal Medicine", "Cardiology", "Pediatrics", "Orthopedics",
+        "General Surgery", "Neurology", "Dermatology", "Ophthalmology",
+        "ENT", "Gynecology", "Urology", "Psychiatry",
+    ]
+    BULK_WARDS = [
+        "General Ward A", "General Ward B", "General Ward C",
+        "ICU", "NICU", "HDU", "Private Ward", "Emergency Ward",
+    ]
+    BULK_DIAGNOSES = [
+        "Essential Hypertension", "Type 2 Diabetes Mellitus", "Acute Bronchitis",
+        "Viral Gastroenteritis", "Iron Deficiency Anaemia", "Migraine with aura",
+        "COPD Stage II", "Unstable Angina", "Pneumonia", "UTI",
+        "Dengue Fever", "Cellulitis", "Acute Appendicitis", "Fracture Radius",
+        "Acute Pancreatitis", "Chronic Kidney Disease Stage 3", "DVT Left Leg",
+        "Diabetic Ketoacidosis", "Seizure Disorder", "Allergic Rhinitis",
+        "Bronchial Asthma", "Peptic Ulcer Disease", "Cholelithiasis",
+        "Hypothyroidism", "Rheumatoid Arthritis", "Osteoarthritis Knee",
+        "Normal Delivery", "LSCS", "Neonatal Jaundice", "Preterm Birth",
+    ]
+    BULK_PROCEDURES = [
+        "General Examination", "Follow-up", "BP Monitoring Review",
+        "Diabetic Review", "Wound Dressing", "Cardiac Assessment",
+        "Respiratory Assessment", "Anaemia Workup", "Neurological Examination",
+        "Antenatal Checkup", "Post-op Review", "Discharge Summary",
+    ]
+    BULK_BLOOD_GROUPS = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"]
+    BULK_MEDICATIONS = [
+        ("Amoxicillin", "500mg", "TDS", "7 days"),
+        ("Metformin", "500mg", "BD", "30 days"),
+        ("Amlodipine", "5mg", "OD", "30 days"),
+        ("Paracetamol", "500mg", "TDS PRN", "5 days"),
+        ("Omeprazole", "20mg", "OD BBF", "14 days"),
+        ("Atorvastatin", "20mg", "HS", "30 days"),
+        ("Ceftriaxone", "1g IV", "BD", "5 days"),
+        ("Insulin Glargine", "18U SC", "HS", "30 days"),
+        ("Salbutamol Inhaler", "2 puffs", "QID PRN", "30 days"),
+        ("Aspirin", "75mg", "OD", "30 days"),
+        ("Losartan", "50mg", "OD", "30 days"),
+        ("Ciprofloxacin", "500mg", "BD", "7 days"),
+        ("Dexamethasone", "4mg IV", "BD", "3 days"),
+        ("Enoxaparin", "40mg SC", "OD", "5 days"),
+        ("Furosemide", "40mg", "OD", "14 days"),
+    ]
+
+    # ── Extra Departments ────────────────────────────────────────────
+    existing_dept_result = await db.execute(select(Department))
+    existing_dept_names = {d.name for d in existing_dept_result.scalars().all()}
+    extra_depts = ["Orthopedics", "General Surgery", "Neurology", "Dermatology",
+                   "Ophthalmology", "ENT", "Gynecology", "Urology", "Psychiatry"]
+    for dept_name in extra_depts:
+        if dept_name not in existing_dept_names:
+            db.add(Department(
+                id=uid(), name=dept_name,
+                code=dept_name[:4].upper(),
+                description=f"{dept_name} department",
+            ))
+
+    # ── Extra Doctors (d4–d10) ───────────────────────────────────────
+    extra_doctors = []
+    for i in range(7):
+        idx = i + 4
+        dept = BULK_DEPARTMENTS[idx % len(BULK_DEPARTMENTS)]
+        user_id = uid()
+        db.add(User(id=user_id, username=f"d{idx}", email=f"d{idx}@saveetha.com",
+                    password_hash=get_password_hash(f"d{idx}"), role=UserRole.FACULTY))
+        fac = Faculty(id=uid(), faculty_id=f"FAC-{idx:03d}", user_id=user_id,
+                      name=f"Dr. {name_from_index(i)}", department=dept,
+                      specialty=dept, availability_status="Available")
+        db.add(fac)
+        extra_doctors.append(fac)
+
+    # ── Extra Students (s10–s20) ─────────────────────────────────────
+    extra_students = []
+    for i in range(11):
+        idx = i + 10
+        user_id = uid()
+        db.add(User(id=user_id, username=f"s{idx}", email=f"s{idx}@saveetha.com",
+                    password_hash=get_password_hash(f"s{idx}"), role=UserRole.STUDENT))
+        stu = Student(id=uid(), student_id=f"STU-{idx:03d}", user_id=user_id,
+                      name=f"Student {name_from_index(i)}", year=random.randint(1, 4),
+                      semester=random.randint(1, 8), program="BDS",
+                      gpa=round(random.uniform(7.0, 9.5), 1))
+        db.add(stu)
+        extra_students.append(stu)
+
+    # ── Extra Nurses (n4–n8) ─────────────────────────────────────────
+    for i in range(5):
+        idx = i + 4
+        user_id = uid()
+        db.add(User(id=user_id, username=f"n{idx}", email=f"n{idx}@saveetha.com",
+                    password_hash=get_password_hash(f"n{idx}"), role=UserRole.NURSE))
+        db.add(Nurse(id=uid(), nurse_id=f"NUR-{idx:03d}", user_id=user_id,
+                     name=f"Nurse {name_from_index(i)}", phone=f"+91 90003 0000{idx}",
+                     email=f"n{idx}@saveetha.com", has_selected_station=0))
+
+    # ── Extra MRD User (if not exists) ───────────────────────────────
+    mrd_exists = (await db.execute(select(User.id).where(User.username == "mrd1").limit(1))).scalar_one_or_none()
+    if not mrd_exists:
+        mrd_user_id = uid()
+        db.add(User(id=mrd_user_id, username="mrd1", email="mrd1@saveetha.com",
+                    password_hash=get_password_hash("mrd1"), role=UserRole.MRD))
+
+    # ── 40 Extra Patients (PA through AZ+) ──────────────────────────
+    extra_patients = []
+    for i in range(40):
+        idx = i + 11
+        name = f"Patient {name_from_index(i)}"
+        pat_id = f"{_SEED_DATE_PREFIX}{idx:04d}"
+        gender = Gender.FEMALE if i % 3 == 0 else Gender.MALE
+        dob = date(1960 + (i % 40), (i % 12) + 1, (i % 28) + 1)
+        user_id = uid()
+        category_names = ["Classic", "Prime", "Elite", "Community"]
+        cat_name = category_names[i % 4]
+        color_primary, color_secondary = get_default_patient_category_colors(cat_name)
+        db.add(User(id=user_id, username=f"p{idx}", email=f"p{idx}@email.com",
+                    password_hash=get_password_hash(f"p{idx}"), role=UserRole.PATIENT))
+        pat = Patient(
+            id=uid(), patient_id=pat_id, user_id=user_id, name=name,
+            date_of_birth=dob, gender=gender,
+            blood_group=BULK_BLOOD_GROUPS[i % len(BULK_BLOOD_GROUPS)],
+            phone=f"+91 90001 {10000+i}", email=f"p{idx}@email.com",
+            address=f"{idx} Street, Chennai", category=cat_name,
+            category_color_primary=color_primary,
+            category_color_secondary=color_secondary,
+        )
+        db.add(pat)
+        extra_patients.append(pat)
+
+    await db.flush()
+
+    # Combine all patients/students/faculty for bulk references
+    all_pat_result = await db.execute(select(Patient))
+    bulk_all_patients = all_pat_result.scalars().all()
+    all_stu_result = await db.execute(select(Student))
+    bulk_all_students = all_stu_result.scalars().all()
+    all_fac_result = await db.execute(select(Faculty))
+    bulk_all_faculty = all_fac_result.scalars().all()
+
+    # ── Bulk Admissions (30 active + 20 discharged) ──────────────────
+    bulk_admission_ids = []
+    for i in range(50):
+        pat = bulk_all_patients[i % len(bulk_all_patients)]
+        stu = bulk_all_students[i % len(bulk_all_students)]
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        dept = BULK_DEPARTMENTS[i % len(BULK_DEPARTMENTS)]
+        ward = BULK_WARDS[i % len(BULK_WARDS)]
+        diag = BULK_DIAGNOSES[i % len(BULK_DIAGNOSES)]
+        days_ago = random.randint(1, 30)
+        is_discharged = i >= 30
+        adm_date = datetime.utcnow() - timedelta(days=days_ago)
+        discharge_date = adm_date + timedelta(days=random.randint(3, 10)) if is_discharged else None
+        adm_id = uid()
+        # Mark some as birth-related or death
+        is_birth = "Delivery" in diag or "LSCS" in diag or "Neonatal" in diag or "Preterm" in diag
+        is_death = i in (42, 47)  # 2 deaths in discharged
+
+        discharge_summary = None
+        if is_discharged:
+            if is_death:
+                discharge_summary = "Patient expired despite resuscitation efforts. Death declared at ICU."
+            else:
+                discharge_summary = f"Patient recovered well. Discharged with instructions. Follow-up in 2 weeks."
+
+        db.add(Admission(
+            id=adm_id, patient_id=pat.id, admission_date=adm_date,
+            discharge_date=discharge_date, department=dept, ward=ward,
+            bed_number=f"{ward[0]}-{random.randint(1,30):02d}",
+            attending_doctor=fac.name, reason=f"Admitted for {diag}",
+            diagnosis=diag, status="Discharged" if is_discharged else "Active",
+            submitted_by_student_id=stu.id, faculty_approver_id=fac.id,
+            chief_complaints=f"Presenting with symptoms of {diag.lower()}",
+            provisional_diagnosis=diag,
+            bp_admission=f"{random.randint(110,170)}/{random.randint(60,100)}",
+            heart_rate_admission=str(random.randint(60, 110)),
+            spo2_admission=str(random.randint(92, 100)),
+            gcs_eye=4, gcs_verbal=5, gcs_motor=6,
+            pain_score=random.randint(2, 8),
+            is_birth_related=is_birth,
+            discharge_summary=discharge_summary,
+        ))
+        bulk_admission_ids.append((adm_id, pat.id, dept, is_discharged))
+
+    # Mark deceased patients
+    for i, (adm_id, pat_id, dept, is_disc) in enumerate(bulk_admission_ids):
+        if i in (42, 47):
+            pat_obj = next((p for p in bulk_all_patients if p.id == pat_id), None)
+            if pat_obj:
+                pat_obj.is_deceased = True
+
+    # ── Bulk Case Records (80) ───────────────────────────────────────
+    case_types = ["Physical Examination", "Follow-up", "Counselling", "Procedure", "Lab Review"]
+    for i in range(80):
+        pat = bulk_all_patients[i % len(bulk_all_patients)]
+        stu = bulk_all_students[i % len(bulk_all_students)]
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        dept = BULK_DEPARTMENTS[i % len(BULK_DEPARTMENTS)]
+        diag = BULK_DIAGNOSES[i % len(BULK_DIAGNOSES)]
+        proc = BULK_PROCEDURES[i % len(BULK_PROCEDURES)]
+        cr_type = case_types[i % len(case_types)]
+        days_ago = random.randint(1, 60)
+        cr_date = datetime.utcnow() - timedelta(days=days_ago)
+        status = "Approved" if i % 3 != 0 else "Pending"
+        grade = random.choice(["A", "A-", "B+", "B", "B-", "C+"]) if status == "Approved" else None
+        cr_id = uid()
+        db.add(CaseRecord(
+            id=cr_id, patient_id=pat.id, student_id=stu.id,
+            department=dept, date=cr_date, type=cr_type,
+            description=f"Patient assessed for {diag}. Findings documented.",
+            procedure_name=proc, findings=f"Clinical findings consistent with {diag}.",
+            diagnosis=diag, treatment=f"Managed per protocol for {diag}.",
+            status=status, grade=grade,
+            created_by_name=stu.name, created_by_role="STUDENT",
+        ))
+        if status == "Approved":
+            db.add(Approval(
+                id=uid(), approval_type=ApprovalType.CASE_RECORD,
+                case_record_id=cr_id, faculty_id=fac.id,
+                patient_id=pat.id, student_id=stu.id,
+                status=ApprovalStatus.APPROVED,
+                processed_at=cr_date + timedelta(hours=random.randint(1, 8)),
+                comments="Reviewed.",
+            ))
+
+    # ── Bulk Prescriptions (60) ──────────────────────────────────────
+    for i in range(60):
+        pat = bulk_all_patients[i % len(bulk_all_patients)]
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        rx_id = uid()
+        med = BULK_MEDICATIONS[i % len(BULK_MEDICATIONS)]
+        rx_date = datetime.utcnow() - timedelta(days=random.randint(1, 30))
+        db.add(Prescription(
+            id=rx_id, prescription_id=f"RX-BULK-{i+1:04d}",
+            patient_id=pat.id, date=rx_date, doctor=fac.name,
+            department=BULK_DEPARTMENTS[i % len(BULK_DEPARTMENTS)],
+            status=PrescriptionStatus.ACTIVE if i % 4 != 0 else PrescriptionStatus.COMPLETED,
+            hospital_name="SMC Hospital",
+        ))
+        # Add 1-3 medications per prescription
+        num_meds = random.randint(1, 3)
+        for j in range(num_meds):
+            m = BULK_MEDICATIONS[(i + j) % len(BULK_MEDICATIONS)]
+            dur_days = int(m[3].split()[0])
+            db.add(PrescriptionMedication(
+                id=uid(), prescription_id=rx_id, name=m[0],
+                dosage=m[1], frequency=m[2], duration=m[3],
+                instructions="Take as directed",
+                start_date=rx_date.strftime("%Y-%m-%d"),
+                end_date=(rx_date + timedelta(days=dur_days)).strftime("%Y-%m-%d"),
+            ))
+
+    # ── Bulk Vitals (all 50 patients × 5-15 days) ────────────────────
+    for pat in bulk_all_patients:
+        num_days = random.randint(5, 15)
+        for day_offset in range(num_days):
+            db.add(Vital(
+                id=uid(), patient_id=pat.id,
+                recorded_at=datetime.utcnow() - timedelta(days=day_offset, hours=random.randint(6, 20)),
+                recorded_by=bulk_all_faculty[random.randint(0, len(bulk_all_faculty)-1)].name,
+                systolic_bp=random.randint(100, 180),
+                diastolic_bp=random.randint(55, 110),
+                heart_rate=random.randint(55, 120),
+                respiratory_rate=random.randint(12, 28),
+                temperature=round(random.uniform(97.0, 102.0), 1),
+                oxygen_saturation=random.randint(88, 100),
+                weight=round(random.uniform(40, 110), 1),
+                blood_glucose=random.randint(70, 300),
+                creatinine=round(random.uniform(0.6, 3.0), 2),
+                urea=round(random.uniform(15, 80), 1),
+                sodium=round(random.uniform(128, 148), 1),
+                potassium=round(random.uniform(3.0, 5.8), 1),
+                sgot=round(random.uniform(15, 120), 1),
+                sgpt=round(random.uniform(12, 100), 1),
+                hemoglobin=round(random.uniform(7.0, 16.0), 1),
+                wbc=round(random.uniform(3.5, 18.0), 1),
+                platelet=round(random.uniform(100, 450), 0),
+                rbc=round(random.uniform(3.0, 6.0), 1),
+                hct=round(random.uniform(28, 52), 1),
+            ))
+
+    # ── Bulk Reports (100) — for MRD census dynamic columns ──────────
+    report_types = ["Laboratory", "Radiology", "Microbiology", "Pathology"]
+    report_titles = {
+        "Laboratory": ["CBC", "LFT", "RFT", "Lipid Profile", "Thyroid Panel", "HbA1c", "Blood Sugar", "Electrolytes", "Coagulation Profile", "Urine Analysis"],
+        "Radiology": ["Chest X-Ray", "CT Abdomen", "MRI Brain", "Ultrasound Abdomen", "X-Ray Knee", "CT Chest", "MRI Spine"],
+        "Microbiology": ["Blood Culture", "Urine Culture", "Sputum Culture", "Wound Swab C/S", "Stool Culture"],
+        "Pathology": ["Biopsy - Skin", "FNAC Thyroid", "Histopathology", "Pap Smear", "Bone Marrow Aspiration"],
+    }
+    for i in range(100):
+        pat = bulk_all_patients[i % len(bulk_all_patients)]
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        rtype = report_types[i % len(report_types)]
+        titles = report_titles[rtype]
+        title = titles[i % len(titles)]
+        dept = BULK_DEPARTMENTS[i % len(BULK_DEPARTMENTS)]
+        days_ago = random.randint(1, 30)
+        report_date = datetime.utcnow() - timedelta(days=days_ago)
+        status = random.choice([ReportStatus.NORMAL, ReportStatus.NORMAL, ReportStatus.PENDING])
+        report_id = uid()
+        db.add(Report(
+            id=report_id, patient_id=pat.id, date=report_date,
+            time=f"{random.randint(8,20):02d}:{random.randint(0,59):02d}",
+            title=title, type=rtype, department=dept,
+            ordered_by=fac.name, performed_by=f"Lab Tech {name_from_index(i % 10)}",
+            status=status,
+            result_summary=f"Results for {title} - within normal limits" if status == ReportStatus.NORMAL else None,
+        ))
+        # Add findings for completed reports
+        if status == ReportStatus.NORMAL and rtype == "Laboratory":
+            findings_data = [
+                ("Hemoglobin", f"{round(random.uniform(8, 16), 1)} g/dL", "12-16 g/dL"),
+                ("WBC", f"{round(random.uniform(4, 15), 1)} x10³/µL", "4-11 x10³/µL"),
+                ("Platelets", f"{random.randint(150, 400)} x10³/µL", "150-400 x10³/µL"),
+            ]
+            for param, value, ref in findings_data:
+                finding_status = random.choice(["Normal", "Normal", "High", "Low"])
+                db.add(ReportFinding(
+                    id=uid(), report_id=report_id,
+                    parameter=param, value=value,
+                    reference=ref, status=finding_status,
+                ))
+
+    # ── Bulk Student-Patient Assignments ─────────────────────────────
+    for stu in extra_students:
+        for j in range(3):
+            pat = bulk_all_patients[random.randint(0, len(bulk_all_patients)-1)]
+            db.add(StudentPatientAssignment(
+                id=uid(), student_id=stu.id, patient_id=pat.id,
+                assigned_date=datetime.utcnow() - timedelta(days=random.randint(1, 30)),
+                status="Active" if j < 2 else "Completed",
+            ))
+
+    # ── Bulk Clinic Appointments (30 more) ───────────────────────────
+    clinic_result = await db.execute(select(Clinic))
+    clinic_objs = clinic_result.scalars().all()
+    if not clinic_objs:
+        clinic_objs = []
+    appt_statuses = ["Scheduled", "Checked In", "In Progress", "Completed"]
+    for i in range(30):
+        if not clinic_objs:
+            break
+        pat = bulk_all_patients[i % len(bulk_all_patients)]
+        clinic = clinic_objs[i % len(clinic_objs)]
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        appt_date = datetime.combine(
+            date.today() - timedelta(days=random.randint(0, 7)),
+            datetime.min.time()
+        )
+        db.add(ClinicAppointment(
+            id=uid(), clinic_id=clinic.id, patient_id=pat.id,
+            appointment_date=appt_date,
+            appointment_time=f"{8 + (i % 10)}:{(i*15) % 60:02d} AM",
+            provider_name=fac.name,
+            status=appt_statuses[i % len(appt_statuses)],
+        ))
+
+    # ── Bulk Nurse Orders (40 more) ──────────────────────────────────
+    nurse_order_types = ["DRUG", "INVESTIGATION", "DIET", "PROCEDURE"]
+    nurse_order_titles = [
+        "Inj. Ceftriaxone 1g IV", "RBS monitoring q6h", "Soft diet",
+        "Wound dressing", "Tab. Paracetamol 500mg", "ECG stat",
+        "Blood transfusion 1 unit", "IV Fluid NS 1L over 8h",
+        "Foley catheter insertion", "Nebulization q4h",
+    ]
+    for i in range(40):
+        if i >= len(bulk_admission_ids):
+            break
+        adm_id, pat_id, _, _ = bulk_admission_ids[i % len(bulk_admission_ids)]
+        db.add(NurseOrder(
+            id=uid(), order_id=f"ORD-BULK-{i+1:03d}",
+            patient_id=pat_id, admission_id=adm_id,
+            order_type=nurse_order_types[i % len(nurse_order_types)],
+            title=nurse_order_titles[i % len(nurse_order_titles)],
+            description=f"Order #{i+1} for admitted patient",
+            scheduled_time=f"{6 + (i*2) % 18:02d}:00",
+            is_completed=(i % 3 == 0),
+        ))
+
+    # ── Bulk IO Events for active admissions ─────────────────────────
+    io_types = ["IV Input", "Drugs", "Food", "Urine", "Stool", "Drain", "Vomitus"]
+    active_adm_ids = [(aid, pid) for aid, pid, _, disc in bulk_admission_ids if not disc]
+    for adm_id, pat_id in active_adm_ids[:15]:
+        num_events = random.randint(5, 12)
+        for j in range(num_events):
+            hour = 6 + j * 2
+            if hour > 22:
+                break
+            etype = io_types[j % len(io_types)]
+            db.add(IOEvent(
+                id=uid(), patient_id=pat_id, admission_id=adm_id,
+                event_time=f"{hour:02d}:00", event_type=etype,
+                description=f"{etype} event - routine",
+                amount_ml=random.randint(100, 500) if etype in ("IV Input", "Urine", "Food") else None,
+                recorded_by=f"Nurse {name_from_index(j % 10)}",
+            ))
+
+    # ── Bulk Medical Alerts ──────────────────────────────────────────
+    alert_types_data = [
+        ("Drug Allergy - NSAIDs", "ALLERGY", "HIGH"),
+        ("Latex Allergy", "ALLERGY", "MEDIUM"),
+        ("Diabetes Mellitus", "CONDITION", "HIGH"),
+        ("Epilepsy", "CONDITION", "HIGH"),
+        ("Asthma", "CONDITION", "MEDIUM"),
+        ("Pacemaker", "DEVICE", "HIGH"),
+        ("Hip Replacement", "DEVICE", "LOW"),
+        ("G6PD Deficiency", "CONDITION", "MEDIUM"),
+    ]
+    for i, pat in enumerate(extra_patients[:20]):
+        alert = alert_types_data[i % len(alert_types_data)]
+        db.add(MedicalAlert(
+            id=uid(), patient_id=pat.id, type=alert[1],
+            severity=alert[2], title=alert[0], is_active=True,
+            added_by=bulk_all_faculty[i % len(bulk_all_faculty)].name,
+            added_at=datetime.utcnow() - timedelta(days=random.randint(1, 30)),
+        ))
+
+    # ── Bulk SOAP Notes for active admissions ────────────────────────
+    for i, (adm_id, pat_id) in enumerate(active_adm_ids[:10]):
+        fac = bulk_all_faculty[i % len(bulk_all_faculty)]
+        stu = bulk_all_students[i % len(bulk_all_students)]
+        db.add(SOAPNote(
+            id=uid(), patient_id=pat_id, admission_id=adm_id,
+            subjective=f"Patient reports improving symptoms. Pain score {random.randint(2,6)}/10.",
+            objective=f"BP {random.randint(110,150)}/{random.randint(60,90)}. HR {random.randint(60,100)}. SpO2 {random.randint(95,100)}%.",
+            assessment=f"Condition stable. Continue current management.",
+            plan=f"Continue medications. Review labs. Plan discharge if stable.",
+            plan_items={
+                "drugs": [{"id": uid(), "name": "Tab. Paracetamol", "dose": "500mg", "route": "PO", "frequency": "TDS", "status": "pending"}],
+                "investigations": [{"id": uid(), "name": "CBC repeat", "status": "pending"}],
+                "diet": [{"id": uid(), "name": "Regular diet", "status": "pending"}],
+            },
+            created_by=stu.name, updated_at=datetime.utcnow(), updated_by=stu.name,
+        ))
+
+    # ── Bulk Wallet Topups for extra patients ────────────────────────
+    for pat in extra_patients:
+        for wt in (WalletType.HOSPITAL, WalletType.PHARMACY):
+            topup = Decimal(str(random.randint(2000, 10000)))
+            balance = topup - Decimal(str(random.randint(200, 1500)))
+            wallet = PatientWallet(id=uid(), patient_id=pat.id, wallet_type=wt, balance=balance)
+            db.add(wallet)
+            db.add(WalletTransaction(
+                id=uid(), patient_id=pat.id, wallet_type=wt,
+                date=datetime.utcnow() - timedelta(days=random.randint(1, 14)),
+                time="10:00 AM", description="Wallet top-up",
+                amount=topup, type=TransactionType.CREDIT, payment_method="Cash",
+                reference_number=f"REF-{pat.patient_id}-{wt.value[:3]}",
+            ))
+
+    print("  💉 Bulk data generated: 40 patients, 7 doctors, 11 students, 5 nurses")
+    print("  📊 50 admissions, 80 case records, 60 prescriptions, 100 reports")
+    print("  🩺 Bulk vitals, IO events, SOAP notes, nurse orders, wallets")
+
+
 async def seed():
     import app.models  # noqa: F401
 
@@ -780,15 +1246,29 @@ async def seed():
         ).scalar_one_or_none()
 
         if existing_mock_user:
-            print("\nℹ️ Mock data already exists. Skipping seed without resetting the database.\n")
-            print("Default admin login: a / a\n")
-            return
+            # Check if bulk data already exists (p15 only exists from bulk generation)
+            bulk_exists = (
+                await db.execute(
+                    select(User.id).where(User.username == "p15").limit(1)
+                )
+            ).scalar_one_or_none()
+            if bulk_exists:
+                print("\nℹ️ Mock data already exists (including bulk). Skipping seed.\n")
+                print("Default admin login: a / a\n")
+                return
+            else:
+                print("\n📦 Original data exists. Adding BULK data...\n")
+                # Skip original seeding, jump straight to bulk
+                await _seed_bulk(db)
+                await db.commit()
+                print("\n✅ Bulk data seeded successfully!\n")
+                print("Default admin login: a / a\n")
+                return
 
         patient_category_seed_map = {
             str(item["name"]).casefold(): item
             for item in PATIENT_CATEGORY_SEED_DATA
         }
-        patient_categories = await ensure_patient_categories(db)
         patient_category_map = {}
         for category in patient_categories:
             seed_item = patient_category_seed_map.get(category.name.casefold())
@@ -1896,6 +2376,9 @@ async def seed():
                     approved_by=(fac.id if fac and status in (OTStatus.COMPLETED, OTStatus.CONFIRMED) else None),
                 ))
 
+        # ── Run bulk data generation ──────────────────────────────────────
+        await _seed_bulk(db)
+
         await db.commit()
 
     # ── Print credentials ────────────────────────────────
@@ -1914,23 +2397,45 @@ async def seed():
     print(f"  {'─'*10} {'─'*10}")
     print(f"  {'r':<10} {'r':<10}")
 
-    print("\n🩺 Doctors (3):")
+    print("\n📋 MRD (1):")
+    print(f"  {'Username':<10} {'Password':<10}")
+    print(f"  {'─'*10} {'─'*10}")
+    print(f"  {'mrd1':<10} {'mrd1':<10}")
+
+    print("\n🩺 Doctors (10):")
     print(f"  {'Username':<10} {'Password':<10} {'Name':<25} {'Department'}")
     print(f"  {'─'*10} {'─'*10} {'─'*25} {'─'*20}")
     for d in DOCTORS:
         print(f"  {d['username']:<10} {d['password']:<10} {d['name']:<25} {d['department']}")
+    for i in range(7):
+        idx = i + 4
+        depts_print = ["Internal Medicine", "Cardiology", "Pediatrics", "Orthopedics",
+                       "General Surgery", "Neurology", "Dermatology", "Ophthalmology",
+                       "ENT", "Gynecology", "Urology", "Psychiatry"]
+        dept = depts_print[idx % len(depts_print)]
+        n = chr(65 + i) if i < 26 else chr(65 + i // 26 - 1) + chr(65 + i % 26)
+        print(f"  {'d'+str(idx):<10} {'d'+str(idx):<10} {'Dr. '+n:<25} {dept}")
 
-    print(f"\n🎓 Students (9):")
+    print(f"\n🎓 Students (20):")
     print(f"  {'Username':<10} {'Password':<10} {'Name':<25} {'Year/Sem'}")
     print(f"  {'─'*10} {'─'*10} {'─'*25} {'─'*10}")
     for s in STUDENTS:
         print(f"  {s['username']:<10} {s['password']:<10} {s['name']:<25} Y{s['year']}/S{s['semester']}")
+    for i in range(11):
+        idx = i + 10
+        n = chr(65 + i) if i < 26 else chr(65 + i // 26 - 1) + chr(65 + i % 26)
+        print(f"  {'s'+str(idx):<10} {'s'+str(idx):<10} {'Student '+n:<25} Y{random.randint(1,4)}/S{random.randint(1,8)}")
 
-    print(f"\n🏥 Patients (10):")
+    print(f"\n🏥 Patients (50):")
     print(f"  {'Username':<10} {'Password':<10} {'Name':<25} {'Blood Group'}")
     print(f"  {'─'*10} {'─'*10} {'─'*25} {'─'*12}")
     for p in PATIENTS:
         print(f"  {p['username']:<10} {p['password']:<10} {p['name']:<25} {p['blood_group']}")
+    bgs = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"]
+    for i in range(40):
+        idx = i + 11
+        n = chr(65 + i) if i < 26 else chr(65 + i // 26 - 1) + chr(65 + i % 26)
+        print(f"  {'p'+str(idx):<10} {'p'+str(idx):<10} {'Patient '+n:<25} {bgs[i % len(bgs)]}")
 
     print()
 
