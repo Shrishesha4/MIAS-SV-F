@@ -510,6 +510,7 @@ style="background: rgba(99,102,241,0.1); color: #4338ca; max-width: 110px;">
 <!-- Actions -->
 <div class="flex items-center justify-end gap-1.5">
 <button
+type="button"
 onclick={() => toggleLabActive(lab)}
 disabled={togglingLabId === lab.id}
 class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
@@ -620,6 +621,7 @@ style="background: linear-gradient(to bottom, #faf5ff, #ede9fe); border: 1px sol
 <!-- Action row -->
 <div class="flex gap-2">
 <button
+type="button"
 onclick={() => toggleLabActive(lab)}
 disabled={togglingLabId === lab.id}
 class="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
@@ -825,6 +827,7 @@ style="background: rgba(99,102,241,0.08); color: #4338ca;">
 </span>
 <div class="flex items-center justify-end gap-1">
 <button
+type="button"
 onclick={() => toggleTestActive(test)}
 disabled={togglingTestId === test.id}
 class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:scale-105 disabled:opacity-50"
@@ -874,6 +877,7 @@ style="background: {test.is_active ? '#22c55e' : '#94a3b8'};"></span>
 </div>
 <div class="flex items-center gap-1 shrink-0 ml-2">
 <button
+type="button"
 onclick={() => toggleTestActive(test)}
 disabled={togglingTestId === test.id}
 class="p-1.5 rounded-lg cursor-pointer transition-all disabled:opacity-50"
@@ -941,6 +945,7 @@ style="background: {group.is_active ? '#8b5cf6' : '#94a3b8'};"></span>
 </div>
 <div class="flex items-center gap-1">
 <button
+type="button"
 onclick={() => toggleGroupActive(group)}
 disabled={togglingGroupId === group.id}
 class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:scale-105 disabled:opacity-50"
@@ -999,6 +1004,7 @@ style="background: {group.is_active ? '#8b5cf6' : '#94a3b8'};"></span>
 </div>
 <div class="flex items-center gap-1 shrink-0 ml-2">
 <button
+type="button"
 onclick={() => toggleGroupActive(group)}
 disabled={togglingGroupId === group.id}
 class="p-1.5 rounded-lg cursor-pointer transition-all disabled:opacity-50"

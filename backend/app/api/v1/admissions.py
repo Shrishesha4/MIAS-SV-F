@@ -21,15 +21,24 @@ router = APIRouter(prefix="/admissions", tags=["Admissions"])
 async def list_all_admissions(
     status: Optional[str] = Query(None, description="Filter by status: Active, Discharged, Transferred"),
     department: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200, description="Max results to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
     user: User = Depends(require_role(UserRole.FACULTY, UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all admissions across all patients (faculty/admin only)."""
+    """List admissions with pagination (faculty/admin only)."""
     query = select(Admission).order_by(Admission.admission_date.desc())
     if status:
         query = query.where(Admission.status == status)
     if department:
         query = query.where(Admission.department == department)
+    
+    # Get total count
+    count_query = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(count_query)).scalar() or 0
+    
+    # Apply pagination
+    query = query.limit(limit).offset(offset)
     result = await db.execute(query)
     admissions = result.scalars().all()
 
@@ -50,7 +59,7 @@ async def list_all_admissions(
                 "insurance_policies": serialize_patient_insurance(patient),
             }
 
-    return [
+    items = [
         {
             "id": a.id,
             "patient_id": a.patient_id,
@@ -80,6 +89,13 @@ async def list_all_admissions(
         }
         for a in admissions
     ]
+    
+    return {
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/patients/search")

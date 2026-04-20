@@ -85,6 +85,9 @@
 	});
 	let todaySchedule: ScheduleItem[] = $state([]);
 	let admittedPatients: any[] = $state([]);
+	let admittedPatientsTotal = $state(0);
+	let admittedPatientsOffset = $state(0);
+	const ADMITTED_PATIENTS_LIMIT = 50;
 	let facultyClinics: any[] = $state([]);
 	let selectedFacultyClinic: any = $state(null);
 	let facultyClinicPatients: any[] = $state([]);
@@ -393,6 +396,24 @@
 		}
 	}
 
+	let loadingMoreAdmitted = $state(false);
+
+	async function loadMoreAdmittedPatients() {
+		if (loadingMoreAdmitted || admittedPatients.length >= admittedPatientsTotal) return;
+		loadingMoreAdmitted = true;
+		try {
+			const newOffset = admittedPatientsOffset + ADMITTED_PATIENTS_LIMIT;
+			const res = await facultyApi.getAdmittedPatients('Active', ADMITTED_PATIENTS_LIMIT, newOffset);
+			admittedPatients = [...admittedPatients, ...(res.items || [])];
+			admittedPatientsOffset = newOffset;
+			admittedPatientsTotal = res.total || admittedPatientsTotal;
+		} catch (err) {
+			toastStore.addToast('Failed to load more patients', 'error');
+		} finally {
+			loadingMoreAdmitted = false;
+		}
+	}
+
 	let medicationTakenSuccess = $state(false);
 
 	async function handleMedicationTaken() {
@@ -447,7 +468,10 @@
 				approvals = await facultyApi.getApprovals(faculty.id);
 				approvalStats = await approvalsApi.getApprovalStats(faculty.id);
 				todaySchedule = await approvalsApi.getTodaySchedule(faculty.id);
-				admittedPatients = await facultyApi.getAdmittedPatients('Active');
+				const admissionsRes = await facultyApi.getAdmittedPatients('Active', ADMITTED_PATIENTS_LIMIT, 0);
+				admittedPatients = admissionsRes.items || [];
+				admittedPatientsTotal = admissionsRes.total || 0;
+				admittedPatientsOffset = 0;
 				facultyClinics = await facultyApi.getFacultyClinics(faculty.id);
 				if (facultyClinics.length > 0) {
 					selectedFacultyClinic = facultyClinics[0];
@@ -1182,6 +1206,17 @@ style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#05966
 						<div class="py-12 text-center">
 							<Bed class="w-12 h-12 text-gray-300 mx-auto mb-2" />
 							<p class="text-sm text-gray-400">{facultyPatientSearch ? 'No patients found' : 'No admitted patients'}</p>
+						</div>
+					{:else if !facultyPatientSearch && admittedPatients.length < admittedPatientsTotal}
+						<div class="p-4 text-center border-t border-gray-100">
+							<p class="text-xs text-gray-500 mb-2">Showing {admittedPatients.length} of {admittedPatientsTotal} patients</p>
+							<button
+								onclick={loadMoreAdmittedPatients}
+								disabled={loadingMoreAdmitted}
+								class="px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+							>
+								{loadingMoreAdmitted ? 'Loading...' : 'Load More'}
+							</button>
 						</div>
 					{/if}
 				{:else if facultyTab === 'clinic'}

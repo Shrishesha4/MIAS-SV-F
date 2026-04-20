@@ -128,9 +128,9 @@ export const facultyApi = {
     return response.data;
   },
 
-  async getAdmittedPatients(status: string = 'Active') {
+  async getAdmittedPatients(status: string = 'Active', limit: number = 50, offset: number = 0) {
     const response = await client.get('/admissions/', {
-      params: { status },
+      params: { status, limit, offset },
     });
     return response.data;
   },
