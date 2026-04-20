@@ -24,6 +24,7 @@ from app.core.mrd_governance import (
 from app.database import get_analytics_db, get_db
 from app.models.admission import Admission
 from app.models.lab import Lab
+from app.models.case_record import CaseRecord
 from app.models.medical_record import MedicalFinding, MedicalImage, MedicalRecord, RecordType
 from app.models.operation_theater import OTBooking, OTStatus
 from app.models.patient import Patient
@@ -796,25 +797,28 @@ async def list_records(
         from_dt = datetime.combine(from_date, datetime.min.time())
         to_dt = datetime.combine(to_date, datetime.max.time())
 
-        stmt = select(MedicalRecord).where(
-            MedicalRecord.date.between(from_dt, to_dt)
+        stmt = select(CaseRecord).where(
+            CaseRecord.date.between(from_dt, to_dt)
         )
         if record_type:
-            stmt = stmt.where(MedicalRecord.type == record_type)
+            stmt = stmt.where(CaseRecord.type == record_type)
         if department:
-            stmt = stmt.where(MedicalRecord.department == department)
+            stmt = stmt.where(CaseRecord.department == department)
         if patient_id:
-            stmt = stmt.where(MedicalRecord.patient_id == patient_id)
+            stmt = stmt.where(CaseRecord.patient_id == patient_id)
         if performed_by:
-            stmt = stmt.where(MedicalRecord.performed_by.ilike(f"%{performed_by}%"))
+            stmt = stmt.where(
+                (CaseRecord.doctor_name.ilike(f"%{performed_by}%"))
+                | (CaseRecord.created_by_name.ilike(f"%{performed_by}%"))
+            )
 
         cursor_ts, cursor_id = _parse_cursor(cursor)
         if cursor_ts and cursor_id:
             stmt = stmt.where(
-                (MedicalRecord.date < cursor_ts)
-                | ((MedicalRecord.date == cursor_ts) & (MedicalRecord.id < cursor_id))
+                (CaseRecord.date < cursor_ts)
+                | ((CaseRecord.date == cursor_ts) & (CaseRecord.id < cursor_id))
             )
-        stmt = stmt.order_by(MedicalRecord.date.desc(), MedicalRecord.id.desc())
+        stmt = stmt.order_by(CaseRecord.date.desc(), CaseRecord.id.desc())
         stmt = stmt.limit(page_size + 1)
 
         result = await db.execute(stmt)
@@ -833,12 +837,12 @@ async def list_records(
                     "id": r.id,
                     "patient_id": r.patient_id,
                     "date": str(r.date),
-                    "time": r.time,
-                    "type": r.type.value if r.type else None,
-                    "description": r.description,
-                    "performed_by": r.performed_by,
-                    "department": r.department,
-                    "status": r.status,
+                    "time": r.time or "",
+                    "type": r.type or "",
+                    "description": r.description or "",
+                    "performed_by": r.doctor_name or r.created_by_name or "",
+                    "department": r.department or "",
+                    "status": r.status or "",
                     "diagnosis": r.diagnosis,
                 }
                 for r in items
@@ -864,12 +868,8 @@ async def get_record(
 
     async def query(db):
         stmt = (
-            select(MedicalRecord)
-            .options(
-                selectinload(MedicalRecord.findings),
-                selectinload(MedicalRecord.images),
-            )
-            .where(MedicalRecord.id == record_id)
+            select(CaseRecord)
+            .where(CaseRecord.id == record_id)
         )
         result = await db.execute(stmt)
         record = result.scalar_one_or_none()
@@ -880,35 +880,23 @@ async def get_record(
             "id": record.id,
             "patient_id": record.patient_id,
             "date": str(record.date),
-            "time": record.time,
-            "type": record.type.value if record.type else None,
-            "description": record.description,
-            "performed_by": record.performed_by,
-            "supervised_by": record.supervised_by,
-            "department": record.department,
-            "status": record.status,
+            "time": record.time or "",
+            "type": record.type or "",
+            "description": record.description or "",
+            "performed_by": record.doctor_name or record.created_by_name or "",
+            "department": record.department or "",
+            "status": record.status or "",
             "diagnosis": record.diagnosis,
-            "recommendations": record.recommendations,
-            "findings": [
-                {
-                    "id": f.id,
-                    "parameter": f.parameter,
-                    "value": f.value,
-                    "reference": f.reference,
-                    "status": f.status,
-                }
-                for f in record.findings
-            ],
-            "images": [
-                {
-                    "id": img.id,
-                    "title": img.title,
-                    "description": img.description,
-                    "url": img.url,
-                    "type": img.type,
-                }
-                for img in record.images
-            ],
+            "findings": record.findings or "",
+            "treatment": record.treatment or "",
+            "notes": record.notes or "",
+            "icd_code": record.icd_code,
+            "icd_description": record.icd_description,
+            "procedure_name": record.procedure_name,
+            "procedure_description": record.procedure_description,
+            "form_name": record.form_name,
+            "form_values": record.form_values,
+            "images": [],
             "total": 1,
         }
 
