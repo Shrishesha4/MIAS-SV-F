@@ -16,6 +16,7 @@ from app.core.redis_client import get_redis
 from app.database import get_db
 from app.models.mrd_audit import MrdQueryAudit
 from app.models.user import User
+from app.api.deps import get_current_user
 
 # ── Redis key prefixes ───────────────────────────────────────────────
 _SEMAPHORE_USER_PREFIX = "mrd:sem:user:"
@@ -159,7 +160,7 @@ class MrdGovernance:
         self.user_id: str | None = None
         self.redis = None
 
-    async def __call__(self, user: User) -> "MrdGovernance":
+    async def __call__(self, user: User = Depends(get_current_user)) -> "MrdGovernance":
         self.user_id = user.id
         self.redis = await get_redis()
 

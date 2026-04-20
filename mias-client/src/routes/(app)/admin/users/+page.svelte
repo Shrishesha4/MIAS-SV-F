@@ -21,7 +21,7 @@
 	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
-	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'BILLING' | 'OT_MANAGER';
+	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'BILLING' | 'OT_MANAGER' | 'MRD';
 
 	type CreateUserFormData = {
 		username: string;
@@ -467,6 +467,7 @@
 		{ id: 'RECEPTION', label: 'Reception' },
 		{ id: 'BILLING', label: 'Billing' },
 		{ id: 'OT_MANAGER', label: 'OT Manager' },
+		{ id: 'MRD', label: 'MRD' },
 		{ id: 'ADMIN', label: 'Admins' },
 	];
 
@@ -480,6 +481,7 @@
 			NURSE: '#14b8a6',
 			BILLING: '#f97316',
 			OT_MANAGER: '#0891b2',
+			MRD: '#6366f1',
 		};
 		return map[role] || '#6b7280';
 	}
@@ -657,6 +659,7 @@
 					<option value="RECEPTION">Reception</option>
 					<option value="BILLING">Billing & Cashier</option>
 					<option value="OT_MANAGER">OT Manager</option>
+					<option value="MRD">MRD (Medical Records)</option>
 					<option value="STUDENT">Student</option>
 					<option value="FACULTY">Faculty</option>
 					<option value="ADMIN">Admin</option>

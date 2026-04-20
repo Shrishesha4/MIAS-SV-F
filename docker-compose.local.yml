@@ -55,6 +55,7 @@ services:
       # PgBouncer transaction mode is incompatible with asyncpg prepared statements;
       # with only 5 workers locally there's no need for a bouncer.
       DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@db:5432/mias_mp
+      ANALYTICS_DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@db:5432/mias_mp
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-mias-dev-secret-CHANGE-IN-PRODUCTION}
       JWT_ALGORITHM: HS256

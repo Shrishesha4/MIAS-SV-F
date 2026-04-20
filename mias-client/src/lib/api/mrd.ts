@@ -105,13 +105,24 @@ export interface DepartmentRow {
 	op: number;
 	ip: number;
 	ot: number;
+	births: number;
+	deaths: number;
 	inv_total: number;
+	inv_by_type: Record<string, number>;
 	discharges: number;
 }
 
 export interface DepartmentBreakdown {
 	departments: DepartmentRow[];
+	investigation_types: string[];
 	total: number;
+}
+
+export interface MrdLab {
+	id: string;
+	name: string;
+	lab_type: string;
+	department: string;
 }
 
 export type CensusCategory = 'op' | 'ip' | 'ot' | 'births' | 'deaths' | 'investigations' | 'discharges';
@@ -232,6 +243,11 @@ export const mrdApi = {
 		to_date: string;
 	}): Promise<DepartmentBreakdown> {
 		const res = await client.get('/mrd/census/department-breakdown', { params });
+		return res.data;
+	},
+
+	async getLabs(): Promise<{ labs: MrdLab[]; total: number }> {
+		const res = await client.get('/mrd/labs');
 		return res.data;
 	},
 };

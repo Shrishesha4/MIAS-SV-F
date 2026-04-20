@@ -43,6 +43,8 @@ class Patient(Base):
     category = Column(String, nullable=False, default="Classic")
     category_color_primary = Column(String, nullable=False, default="#60A5FA")
     category_color_secondary = Column(String, nullable=False, default="#1D4ED8")
+    is_deceased = Column(Boolean, default=False, nullable=False)
+    mother_patient_id = Column(String, ForeignKey("patients.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
     updated_at = Column(
         DateTime,
@@ -52,6 +54,7 @@ class Patient(Base):
 
     # Relationships
     user = relationship("User", back_populates="patient")
+    mother = relationship("Patient", remote_side="Patient.id", foreign_keys="Patient.mother_patient_id", backref="children")
     emergency_contact = relationship("EmergencyContact", back_populates="patient", uselist=False,
                                      foreign_keys="EmergencyContact.patient_id")
     insurance_policies = relationship("InsurancePolicy", back_populates="patient")

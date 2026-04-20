@@ -23,6 +23,7 @@ from app.core.mrd_governance import (
 )
 from app.database import get_analytics_db, get_db
 from app.models.admission import Admission
+from app.models.lab import Lab
 from app.models.medical_record import MedicalFinding, MedicalImage, MedicalRecord, RecordType
 from app.models.operation_theater import OTBooking, OTStatus
 from app.models.patient import Patient
@@ -301,7 +302,9 @@ def _empty_dept_row(dept: str) -> dict:
     return {
         "department": dept,
         "op": 0, "ip": 0, "ot": 0,
-        "inv_total": 0, "discharges": 0,
+        "births": 0, "deaths": 0,
+        "inv_total": 0, "inv_by_type": {},
+        "discharges": 0,
     }
 
 
@@ -314,7 +317,7 @@ async def get_department_breakdown(
     analytics_db: AsyncSession = Depends(get_analytics_db),
     oltp_db: AsyncSession = Depends(get_db),
 ):
-    """Hospital-wide activity breakdown by department."""
+    """Hospital-wide activity breakdown by department with per-type investigation counts."""
     if (to_date - from_date).days > _MAX_TIME_SPAN_DAYS:
         raise HTTPException(400, "Date range exceeds 366 days")
 
@@ -345,11 +348,38 @@ async def get_department_breakdown(
         )
         ip_rows = (await db.execute(ip_stmt)).all()
 
-        # Investigations by department
+        # Births by department
+        birth_stmt = (
+            select(Admission.department, func.count(Admission.id))
+            .where(
+                Admission.admission_date.between(from_dt, to_dt),
+                func.lower(Admission.diagnosis).op("SIMILAR TO")(
+                    "%(birth|deliver|lscs|caesarean|c-section|newborn|neonatal)%"
+                ),
+            )
+            .group_by(Admission.department)
+        )
+        birth_rows = (await db.execute(birth_stmt)).all()
+
+        # Deaths by department
+        death_stmt = (
+            select(Admission.department, func.count(Admission.id))
+            .where(
+                Admission.discharge_date.between(from_dt, to_dt),
+                Admission.status == "Discharged",
+                func.lower(func.coalesce(Admission.discharge_summary, "")).op("SIMILAR TO")(
+                    "%(death|expired|demise|brought dead|doa)%"
+                ),
+            )
+            .group_by(Admission.department)
+        )
+        death_rows = (await db.execute(death_stmt)).all()
+
+        # Investigations by department AND type (for per-lab columns)
         inv_stmt = (
-            select(Report.department, func.count(Report.id))
+            select(Report.department, Report.type, func.count(Report.id))
             .where(Report.date.between(from_dt, to_dt))
-            .group_by(Report.department)
+            .group_by(Report.department, Report.type)
         )
         inv_rows = (await db.execute(inv_stmt)).all()
 
@@ -366,29 +396,63 @@ async def get_department_breakdown(
 
         # Merge into department map
         depts: dict[str, dict] = {}
+        investigation_types: set[str] = set()
+
         for dept, count in op_rows:
             depts.setdefault(dept, _empty_dept_row(dept))["op"] = count
         for dept, count in ip_rows:
             depts.setdefault(dept, _empty_dept_row(dept))["ip"] = count
-        for dept, count in inv_rows:
-            depts.setdefault(dept, _empty_dept_row(dept))["inv_total"] = count
+        for dept, count in birth_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["births"] = count
+        for dept, count in death_rows:
+            depts.setdefault(dept, _empty_dept_row(dept))["deaths"] = count
+        for dept, inv_type, count in inv_rows:
+            row = depts.setdefault(dept, _empty_dept_row(dept))
+            row["inv_total"] += count
+            row["inv_by_type"][inv_type] = row["inv_by_type"].get(inv_type, 0) + count
+            investigation_types.add(inv_type)
         for dept, count in dis_rows:
             depts.setdefault(dept, _empty_dept_row(dept))["discharges"] = count
 
         # Calculate grand totals
         rows = sorted(depts.values(), key=lambda r: r["department"])
         grand = _empty_dept_row("Grand Total")
+        grand_inv_by_type: dict[str, int] = {}
         for r in rows:
-            for k in grand:
-                if k != "department" and isinstance(grand[k], int):
-                    grand[k] += r.get(k, 0)
+            for k in ["op", "ip", "ot", "births", "deaths", "inv_total", "discharges"]:
+                grand[k] += r.get(k, 0)
+            for inv_type, count in r.get("inv_by_type", {}).items():
+                grand_inv_by_type[inv_type] = grand_inv_by_type.get(inv_type, 0) + count
+        grand["inv_by_type"] = grand_inv_by_type
         rows.append(grand)
 
-        return {"departments": rows, "total": len(rows) - 1}
+        return {
+            "departments": rows,
+            "investigation_types": sorted(investigation_types),
+            "total": len(rows) - 1,
+        }
 
     return await _governed_query(
         user, gov, analytics_db, oltp_db, "/mrd/census/department-breakdown", filters, query
     )
+
+
+@router.get("/labs", summary="Active labs for dynamic census columns")
+async def get_labs(
+    user: User = Depends(require_role(UserRole.MRD)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return active labs with their types — used for dynamic investigation columns."""
+    result = await db.execute(
+        select(Lab.id, Lab.name, Lab.lab_type, Lab.department)
+        .where(Lab.is_active == True)
+        .order_by(Lab.name)
+    )
+    labs = [
+        {"id": row.id, "name": row.name, "lab_type": row.lab_type, "department": row.department}
+        for row in result.all()
+    ]
+    return {"labs": labs, "total": len(labs)}
 
 
 @router.get("/census/{category}/patients", summary="Patient list for a census category")

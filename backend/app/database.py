@@ -77,13 +77,6 @@ def _get_analytics_engine():
         pool_recycle=1800,
         pool_pre_ping=True,
         pool_timeout=15,
-        connect_args={
-            "server_settings": {
-                "statement_timeout": "30000",
-                "idle_in_transaction_session_timeout": "60000",
-                "default_transaction_read_only": "on",
-            }
-        },
     )
 
     _AnalyticsSessionLocal = async_sessionmaker(

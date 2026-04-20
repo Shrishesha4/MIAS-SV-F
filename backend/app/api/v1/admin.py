@@ -529,7 +529,7 @@ async def admin_create_user(
             phone=data.phone,
             email=email,
         ))
-    # ADMIN and RECEPTION: no extra profile record needed
+    # ADMIN, RECEPTION, and MRD: no extra profile record needed
 
     await db.commit()
     return {"message": f"User {data.username} created successfully", "user_id": user_id}

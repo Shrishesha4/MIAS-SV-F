@@ -113,6 +113,7 @@ services:
         hard: 131072
     environment:
       DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@pgbouncer:5432/mias_mp
+      ANALYTICS_DATABASE_URL: postgresql://mias:${POSTGRES_PASSWORD:-mias_secret}@pgbouncer:5432/mias_mp
       REDIS_URL: redis://redis:6379/0
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-mias-dev-secret-CHANGE-IN-PRODUCTION}
       JWT_ALGORITHM: HS256

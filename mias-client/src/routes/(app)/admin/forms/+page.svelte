@@ -872,7 +872,7 @@
 				</select>
 			</div>
 
-			{#if formEditorType === 'CASE_RECORD'}
+			{#if formEditorType === 'CASE_RECORD' || formEditorType === 'CLINICAL'}
 				<span class="header-inline-divider" aria-hidden="true"></span>
 				<div class="header-inline-group">
 					<p class="header-inline-label">Department</p>

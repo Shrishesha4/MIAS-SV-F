@@ -1,8 +1,17 @@
-from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Float, Boolean, Date
+from sqlalchemy import Column, String, DateTime, Text, ForeignKey, Index, Integer, Float, Boolean, Date, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from datetime import datetime
+import enum
 
 from app.database import Base
+
+
+class DischargeType(str, enum.Enum):
+    REGULAR = "REGULAR"
+    DEATH = "DEATH"
+    LAMA = "LAMA"
+    REFERRAL = "REFERRAL"
+    ABSCONDED = "ABSCONDED"
 
 
 class Admission(Base):
@@ -80,6 +89,8 @@ class Admission(Base):
     # ── Discharge summary fields ─────────────────────────────────────
     discharge_summary = Column(Text, nullable=True)
     discharge_instructions = Column(Text, nullable=True)
+    discharge_type = Column(SQLEnum(DischargeType), nullable=True)
+    is_birth_related = Column(Boolean, default=False, nullable=False)
     follow_up_date = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
