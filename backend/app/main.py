@@ -6,7 +6,7 @@ from slowapi.errors import RateLimitExceeded
 import os
 
 from app.config import settings
-from app.database import engine
+from app.database import engine, dispose_analytics_engine
 from app.api.v1.router import api_router
 from app.core.middleware import limiter
 from app.core.redis_client import close_redis
@@ -25,6 +25,7 @@ os.makedirs(os.path.join(UPLOADS_DIR, "forms"), exist_ok=True)
 async def lifespan(app: FastAPI):
     yield
     await close_redis()
+    await dispose_analytics_engine()
     await engine.dispose()
 
 

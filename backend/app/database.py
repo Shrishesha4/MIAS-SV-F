@@ -44,3 +44,76 @@ async def get_db():
             raise
         finally:
             await session.close()
+
+
+# ── Analytics / Snapshot DB (MRD read-only) ──────────────────────────
+# Separate engine for MRD queries. Never shares pool with OLTP.
+# Set ANALYTICS_DATABASE_URL in env to enable. Lazily initialized.
+
+_analytics_engine = None
+_AnalyticsSessionLocal = None
+
+
+def _get_analytics_engine():
+    global _analytics_engine, _AnalyticsSessionLocal
+    if _analytics_engine is not None:
+        return _analytics_engine
+
+    if not settings.ANALYTICS_DATABASE_URL:
+        raise RuntimeError(
+            "ANALYTICS_DATABASE_URL is not configured. "
+            "MRD routes require a separate analytics database."
+        )
+
+    analytics_url = settings.ANALYTICS_DATABASE_URL.replace(
+        "postgresql://", "postgresql+asyncpg://"
+    )
+
+    _analytics_engine = create_async_engine(
+        analytics_url,
+        echo=settings.DEBUG,
+        pool_size=2,
+        max_overflow=4,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+        pool_timeout=15,
+        connect_args={
+            "server_settings": {
+                "statement_timeout": "30000",
+                "idle_in_transaction_session_timeout": "60000",
+                "default_transaction_read_only": "on",
+            }
+        },
+    )
+
+    _AnalyticsSessionLocal = async_sessionmaker(
+        _analytics_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    return _analytics_engine
+
+
+def _get_analytics_session_maker():
+    _get_analytics_engine()
+    return _AnalyticsSessionLocal
+
+
+async def get_analytics_db():
+    """Yield a read-only session bound to the analytics/snapshot database."""
+    session_maker = _get_analytics_session_maker()
+    async with session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+async def dispose_analytics_engine():
+    """Dispose the analytics engine on shutdown. Safe to call if not initialized."""
+    global _analytics_engine, _AnalyticsSessionLocal
+    if _analytics_engine is not None:
+        await _analytics_engine.dispose()
+        _analytics_engine = None
+        _AnalyticsSessionLocal = None

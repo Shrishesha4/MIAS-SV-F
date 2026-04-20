@@ -1,7 +1,8 @@
 import {
 	Home, User, FileText, Clipboard, Pill, Activity,
 	TestTube, Wallet, Bell, GraduationCap,
-	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope, CreditCard, Cpu
+	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope, CreditCard, Cpu,
+	Archive, Search, Download
 } from 'lucide-svelte';
 
 export interface MenuItem {
@@ -59,6 +60,12 @@ export const otManagerMenuItems: MenuItem[] = [
 	{ icon: Cpu, label: 'OT Dashboard', path: '/ot-manager' },
 ];
 
+export const mrdMenuItems: MenuItem[] = [
+	{ icon: Archive, label: 'Records', path: '/mrd/records' },
+	{ icon: Search, label: 'Patients', path: '/mrd/patients' },
+	{ icon: Download, label: 'Exports', path: '/mrd/exports' },
+];
+
 export function getMenuItems(role: string): MenuItem[] {
 	switch (role) {
 		case 'PATIENT': return patientMenuItems;
@@ -69,6 +76,7 @@ export function getMenuItems(role: string): MenuItem[] {
 		case 'NURSE': return nurseMenuItems;
 		case 'BILLING': return billingMenuItems;
 		case 'OT_MANAGER': return otManagerMenuItems;
+		case 'MRD': return mrdMenuItems;
 		default: return patientMenuItems;
 	}
 }

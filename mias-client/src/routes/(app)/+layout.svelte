@@ -246,6 +246,13 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/ot-manager');
 				}
+			} else if (a.role === 'MRD') {
+				userName = 'MRD Staff';
+				userIdDisplay = 'MRD';
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/mrd/records');
+				}
 			}
 		} catch {
 			// If API fails, use defaults
@@ -356,7 +363,7 @@
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
 	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
-			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing' && currentPath !== '/ot-manager'}
+			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing' && currentPath !== '/ot-manager' && currentPath !== '/mrd/records'}
 			notificationCount={unreadNotifications}
 			onmenuclick={() => sideMenuOpen = true}
 			onmenuenter={handleTriggerEnter}

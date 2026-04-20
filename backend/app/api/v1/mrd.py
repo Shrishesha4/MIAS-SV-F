@@ -1,0 +1,767 @@
+"""MRD (Medical Records Department) read-only API endpoints.
+
+All queries run against the analytics/snapshot database.
+Audit rows are written to OLTP.
+"""
+
+import time
+from datetime import date, datetime, timedelta
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, field_validator
+from sqlalchemy import func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import require_role
+from app.core.mrd_governance import (
+    MrdGovernance,
+    get_cached_response,
+    set_cached_response,
+    write_audit,
+)
+from app.database import get_analytics_db, get_db
+from app.models.admission import Admission
+from app.models.medical_record import MedicalFinding, MedicalImage, MedicalRecord
+from app.models.patient import Patient
+from app.models.prescription import Prescription, PrescriptionMedication
+from app.models.report import Report, ReportFinding, ReportImage
+from app.models.user import User, UserRole
+
+router = APIRouter(prefix="/mrd", tags=["MRD"])
+
+_MAX_TIME_SPAN_DAYS = 366
+_DEFAULT_PAGE_SIZE = 50
+_MAX_PAGE_SIZE = 200
+
+
+# ── Pydantic models ─────────────────────────────────────────────────
+
+
+class TimeWindowParams(BaseModel):
+    from_date: date
+    to_date: date
+
+    @field_validator("to_date")
+    @classmethod
+    def validate_window(cls, v, info):
+        from_date = info.data.get("from_date")
+        if from_date and v:
+            if v < from_date:
+                raise ValueError("to_date must be >= from_date")
+            span = (v - from_date).days
+            if span > _MAX_TIME_SPAN_DAYS:
+                raise ValueError(
+                    f"Time window cannot exceed {_MAX_TIME_SPAN_DAYS} days"
+                )
+        return v
+
+
+class CursorPage(BaseModel):
+    """Keyset cursor: base64 of 'created_at|id'. Opaque to clients."""
+
+    cursor: Optional[str] = None
+    page_size: int = _DEFAULT_PAGE_SIZE
+
+    @field_validator("page_size")
+    @classmethod
+    def clamp_page_size(cls, v):
+        return max(1, min(v, _MAX_PAGE_SIZE))
+
+
+class MrdHealthResponse(BaseModel):
+    status: str
+    snapshot_age_hours: Optional[float] = None
+    snapshot_timestamp: Optional[str] = None
+    analytics_db_connected: bool
+
+
+def _parse_cursor(cursor: Optional[str]) -> tuple[Optional[datetime], Optional[str]]:
+    """Decode keyset cursor → (created_at, id)."""
+    if not cursor:
+        return None, None
+    import base64
+
+    try:
+        decoded = base64.urlsafe_b64decode(cursor).decode()
+        ts_str, row_id = decoded.split("|", 1)
+        return datetime.fromisoformat(ts_str), row_id
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid cursor",
+        )
+
+
+def _encode_cursor(created_at: datetime, row_id: str) -> str:
+    import base64
+
+    raw = f"{created_at.isoformat()}|{row_id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────
+
+
+async def _governed_query(
+    user: User,
+    gov: MrdGovernance,
+    analytics_db: AsyncSession,
+    oltp_db: AsyncSession,
+    route: str,
+    filters: dict,
+    query_fn,
+):
+    """Run a governed query: cache check, semaphore, audit, cache set."""
+    cached = await get_cached_response(route, user.id, filters)
+    if cached is not None:
+        await gov.release()
+        return cached
+
+    start = time.monotonic()
+    audit_status = "ok"
+    rows_returned = 0
+    try:
+        result = await query_fn(analytics_db)
+        rows_returned = result.get("total", len(result.get("items", [])))
+        await set_cached_response(route, user.id, filters, result)
+        return result
+    except Exception as exc:
+        audit_status = f"error: {type(exc).__name__}"
+        raise
+    finally:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        await gov.release()
+        try:
+            await write_audit(
+                oltp_db, user.id, route, filters, rows_returned, duration_ms, audit_status
+            )
+        except Exception:
+            pass  # Audit failure must not break the request
+
+
+# ── Health ───────────────────────────────────────────────────────────
+
+
+@router.get("/health", response_model=MrdHealthResponse)
+async def mrd_health(
+    user: User = Depends(require_role(UserRole.MRD)),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+):
+    """Report snapshot age and analytics DB connectivity."""
+    try:
+        result = await analytics_db.execute(text("SELECT NOW()"))
+        db_now = result.scalar()
+        # Try to read snapshot metadata table (created by snapshot pipeline)
+        try:
+            meta = await analytics_db.execute(
+                text("SELECT snapshot_timestamp FROM mrd_snapshot_meta ORDER BY snapshot_timestamp DESC LIMIT 1")
+            )
+            snapshot_ts = meta.scalar()
+        except Exception:
+            snapshot_ts = None
+
+        age_hours = None
+        ts_str = None
+        if snapshot_ts:
+            age_hours = round((db_now - snapshot_ts).total_seconds() / 3600, 1)
+            ts_str = snapshot_ts.isoformat()
+
+        stale = age_hours is not None and age_hours > 36
+        return MrdHealthResponse(
+            status="stale" if stale else "ok",
+            snapshot_age_hours=age_hours,
+            snapshot_timestamp=ts_str,
+            analytics_db_connected=True,
+        )
+    except Exception:
+        return MrdHealthResponse(
+            status="unavailable",
+            analytics_db_connected=False,
+        )
+
+
+# ── Patient Search ───────────────────────────────────────────────────
+
+
+@router.get("/patients/search")
+async def search_patients(
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+    name: Optional[str] = Query(None, min_length=1, max_length=200),
+    patient_id: Optional[str] = Query(None, max_length=50),
+    phone: Optional[str] = Query(None, max_length=20),
+    dob_from: Optional[date] = None,
+    dob_to: Optional[date] = None,
+    cursor: Optional[str] = None,
+    page_size: int = Query(_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+):
+    filters = {
+        "name": name,
+        "patient_id": patient_id,
+        "phone": phone,
+        "dob_from": str(dob_from) if dob_from else None,
+        "dob_to": str(dob_to) if dob_to else None,
+        "cursor": cursor,
+        "page_size": page_size,
+    }
+
+    async def query(db):
+        stmt = select(Patient)
+        if name:
+            stmt = stmt.where(Patient.name.ilike(f"%{name}%"))
+        if patient_id:
+            stmt = stmt.where(Patient.patient_id == patient_id)
+        if phone:
+            stmt = stmt.where(Patient.phone == phone)
+        if dob_from:
+            stmt = stmt.where(Patient.date_of_birth >= dob_from)
+        if dob_to:
+            stmt = stmt.where(Patient.date_of_birth <= dob_to)
+
+        # Keyset pagination on (created_at DESC, id DESC)
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        if cursor_ts and cursor_id:
+            stmt = stmt.where(
+                (Patient.created_at < cursor_ts)
+                | ((Patient.created_at == cursor_ts) & (Patient.id < cursor_id))
+            )
+        stmt = stmt.order_by(Patient.created_at.desc(), Patient.id.desc())
+        stmt = stmt.limit(page_size + 1)
+
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.created_at, last.id)
+
+        return {
+            "items": [
+                {
+                    "id": p.id,
+                    "patient_id": p.patient_id,
+                    "name": p.name,
+                    "date_of_birth": str(p.date_of_birth),
+                    "gender": p.gender.value if p.gender else None,
+                    "phone": p.phone,
+                    "category": p.category,
+                }
+                for p in items
+            ],
+            "next_cursor": next_cursor,
+            "total": len(items),
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/patients/search", filters, query
+    )
+
+
+# ── Medical Records ──────────────────────────────────────────────────
+
+
+@router.get("/records")
+async def list_records(
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+    from_date: date = Query(..., description="Start date (required)"),
+    to_date: date = Query(..., description="End date (required)"),
+    record_type: Optional[str] = Query(None, description="CONSULTATION|LABORATORY|PROCEDURE|MEDICATION"),
+    department: Optional[str] = None,
+    patient_id: Optional[str] = None,
+    performed_by: Optional[str] = None,
+    cursor: Optional[str] = None,
+    page_size: int = Query(_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+):
+    # Validate time window
+    tw = TimeWindowParams(from_date=from_date, to_date=to_date)
+
+    filters = {
+        "from_date": str(from_date),
+        "to_date": str(to_date),
+        "record_type": record_type,
+        "department": department,
+        "patient_id": patient_id,
+        "performed_by": performed_by,
+        "cursor": cursor,
+        "page_size": page_size,
+    }
+
+    async def query(db):
+        from_dt = datetime.combine(from_date, datetime.min.time())
+        to_dt = datetime.combine(to_date, datetime.max.time())
+
+        stmt = select(MedicalRecord).where(
+            MedicalRecord.date.between(from_dt, to_dt)
+        )
+        if record_type:
+            stmt = stmt.where(MedicalRecord.type == record_type)
+        if department:
+            stmt = stmt.where(MedicalRecord.department == department)
+        if patient_id:
+            stmt = stmt.where(MedicalRecord.patient_id == patient_id)
+        if performed_by:
+            stmt = stmt.where(MedicalRecord.performed_by.ilike(f"%{performed_by}%"))
+
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        if cursor_ts and cursor_id:
+            stmt = stmt.where(
+                (MedicalRecord.date < cursor_ts)
+                | ((MedicalRecord.date == cursor_ts) & (MedicalRecord.id < cursor_id))
+            )
+        stmt = stmt.order_by(MedicalRecord.date.desc(), MedicalRecord.id.desc())
+        stmt = stmt.limit(page_size + 1)
+
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.date, last.id)
+
+        return {
+            "items": [
+                {
+                    "id": r.id,
+                    "patient_id": r.patient_id,
+                    "date": str(r.date),
+                    "time": r.time,
+                    "type": r.type.value if r.type else None,
+                    "description": r.description,
+                    "performed_by": r.performed_by,
+                    "department": r.department,
+                    "status": r.status,
+                    "diagnosis": r.diagnosis,
+                }
+                for r in items
+            ],
+            "next_cursor": next_cursor,
+            "total": len(items),
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/records", filters, query
+    )
+
+
+@router.get("/records/{record_id}")
+async def get_record(
+    record_id: str,
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+):
+    filters = {"record_id": record_id}
+
+    async def query(db):
+        stmt = (
+            select(MedicalRecord)
+            .options(
+                selectinload(MedicalRecord.findings),
+                selectinload(MedicalRecord.images),
+            )
+            .where(MedicalRecord.id == record_id)
+        )
+        result = await db.execute(stmt)
+        record = result.scalar_one_or_none()
+        if not record:
+            raise HTTPException(status_code=404, detail="Record not found")
+
+        return {
+            "id": record.id,
+            "patient_id": record.patient_id,
+            "date": str(record.date),
+            "time": record.time,
+            "type": record.type.value if record.type else None,
+            "description": record.description,
+            "performed_by": record.performed_by,
+            "supervised_by": record.supervised_by,
+            "department": record.department,
+            "status": record.status,
+            "diagnosis": record.diagnosis,
+            "recommendations": record.recommendations,
+            "findings": [
+                {
+                    "id": f.id,
+                    "parameter": f.parameter,
+                    "value": f.value,
+                    "reference": f.reference,
+                    "status": f.status,
+                }
+                for f in record.findings
+            ],
+            "images": [
+                {
+                    "id": img.id,
+                    "title": img.title,
+                    "description": img.description,
+                    "url": img.url,
+                    "type": img.type,
+                }
+                for img in record.images
+            ],
+            "total": 1,
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/records/{id}", filters, query
+    )
+
+
+# ── Prescriptions ────────────────────────────────────────────────────
+
+
+@router.get("/prescriptions")
+async def list_prescriptions(
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    patient_id: Optional[str] = None,
+    department: Optional[str] = None,
+    doctor: Optional[str] = None,
+    cursor: Optional[str] = None,
+    page_size: int = Query(_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+):
+    tw = TimeWindowParams(from_date=from_date, to_date=to_date)
+    filters = {
+        "from_date": str(from_date),
+        "to_date": str(to_date),
+        "patient_id": patient_id,
+        "department": department,
+        "doctor": doctor,
+        "cursor": cursor,
+        "page_size": page_size,
+    }
+
+    async def query(db):
+        from_dt = datetime.combine(from_date, datetime.min.time())
+        to_dt = datetime.combine(to_date, datetime.max.time())
+
+        stmt = select(Prescription).where(
+            Prescription.date.between(from_dt, to_dt)
+        )
+        if patient_id:
+            stmt = stmt.where(Prescription.patient_id == patient_id)
+        if department:
+            stmt = stmt.where(Prescription.department == department)
+        if doctor:
+            stmt = stmt.where(Prescription.doctor.ilike(f"%{doctor}%"))
+
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        if cursor_ts and cursor_id:
+            stmt = stmt.where(
+                (Prescription.date < cursor_ts)
+                | ((Prescription.date == cursor_ts) & (Prescription.id < cursor_id))
+            )
+        stmt = stmt.order_by(Prescription.date.desc(), Prescription.id.desc())
+        stmt = stmt.limit(page_size + 1)
+
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.date, last.id)
+
+        return {
+            "items": [
+                {
+                    "id": p.id,
+                    "prescription_id": p.prescription_id,
+                    "patient_id": p.patient_id,
+                    "date": str(p.date),
+                    "doctor": p.doctor,
+                    "department": p.department,
+                    "status": p.status.value if p.status else None,
+                    "notes": p.notes,
+                }
+                for p in items
+            ],
+            "next_cursor": next_cursor,
+            "total": len(items),
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/prescriptions", filters, query
+    )
+
+
+# ── Reports ──────────────────────────────────────────────────────────
+
+
+@router.get("/reports")
+async def list_reports(
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    patient_id: Optional[str] = None,
+    department: Optional[str] = None,
+    report_type: Optional[str] = None,
+    report_status: Optional[str] = None,
+    cursor: Optional[str] = None,
+    page_size: int = Query(_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+):
+    tw = TimeWindowParams(from_date=from_date, to_date=to_date)
+    filters = {
+        "from_date": str(from_date),
+        "to_date": str(to_date),
+        "patient_id": patient_id,
+        "department": department,
+        "report_type": report_type,
+        "report_status": report_status,
+        "cursor": cursor,
+        "page_size": page_size,
+    }
+
+    async def query(db):
+        from_dt = datetime.combine(from_date, datetime.min.time())
+        to_dt = datetime.combine(to_date, datetime.max.time())
+
+        stmt = select(Report).where(Report.date.between(from_dt, to_dt))
+        if patient_id:
+            stmt = stmt.where(Report.patient_id == patient_id)
+        if department:
+            stmt = stmt.where(Report.department == department)
+        if report_type:
+            stmt = stmt.where(Report.type == report_type)
+        if report_status:
+            stmt = stmt.where(Report.status == report_status)
+
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        if cursor_ts and cursor_id:
+            stmt = stmt.where(
+                (Report.date < cursor_ts)
+                | ((Report.date == cursor_ts) & (Report.id < cursor_id))
+            )
+        stmt = stmt.order_by(Report.date.desc(), Report.id.desc())
+        stmt = stmt.limit(page_size + 1)
+
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.date, last.id)
+
+        return {
+            "items": [
+                {
+                    "id": r.id,
+                    "patient_id": r.patient_id,
+                    "date": str(r.date),
+                    "title": r.title,
+                    "type": r.type,
+                    "department": r.department,
+                    "ordered_by": r.ordered_by,
+                    "status": r.status.value if r.status else None,
+                    "result_summary": r.result_summary,
+                }
+                for r in items
+            ],
+            "next_cursor": next_cursor,
+            "total": len(items),
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/reports", filters, query
+    )
+
+
+# ── Admissions ───────────────────────────────────────────────────────
+
+
+@router.get("/admissions")
+async def list_admissions(
+    user: User = Depends(require_role(UserRole.MRD)),
+    gov: MrdGovernance = Depends(MrdGovernance()),
+    analytics_db: AsyncSession = Depends(get_analytics_db),
+    oltp_db: AsyncSession = Depends(get_db),
+    from_date: date = Query(...),
+    to_date: date = Query(...),
+    patient_id: Optional[str] = None,
+    department: Optional[str] = None,
+    admission_status: Optional[str] = None,
+    cursor: Optional[str] = None,
+    page_size: int = Query(_DEFAULT_PAGE_SIZE, ge=1, le=_MAX_PAGE_SIZE),
+):
+    tw = TimeWindowParams(from_date=from_date, to_date=to_date)
+    filters = {
+        "from_date": str(from_date),
+        "to_date": str(to_date),
+        "patient_id": patient_id,
+        "department": department,
+        "admission_status": admission_status,
+        "cursor": cursor,
+        "page_size": page_size,
+    }
+
+    async def query(db):
+        from_dt = datetime.combine(from_date, datetime.min.time())
+        to_dt = datetime.combine(to_date, datetime.max.time())
+
+        stmt = select(Admission).where(
+            Admission.admission_date.between(from_dt, to_dt)
+        )
+        if patient_id:
+            stmt = stmt.where(Admission.patient_id == patient_id)
+        if department:
+            stmt = stmt.where(Admission.department == department)
+        if admission_status:
+            stmt = stmt.where(Admission.status == admission_status)
+
+        cursor_ts, cursor_id = _parse_cursor(cursor)
+        if cursor_ts and cursor_id:
+            stmt = stmt.where(
+                (Admission.admission_date < cursor_ts)
+                | (
+                    (Admission.admission_date == cursor_ts)
+                    & (Admission.id < cursor_id)
+                )
+            )
+        stmt = stmt.order_by(
+            Admission.admission_date.desc(), Admission.id.desc()
+        )
+        stmt = stmt.limit(page_size + 1)
+
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+
+        has_more = len(rows) > page_size
+        items = rows[:page_size]
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = _encode_cursor(last.admission_date, last.id)
+
+        return {
+            "items": [
+                {
+                    "id": a.id,
+                    "patient_id": a.patient_id,
+                    "admission_date": str(a.admission_date),
+                    "discharge_date": str(a.discharge_date) if a.discharge_date else None,
+                    "department": a.department,
+                    "ward": a.ward,
+                    "bed_number": a.bed_number,
+                    "attending_doctor": a.attending_doctor,
+                    "status": a.status,
+                    "diagnosis": a.diagnosis,
+                }
+                for a in items
+            ],
+            "next_cursor": next_cursor,
+            "total": len(items),
+        }
+
+    return await _governed_query(
+        user, gov, analytics_db, oltp_db, "/mrd/admissions", filters, query
+    )
+
+
+# ── Export endpoints ──────────────────────────────────────────
+
+
+class ExportRequest(BaseModel):
+    export_type: str
+    from_date: date
+    to_date: date
+
+    @field_validator("export_type")
+    @classmethod
+    def valid_type(cls, v):
+        allowed = {"records", "prescriptions", "admissions"}
+        if v not in allowed:
+            raise ValueError(f"export_type must be one of {allowed}")
+        return v
+
+    @field_validator("to_date")
+    @classmethod
+    def bounded_window(cls, v, info):
+        fd = info.data.get("from_date")
+        if fd and v:
+            if v < fd:
+                raise ValueError("to_date must be >= from_date")
+            if (v - fd).days > 366:
+                raise ValueError("Export window cannot exceed 366 days")
+        return v
+
+
+@router.post(
+    "/exports",
+    summary="Enqueue an export job",
+    dependencies=[Depends(MrdGovernance)],
+)
+async def create_export(
+    body: ExportRequest,
+    user: User = Depends(require_role(UserRole.MRD)),
+):
+    from app.services.mrd_export import enqueue_export
+
+    filters = {
+        "from_date": body.from_date.isoformat(),
+        "to_date": body.to_date.isoformat(),
+    }
+    job_id = await enqueue_export(
+        user_id=user.id,
+        export_type=body.export_type,
+        filters=filters,
+    )
+    return {"job_id": job_id, "status": "queued"}
+
+
+@router.get(
+    "/exports",
+    summary="List export jobs for current user",
+    dependencies=[Depends(MrdGovernance)],
+)
+async def list_exports(
+    user: User = Depends(require_role(UserRole.MRD)),
+):
+    from app.services.mrd_export import list_user_jobs
+
+    jobs = await list_user_jobs(user.id)
+    return {"jobs": jobs}
+
+
+@router.get(
+    "/exports/{job_id}",
+    summary="Get export job status",
+    dependencies=[Depends(MrdGovernance)],
+)
+async def get_export(
+    job_id: str,
+    user: User = Depends(require_role(UserRole.MRD)),
+):
+    from app.services.mrd_export import get_job_status
+
+    job = await get_job_status(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Export job not found")
+    if job.get("user_id") != user.id:
+        raise HTTPException(status_code=403, detail="Not your export job")
+    return job

@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql://mias:mias_secret@localhost:5434/mias_mp"
 
+    # Analytics / snapshot database (MRD read-only queries)
+    ANALYTICS_DATABASE_URL: str | None = None
+
     # Redis (for rate limiting and caching)
     REDIS_URL: str = "redis://localhost:6381"
 
@@ -20,6 +23,9 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 200
+    MRD_RATE_LIMIT_PER_MINUTE: int = 60
+    MRD_MAX_CONCURRENT_PER_USER: int = 3
+    MRD_MAX_CONCURRENT_GLOBAL: int = 50
 
     # App
     DEBUG: bool = False
