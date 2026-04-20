@@ -12,10 +12,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import AsyncSessionLocal, engine
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from app.db_init import run_startup_migrations
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Gender, MedicalAlert, InsurancePolicy
-from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment
+from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment, ClinicSession, StudentAttendance
 from app.models.faculty import Faculty
 from app.models.nurse import Nurse
 from app.models.nurse_order import NurseOrder
@@ -34,6 +35,8 @@ from app.services.charge_sync import sync_charge_sources
 from app.services.form_categories import ensure_form_categories, infer_form_section
 from app.services.patient_categories import ensure_patient_categories
 from app.models.lab import ChargeItem, ChargePrice
+from app.models.wallet import PatientWallet, WalletTransaction, WalletType, TransactionType, TransactionItem
+from app.models.operation_theater import OperationTheater, OTBooking, OTStatus
 
 
 def uid() -> str:
@@ -163,17 +166,19 @@ VITAL_PARAMETERS = [
     {"name": "hct", "display_name": "Hematocrit", "category": "Haematology", "unit": "%", "min_value": 20, "max_value": 60, "sort_order": 5},
 ]
 
+_SEED_DATE_PREFIX = date.today().strftime("%y%m%d")
+
 PATIENTS = [
-    {"username": "p1",  "password": "p1",  "email": "p1@email.com",  "name": "Rajesh Kumar",     "patient_id": "PAT-001", "dob": date(1990, 5, 15),  "gender": Gender.MALE,   "blood_group": "O+",  "phone": "+91 90001 00001", "address": "1 Anna Nagar, Chennai"},
-    {"username": "p2",  "password": "p2",  "email": "p2@email.com",  "name": "Sunita Devi",      "patient_id": "PAT-002", "dob": date(1985, 8, 22),  "gender": Gender.FEMALE, "blood_group": "A+",  "phone": "+91 90001 00002", "address": "2 T Nagar, Chennai"},
-    {"username": "p3",  "password": "p3",  "email": "p3@email.com",  "name": "Mohammed Ali",     "patient_id": "PAT-003", "dob": date(1978, 3, 10),  "gender": Gender.MALE,   "blood_group": "B+",  "phone": "+91 90001 00003", "address": "3 Adyar, Chennai"},
-    {"username": "p4",  "password": "p4",  "email": "p4@email.com",  "name": "Priya Lakshmi",    "patient_id": "PAT-004", "dob": date(1995, 11, 5),  "gender": Gender.FEMALE, "blood_group": "AB+", "phone": "+91 90001 00004", "address": "4 Velachery, Chennai"},
-    {"username": "p5",  "password": "p5",  "email": "p5@email.com",  "name": "Ganesh Babu",      "patient_id": "PAT-005", "dob": date(1970, 1, 20),  "gender": Gender.MALE,   "blood_group": "O-",  "phone": "+91 90001 00005", "address": "5 Porur, Chennai"},
-    {"username": "p6",  "password": "p6",  "email": "p6@email.com",  "name": "Kavitha Rani",     "patient_id": "PAT-006", "dob": date(1988, 7, 14),  "gender": Gender.FEMALE, "blood_group": "A-",  "phone": "+91 90001 00006", "address": "6 Tambaram, Chennai"},
-    {"username": "p7",  "password": "p7",  "email": "p7@email.com",  "name": "Suresh Pandian",   "patient_id": "PAT-007", "dob": date(1965, 12, 30), "gender": Gender.MALE,   "blood_group": "B-",  "phone": "+91 90001 00007", "address": "7 Chromepet, Chennai"},
-    {"username": "p8",  "password": "p8",  "email": "p8@email.com",  "name": "Deepa Murthy",     "patient_id": "PAT-008", "dob": date(1992, 4, 8),   "gender": Gender.FEMALE, "blood_group": "O+",  "phone": "+91 90001 00008", "address": "8 Guindy, Chennai"},
-    {"username": "p9",  "password": "p9",  "email": "p9@email.com",  "name": "Vijay Anand",      "patient_id": "PAT-009", "dob": date(1982, 9, 25),  "gender": Gender.MALE,   "blood_group": "A+",  "phone": "+91 90001 00009", "address": "9 Mylapore, Chennai"},
-    {"username": "p10", "password": "p10", "email": "p10@email.com", "name": "Revathi Shankar",   "patient_id": "PAT-010", "dob": date(1998, 6, 3),   "gender": Gender.FEMALE, "blood_group": "AB-", "phone": "+91 90001 00010", "address": "10 Nungambakkam, Chennai"},
+    {"username": "p1",  "password": "p1",  "email": "p1@email.com",  "name": "Rajesh Kumar",    "patient_id": f"{_SEED_DATE_PREFIX}0001", "dob": date(1990, 5, 15),  "gender": Gender.MALE,   "blood_group": "O+",  "phone": "+91 90001 00001", "address": "1 Anna Nagar, Chennai"},
+    {"username": "p2",  "password": "p2",  "email": "p2@email.com",  "name": "Sunita Devi",     "patient_id": f"{_SEED_DATE_PREFIX}0002", "dob": date(1985, 8, 22),  "gender": Gender.FEMALE, "blood_group": "A+",  "phone": "+91 90001 00002", "address": "2 T Nagar, Chennai"},
+    {"username": "p3",  "password": "p3",  "email": "p3@email.com",  "name": "Mohammed Ali",    "patient_id": f"{_SEED_DATE_PREFIX}0003", "dob": date(1978, 3, 10),  "gender": Gender.MALE,   "blood_group": "B+",  "phone": "+91 90001 00003", "address": "3 Adyar, Chennai"},
+    {"username": "p4",  "password": "p4",  "email": "p4@email.com",  "name": "Priya Lakshmi",   "patient_id": f"{_SEED_DATE_PREFIX}0004", "dob": date(1995, 11, 5),  "gender": Gender.FEMALE, "blood_group": "AB+", "phone": "+91 90001 00004", "address": "4 Velachery, Chennai"},
+    {"username": "p5",  "password": "p5",  "email": "p5@email.com",  "name": "Ganesh Babu",     "patient_id": f"{_SEED_DATE_PREFIX}0005", "dob": date(1970, 1, 20),  "gender": Gender.MALE,   "blood_group": "O-",  "phone": "+91 90001 00005", "address": "5 Porur, Chennai"},
+    {"username": "p6",  "password": "p6",  "email": "p6@email.com",  "name": "Kavitha Rani",    "patient_id": f"{_SEED_DATE_PREFIX}0006", "dob": date(1988, 7, 14),  "gender": Gender.FEMALE, "blood_group": "A-",  "phone": "+91 90001 00006", "address": "6 Tambaram, Chennai"},
+    {"username": "p7",  "password": "p7",  "email": "p7@email.com",  "name": "Suresh Pandian",  "patient_id": f"{_SEED_DATE_PREFIX}0007", "dob": date(1965, 12, 30), "gender": Gender.MALE,   "blood_group": "B-",  "phone": "+91 90001 00007", "address": "7 Chromepet, Chennai"},
+    {"username": "p8",  "password": "p8",  "email": "p8@email.com",  "name": "Deepa Murthy",    "patient_id": f"{_SEED_DATE_PREFIX}0008", "dob": date(1992, 4, 8),   "gender": Gender.FEMALE, "blood_group": "O+",  "phone": "+91 90001 00008", "address": "8 Guindy, Chennai"},
+    {"username": "p9",  "password": "p9",  "email": "p9@email.com",  "name": "Vijay Anand",     "patient_id": f"{_SEED_DATE_PREFIX}0009", "dob": date(1982, 9, 25),  "gender": Gender.MALE,   "blood_group": "A+",  "phone": "+91 90001 00009", "address": "9 Mylapore, Chennai"},
+    {"username": "p10", "password": "p10", "email": "p10@email.com", "name": "Revathi Shankar", "patient_id": f"{_SEED_DATE_PREFIX}0010", "dob": date(1998, 6, 3),   "gender": Gender.FEMALE, "blood_group": "AB-", "phone": "+91 90001 00010", "address": "10 Nungambakkam, Chennai"},
 ]
 
 DEPARTMENTS = [
@@ -189,7 +194,7 @@ CLINICS = [
         "clinic_type": "OP",
         "access_mode": "WALK_IN",
         "walk_in_type": "WALKIN_CLASSIC",
-        "walk_in_types": ["WALKIN_CLASSIC", "WALKIN_PRIME", "WALKIN_COMMUNITY"],
+        "walk_in_types": ["WALKIN_CLASSIC", "WALKIN_PRIME", "WALKIN_ELITE", "WALKIN_COMMUNITY"],
         "department": "Internal Medicine",
         "location": "Outpatient Wing, Ground Floor",
         "faculty_idx": 0,
@@ -295,6 +300,13 @@ LABS = [
     {"name": "Central Pathology Lab", "block": "Block C", "lab_type": "Pathology", "department": "Pathology", "location": "Block C, Ground Floor", "contact_phone": "+91-44-2680-1234", "operating_hours": "24/7"},
     {"name": "Radiology & Imaging", "block": "Block D", "lab_type": "Radiology", "department": "Radiology", "location": "Block D, 1st Floor", "contact_phone": "+91-44-2680-1235", "operating_hours": "8 AM - 8 PM"},
     {"name": "Microbiology Lab", "block": "Block C", "lab_type": "Microbiology", "department": "Microbiology", "location": "Block C, 2nd Floor", "contact_phone": "+91-44-2680-1236", "operating_hours": "9 AM - 6 PM"},
+]
+
+OPERATION_THEATERS = [
+    {"ot_id": "OT-01", "name": "General Operation Theater", "location": "Block A, 3rd Floor, Room 301", "description": "Multi-purpose operation theater for general and minor surgeries."},
+    {"ot_id": "OT-02", "name": "Cardiac Operation Theater", "location": "Block C, 4th Floor, Room 401", "description": "Specialized theater for cardiac and thoracic procedures."},
+    {"ot_id": "OT-03", "name": "Orthopaedic Operation Theater", "location": "Block A, 3rd Floor, Room 302", "description": "Dedicated theater for orthopaedic and trauma surgeries."},
+    {"ot_id": "OT-04", "name": "Emergency Operation Theater", "location": "Block E, Ground Floor, Room 101", "description": "24/7 emergency operation theater for critical and trauma cases."},
 ]
 
 CLINIC_APPOINTMENTS = [
@@ -1006,6 +1018,18 @@ async def seed():
                 assigned_date=datetime.utcnow() - timedelta(days=random.randint(30, 60)),
                 status="Completed",
             ))
+
+        # ── Student Attendance ───────────────────────────
+        for s in all_students:
+            db.add(StudentAttendance(
+                id=uid(),
+                student_id=s.id,
+                overall=round(random.uniform(72, 95), 1),
+                clinical=round(random.uniform(70, 95), 1),
+                lecture=round(random.uniform(70, 98), 1),
+                lab=round(random.uniform(65, 95), 1),
+            ))
+
         # ── Sample Vitals for first 5 patients ──────────
         for p in all_patients[:5]:
             for day_offset in range(10):
@@ -1124,10 +1148,64 @@ async def seed():
             clinic_objs.append(clinic)
         await db.flush()
 
+        # ── Clinic Sessions for Students ─────────────────
+        # Each student gets: one completed past session + one active current session
+        # Active sessions mirror real check-in flow (student selects clinic → auto-assigns patients)
+        now_ts = datetime.utcnow()
+        for i, s in enumerate(all_students):
+            clinic = clinic_objs[i % len(clinic_objs)]
+            past_checkin = now_ts - timedelta(days=random.randint(3, 10), hours=2)
+            # Completed past session
+            db.add(ClinicSession(
+                id=uid(),
+                student_id=s.id,
+                clinic_id=clinic.id,
+                clinic_name=clinic.name,
+                department=clinic.department,
+                date=past_checkin,
+                time_start=past_checkin.strftime("%I:%M %p"),
+                time_end=(past_checkin + timedelta(hours=3)).strftime("%I:%M %p"),
+                status="Completed",
+                is_selected=0,
+                checked_in_at=past_checkin,
+                checked_out_at=past_checkin + timedelta(hours=3),
+            ))
+            # Active current session (student is checked in right now)
+            today_checkin = now_ts.replace(hour=9, minute=0, second=0, microsecond=0)
+            db.add(ClinicSession(
+                id=uid(),
+                student_id=s.id,
+                clinic_id=clinic.id,
+                clinic_name=clinic.name,
+                department=clinic.department,
+                date=today_checkin,
+                time_start=today_checkin.strftime("%I:%M %p"),
+                time_end=None,
+                status="Active",
+                is_selected=1,
+                checked_in_at=today_checkin,
+                checked_out_at=None,
+            ))
+
         # ── Insurance Categories & Clinic Configs ────────
+        existing_ins_cats = (
+            await db.execute(
+                select(InsuranceCategory)
+                .where(InsuranceCategory.name.in_([s["name"] for s in INSURANCE_CATEGORIES_DATA]))
+                .options(selectinload(InsuranceCategory.patient_categories))
+            )
+        ).scalars().all()
+        existing_ins_cats_by_name = {c.name.casefold(): c for c in existing_ins_cats}
+
         insurance_category_map = {}
         insurance_categories = []
         for insurance_seed in INSURANCE_CATEGORIES_DATA:
+            key = insurance_seed["name"].casefold()
+            if key in existing_ins_cats_by_name:
+                cat = existing_ins_cats_by_name[key]
+                insurance_categories.append(cat)
+                insurance_category_map[key] = cat
+                continue
             allowed_categories = [
                 patient_category_map[name.casefold()]
                 for name in insurance_seed["patient_categories"]
@@ -1152,23 +1230,27 @@ async def seed():
 
         for insurance_category in insurance_categories:
             allowed_categories = list(insurance_category.patient_categories or [])
-            fallback_category = allowed_categories[0] if allowed_categories else None
-            for clinic in clinic_objs:
-                matched_category = None
-                if clinic.access_mode == "WALK_IN":
-                    supported_walk_in_types = set(clinic.walk_in_types or [])
-                    for allowed_category in allowed_categories:
-                        walk_in_value = walk_in_type_for_category(allowed_category.name)
-                        if not supported_walk_in_types or walk_in_value in supported_walk_in_types:
-                            matched_category = allowed_category
-                            break
-                selected_category = matched_category or fallback_category
+            walk_in_clinics = [c for c in clinic_objs if c.access_mode == "WALK_IN"]
+            seen_icc_keys: set[tuple] = set()
+            for patient_category in allowed_categories:
+                walk_in_value = walk_in_type_for_category(patient_category.name)
+                # Find best clinic supporting this walk_in_type
+                best_clinic = next(
+                    (c for c in walk_in_clinics if walk_in_value in (c.walk_in_types or [])),
+                    walk_in_clinics[0] if walk_in_clinics else None,
+                )
+                if best_clinic is None:
+                    continue
+                key = (insurance_category.id, best_clinic.id, walk_in_value)
+                if key in seen_icc_keys:
+                    continue
+                seen_icc_keys.add(key)
                 db.add(InsuranceClinicConfig(
                     id=uid(),
                     insurance_category_id=insurance_category.id,
-                    clinic_id=clinic.id,
-                    walk_in_type=walk_in_type_for_category(selected_category.name) if matched_category else "NO_WALK_IN",
-                    registration_fee=float(selected_category.registration_fee if selected_category else 100),
+                    clinic_id=best_clinic.id,
+                    walk_in_type=walk_in_value,
+                    registration_fee=float(patient_category.registration_fee if patient_category else 100),
                     is_enabled=True,
                 ))
 
@@ -1192,6 +1274,37 @@ async def seed():
                 color_primary=insurance_category.color_primary,
                 color_secondary=insurance_category.color_secondary,
             ))
+
+        # ── Assign patient clinic_id (mimics resolve_preferred_clinic) ──
+        # Insurance + category → InsuranceClinicConfig → best matching clinic
+        await db.flush()
+        icc_result = await db.execute(
+            select(InsuranceClinicConfig)
+            .options(selectinload(InsuranceClinicConfig.clinic))
+            .where(InsuranceClinicConfig.is_enabled == True)
+        )
+        all_icc = icc_result.scalars().all()
+        icc_by_ins_cat: dict[str, list] = {}
+        for config in all_icc:
+            if config.clinic and config.clinic.is_active:
+                icc_by_ins_cat.setdefault(config.insurance_category_id, []).append(config)
+
+        for idx, patient_seed in enumerate(PATIENTS):
+            patient = patient_map.get(patient_seed["patient_id"])
+            if not patient:
+                continue
+            registration_profile = PATIENT_REGISTRATION_PROFILES[idx % len(PATIENT_REGISTRATION_PROFILES)]
+            ins_cat = insurance_category_map.get(str(registration_profile["insurance"]).casefold())
+            if not ins_cat:
+                continue
+            configs = icc_by_ins_cat.get(ins_cat.id, [])
+            desired_wt = walk_in_type_for_category(patient.category or "")
+            configs_sorted = sorted(
+                configs,
+                key=lambda c: (int(c.walk_in_type != desired_wt), c.registration_fee or 0),
+            )
+            if configs_sorted:
+                patient.clinic_id = configs_sorted[0].clinic.id
 
         # ── Labs ─────────────────────────────────────────
         from app.models.lab import Lab
@@ -1610,27 +1723,177 @@ async def seed():
         await sync_charge_sources(db)
         await db.flush()
 
-        # ── Seed charge prices for all form definitions ──
-        # So non-admin users can see forms (price-gating requires price > 0)
-        form_charge_items_result = await db.execute(
-            select(ChargeItem).where(ChargeItem.source_type == "form_definition")
-        )
-        form_charge_items = form_charge_items_result.scalars().all()
-        seed_tiers = ["Classic", "Prime", "Elite", "Community"]
-        base_prices = {"CASE_RECORD": 500, "LABORATORY": 300, "ADMISSION_INTAKE": 200, "ADMINISTRATIVE": 100}
-        for item in form_charge_items:
-            # Determine price based on form type via item name matching
-            price_val = 500  # default
-            for ftype, base in base_prices.items():
-                if ftype.lower() in (item.name or "").lower() or ftype.lower() in (item.category.value if item.category else "").lower():
-                    price_val = base
-                    break
-            for tier in seed_tiers:
-                db.add(ChargePrice(
+        # ── Patient Wallets (hospital + pharmacy per patient) ────────
+        # Mimics _get_or_create_wallet() in wallet.py; each patient needs
+        # both wallet types to use billing and pharmacy features.
+        wallet_topup_amounts = {
+            WalletType.HOSPITAL: Decimal("5000.00"),
+            WalletType.PHARMACY: Decimal("2000.00"),
+        }
+        wallet_debit_data = [
+            ("Consultation Fee", Decimal("500.00"), WalletType.HOSPITAL),
+            ("Lab Investigation", Decimal("300.00"), WalletType.HOSPITAL),
+            ("Medicines - Amoxicillin", Decimal("250.00"), WalletType.PHARMACY),
+        ]
+        for p in all_patients:
+            for wt, topup_amt in wallet_topup_amounts.items():
+                # Sum debits for this wallet type
+                debits = sum(d[1] for d in wallet_debit_data if d[2] == wt)
+                balance = topup_amt - debits
+                wallet = PatientWallet(
                     id=uid(),
-                    item_id=item.id,
-                    tier=tier,
-                    price=Decimal(str(price_val)),
+                    patient_id=p.id,
+                    wallet_type=wt,
+                    balance=balance,
+                )
+                db.add(wallet)
+                # Topup transaction
+                topup_date = datetime.utcnow() - timedelta(days=random.randint(5, 15))
+                topup_tx_id = uid()
+                db.add(WalletTransaction(
+                    id=topup_tx_id,
+                    patient_id=p.id,
+                    wallet_type=wt,
+                    date=topup_date,
+                    time=topup_date.strftime("%I:%M %p"),
+                    description="Wallet top-up",
+                    amount=topup_amt,
+                    type=TransactionType.CREDIT,
+                    payment_method="Cash",
+                    reference_number=f"REF-{p.patient_id}-{wt.value[:3]}",
+                ))
+            # Debit transactions for hospital wallet
+            for desc, amt, wt in wallet_debit_data:
+                tx_date = datetime.utcnow() - timedelta(days=random.randint(1, 4))
+                db.add(WalletTransaction(
+                    id=uid(),
+                    patient_id=p.id,
+                    wallet_type=wt,
+                    date=tx_date,
+                    time=tx_date.strftime("%I:%M %p"),
+                    description=desc,
+                    amount=amt,
+                    type=TransactionType.DEBIT,
+                    department="Outpatient" if wt == WalletType.HOSPITAL else "Pharmacy",
+                ))
+
+        # ── Seed charge prices with correct tier format ──
+        # Tier key = "{insurance_name} - {patient_category_name}" (matches UI format)
+        # sync_charge_sources creates plain-name tiers ("Classic", "Prime") which show
+        # as "Other" in the UI. Delete those and create correctly-keyed rows.
+        all_charge_items_result = await db.execute(
+            select(ChargeItem).options(selectinload(ChargeItem.prices))
+        )
+        all_charge_items = all_charge_items_result.scalars().all()
+        # Build set of plain patient category names to identify wrong-format rows
+        plain_category_names: set[str] = set()
+        for ins_cat in insurance_categories:
+            for pc in (ins_cat.patient_categories or []):
+                plain_category_names.add(pc.name)
+                plain_category_names.add(pc.name.lower())
+                plain_category_names.add(pc.name.upper())
+        base_charge_prices = {
+            "CASE_RECORD": 500, "LABORATORY": 300, "ADMISSION_INTAKE": 200,
+            "ADMINISTRATIVE": 100, "PRESCRIPTION": 150,
+        }
+        insurance_multipliers = {
+            "Self Pay": 1.0,
+            "Private Insurance": 0.6,
+            "CM Scheme": 0.3,
+        }
+        category_multipliers = {"Elite": 2.0, "Prime": 1.5, "Classic": 1.0, "Community": 0.5}
+        for charge_item in all_charge_items:
+            # Delete plain-name tier rows (wrong format from sync_charge_sources)
+            for price_row in list(charge_item.prices):
+                if (price_row.tier or "").strip() in plain_category_names:
+                    await db.delete(price_row)
+            await db.flush()
+            # Determine base price from charge item category/name
+            price_base = 500
+            cat_val = charge_item.category.value if charge_item.category else ""
+            for ftype, base in base_charge_prices.items():
+                if ftype.lower() in (charge_item.name or "").lower() or ftype.lower() in cat_val.lower():
+                    price_base = base
+                    break
+            # Create one tier per (insurance × patient_category)
+            seen_tier_keys: set[str] = set()
+            for ins_cat in insurance_categories:
+                ins_mult = insurance_multipliers.get(ins_cat.name, 1.0)
+                for patient_cat in (ins_cat.patient_categories or []):
+                    tier_key = f"{ins_cat.name} - {patient_cat.name}"
+                    if tier_key in seen_tier_keys:
+                        continue
+                    seen_tier_keys.add(tier_key)
+                    cat_mult = category_multipliers.get(patient_cat.name, 1.0)
+                    final_price = round(price_base * ins_mult * cat_mult, 2)
+                    db.add(ChargePrice(
+                        id=uid(),
+                        item_id=charge_item.id,
+                        tier=tier_key,
+                        price=Decimal(str(max(10, final_price))),
+                    ))
+
+        # ── Operation Theaters ───────────────────────────
+        existing_ot_result = await db.execute(
+            select(OperationTheater).where(
+                OperationTheater.ot_id.in_([ot["ot_id"] for ot in OPERATION_THEATERS])
+            )
+        )
+        existing_ot_ids = {ot.ot_id for ot in existing_ot_result.scalars().all()}
+        ot_objs = []
+        for ot_data in OPERATION_THEATERS:
+            if ot_data["ot_id"] in existing_ot_ids:
+                continue
+            ot = OperationTheater(
+                id=uid(),
+                ot_id=ot_data["ot_id"],
+                name=ot_data["name"],
+                location=ot_data["location"],
+                description=ot_data["description"],
+                is_active=True,
+            )
+            db.add(ot)
+            ot_objs.append(ot)
+        await db.flush()
+
+        # ── OT Bookings (sample historical + scheduled) ──
+        if ot_objs and all_patients:
+            fac_result2 = await db.execute(
+                select(Faculty).options(selectinload(Faculty.user))
+            )
+            fac_with_users = fac_result2.scalars().all()
+            procedures = [
+                "Appendectomy",
+                "Coronary Artery Bypass Grafting",
+                "Total Knee Replacement",
+                "Laparoscopic Cholecystectomy",
+                "Nasal Septoplasty",
+            ]
+            statuses = [OTStatus.COMPLETED, OTStatus.COMPLETED, OTStatus.SCHEDULED, OTStatus.IN_PROGRESS, OTStatus.CONFIRMED]
+            today = date.today()
+            for idx, patient in enumerate(all_patients[:5]):
+                ot = ot_objs[idx % len(ot_objs)]
+                procedure = procedures[idx % len(procedures)]
+                status = statuses[idx % len(statuses)]
+                booking_date = (
+                    today - timedelta(days=idx * 3) if status == OTStatus.COMPLETED
+                    else today + timedelta(days=idx)
+                )
+                fac = fac_with_users[idx % len(fac_with_users)] if fac_with_users else None
+                doc_name = (fac.user.username if fac and fac.user else None) or f"Dr. Attending {idx+1}"
+                db.add(OTBooking(
+                    id=uid(),
+                    theater_id=ot.id,
+                    patient_id=patient.id,
+                    student_id=(all_students[idx % len(all_students)].id if all_students else None),
+                    date=booking_date.strftime("%Y-%m-%d"),
+                    start_time=f"{8 + (idx % 8):02d}:00",
+                    end_time=f"{10 + (idx % 8):02d}:00",
+                    procedure=procedure,
+                    doctor_name=doc_name,
+                    notes="Pre-op assessment complete. Patient briefed on procedure.",
+                    status=status,
+                    approved_by=(fac.id if fac and status in (OTStatus.COMPLETED, OTStatus.CONFIRMED) else None),
                 ))
 
         await db.commit()

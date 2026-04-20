@@ -218,6 +218,33 @@ async def update_availability_status(
     }
 
 
+@router.get("/search")
+async def search_faculty(
+    q: Optional[str] = Query(None, description="Search by name or department"),
+    limit: int = Query(20, ge=1, le=50),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(Faculty)
+    if q:
+        term = f"%{q}%"
+        stmt = stmt.where(
+            Faculty.name.ilike(term) | Faculty.department.ilike(term)
+        )
+    stmt = stmt.order_by(Faculty.name).limit(limit)
+    result = await db.execute(stmt)
+    faculty_list = result.scalars().all()
+    return [
+        {
+            "id": f.id,
+            "name": f.name,
+            "department": f.department,
+            "specialty": f.specialty,
+        }
+        for f in faculty_list
+    ]
+
+
 @router.get("/{faculty_id}")
 async def get_faculty(
     faculty_id: str,

@@ -13,7 +13,8 @@
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import ReadonlySubmittedForm from '$lib/components/forms/ReadonlySubmittedForm.svelte';
-	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus } from 'lucide-svelte';
+	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Filter } from 'lucide-svelte';
+	import OTBookingPanel from '$lib/components/case-records/OTBookingPanel.svelte';
 
 	let expandedId = $state<string | null>(null);
 	let caseRecords: any[] = $state([]);
@@ -28,6 +29,9 @@
 	let caseRecordForms: FormDefinition[] = $state([]);
 	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
 	let submitting = $state(false);
+
+	// Modal tab
+	let modalTab = $state<'clinical' | 'ot'>('clinical');
 
 	// Form state
 	let selectedFormId = $state('');
@@ -262,6 +266,7 @@
 		icdDescription = '';
 		diagnosisSuggestions = [];
 		selectedFacultyId = '';
+		modalTab = 'clinical';
 		showCreateModal = true;
 	}
 
@@ -503,12 +508,39 @@
 <!-- Create Case Record Modal -->
 <AquaModal open={showCreateModal} onclose={() => showCreateModal = false}>
 	{#snippet header()}
-		<div class="flex items-center gap-2">
-			<Clipboard class="w-5 h-5 text-blue-600" />
-			<span class="font-semibold text-gray-800">New Case Record</span>
+		<div class="flex items-center gap-3">
+			<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.3);">
+				<Plus class="h-5 w-5 text-white" />
+			</div>
+			<div>
+				<p class="text-sm font-bold text-gray-900 leading-tight">
+					{modalTab === 'clinical' ? 'Select Form' : 'OT Booking Request'}
+				</p>
+				<p class="text-[10px] font-bold uppercase tracking-widest text-blue-600">
+					{modalTab === 'clinical' ? 'Choose a Procedure' : 'Schedule Operation Theatre'}
+				</p>
+			</div>
 		</div>
 	{/snippet}
 	{#snippet children()}
+		<!-- Tab bar -->
+		<div class="flex border-b border-slate-200 mb-4 -mx-4 px-4">
+			<button
+				onclick={() => modalTab = 'clinical'}
+				class="flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer {modalTab === 'clinical' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+			>
+				Clinical Entry
+			</button>
+			<button
+				onclick={() => modalTab = 'ot'}
+				class="flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer {modalTab === 'ot' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+			>
+				OT Booking
+			</button>
+		</div>
+
+		{#if modalTab === 'clinical'}
 		<div class="space-y-4">
 			<!-- Patient Selection -->
 			<div>
@@ -652,5 +684,23 @@
 				</button>
 			</div>
 		</div>
+		{:else}
+			{#if selectedPatientId}
+				<OTBookingPanel
+					patientId={selectedPatientId}
+					patientName={selectedPatient?.name ?? ''}
+					onbooked={() => showCreateModal = false}
+				/>
+			{:else}
+				<div class="py-8 text-center text-sm text-slate-400">
+					<Stethoscope class="w-10 h-10 mx-auto mb-2 text-slate-200" />
+					<p>Select a patient from Clinical Entry tab first</p>
+					<button
+						class="mt-3 text-xs font-semibold text-blue-600 underline cursor-pointer"
+						onclick={() => modalTab = 'clinical'}
+					>Go to Clinical Entry →</button>
+				</div>
+			{/if}
+		{/if}
 	{/snippet}
 </AquaModal>

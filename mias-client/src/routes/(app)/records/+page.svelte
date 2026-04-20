@@ -9,7 +9,7 @@
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		FileText, ChevronDown, ChevronRight, Stethoscope, FlaskConical, Syringe, Pill,
-		Search, User, CheckCircle, X, ClipboardList
+		Search, User, CheckCircle, X, ClipboardList, ChevronLeft
 	} from 'lucide-svelte';
 
 	let records: any[] = $state([]);
@@ -75,6 +75,14 @@
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
+	<!-- Header -->
+	<div class="flex items-center gap-3 mb-2">
+		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
+			<ChevronLeft class="w-5 h-5 text-gray-600" />
+		</button>
+		<h1 class="text-lg font-bold text-gray-800">Medical Records</h1>
+	</div>
+
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

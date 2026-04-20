@@ -11,7 +11,7 @@
 		type AIProviderType,
 	} from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
+
 	import { Bot, Loader2, Plus, Save, Sparkles, TestTube2, Trash2, WandSparkles } from 'lucide-svelte';
 
 	type AIConfigDraft = AIProviderConfigRow & {
@@ -191,11 +191,6 @@
 </script>
 
 <div class="space-y-4">
-
-	<div class="rounded-[24px] border border-slate-200 p-3"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(246,249,255,0.92)); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
-		<SystemConfigTabs activeTab="ai" />
-	</div>
 
 	<div class="grid gap-4 md:grid-cols-3">
 		<div class="rounded-[24px] border border-slate-200 p-4"

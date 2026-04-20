@@ -13,6 +13,7 @@
 	import { facultyApi } from '$lib/api/faculty';
 	import { nurseApi } from '$lib/api/nurse';
 	import { billingApi } from '$lib/api/billing';
+	import { otApi } from '$lib/api/ot';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { getMenuItems } from '$lib/config/menuItems';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -53,7 +54,7 @@
 	const sidebarOpen = $derived(sidebarPinned || sidebarHovered);
 
 	const currentPath = $derived(page.url.pathname);
-	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath.startsWith('/billing') ? '/billing' : currentPath);
+	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath.startsWith('/billing') ? '/billing' : currentPath.startsWith('/ot-manager') ? '/ot-manager' : currentPath);
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
 
 	// Show check-in modal only if not checked in and not skipped (admin/IP day2+)
@@ -232,6 +233,19 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/billing');
 				}
+			} else if (a.role === 'OT_MANAGER') {
+				try {
+					const mgr = await otApi.getManagerProfile();
+					userName = mgr.name;
+					userIdDisplay = mgr.manager_id;
+				} catch {
+					userName = 'OT Manager';
+					userIdDisplay = 'OT_MANAGER';
+				}
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/ot-manager');
+				}
 			}
 		} catch {
 			// If API fails, use defaults
@@ -340,16 +354,16 @@
 	</aside>
 
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
-	<div class="flex flex-col min-h-screen lg:h-dvh lg:overflow-hidden">
+	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
-			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing'}
+			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing' && currentPath !== '/ot-manager'}
 			notificationCount={unreadNotifications}
 			onmenuclick={() => sideMenuOpen = true}
 			onmenuenter={handleTriggerEnter}
 			onmenuleave={handleTriggerLeave}
 		/>
 
-		<main class="flex-1 min-h-0 pb-4 lg:pb-0 lg:overflow-y-auto">
+		<main class="flex-1 min-h-0 {currentPath.startsWith('/admin') ? 'overflow-hidden' : 'pb-4 lg:pb-0 lg:overflow-y-auto'}">
 			<div class="content-container">
 				{#key pageTransitionKey}
 					<div

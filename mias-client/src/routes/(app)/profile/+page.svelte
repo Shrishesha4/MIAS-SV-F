@@ -23,7 +23,7 @@
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
 		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot,
-		Upload, PenTool, Camera, Image, Plus, Trash2, CreditCard, Droplet, Edit3
+		Upload, PenTool, Camera, Image, Plus, CreditCard, Droplet, Edit3
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -122,19 +122,6 @@
 			toastStore.addToast('Failed to add insurance', 'error');
 		} finally {
 			addingInsurance = false;
-		}
-	}
-
-	async function handleDeleteInsurance(policyId: string) {
-		if (!patient) return;
-		try {
-			await patientApi.deleteInsurancePolicy(patient.id, policyId);
-			patient = {
-				...patient,
-				insurance_policies: (patient.insurance_policies || []).filter((p: any) => p.id !== policyId),
-			};
-		} catch (err) {
-			toastStore.addToast('Failed to delete insurance', 'error');
 		}
 	}
 
@@ -821,19 +808,11 @@
 								</div>
 								<div class="flex-1">
 									<span class="text-gray-800 font-medium">{insurance.provider}</span>
-									<div class="flex justify-between items-center mt-1">
-										<div>
-											<p class="text-sm text-gray-600">Policy: {insurance.policy_number}</p>
-											{#if insurance.valid_until}
-												<p class="text-xs text-gray-500">Valid until: {new Date(insurance.valid_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
-											{/if}
-										</div>
-										<button
-											onclick={() => handleDeleteInsurance(insurance.id)}
-											class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
-											style="background: linear-gradient(to bottom, #fee2e2, #fca5a5); border: 1px solid rgba(220,38,38,0.3); box-shadow: 0 1px 2px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.7);">
-											<Trash2 class="w-3.5 h-3.5 text-red-700" />
-										</button>
+									<div>
+										<p class="text-sm text-gray-600">Policy: {insurance.policy_number}</p>
+										{#if insurance.valid_until}
+											<p class="text-xs text-gray-500">Valid until: {new Date(insurance.valid_until).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+										{/if}
 									</div>
 								</div>
 							</div>

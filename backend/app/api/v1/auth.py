@@ -12,8 +12,9 @@ from app.models.patient import Patient, EmergencyContact, Gender, InsurancePolic
 from app.models.department import Department
 from app.models.patient_category import PatientCategoryOption, get_default_patient_category_colors
 from app.models.programme import Programme
-from app.services.clinic_allocation import resolve_preferred_clinic
+from app.services.id_generator import generate_patient_id
 from app.services.clinic_intake import ensure_clinic_checkin
+from app.services.clinic_allocation import resolve_preferred_clinic
 from app.schemas.auth import (
     LoginRequest, TokenResponse, RefreshRequest,
     RegisterRequest, RegisterResponse
@@ -58,9 +59,6 @@ async def get_registration_programmes(db: AsyncSession = Depends(get_db)):
         for p in programmes
     ]
 
-
-def generate_patient_id():
-    return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
 @router.post("/register", response_model=RegisterResponse)
@@ -111,7 +109,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 
     patient_id = str(uuid.uuid4())
     dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
-    display_patient_id = generate_patient_id()
+    display_patient_id = await generate_patient_id(db)
 
     insurance_category = None
     if request.patient_data.insurance_category_id:

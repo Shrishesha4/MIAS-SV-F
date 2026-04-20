@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr
 import uuid
 
+from app.services.id_generator import generate_patient_id as _async_generate_patient_id
 from app.database import get_db
 from app.api.deps import require_role, invalidate_user_cache
 from app.models.user import User, UserRole
@@ -31,6 +32,7 @@ from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
 from app.models.nurse import Nurse
 from app.models.billing import Billing
+from app.models.ot_manager import OTManager
 from app.core.security import get_password_hash
 from app.models.lab import ChargePrice
 from app.services.charge_sync import sync_charge_price_categories
@@ -350,7 +352,10 @@ class AdminCreateUserRequest(BaseModel):
 
 
 def _generate_patient_id():
-    return f"PT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+    # Kept as sync stub — call sites upgraded to use async generate_patient_id(db)
+    from datetime import datetime, timezone
+    import uuid
+    return f"PT{datetime.now(timezone.utc).strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 def _generate_student_id():
     return f"ST{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
@@ -363,6 +368,9 @@ def _generate_nurse_id():
 
 def _generate_billing_id():
     return f"BL{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+def _generate_ot_manager_id():
+    return f"OTM{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 
 @router.post("/users", status_code=201)
@@ -415,9 +423,7 @@ async def admin_create_user(
         resolved_category = normalize_patient_category_name(data.category) or await get_default_patient_category_name(db)
         new_patient = Patient(
             id=str(uuid.uuid4()),
-            patient_id=_generate_patient_id(),
-            user_id=user_id,
-            name=name,
+            patient_id=await _async_generate_patient_id(db),
             date_of_birth=dob,
             gender=Gender(data.gender) if data.gender else Gender.OTHER,
             blood_group=data.blood_group or "Unknown",
@@ -513,6 +519,15 @@ async def admin_create_user(
             phone=data.phone,
             email=email,
             counter_name=data.counter_name,
+        ))
+    elif role == UserRole.OT_MANAGER:
+        db.add(OTManager(
+            id=str(uuid.uuid4()),
+            manager_id=_generate_ot_manager_id(),
+            user_id=user_id,
+            name=name,
+            phone=data.phone,
+            email=email,
         ))
     # ADMIN and RECEPTION: no extra profile record needed
 
@@ -626,7 +641,7 @@ async def bulk_import_users(
                     gender = Gender.OTHER
                 db.add(Patient(
                     id=str(uuid.uuid4()),
-                    patient_id=_generate_patient_id(),
+                    patient_id=await _async_generate_patient_id(db),
                     user_id=user_id,
                     name=display_name,
                     date_of_birth=dob,

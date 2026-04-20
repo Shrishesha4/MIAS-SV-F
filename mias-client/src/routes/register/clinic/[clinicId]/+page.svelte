@@ -22,7 +22,7 @@
 	// Step 1 – personal details
 	let name = $state('');
 	let dob = $state('');
-	let gender = $state('Male');
+	let gender = $state('MALE');
 	let bloodGroup = $state('O+');
 	let phone = $state('');
 	let address = $state('');
@@ -251,7 +251,7 @@
 	}
 
 	const bloodGroups = ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'];
-	const genders = ['Male', 'Female', 'Other'];
+	const genders = ['MALE', 'FEMALE', 'OTHER'];
 </script>
 
 <svelte:head>

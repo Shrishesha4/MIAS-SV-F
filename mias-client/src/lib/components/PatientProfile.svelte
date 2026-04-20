@@ -46,6 +46,7 @@
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
 	import PatientProfileOverviewModal from '$lib/components/patient/PatientProfileOverviewModal.svelte';
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
+	import OTBookingPanel from '$lib/components/case-records/OTBookingPanel.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
@@ -140,6 +141,7 @@
 
 	// Modals
 	let showAddRecordModal = $state(false);
+	let crModalTab = $state<'clinical' | 'ot'>('clinical');
 	let loadingCrForms = $state(false);
 	let showAddVitalModal = $state(false);
 	let showAddPrescriptionModal = $state(false);
@@ -977,9 +979,11 @@
 			if (caseForms.length === 0) {
 				toastStore.addToast('No active case record forms are available. Ask admin to activate at least one clinical form.', 'warning');
 			}
+			crModalTab = 'clinical';
 			showAddRecordModal = true;
 		} catch (err) {
 			toastStore.addToast('Failed to load case record forms', 'error');
+			crModalTab = 'clinical';
 			showAddRecordModal = true;
 		} finally {
 			loadingCrForms = false;
@@ -2791,12 +2795,39 @@
 {#if showAddRecordModal}
 <AquaModal panelClass="max-w-none h-[calc(100dvh-24px)] max-h-[calc(100dvh-24px)] lg:h-auto lg:max-h-[88vh] lg:max-w-[min(1200px,92vw)] xl:max-w-[min(1320px,88vw)]" onclose={() => { showAddRecordModal = false; resetCaseRecordForm(); }}>
 	{#snippet header()}
-		<div class="flex items-center gap-2">
-			<FileText class="w-5 h-5 text-blue-600" />
-			<span class="font-semibold text-gray-800">Add New Case Record Entry</span>
+		<div class="flex items-center gap-3">
+			<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.3);">
+				<Plus class="h-5 w-5 text-white" />
+			</div>
+			<div>
+				<p class="text-sm font-bold text-gray-900 leading-tight">
+					{crModalTab === 'clinical' ? 'Select Form' : 'OT Booking Request'}
+				</p>
+				<p class="text-[10px] font-bold uppercase tracking-widest text-blue-600">
+					{crModalTab === 'clinical' ? 'Choose a Procedure' : 'Schedule Operation Theatre'}
+				</p>
+			</div>
 		</div>
 	{/snippet}
 
+	<!-- Tab bar -->
+	<div class="flex border-b border-slate-200 mb-4 -mx-4 px-4">
+		<button
+			onclick={() => crModalTab = 'clinical'}
+			class="flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer {crModalTab === 'clinical' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+		>
+			Clinical Entry
+		</button>
+		<button
+			onclick={() => crModalTab = 'ot'}
+			class="flex-1 pb-2.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer {crModalTab === 'ot' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-400 hover:text-slate-600'}"
+		>
+			OT Booking
+		</button>
+	</div>
+
+	{#if crModalTab === 'clinical'}
 	<div class="space-y-4">
 		<div>
 			<label for="cr-form" class="block text-sm font-medium text-gray-700 mb-1">
@@ -2871,6 +2902,14 @@
 			{crSubmitting ? 'Submitting...' : (role === 'FACULTY' ? 'Save Record' : 'Submit for Review')}
 		</button>
 	</div>
+	{/if}
+
+	{:else}
+		<OTBookingPanel
+			patientId={pid}
+			patientName={patient?.name ?? ''}
+			onbooked={() => { showAddRecordModal = false; resetCaseRecordForm(); }}
+		/>
 	{/if}
 </AquaModal>
 {/if}

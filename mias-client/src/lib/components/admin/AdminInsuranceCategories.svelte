@@ -7,7 +7,7 @@
 	import { insuranceCategoriesApi, type InsuranceCategory } from '$lib/api/insuranceCategories';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
+
 	import { Briefcase, Building2, CircleOff, HeartPulse, Landmark, Loader2, PencilLine, Plus, Power, ShieldCheck, Trash2, Wallet } from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -188,11 +188,6 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-[24px] border border-slate-200 p-3"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(246,249,255,0.92)); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
-		<SystemConfigTabs activeTab="insurance" />
-	</div>
-
 	<div class="grid gap-4 md:grid-cols-2">
 		<div class="rounded-[24px] border border-slate-200 p-4"
 			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
@@ -206,12 +201,8 @@
 		</div>
 	</div>
 
-	<div class="rounded-[24px] border border-slate-200 p-4"
+	<div class="rounded-3xl border border-slate-200 p-4"
 		style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 14px 30px rgba(15,23,42,0.06);">
-		<div class="mb-4 rounded-[18px] border border-sky-200/80 px-4 py-3 text-sm text-slate-600"
-			style="background: linear-gradient(135deg, rgba(239,246,255,0.95), rgba(224,242,254,0.92));">
-			Insurance settings control the badge symbol itself. Patient-type glow colors are configured separately in the Patients tab.
-		</div>
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<button
 				type="button"

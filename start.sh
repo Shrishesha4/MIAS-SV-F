@@ -186,7 +186,7 @@ do_seed() {
     hdr "Seeding database"
     warn "This will DROP and recreate all tables with mock data!"
     read -rp "  Continue? [y/N]: " confirm </dev/tty
-    [[ "${confirm,,}" == "y" ]] || { info "Aborted."; return; }
+    [[ "$(echo "$confirm" | tr '[:upper:]' '[:lower:]')" == "y" ]] || { info "Aborted."; return; }
     eval "$compose_cmd exec backend python scripts/seed.py"
     ok "Database seeded"
 }

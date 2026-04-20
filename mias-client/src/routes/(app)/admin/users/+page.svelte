@@ -21,7 +21,7 @@
 	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
-	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'BILLING';
+	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'BILLING' | 'OT_MANAGER';
 
 	type CreateUserFormData = {
 		username: string;
@@ -438,6 +438,10 @@
 			(payload as any).counter_name = normalizeOptionalString(newUserData.counter_name);
 		}
 
+		if (newUserRole === 'OT_MANAGER') {
+			payload.phone = normalizeOptionalString(newUserData.phone);
+		}
+
 		creatingUser = true;
 		try {
 			await adminApi.createUser(payload);
@@ -462,6 +466,7 @@
 		{ id: 'NURSE', label: 'Nurses' },
 		{ id: 'RECEPTION', label: 'Reception' },
 		{ id: 'BILLING', label: 'Billing' },
+		{ id: 'OT_MANAGER', label: 'OT Manager' },
 		{ id: 'ADMIN', label: 'Admins' },
 	];
 
@@ -474,6 +479,7 @@
 			RECEPTION: '#3b82f6',
 			NURSE: '#14b8a6',
 			BILLING: '#f97316',
+			OT_MANAGER: '#0891b2',
 		};
 		return map[role] || '#6b7280';
 	}
@@ -650,6 +656,7 @@
 					<option value="NURSE">Nurse</option>
 					<option value="RECEPTION">Reception</option>
 					<option value="BILLING">Billing & Cashier</option>
+					<option value="OT_MANAGER">OT Manager</option>
 					<option value="STUDENT">Student</option>
 					<option value="FACULTY">Faculty</option>
 					<option value="ADMIN">Admin</option>
@@ -887,6 +894,16 @@
 					</div>
 				</div>
 			{/if}
+
+		{#if newUserRole === 'OT_MANAGER'}
+			<div class="space-y-3 rounded-xl border border-cyan-100 bg-cyan-50/35 p-3">
+				<p class="text-xs font-bold uppercase tracking-wide text-cyan-700">OT Manager Profile</p>
+				<div>
+					<label class="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
+					<input type="tel" bind:value={newUserData.phone} placeholder="Enter phone number" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+				</div>
+			</div>
+		{/if}
 			<div class="flex gap-2 pt-2">
 				<AquaButton variant="secondary" fullWidth onclick={() => { createUserModal = false; resetCreateUserForm(newUserRole); }}>
 					Cancel

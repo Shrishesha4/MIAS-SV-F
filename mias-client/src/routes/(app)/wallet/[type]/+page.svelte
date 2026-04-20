@@ -9,7 +9,7 @@
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import {
 		Wallet, ArrowUp, ArrowDown, CreditCard, ChevronDown, ChevronUp,
-		Plus, Building, FileText, Clock, X
+		Plus, Building, FileText, Clock, X, ChevronLeft
 	} from 'lucide-svelte';
 
 	const walletType = $derived(
@@ -100,12 +100,19 @@
 </script>
 
 <div class="px-3 py-4 md:px-6 md:py-6 space-y-3">
+	<!-- Header -->
+	<div class="flex items-center gap-3 mb-2">
+		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
+			<ChevronLeft class="w-5 h-5 text-gray-600" />
+		</button>
+		<h1 class="text-lg font-bold text-gray-800">{walletType === 'HOSPITAL' ? 'Hospital Wallet' : 'Pharmacy Wallet'}</h1>
+	</div>
+
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
 		</div>
 	{:else}
-		<!-- Balance Card (Blue Gradient) -->
 		<div class="px-4 py-4 rounded-xl text-white"
 			style="background: linear-gradient(to bottom, #4d90fe, #0066cc);
 				   box-shadow: 0 1px 3px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.3);

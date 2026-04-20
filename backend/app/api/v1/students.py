@@ -1088,7 +1088,7 @@ async def get_previous_patients(
             "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
             "department": matching_admission.department if matching_admission else None,
             "primary_diagnosis": (
-                matching_admission.diagnosis
+                (matching_admission.diagnosis if matching_admission else None)
                 or a.patient.primary_diagnosis
             ),
             **serialize_patient_badge_context(a.patient),

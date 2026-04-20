@@ -39,3 +39,5 @@ from app.models.insurance_category import InsuranceCategory, InsuranceClinicConf
 from app.models.icd_code import ICDCode
 from app.models.daily_checkin import DailyCheckIn
 from app.models.billing import Billing
+from app.models.ot_manager import OTManager
+from app.models.operation_theater import OperationTheater, OTBooking, OTStatus

@@ -6,7 +6,6 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { adminApi, type ICDCodeRecord } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import SystemConfigTabs from '$lib/components/admin/SystemConfigTabs.svelte';
 	import { FileText, Loader2, PencilLine, Plus, Power, Search, Trash2 } from 'lucide-svelte';
 
 	type ICDFormState = {
@@ -160,11 +159,6 @@
 </script>
 
 <div class="space-y-4">
-	<div class="rounded-[24px] border border-slate-200 p-3"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.92), rgba(246,249,255,0.92)); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">
-		<SystemConfigTabs activeTab="icd" />
-	</div>
-
 	<div class="grid gap-4 md:grid-cols-3">
 		<div class="rounded-[24px] border border-slate-200 p-4"
 			style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 10px 24px rgba(15,23,42,0.05);">

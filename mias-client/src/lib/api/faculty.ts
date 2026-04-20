@@ -47,7 +47,19 @@ export interface FacultyClinicSession {
   checked_out_at: string | null;
 }
 
+export interface FacultySearchResult {
+  id: string;
+  name: string;
+  department: string;
+  specialty: string | null;
+}
+
 export const facultyApi = {
+  async searchFaculty(q: string): Promise<FacultySearchResult[]> {
+    const response = await client.get('/faculty/search', { params: { q, limit: 20 } });
+    return response.data;
+  },
+
   async getMe() {
     const response = await client.get('/faculty/me');
     return response.data;

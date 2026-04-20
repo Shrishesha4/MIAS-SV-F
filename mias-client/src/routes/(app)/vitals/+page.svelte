@@ -8,7 +8,7 @@
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import {
 		Activity, HeartPulse, Thermometer, Droplet, Scale,
-		ChevronDown, Download, Wind
+		ChevronDown, Download, Wind, ChevronLeft
 	} from 'lucide-svelte';
 
 	Chart.register(...registerables);
@@ -212,6 +212,14 @@
 </script>
 
 <div class="mx-auto max-w-6xl px-4 py-4 md:px-6 md:py-6 space-y-4 lg:space-y-5">
+	<!-- Header -->
+	<div class="flex items-center gap-3 mb-2">
+		<button class="p-2 rounded-full hover:bg-gray-100" onclick={() => history.back()}>
+			<ChevronLeft class="w-5 h-5 text-gray-600" />
+		</button>
+		<h1 class="text-lg font-bold text-gray-800">Vitals Tracker</h1>
+	</div>
+
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -223,18 +231,6 @@
 			<p class="mt-2 text-xs text-gray-400">Your care team will record readings here when they are taken.</p>
 		</div>
 	{:else}
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div>
-			<h1 class="text-xl font-semibold text-blue-900">Vitals Tracker</h1>
-			<p class="mt-1 text-sm text-slate-500">Read-only view of the readings recorded during your care.</p>
-		</div>
-		<div class="rounded-full px-3 py-1 text-xs font-semibold text-blue-700"
-			style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(59,130,246,0.18);">
-			Care-team recorded
-		</div>
-	</div>
-
 	<!-- Primary Vitals Grid -->
 	<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 		{#each primaryVitalDefs as vital}

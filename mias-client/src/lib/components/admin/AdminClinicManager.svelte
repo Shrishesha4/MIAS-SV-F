@@ -592,21 +592,30 @@
 			<p class="text-sm font-semibold text-rose-500">{error}</p>
 		</div>
 	{:else}
-		<div class="grid grid-cols-1 gap-3 xl:grid-cols-2">
+		<div class="clinics-table grid grid-cols-1 gap-3 lg:gap-0 lg:rounded-[18px] lg:overflow-hidden lg:border lg:border-slate-200/70 lg:divide-y lg:divide-slate-100/80">
+			<!-- Desktop table header -->
+			<div class="hidden lg:grid lg:items-center lg:px-5 lg:py-2.5 lg:[grid-template-columns:2rem_1fr_12rem_auto] lg:gap-x-5"
+				 style="background: linear-gradient(to bottom, rgba(248,250,253,0.98), rgba(241,245,250,0.96));">
+				<div></div>
+				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Clinic</span>
+				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Location</span>
+				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 text-right">Actions</span>
+			</div>
+
 			{#each clinicCards as item (item.clinic.id)}
 				<div
-					class="min-h-[92px] rounded-[18px] border px-4 py-4 transition-transform hover:-translate-y-[1px]"
+					class="clinic-item min-h-[92px] rounded-[18px] border px-4 py-4 transition-transform hover:-translate-y-[1px] lg:px-5"
 					style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);"
 				>
-					<div class="flex items-start gap-3">
+					<div class="flex items-start gap-3 lg:grid lg:items-center lg:[grid-template-columns:2rem_1fr_12rem_auto] lg:gap-x-5">
 						<div
-							class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
+							class="flex h-12 w-12 lg:h-8 lg:w-8 shrink-0 items-center justify-center rounded-full"
 							style="background: linear-gradient(to bottom, #3c8af4, #1667d8); box-shadow: 0 4px 10px rgba(20,95,210,0.24), inset 0 1px 0 rgba(255,255,255,0.3);"
 						>
-							<Building2 class="h-5 w-5 text-white" />
+							<Building2 class="h-5 w-5 lg:h-4 lg:w-4 text-white" />
 						</div>
 
-						<div class="min-w-0 flex-1">
+						<div class="min-w-0 flex-1 lg:flex-none">
 							<h3 class="truncate text-[15px] font-bold text-slate-900">{item.clinic.name}</h3>
 							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
@@ -620,10 +629,14 @@
 									<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
 								{/if}
 							</div>
-							<p class="mt-1 truncate text-xs text-slate-500">{item.description}</p>
+							<!-- Description below badges on mobile only -->
+							<p class="mt-1 truncate text-xs text-slate-500 lg:hidden">{item.description}</p>
 						</div>
 
-						<div class="flex shrink-0 items-center gap-2">
+						<!-- Description column — desktop only -->
+						<p class="hidden lg:block truncate text-xs text-slate-500">{item.description}</p>
+
+						<div class="flex shrink-0 items-center gap-2 lg:justify-end">
 							<button
 								type="button"
 								class="relative flex h-6 w-11 items-center rounded-full p-[2px] cursor-pointer transition-colors"
@@ -637,7 +650,8 @@
 									class="h-5 w-5 rounded-full bg-white shadow-sm transition-transform"
 									style={item.clinic.is_active ? 'transform: translateX(20px);' : 'transform: translateX(0);'}
 								></span>
-							</button>						{#if (clinicConfigMap[item.clinic.id]?.length ?? 0) > 0}
+							</button>
+							{#if (clinicConfigMap[item.clinic.id]?.length ?? 0) > 0}
 							<button
 								type="button"
 								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-blue-50"
@@ -646,7 +660,8 @@
 							>
 								<Settings class="h-4 w-4 text-blue-400" />
 							</button>
-						{/if}							<button
+							{/if}
+							<button
 								type="button"
 								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-emerald-50"
 								title="Registration QR code"
@@ -662,17 +677,6 @@
 							>
 								<PencilLine class="h-4 w-4 text-slate-400" />
 							</button>
-							<!-- Delete clinic action hidden until admin disable flow replaces hard delete UI. -->
-							<!--
-							<button
-								type="button"
-								class="flex h-8 w-8 items-center justify-center rounded-full cursor-pointer hover:bg-rose-50"
-								title="Delete clinic"
-								onclick={() => deleteClinic(item.clinic)}
-							>
-								<Trash2 class="h-4 w-4 text-rose-400" />
-							</button>
-							-->
 						</div>
 					</div>
 				</div>
@@ -680,29 +684,49 @@
 
 			{#each missingConfigCards as missing (missing.id)}
 				<div
-					class="min-h-[92px] rounded-[18px] border px-4 py-4"
+					class="clinic-item missing-item min-h-[92px] rounded-[18px] border px-4 py-4 lg:px-5"
 					style="opacity: 0.55; border-style: dashed; border-width: 1.5px; border-color: rgba(59,130,246,0.45); background: linear-gradient(to bottom, rgba(248,251,255,0.98), rgba(240,246,255,0.95)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.94);"
 				>
-					<div class="flex items-start gap-3">
+					<div class="flex items-start gap-3 lg:grid lg:items-center lg:[grid-template-columns:2rem_1fr_12rem_auto] lg:gap-x-5">
 						<div
-							class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full"
+							class="flex h-12 w-12 lg:h-8 lg:w-8 shrink-0 items-center justify-center rounded-full"
 							style="background: linear-gradient(to bottom, #93c5fd, #60a5fa);"
 						>
-							<Building2 class="h-5 w-5 text-white" />
+							<Building2 class="h-5 w-5 lg:h-4 lg:w-4 text-white" />
 						</div>
-						<div class="min-w-0 flex-1">
+						<div class="min-w-0 flex-1 lg:flex-none">
 							<h3 class="truncate text-[15px] font-bold text-slate-900">{missing.clinic?.name || 'No clinic created yet'}</h3>
 							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">Missing Mapping</span>
 								<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">{missing.insuranceCategoryName}</span>
 								<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-600">{missing.patientTypeName}</span>
 							</div>
-							<p class="mt-1 truncate text-xs text-slate-500">{missing.clinic ? ([missing.clinic.location, missing.clinic.department, missing.clinic.block].filter(Boolean).join(' • ') || 'Clinic service') : 'Create a clinic first, then map this insurance + patient type.'}</p>
+							<p class="mt-1 truncate text-xs text-slate-500 lg:hidden">{missing.clinic ? ([missing.clinic.location, missing.clinic.department, missing.clinic.block].filter(Boolean).join(' • ') || 'Clinic service') : 'Create a clinic first, then map this insurance + patient type.'}</p>
+							<!-- Action button — mobile only -->
 							<button
 								type="button"
 								onclick={() => createSuggestionAndEdit(missing)}
 								disabled={creatingSuggestionClinicId === missing.id}
-								class="mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold text-blue-700 cursor-pointer disabled:opacity-60"
+								class="mt-2 inline-flex lg:hidden items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold text-blue-700 cursor-pointer disabled:opacity-60"
+								style="background: rgba(219,234,254,0.9);"
+							>
+								<Plus class="h-3.5 w-3.5" />
+								{missing.clinic
+									? (creatingSuggestionClinicId === missing.id ? 'Adding...' : 'Add for this type')
+									: 'Create Clinic'}
+							</button>
+						</div>
+
+						<!-- Location column — desktop only -->
+						<p class="hidden lg:block truncate text-xs text-slate-500">{missing.clinic ? ([missing.clinic.location, missing.clinic.department, missing.clinic.block].filter(Boolean).join(' • ') || 'Clinic service') : 'Create a clinic first.'}</p>
+
+						<!-- Action column — desktop only -->
+						<div class="hidden lg:flex items-center justify-end">
+							<button
+								type="button"
+								onclick={() => createSuggestionAndEdit(missing)}
+								disabled={creatingSuggestionClinicId === missing.id}
+								class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold text-blue-700 cursor-pointer disabled:opacity-60"
 								style="background: rgba(219,234,254,0.9);"
 							>
 								<Plus class="h-3.5 w-3.5" />
@@ -716,7 +740,7 @@
 			{/each}
 
 			{#if clinicCards.length === 0 && missingConfigCards.length === 0}
-				<div class="rounded-[18px] border px-6 py-12 text-center xl:col-span-2" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);">
+				<div class="rounded-[18px] border px-6 py-12 text-center" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);">
 					<Building2 class="mx-auto mb-3 h-12 w-12 text-blue-300" />
 					<p class="text-sm font-semibold text-slate-500">No clinics configured yet</p>
 				</div>
@@ -994,3 +1018,31 @@ Open registration page
 </div>
 </AquaModal>
 {/if}
+
+
+<style>
+@media (min-width: 1024px) {
+.clinics-table {
+box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);
+}
+.clinic-item {
+background: white !important;
+box-shadow: none !important;
+border-color: transparent !important;
+border-style: solid !important;
+border-width: 0 !important;
+border-radius: 0 !important;
+min-height: 0 !important;
+padding-top: 0.75rem !important;
+padding-bottom: 0.75rem !important;
+transition: none !important;
+transform: none !important;
+}
+.clinic-item:hover {
+background: rgba(239, 246, 255, 0.45) !important;
+}
+.missing-item {
+opacity: 0.6 !important;
+}
+}
+</style>

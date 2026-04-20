@@ -24,6 +24,7 @@ from app.api.v1 import (
     insurance_categories,
     attendance,
     billing,
+    operation_theaters,
 )
 
 api_router = APIRouter()
@@ -52,3 +53,4 @@ api_router.include_router(staff.router)
 api_router.include_router(insurance_categories.router)
 api_router.include_router(attendance.router)
 api_router.include_router(billing.router)
+api_router.include_router(operation_theaters.router)
