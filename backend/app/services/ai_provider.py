@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 import json
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -169,6 +170,11 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any]:
     cleaned = raw_text.strip()
     if not cleaned:
         raise AIProviderError("The AI provider returned an empty response")
+
+    # Strip markdown code fences that models often add despite being told not to
+    fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```", cleaned)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
 
     try:
         parsed = json.loads(cleaned)

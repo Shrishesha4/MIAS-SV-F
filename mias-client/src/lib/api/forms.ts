@@ -115,4 +115,9 @@ export const formsApi = {
 		const response = await client.get(`/forms/lookup-options/${source}`);
 		return response.data;
 	},
+
+	async generateForm(description: string): Promise<{ name: string; description: string | null; fields: FormFieldDefinition[] }> {
+		const response = await client.post<{ name: string; description: string | null; fields: FormFieldDefinition[] }>('/forms/generate', { description });
+		return response.data;
+	},
 };

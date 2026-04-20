@@ -13,6 +13,17 @@ branch_labels = None
 depends_on = None
 
 
+def column_exists(table, column):
+    """Check if a column exists using raw SQL inspection."""
+    from alembic import context
+    conn = context.get_context().connection
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = :t AND column_name = :c"
+    ), {"t": table, "c": column})
+    return result.scalar() is not None
+
+
 def upgrade() -> None:
     # DischargeType enum
     op.execute("""
@@ -24,21 +35,25 @@ def upgrade() -> None:
     """)
 
     # Admission: discharge_type, is_birth_related
-    op.add_column("admissions", sa.Column("discharge_type", sa.Enum(
-        "REGULAR", "DEATH", "LAMA", "REFERRAL", "ABSCONDED",
-        name="dischargetype", create_type=False
-    ), nullable=True))
-    op.add_column("admissions", sa.Column("is_birth_related", sa.Boolean(), server_default="false", nullable=False))
+    if not column_exists("admissions", "discharge_type"):
+        op.add_column("admissions", sa.Column("discharge_type", sa.Enum(
+            "REGULAR", "DEATH", "LAMA", "REFERRAL", "ABSCONDED",
+            name="dischargetype", create_type=False
+        ), nullable=True))
+    if not column_exists("admissions", "is_birth_related"):
+        op.add_column("admissions", sa.Column("is_birth_related", sa.Boolean(), server_default="false", nullable=False))
 
     # Patient: is_deceased, mother_patient_id
-    op.add_column("patients", sa.Column("is_deceased", sa.Boolean(), server_default="false", nullable=False))
-    op.add_column("patients", sa.Column("mother_patient_id", sa.String(), nullable=True))
-    op.create_foreign_key(
-        "fk_patient_mother",
-        "patients", "patients",
-        ["mother_patient_id"], ["id"],
-        ondelete="SET NULL",
-    )
+    if not column_exists("patients", "is_deceased"):
+        op.add_column("patients", sa.Column("is_deceased", sa.Boolean(), server_default="false", nullable=False))
+    if not column_exists("patients", "mother_patient_id"):
+        op.add_column("patients", sa.Column("mother_patient_id", sa.String(), nullable=True))
+        op.create_foreign_key(
+            "fk_patient_mother",
+            "patients", "patients",
+            ["mother_patient_id"], ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:

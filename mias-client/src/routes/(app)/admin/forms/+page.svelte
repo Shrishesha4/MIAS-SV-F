@@ -8,7 +8,7 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import type { FormCategory, FormDefinition, FormFieldDefinition, FormRule, FormSection, FormFieldType, FieldCondition } from '$lib/types/forms';
 	import { toastStore } from '$lib/stores/toast';
-	import { FileText, GripVertical, Icon, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Trash2, X } from 'lucide-svelte';
+	import { FileText, GripVertical, Icon, Loader2, Pencil, Plus, Power, RotateCcw, Settings, Sparkles, Trash2, X } from 'lucide-svelte';
 	import IconPicker from '$lib/components/ui/IconPicker.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { LUCIDE_ICONS } from '$lib/data/lucideIcons';
@@ -93,6 +93,12 @@
 	let dragOverFieldIndex = $state<number | null>(null);
 	let draggedOptionIndex = $state<number | null>(null);
 	let dragOverOptionIndex = $state<number | null>(null);
+
+	let showGeneratePrompt = $state(false);
+	let generateDescription = $state('');
+	let generating = $state(false);
+	let generateError = $state('');
+	let generateContext = $state<'studio' | 'settings'>('studio');
 
 	const selectedField = $derived(formEditorFields[selectedFieldIndex] ?? null);
 	const previewSchema = $derived.by(() => {
@@ -806,6 +812,74 @@
 		formEditorName = formEditorName.trim();
 		isEditingFormName = false;
 	}
+
+	function openGeneratePrompt(context: 'studio' | 'settings') {
+		generateContext = context;
+		generateDescription = '';
+		generateError = '';
+		generating = false;
+		showGeneratePrompt = true;
+	}
+
+	function closeGeneratePrompt() {
+		showGeneratePrompt = false;
+		generateDescription = '';
+		generateError = '';
+	}
+
+	async function runGenerate() {
+		if (!generateDescription.trim()) {
+			generateError = 'Please describe what this form is for';
+			return;
+		}
+		const hasExistingWork = formEditorName.trim() || formEditorFields.some(f => f.label.trim());
+		if (hasExistingWork && !confirm('This will replace current fields and name. Continue?')) {
+			return;
+		}
+		generating = true;
+		generateError = '';
+		try {
+			const result = await formsApi.generateForm(generateDescription.trim());
+			formEditorName = result.name || formEditorName || 'Generated Form';
+			formEditorFields = (result.fields || []).map(f => ({
+				...f,
+				type: normalizeFieldType(f.type)
+			}));
+			selectedFieldIndex = 0;
+			previewValues = {};
+			closeGeneratePrompt();
+			toastStore.addToast(`Generated ${formEditorFields.length} fields`, 'success');
+			if (generateContext === 'settings') {
+				showFormSettingsModal = false;
+				showFormEditor = true;
+			}
+		} catch (error: any) {
+			generateError = error?.response?.data?.detail || 'Failed to generate form. Check AI provider settings.';
+		} finally {
+			generating = false;
+		}
+	}
+
+	function getOperatorsForFieldType(type: string): { value: FieldCondition['operator']; label: string }[] {
+		const base: { value: FieldCondition['operator']; label: string }[] = [
+			{ value: 'not_empty', label: 'is filled' },
+			{ value: 'empty', label: 'is empty' },
+			{ value: 'eq', label: 'equals' },
+			{ value: 'ne', label: 'not equals' },
+		];
+		if (type === 'text' || type === 'textarea' || type === 'email' || type === 'tel') {
+			base.push({ value: 'contains', label: 'contains' });
+		}
+		if (type === 'number' || type === 'date') {
+			base.push(
+				{ value: 'gt', label: 'greater than' },
+				{ value: 'lt', label: 'less than' },
+				{ value: 'gte', label: '≥ (gte)' },
+				{ value: 'lte', label: '≤ (lte)' },
+			);
+		}
+		return base;
+	}
 </script>
 
 {#snippet formCategoryHeader()}
@@ -1425,6 +1499,16 @@
 				</div>
 				<button
 					type="button"
+					onclick={() => openGeneratePrompt('studio')}
+					class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold text-white cursor-pointer"
+					style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 4px 10px rgba(109,40,217,0.25);"
+					title="AI Generate fields"
+				>
+					<Sparkles class="w-3.5 h-3.5" />
+					<span class="hidden sm:inline">Generate</span>
+				</button>
+				<button
+					type="button"
 					onclick={() => { settingsSaveError = ''; showFormSettingsModal = true; }}
 					class="w-9 h-9 flex items-center justify-center rounded-full border cursor-pointer transition-colors hover:bg-blue-50"
 					style="border-color: rgba(37,99,235,0.25);"
@@ -1598,26 +1682,31 @@
 											</div>
 											{#if selectedField.condition?.field}
 												{@const controllingField = availableFields.find((fieldOption) => fieldOption.key === selectedField.condition?.field)}
+												{@const operatorChoices = getOperatorsForFieldType(controllingField?.type ?? 'text')}
+												{@const needsValue = selectedField.condition.operator !== 'empty' && selectedField.condition.operator !== 'not_empty'}
 												<div class="grid gap-3 md:grid-cols-2">
 													<div>
 														<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Operator</p>
 														<select class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={selectedField.condition.operator} onchange={(event) => updateFieldConditionOperator(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value as FieldCondition['operator'])}>
-															<option value="not_empty">is filled</option>
-															<option value="empty">is empty</option>
-															<option value="eq">equals</option>
-															<option value="ne">not equals</option>
+															{#each operatorChoices as op}
+																<option value={op.value}>{op.label}</option>
+															{/each}
 														</select>
 													</div>
-													{#if selectedField.condition.operator === 'eq' || selectedField.condition.operator === 'ne'}
+													{#if needsValue}
 														<div>
 															<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Value</p>
-															{#if controllingField && controllingField.options.length > 0}
+															{#if (selectedField.condition.operator === 'eq' || selectedField.condition.operator === 'ne') && controllingField && controllingField.options.length > 0}
 																<select class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} onchange={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLSelectElement).value)}>
 																	<option value="">Pick a value</option>
 																	{#each controllingField.options as option}
 																		<option value={option}>{option}</option>
 																	{/each}
 																</select>
+															{:else if controllingField?.type === 'number' || selectedField.condition.operator === 'gt' || selectedField.condition.operator === 'lt' || selectedField.condition.operator === 'gte' || selectedField.condition.operator === 'lte'}
+																<input type="number" class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} oninput={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)} />
+															{:else if controllingField?.type === 'date'}
+																<input type="date" class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} oninput={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)} />
 															{:else}
 																<input type="text" class="w-full rounded-[14px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: linear-gradient(to bottom, #ffffff, #f8fafc);" value={String(selectedField.condition.value ?? '')} oninput={(event) => updateFieldConditionValue(selectedFieldIndex, (event.currentTarget as HTMLInputElement).value)} />
 															{/if}
@@ -1792,9 +1881,14 @@
 			{#if settingsSaveError}
 				<p class="text-xs text-red-500 text-center -mt-1">{settingsSaveError}</p>
 			{/if}
-			<button type="button" onclick={saveFormSettings} disabled={savingSettings} class="w-full rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
-				{savingSettings ? 'Saving…' : 'Save Settings'}
-			</button>
+			<div class="flex gap-2">
+				<button type="button" onclick={() => openGeneratePrompt('settings')} class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 8px 18px rgba(109,40,217,0.2);">
+					<Sparkles class="w-3.5 h-3.5" />Generate Fields
+				</button>
+				<button type="button" onclick={saveFormSettings} disabled={savingSettings} class="flex-1 rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
+					{savingSettings ? 'Saving…' : 'Save Settings'}
+				</button>
+			</div>
 		</div>
 	</AquaModal>
 {/if}
@@ -1825,6 +1919,41 @@
 			</div>
 			<button type="button" onclick={saveFormCategory} disabled={savingCategory} class="w-full rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 10px 20px rgba(37,99,235,0.2), inset 0 2px 0 rgba(255,255,255,0.24);">
 				{#if savingCategory}<Loader2 class="mr-2 inline-block h-4 w-4 animate-spin" />Creating...{:else}Create Category{/if}
+			</button>
+		</div>
+	</AquaModal>
+{/if}
+
+{#if showGeneratePrompt}
+	<AquaModal title="AI Form Generator" onclose={closeGeneratePrompt} panelClass="sm:max-w-[480px]" contentClass="p-0">
+		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #faf5ff, #f3e8ff);">
+			{#if generateError}
+				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{generateError}</div>
+			{/if}
+			<div>
+				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-purple-700">Describe Your Form</p>
+				<textarea
+					rows="3"
+					placeholder="e.g. Patient intake form for orthodontics department with chief complaint, medical history, and dental examination findings"
+					class="w-full rounded-[14px] border border-purple-300 px-3.5 py-2.5 text-sm text-slate-800 outline-none resize-y"
+					style="background: linear-gradient(to bottom, #ffffff, #faf5ff); box-shadow: inset 0 1px 4px rgba(15,23,42,0.04);"
+					bind:value={generateDescription}
+					onkeydown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); runGenerate(); } }}
+				></textarea>
+				<p class="mt-2 text-xs text-slate-500">The AI will generate form fields based on your description. Press <kbd class="px-1 py-0.5 rounded bg-slate-200 text-[10px] font-bold">⌘ Enter</kbd> to submit.</p>
+			</div>
+			<button
+				type="button"
+				onclick={runGenerate}
+				disabled={generating || !generateDescription.trim()}
+				class="w-full inline-flex items-center justify-center gap-2 rounded-[999px] px-8 py-3 text-sm font-bold text-white cursor-pointer disabled:opacity-60"
+				style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 10px 20px rgba(109,40,217,0.2), inset 0 2px 0 rgba(255,255,255,0.24);"
+			>
+				{#if generating}
+					<Loader2 class="h-4 w-4 animate-spin" />Generating...
+				{:else}
+					<Sparkles class="h-4 w-4" />Generate Form
+				{/if}
 			</button>
 		</div>
 	</AquaModal>

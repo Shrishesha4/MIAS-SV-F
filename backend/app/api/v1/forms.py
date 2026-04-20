@@ -19,6 +19,7 @@ from app.models.form_definition import FormDefinition
 from app.models.lab import ChargeItem, ChargePrice
 from app.models.student import Clinic
 from app.models.user import User, UserRole
+from app.services.ai_provider import AIProviderError, get_enabled_provider_settings, request_structured_completion
 from app.services.form_categories import ensure_form_categories, infer_form_section, normalize_form_section_name
 
 router = APIRouter(prefix="/forms", tags=["Forms"])
@@ -581,4 +582,100 @@ async def upload_form_file(
         "content_type": file.content_type,
         "size": len(content),
         "uploaded_at": datetime.utcnow().isoformat(),
+    }
+
+
+# ── AI form generation ───────────────────────────────────────────────────────
+
+FORM_GENERATION_SYSTEM_PROMPT = (
+    "You are a medical form builder for a dental/medical teaching hospital. "
+    "Given a description of what a form is for, generate a JSON form definition.\n\n"
+    "Return valid JSON only with exactly these keys:\n"
+    '  "name": a short human-readable form title,\n'
+    '  "description": one-sentence summary,\n'
+    '  "fields": an array of field objects.\n\n'
+    "Each field object MUST have:\n"
+    '  "key": snake_case unique identifier,\n'
+    '  "label": human-readable label,\n'
+    '  "type": one of text, textarea, number, select, date, email, tel,\n'
+    '  "required": boolean,\n'
+    '  "placeholder": example input text or empty string,\n'
+    '  "options": string array (required and non-empty ONLY if type is "select", otherwise empty array []),\n'
+    '  "help_text": short guidance or empty string.\n\n'
+    "Rules:\n"
+    "- Generate 5-15 fields appropriate for the described form.\n"
+    "- Use textarea for long-form text (clinical notes, findings, descriptions).\n"
+    "- Use select for categorical choices (severity, status, classification).\n"
+    "- Use date for any date fields.\n"
+    "- Use number for numeric measurements or counts.\n"
+    "- Field keys must be unique snake_case.\n"
+    "- Do NOT use types: file, password, diagnosis, department_select, faculty_select, clinic_select.\n"
+    "- Return ONLY the JSON object, no markdown fences or explanation."
+)
+
+
+class FormGeneratePayload(BaseModel):
+    description: str = Field(..., min_length=3, max_length=500)
+
+
+@router.post("/generate")
+async def generate_form_definition(
+    payload: FormGeneratePayload,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Use the configured AI provider to generate a form definition from a description."""
+    try:
+        config = await get_enabled_provider_settings(db)
+    except AIProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        result = await request_structured_completion(
+            config,
+            FORM_GENERATION_SYSTEM_PROMPT,
+            f"Generate a medical/dental form for: {payload.description.strip()}",
+        )
+    except AIProviderError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    name = str(result.get("name") or "").strip() or "Generated Form"
+    description = str(result.get("description") or "").strip() or None
+    raw_fields = result.get("fields")
+    if not isinstance(raw_fields, list) or len(raw_fields) == 0:
+        raise HTTPException(status_code=502, detail="AI did not return any fields")
+
+    # Normalize and validate each field
+    normalized_fields: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for raw_field in raw_fields:
+        if not isinstance(raw_field, dict):
+            continue
+        normalized = _normalize_field(raw_field)
+        key = normalized.get("key") or ""
+        label = normalized.get("label") or ""
+        if not key or not label:
+            continue
+        # Deduplicate keys
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        # Restrict to safe types the AI should produce
+        field_type = normalized.get("type", "text")
+        if field_type not in ALLOWED_FIELD_TYPES:
+            normalized["type"] = "text"
+        # Ensure select fields have options
+        if normalized["type"] == "select" and not normalized.get("options"):
+            normalized["type"] = "text"
+        # Strip conditions from generated fields (AI shouldn't produce these)
+        normalized.pop("condition", None)
+        normalized_fields.append(normalized)
+
+    if not normalized_fields:
+        raise HTTPException(status_code=502, detail="AI response contained no valid fields")
+
+    return {
+        "name": name,
+        "description": description,
+        "fields": normalized_fields,
     }
