@@ -39,6 +39,11 @@ DEPARTMENTS = [
     "ENT", "Gynecology", "Urology", "Psychiatry", "Pulmonology",
     "Gastroenterology", "Nephrology", "Oncology", "Radiology",
     "Anesthesiology", "Emergency Medicine", "Plastic Surgery",
+    "Endocrinology", "Rheumatology", "Hematology", "Infectious Diseases",
+    "Neonatology", "Physical Medicine & Rehabilitation", "Community Medicine",
+    "Dental Surgery", "Prosthodontics", "Oral Medicine", "Periodontics",
+    "Conservative Dentistry", "Oral & Maxillofacial Surgery", "Orthodontics",
+    "Pediatric Dentistry",
 ]
 WARDS = [
     "General Ward A", "General Ward B", "General Ward C", "General Ward D",
@@ -169,8 +174,10 @@ async def seed_massive():
         result = await db.execute(text(
             "SELECT COUNT(*) FROM users WHERE username = 'bp_00001'"
         ))
-        if result.scalar() > 0:
-            print("\n  ℹ️  Massive seed already exists. Skipping.\n")
+        main_seeded = result.scalar() > 0
+        if main_seeded:
+            print("\n  ℹ️  Main data exists. Running supplementary phases only...\n")
+            await _seed_supplementary(db, now, start_date)
             return
 
         # ── Get existing reference data ──────────────────────────────────
@@ -605,6 +612,9 @@ async def seed_massive():
         total_findings = len(lab_report_ids) * 4  # approx
         print(f"    ✓ ~{total_findings:,} report findings created")
 
+        # ── Run supplementary phases (clinics, labs, assignments, sessions) ──
+        await _seed_supplementary(db, now, start_date)
+
         # ══════════════════════════════════════════════════════════════════
         # ── Done ─────────────────────────────────────────────────────────
         # ══════════════════════════════════════════════════════════════════
@@ -626,6 +636,359 @@ async def seed_massive():
         print(f"  Faculty: bf1 through bf{NUM_FACULTY}")
         print(f"  Students: bs1 through bs{NUM_STUDENTS}")
         print()
+
+
+async def _seed_supplementary(db, now, start_date):
+    """Phases 7-10: Clinics, Labs (with tests/groups), Student assignments, Clinic sessions."""
+
+    # ── Reference data ────────────────────────────────────────────────────
+    fac_r = await db.execute(text("SELECT id FROM faculty"))
+    faculty_ids = [r[0] for r in fac_r.fetchall()]
+    stu_r = await db.execute(text("SELECT id FROM students"))
+    student_ids = [r[0] for r in stu_r.fetchall()]
+    pat_r = await db.execute(text("SELECT id FROM patients LIMIT 50000"))
+    patient_ids = [r[0] for r in pat_r.fetchall()]
+
+    if not faculty_ids or not student_ids or not patient_ids:
+        print("  ⚠️  Missing reference data. Run main seed first.")
+        return
+
+    print(f"\n  📋 Reference: {len(faculty_ids)} faculty, {len(student_ids)} students, {len(patient_ids):,} patients")
+
+    # ── Clinic definitions (45) ───────────────────────────────────────────
+    CLINIC_DEFS = [
+        ("General Medicine Clinic", "Internal Medicine", "A", "General", "WALK_IN"),
+        ("Diabetes & Metabolic Clinic", "Internal Medicine", "A", "Specialty", "APPOINTMENT_ONLY"),
+        ("Infectious Diseases Clinic", "Infectious Diseases", "A", "Specialty", "APPOINTMENT_ONLY"),
+        ("Cardiology OPD", "Cardiology", "B", "Specialty", "APPOINTMENT_ONLY"),
+        ("Heart Failure Clinic", "Cardiology", "B", "Specialty", "APPOINTMENT_ONLY"),
+        ("Preventive Cardiology Clinic", "Cardiology", "B", "Specialty", "APPOINTMENT_ONLY"),
+        ("Pediatrics OPD", "Pediatrics", "C", "General", "WALK_IN"),
+        ("Well-Baby Clinic", "Pediatrics", "C", "Specialty", "APPOINTMENT_ONLY"),
+        ("Neonatology Clinic", "Neonatology", "C", "Specialty", "APPOINTMENT_ONLY"),
+        ("Orthopedics OPD", "Orthopedics", "D", "General", "WALK_IN"),
+        ("Sports Medicine Clinic", "Orthopedics", "D", "Specialty", "APPOINTMENT_ONLY"),
+        ("Spine Clinic", "Orthopedics", "D", "Specialty", "APPOINTMENT_ONLY"),
+        ("Surgery OPD", "General Surgery", "E", "General", "WALK_IN"),
+        ("Minor Procedures Clinic", "General Surgery", "E", "General", "WALK_IN"),
+        ("Wound Care Clinic", "General Surgery", "E", "Specialty", "WALK_IN"),
+        ("Neurology OPD", "Neurology", "F", "Specialty", "APPOINTMENT_ONLY"),
+        ("Headache Clinic", "Neurology", "F", "Specialty", "APPOINTMENT_ONLY"),
+        ("Epilepsy Clinic", "Neurology", "F", "Specialty", "APPOINTMENT_ONLY"),
+        ("Dermatology OPD", "Dermatology", "G", "General", "WALK_IN"),
+        ("Cosmetic Dermatology Clinic", "Dermatology", "G", "Specialty", "APPOINTMENT_ONLY"),
+        ("Allergy Clinic", "Dermatology", "G", "Specialty", "WALK_IN"),
+        ("Eye OPD", "Ophthalmology", "H", "General", "WALK_IN"),
+        ("Retina Clinic", "Ophthalmology", "H", "Specialty", "APPOINTMENT_ONLY"),
+        ("ENT OPD", "ENT", "I", "General", "WALK_IN"),
+        ("Audiology Clinic", "ENT", "I", "Specialty", "APPOINTMENT_ONLY"),
+        ("Voice & Swallowing Clinic", "ENT", "I", "Specialty", "APPOINTMENT_ONLY"),
+        ("Gynecology OPD", "Gynecology", "J", "General", "WALK_IN"),
+        ("Antenatal Clinic", "Gynecology", "J", "Specialty", "WALK_IN"),
+        ("Fertility Clinic", "Gynecology", "J", "Specialty", "APPOINTMENT_ONLY"),
+        ("Urology OPD", "Urology", "K", "General", "WALK_IN"),
+        ("Psychiatry OPD", "Psychiatry", "L", "Specialty", "APPOINTMENT_ONLY"),
+        ("De-addiction Clinic", "Psychiatry", "L", "Specialty", "APPOINTMENT_ONLY"),
+        ("Pulmonology OPD", "Pulmonology", "M", "General", "WALK_IN"),
+        ("Asthma Clinic", "Pulmonology", "M", "Specialty", "APPOINTMENT_ONLY"),
+        ("GI OPD", "Gastroenterology", "N", "General", "WALK_IN"),
+        ("Liver Clinic", "Gastroenterology", "N", "Specialty", "APPOINTMENT_ONLY"),
+        ("Nephrology OPD", "Nephrology", "O", "General", "WALK_IN"),
+        ("Dialysis Clinic", "Nephrology", "O", "Specialty", "WALK_IN"),
+        ("Medical Oncology OPD", "Oncology", "P", "Specialty", "APPOINTMENT_ONLY"),
+        ("Pain Management Clinic", "Anesthesiology", "Q", "Specialty", "APPOINTMENT_ONLY"),
+        ("Emergency Clinic", "Emergency Medicine", "R", "General", "WALK_IN"),
+        ("Plastic Surgery OPD", "Plastic Surgery", "S", "Specialty", "APPOINTMENT_ONLY"),
+        ("Endocrinology OPD", "Endocrinology", "T", "Specialty", "APPOINTMENT_ONLY"),
+        ("Rheumatology OPD", "Rheumatology", "T", "Specialty", "APPOINTMENT_ONLY"),
+        ("Dental Surgery OPD", "Dental Surgery", "U", "General", "WALK_IN"),
+    ]
+
+    # ── Lab definitions (40) ──────────────────────────────────────────────
+    LAB_DEFS = [
+        ("Central Hematology Lab", "Pathology", "Hematology", "A"),
+        ("Biochemistry Lab", "Pathology", "Biochemistry", "A"),
+        ("Clinical Chemistry Lab", "Pathology", "Clinical Chemistry", "A"),
+        ("Serology & Immunology Lab", "Pathology", "Immunology", "B"),
+        ("Microbiology Lab", "Microbiology", "Microbiology", "B"),
+        ("Bacteriology Lab", "Microbiology", "Microbiology", "B"),
+        ("Virology Lab", "Microbiology", "Virology", "C"),
+        ("Parasitology Lab", "Microbiology", "Parasitology", "C"),
+        ("Mycology Lab", "Microbiology", "Mycology", "C"),
+        ("Histopathology Lab", "Pathology", "Histopathology", "D"),
+        ("Cytopathology Lab", "Pathology", "Cytology", "D"),
+        ("Molecular Biology Lab", "Pathology", "Molecular Biology", "D"),
+        ("Genetics Lab", "Pathology", "Genetics", "E"),
+        ("Flow Cytometry Lab", "Pathology", "Hematology", "E"),
+        ("Coagulation Lab", "Pathology", "Hematology", "E"),
+        ("Blood Bank", "Pathology", "Blood Bank", "F"),
+        ("Urinalysis Lab", "Pathology", "Urinalysis", "F"),
+        ("Toxicology Lab", "Pathology", "Toxicology", "F"),
+        ("Hormones Lab", "Pathology", "Endocrinology", "G"),
+        ("Cardiac Markers Lab", "Pathology", "Cardiology", "G"),
+        ("X-Ray Lab", "Radiology", "Radiology", "H"),
+        ("CT Scan Lab", "Radiology", "Radiology", "H"),
+        ("MRI Lab", "Radiology", "Radiology", "H"),
+        ("Ultrasound Lab", "Radiology", "Radiology", "I"),
+        ("Mammography Lab", "Radiology", "Radiology", "I"),
+        ("Fluoroscopy Lab", "Radiology", "Radiology", "I"),
+        ("Nuclear Medicine Lab", "Radiology", "Nuclear Medicine", "J"),
+        ("PET-CT Lab", "Radiology", "Nuclear Medicine", "J"),
+        ("Interventional Radiology Lab", "Radiology", "Radiology", "J"),
+        ("Dental Radiology Lab", "Radiology", "Dentistry", "K"),
+        ("ECG Lab", "General", "Cardiology", "K"),
+        ("EEG Lab", "General", "Neurology", "K"),
+        ("EMG/NCV Lab", "General", "Neurology", "L"),
+        ("Pulmonary Function Lab", "General", "Pulmonology", "L"),
+        ("Audiometry Lab", "General", "ENT", "L"),
+        ("Sleep Study Lab", "General", "Pulmonology", "M"),
+        ("Endoscopy Lab", "General", "Gastroenterology", "M"),
+        ("Cardiac Catheterization Lab", "General", "Cardiology", "M"),
+        ("Dialysis Lab", "General", "Nephrology", "N"),
+        ("Physiotherapy Lab", "General", "Rehabilitation", "N"),
+    ]
+
+    # ── Test name pools ───────────────────────────────────────────────────
+    PATHOLOGY_TESTS = [
+        "Complete Blood Count", "Hemoglobin", "WBC Differential", "Platelet Count",
+        "ESR", "Reticulocyte Count", "Peripheral Smear", "PT/INR", "aPTT", "D-Dimer",
+        "LFT", "RFT", "Lipid Profile", "Blood Sugar (F)", "Blood Sugar (PP)", "HbA1c",
+        "Thyroid Panel", "Electrolytes", "Serum Calcium", "Iron Studies", "Vitamin D",
+        "Vitamin B12", "CRP", "Troponin I", "BNP", "Ferritin", "Uric Acid", "PSA",
+        "Blood Culture", "Urine Culture", "Sputum Culture", "Gram Stain", "AFB Stain",
+        "FNAC", "Biopsy H&E", "PAP Smear", "IHC", "Flow Cytometry",
+        "Urine Routine", "Stool Routine", "HIV Antibody", "HBsAg", "Anti-HCV",
+        "ANA", "RA Factor", "Procalcitonin", "Widal Test", "Dengue NS1",
+    ]
+    RADIOLOGY_TESTS = [
+        "Chest X-Ray PA", "X-Ray Lateral", "Abdomen X-Ray", "X-Ray Extremity",
+        "CT Brain Plain", "CT Brain Contrast", "CT Abdomen", "CT Chest HRCT",
+        "MRI Brain", "MRI Spine Cervical", "MRI Spine Lumbar", "MRI Knee",
+        "USG Abdomen", "USG Pelvis", "USG Obstetric", "Doppler USG",
+        "Echocardiography", "Mammography", "Fluoroscopy Barium", "DEXA Scan",
+        "OPG Dental", "IOPA Dental", "PET-CT", "Thyroid Scan", "Bone Scan",
+        "CT Angiography", "MRI Abdomen", "MRI Shoulder", "X-Ray Pelvis", "X-Ray Spine",
+    ]
+    GENERAL_TESTS = [
+        "12-Lead ECG", "Holter Monitor 24hr", "Treadmill Test", "EEG Routine",
+        "EEG Sleep-Deprived", "Video EEG", "EMG", "Nerve Conduction", "Spirometry",
+        "DLCO", "Peak Flow", "Bronchial Challenge", "Audiometry", "Impedance Audio",
+        "BERA", "Polysomnography", "Upper GI Endoscopy", "Colonoscopy", "ERCP",
+        "Cardiac Catheterization", "Coronary Angiography", "Hemodialysis Session",
+        "Peritoneal Dialysis", "Physio Assessment", "Gait Analysis", "ROM Assessment",
+    ]
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ── PHASE 7: 45 Clinics ──────────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    clinic_count = (await db.execute(text("SELECT COUNT(*) FROM clinics"))).scalar()
+    clinic_ids = []
+
+    if clinic_count >= 45:
+        print("\n  🏥 Phase 7: Clinics already seeded.")
+        cr = await db.execute(text("SELECT id FROM clinics"))
+        clinic_ids = [r[0] for r in cr.fetchall()]
+    else:
+        print(f"\n  🏥 Phase 7: Creating {len(CLINIC_DEFS)} clinics...")
+        existing_names_r = await db.execute(text("SELECT name FROM clinics"))
+        existing_names = {r[0] for r in existing_names_r.fetchall()}
+
+        for i, (name, dept, block, ctype, access) in enumerate(CLINIC_DEFS):
+            if name in existing_names:
+                continue
+            cid = uid()
+            clinic_ids.append(cid)
+            fac_id = faculty_ids[i % len(faculty_ids)]
+            walk_in = "GENERAL" if access == "WALK_IN" else "NO_WALK_IN"
+            await db.execute(text(
+                "INSERT INTO clinics (id, name, block, clinic_type, access_mode, walk_in_type, "
+                "department, location, faculty_id, is_active, created_at, updated_at) "
+                "VALUES (:id, :name, :block, :ctype, :access, :walk, :dept, :loc, :fac, true, :now, :now)"
+            ), {
+                "id": cid, "name": name, "block": f"Block {block}",
+                "ctype": ctype, "access": access, "walk": walk_in, "dept": dept,
+                "loc": f"Block {block}, Floor {1 + i % 3}", "fac": fac_id, "now": now,
+            })
+
+        cr = await db.execute(text("SELECT id FROM clinics"))
+        clinic_ids = [r[0] for r in cr.fetchall()]
+        await db.commit()
+        print(f"    ✓ {len(clinic_ids)} total clinics")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ── PHASE 8: 40 Labs + 4 Tests + 2 Groups Each ──────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    lab_count = (await db.execute(text("SELECT COUNT(*) FROM labs"))).scalar()
+    lab_ids = []
+
+    if lab_count >= 40:
+        print("\n  🔬 Phase 8: Labs already seeded.")
+        lr = await db.execute(text("SELECT id FROM labs"))
+        lab_ids = [r[0] for r in lr.fetchall()]
+    else:
+        print(f"\n  🔬 Phase 8: Creating {len(LAB_DEFS)} labs with tests & groups...")
+        existing_lab_names_r = await db.execute(text("SELECT name FROM labs"))
+        existing_lab_names = {r[0] for r in existing_lab_names_r.fetchall()}
+
+        new_labs = 0
+        for i, (name, lab_type, dept, block) in enumerate(LAB_DEFS):
+            if name in existing_lab_names:
+                continue
+            lid = uid()
+            lab_ids.append(lid)
+            new_labs += 1
+
+            await db.execute(text(
+                "INSERT INTO labs (id, name, block, lab_type, department, location, "
+                "is_active, created_at, updated_at) "
+                "VALUES (:id, :name, :block, :ltype, :dept, :loc, true, :now, :now)"
+            ), {
+                "id": lid, "name": name, "block": f"Block {block}",
+                "ltype": lab_type, "dept": dept,
+                "loc": f"Block {block}, Floor {1 + i % 3}", "now": now,
+            })
+
+            # Pick 4 tests from appropriate pool
+            pool = (PATHOLOGY_TESTS if lab_type == "Pathology"
+                    else RADIOLOGY_TESTS if lab_type == "Radiology"
+                    else GENERAL_TESTS)
+            offset = (i * 4) % len(pool)
+            test_names = [pool[(offset + j) % len(pool)] for j in range(4)]
+            sample = "Blood" if lab_type == "Pathology" else "N/A"
+            tat = "2 hours" if lab_type == "Pathology" else "1 hour"
+
+            test_ids = []
+            for j, tname in enumerate(test_names):
+                tid = uid()
+                test_ids.append(tid)
+                await db.execute(text(
+                    "INSERT INTO lab_tests (id, lab_id, name, code, category, "
+                    "sample_type, turnaround_time, is_active, created_at, updated_at) "
+                    "VALUES (:id, :lab_id, :name, :code, :cat, :sample, :tat, true, :now, :now)"
+                ), {
+                    "id": tid, "lab_id": lid, "name": tname,
+                    "code": f"L{i+1:02d}T{j+1:02d}", "cat": dept,
+                    "sample": sample, "tat": tat, "now": now,
+                })
+
+            # Create 2 groups: tests 0,1 in group 1; tests 2,3 in group 2
+            focus = name.replace(" Lab", "").replace("Central ", "").strip()
+            for g in range(2):
+                gid = uid()
+                gname = f"{'Routine' if g == 0 else 'Comprehensive'} {focus} Panel"
+                await db.execute(text(
+                    "INSERT INTO lab_test_groups (id, lab_id, name, description, "
+                    "is_active, created_at, updated_at) "
+                    "VALUES (:id, :lab_id, :name, :desc, true, :now, :now)"
+                ), {
+                    "id": gid, "lab_id": lid, "name": gname,
+                    "desc": f"Standard {'routine' if g == 0 else 'comprehensive'} panel for {focus}",
+                    "now": now,
+                })
+                # Add 2 tests to each group
+                for t_idx in range(2):
+                    await db.execute(text(
+                        "INSERT INTO lab_test_group_members (group_id, test_id) "
+                        "VALUES (:gid, :tid)"
+                    ), {"gid": gid, "tid": test_ids[g * 2 + t_idx]})
+
+        lr = await db.execute(text("SELECT id FROM labs"))
+        lab_ids = [r[0] for r in lr.fetchall()]
+        await db.commit()
+        print(f"    ✓ {len(lab_ids)} labs, {new_labs * 4} tests, {new_labs * 2} groups")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ── PHASE 9: Student Patient Assignments ─────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    assign_count = (await db.execute(text("SELECT COUNT(*) FROM student_patient_assignments"))).scalar()
+
+    if assign_count >= 2000:
+        print(f"\n  📋 Phase 9: Student assignments exist ({assign_count:,}). Skipping.")
+    else:
+        print("\n  📋 Phase 9: Generating student patient assignments...")
+        assign_records = []
+        for si, sid in enumerate(student_ids):
+            num_patients = random.randint(15, 50)
+            for j in range(num_patients):
+                pi = (si * 53 + j * 7) % len(patient_ids)  # spread across pool
+                assign_date = random_date_in_range(start_date, now)
+                is_active = j < 5  # First 5 are active, rest completed
+                assign_records.append({
+                    "id": uid(), "student_id": sid,
+                    "patient_id": patient_ids[pi],
+                    "assigned_date": assign_date,
+                    "status": "Active" if is_active else "Completed",
+                })
+
+        await execute_batch(db,
+            "INSERT INTO student_patient_assignments (id, student_id, patient_id, assigned_date, status) "
+            "VALUES (:id, :student_id, :patient_id, :assigned_date, :status)",
+            assign_records, "Assignments")
+        await db.commit()
+        print(f"    ✓ {len(assign_records):,} student patient assignments")
+        del assign_records
+
+    # ══════════════════════════════════════════════════════════════════════
+    # ── PHASE 10: Clinic Sessions ────────────────────────────────────────
+    # ══════════════════════════════════════════════════════════════════════
+    session_count = (await db.execute(text("SELECT COUNT(*) FROM clinic_sessions"))).scalar()
+
+    if session_count >= 5000:
+        print(f"\n  🗓️  Phase 10: Clinic sessions exist ({session_count:,}). Skipping.")
+    else:
+        print("\n  🗓️  Phase 10: Generating clinic sessions...")
+        clinic_r = await db.execute(text("SELECT id, name, department FROM clinics"))
+        clinic_data = [(r[0], r[1], r[2]) for r in clinic_r.fetchall()]
+        if not clinic_data:
+            print("    ⚠️  No clinics found. Skipping sessions.")
+        else:
+            session_records = []
+            time_slots = [("09:00", "12:00"), ("10:00", "13:00"),
+                          ("14:00", "17:00"), ("13:00", "16:00")]
+
+            for si, sid in enumerate(student_ids):
+                num_sessions = random.randint(30, 60)
+                for j in range(num_sessions):
+                    sess_date = random_date_in_range(start_date, now)
+                    clinic = clinic_data[(si + j) % len(clinic_data)]
+                    slot = time_slots[j % len(time_slots)]
+                    is_past = sess_date < now - timedelta(days=1)
+
+                    if is_past:
+                        status = "Completed"
+                        checked_in = sess_date.replace(hour=random.randint(8, 10), minute=random.randint(0, 30))
+                        checked_out = checked_in + timedelta(hours=random.randint(2, 4))
+                        verified_fac = faculty_ids[(si + j) % len(faculty_ids)]
+                    else:
+                        status = random.choice(["Scheduled", "Active"])
+                        checked_in = sess_date.replace(hour=9) if status == "Active" else None
+                        checked_out = None
+                        verified_fac = None
+
+                    session_records.append({
+                        "id": uid(), "student_id": sid,
+                        "clinic_id": clinic[0], "clinic_name": clinic[1],
+                        "department": clinic[2], "date": sess_date,
+                        "time_start": slot[0], "time_end": slot[1],
+                        "status": status, "is_selected": 0,
+                        "checked_in_at": checked_in,
+                        "checked_out_at": checked_out,
+                        "verified_by_faculty_id": verified_fac,
+                    })
+
+            await execute_batch(db,
+                "INSERT INTO clinic_sessions (id, student_id, clinic_id, clinic_name, department, "
+                "date, time_start, time_end, status, is_selected, checked_in_at, checked_out_at, "
+                "verified_by_faculty_id) "
+                "VALUES (:id, :student_id, :clinic_id, :clinic_name, :department, "
+                ":date, :time_start, :time_end, :status, :is_selected, :checked_in_at, :checked_out_at, "
+                ":verified_by_faculty_id)",
+                session_records, "Clinic Sessions")
+            await db.commit()
+            print(f"    ✓ {len(session_records):,} clinic sessions")
+            del session_records
+
+    print("\n  ✅ Supplementary seed phases complete.")
 
 
 if __name__ == "__main__":
