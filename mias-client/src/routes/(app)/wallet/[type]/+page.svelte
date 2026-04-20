@@ -404,8 +404,9 @@
 			</div>
 
 			<div>
-				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Amount (₹)</label>
+				<label for="wallet-amount" class="block text-xs font-semibold text-gray-700 mb-1.5">Amount (₹)</label>
 				<input
+					id="wallet-amount"
 					type="number"
 					placeholder="0.00"
 					bind:value={topupAmount}
@@ -417,8 +418,9 @@
 			</div>
 
 			<div>
-				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Payment Method</label>
+				<label for="wallet-method" class="block text-xs font-semibold text-gray-700 mb-1.5">Payment Method</label>
 				<select
+					id="wallet-method"
 					bind:value={topupMethod}
 					class="w-full px-4 py-3 rounded-xl text-sm outline-none"
 					style="background: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
@@ -430,8 +432,9 @@
 			</div>
 
 			<div>
-				<label class="block text-xs font-semibold text-gray-700 mb-1.5">Transaction Reference (optional)</label>
+				<label for="wallet-ref" class="block text-xs font-semibold text-gray-700 mb-1.5">Transaction Reference (optional)</label>
 				<input
+					id="wallet-ref"
 					type="text"
 					placeholder="e.g. UPI ref no."
 					bind:value={topupRef}

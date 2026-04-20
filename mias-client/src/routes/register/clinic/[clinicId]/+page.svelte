@@ -317,36 +317,36 @@
 
 					<div class="space-y-3">
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Full Name *</label>
-							<input bind:value={name} placeholder="Patient full name" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+							<label for="reg-name" class="block text-xs font-semibold text-slate-600 mb-1">Full Name *</label>
+							<input id="reg-name" bind:value={name} placeholder="Patient full name" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 						</div>
 						<div class="grid grid-cols-2 gap-3">
 							<div>
-								<label class="block text-xs font-semibold text-slate-600 mb-1">Date of Birth *</label>
-								<input type="date" bind:value={dob} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+								<label for="reg-dob" class="block text-xs font-semibold text-slate-600 mb-1">Date of Birth *</label>
+								<input id="reg-dob" type="date" bind:value={dob} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 							</div>
 							<div>
-								<label class="block text-xs font-semibold text-slate-600 mb-1">Gender *</label>
-								<select bind:value={gender} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;">
+								<label for="reg-gender" class="block text-xs font-semibold text-slate-600 mb-1">Gender *</label>
+								<select id="reg-gender" bind:value={gender} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;">
 									{#each genders as g}<option>{g}</option>{/each}
 								</select>
 							</div>
 						</div>
 						<div class="grid grid-cols-2 gap-3">
 							<div>
-								<label class="block text-xs font-semibold text-slate-600 mb-1">Blood Group</label>
-								<select bind:value={bloodGroup} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;">
+								<label for="reg-blood" class="block text-xs font-semibold text-slate-600 mb-1">Blood Group</label>
+								<select id="reg-blood" bind:value={bloodGroup} class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;">
 									{#each bloodGroups as bg}<option>{bg}</option>{/each}
 								</select>
 							</div>
 							<div>
-								<label class="block text-xs font-semibold text-slate-600 mb-1">Phone *</label>
-								<input type="tel" bind:value={phone} placeholder="10-digit number" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+								<label for="reg-phone" class="block text-xs font-semibold text-slate-600 mb-1">Phone *</label>
+								<input id="reg-phone" type="tel" bind:value={phone} placeholder="10-digit number" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 							</div>
 						</div>
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Address</label>
-							<textarea bind:value={address} rows="2" placeholder="Optional" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400 resize-none" style="border-color: rgba(0,0,0,0.12); background: #fafcff;"></textarea>
+							<label for="reg-address" class="block text-xs font-semibold text-slate-600 mb-1">Address</label>
+							<textarea id="reg-address" bind:value={address} rows="2" placeholder="Optional" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400 resize-none" style="border-color: rgba(0,0,0,0.12); background: #fafcff;"></textarea>
 						</div>
 					</div>
 
@@ -409,20 +409,20 @@
 					<p class="text-base font-bold text-slate-900 mb-4">Create Account</p>
 					<div class="space-y-3">
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Username *</label>
-							<input bind:value={username} placeholder="Choose a username" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+							<label for="reg-username" class="block text-xs font-semibold text-slate-600 mb-1">Username *</label>
+							<input id="reg-username" bind:value={username} placeholder="Choose a username" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 						</div>
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Email *</label>
-							<input type="email" bind:value={email} placeholder="your@email.com" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+							<label for="reg-email" class="block text-xs font-semibold text-slate-600 mb-1">Email *</label>
+							<input id="reg-email" type="email" bind:value={email} placeholder="your@email.com" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 						</div>
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Password *</label>
-							<input type="password" bind:value={password} placeholder="Min. 6 characters" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+							<label for="reg-password" class="block text-xs font-semibold text-slate-600 mb-1">Password *</label>
+							<input id="reg-password" type="password" bind:value={password} placeholder="Min. 6 characters" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 						</div>
 						<div>
-							<label class="block text-xs font-semibold text-slate-600 mb-1">Confirm Password *</label>
-							<input type="password" bind:value={confirmPassword} placeholder="Repeat password" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
+							<label for="reg-confirm-pw" class="block text-xs font-semibold text-slate-600 mb-1">Confirm Password *</label>
+							<input id="reg-confirm-pw" type="password" bind:value={confirmPassword} placeholder="Repeat password" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
 						</div>
 					</div>
 				{/if}
@@ -520,7 +520,7 @@
 		<!-- svelte-ignore a11y_media_has_caption -->
 		<video use:bindCameraStream={cameraStream} autoplay playsinline class="w-full max-h-[calc(100dvh-140px)] object-cover"></video>
 		<div class="absolute inset-x-0 bottom-0 flex items-center justify-between px-8 py-6 bg-gradient-to-t from-black/80 to-transparent">
-			<button type="button" onclick={stopCamera} class="w-11 h-11 flex items-center justify-center rounded-full bg-white/20 text-white cursor-pointer">
+			<button type="button" onclick={stopCamera} class="w-11 h-11 flex items-center justify-center rounded-full bg-white/20 text-white cursor-pointer" aria-label="Close camera">
 				<svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
 			</button>
 			<button type="button" onclick={snapPhoto} class="w-16 h-16 rounded-full border-4 border-white bg-white/30 cursor-pointer hover:bg-white/50 transition-colors" aria-label="Take photo"></button>

@@ -132,14 +132,14 @@
 		<div class="space-y-3">
 			<div class="grid grid-cols-2 gap-2">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">From Date *</label>
-					<input type="date" bind:value={fromDate}
+					<label for="mrd-records-from-date" class="block text-[11px] font-medium text-gray-500 mb-1">From Date *</label>
+					<input id="mrd-records-from-date" type="date" bind:value={fromDate}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">To Date *</label>
-					<input type="date" bind:value={toDate}
+					<label for="mrd-records-to-date" class="block text-[11px] font-medium text-gray-500 mb-1">To Date *</label>
+					<input id="mrd-records-to-date" type="date" bind:value={toDate}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
@@ -147,8 +147,8 @@
 
 			<div class="grid grid-cols-2 gap-2">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Type</label>
-					<select bind:value={filterType}
+					<label for="mrd-records-type" class="block text-[11px] font-medium text-gray-500 mb-1">Type</label>
+					<select id="mrd-records-type" bind:value={filterType}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;">
 						<option value="">All types</option>
@@ -158,8 +158,8 @@
 					</select>
 				</div>
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Department</label>
-					<input type="text" bind:value={filterDepartment} placeholder="e.g. Cardiology"
+					<label for="mrd-records-department" class="block text-[11px] font-medium text-gray-500 mb-1">Department</label>
+					<input id="mrd-records-department" type="text" bind:value={filterDepartment} placeholder="e.g. Cardiology"
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
@@ -167,14 +167,14 @@
 
 			<div class="grid grid-cols-2 gap-2">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Patient ID</label>
-					<input type="text" bind:value={filterPatientId} placeholder="PAT-001"
+					<label for="mrd-records-patient-id" class="block text-[11px] font-medium text-gray-500 mb-1">Patient ID</label>
+					<input id="mrd-records-patient-id" type="text" bind:value={filterPatientId} placeholder="PAT-001"
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Performed By</label>
-					<input type="text" bind:value={filterPerformedBy} placeholder="Doctor name"
+					<label for="mrd-records-performed-by" class="block text-[11px] font-medium text-gray-500 mb-1">Performed By</label>
+					<input id="mrd-records-performed-by" type="text" bind:value={filterPerformedBy} placeholder="Doctor name"
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>

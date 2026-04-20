@@ -1396,7 +1396,8 @@
 	<!-- Form Studio Editor — full screen custom modal -->
 	<div use:portal class="fixed inset-0 flex items-center justify-center p-4"
 		style="background: rgba(15,23,42,0.18); backdrop-filter: blur(4px); z-index: 9999;">
-		<div class="absolute inset-0" onclick={resetFormEditor}></div>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="absolute inset-0" onclick={resetFormEditor} onkeydown={(e) => { if (e.key === 'Escape') resetFormEditor(); }}></div>
 		<div class="relative flex flex-col rounded-[20px] overflow-hidden w-full"
 			style="background: white; box-shadow: 0 -8px 40px rgba(0,0,0,0.22); border: 1px solid rgba(0,0,0,0.1); max-height: calc(100dvh - 4rem); max-width: 1320px;">
 
@@ -1734,11 +1735,11 @@
 								<span class="text-slate-400">Pick icon...</span>
 							{/if}
 							{#if formEditorIcon}
-								<button
-									type="button"
+								<span role="button" tabindex="0"
 									onclick={(e) => { e.stopPropagation(); formEditorIcon = ''; }}
+									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); formEditorIcon = ''; } }}
 									class="ml-auto text-slate-400 hover:text-slate-700"
-								>✕</button>
+								>✕</span>
 							{/if}
 						</button>
 					</div>

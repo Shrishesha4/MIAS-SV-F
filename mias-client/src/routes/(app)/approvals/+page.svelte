@@ -1190,6 +1190,7 @@
                                                         />
                                                         <button
                                                             type="button"
+                                                            aria-label="Remove medication"
                                                             onclick={() => removeDraftMedication(approval.id, index)}
                                                             class="flex items-center justify-center w-6 h-6 rounded hover:bg-red-50 transition-colors cursor-pointer"
                                                         >

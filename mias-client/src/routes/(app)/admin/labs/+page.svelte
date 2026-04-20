@@ -669,6 +669,7 @@ transition:fade={{ duration: 200 }}
 class="fixed inset-0 z-50 flex items-center justify-center p-4"
 style="background: rgba(0,0,0,0.45);"
 role="dialog"
+tabindex="-1"
 aria-modal="true"
 onkeydown={(e) => { if (e.key === 'Escape') closeConfigPanel(); }}
 onclick={(e) => { if (e.target === e.currentTarget) closeConfigPanel(); }}

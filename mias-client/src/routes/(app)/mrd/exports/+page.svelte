@@ -138,8 +138,8 @@
 
 			<div class="space-y-3">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Export Type</label>
-					<select bind:value={exportType}
+					<label for="mrd-export-type" class="block text-[11px] font-medium text-gray-500 mb-1">Export Type</label>
+					<select id="mrd-export-type" bind:value={exportType}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;">
 						{#each exportTypes as t}
@@ -150,14 +150,14 @@
 
 				<div class="grid grid-cols-2 gap-2">
 					<div>
-						<label class="block text-[11px] font-medium text-gray-500 mb-1">From Date *</label>
-						<input type="date" bind:value={fromDate}
+						<label for="mrd-export-from-date" class="block text-[11px] font-medium text-gray-500 mb-1">From Date *</label>
+						<input id="mrd-export-from-date" type="date" bind:value={fromDate}
 							class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 					</div>
 					<div>
-						<label class="block text-[11px] font-medium text-gray-500 mb-1">To Date *</label>
-						<input type="date" bind:value={toDate}
+						<label for="mrd-export-to-date" class="block text-[11px] font-medium text-gray-500 mb-1">To Date *</label>
+						<input id="mrd-export-to-date" type="date" bind:value={toDate}
 							class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 							style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 					</div>

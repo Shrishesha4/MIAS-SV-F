@@ -98,22 +98,22 @@
 
 		<div class="space-y-3">
 			<div>
-				<label class="block text-[11px] font-medium text-gray-500 mb-1">Patient Name</label>
-				<input type="text" bind:value={searchName} placeholder="Search by name..."
+				<label for="mrd-patient-name" class="block text-[11px] font-medium text-gray-500 mb-1">Patient Name</label>
+				<input id="mrd-patient-name" type="text" bind:value={searchName} placeholder="Search by name..."
 					class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 					style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 			</div>
 
 			<div class="grid grid-cols-2 gap-2">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Patient ID</label>
-					<input type="text" bind:value={searchPatientId} placeholder="PAT-001"
+					<label for="mrd-patient-id" class="block text-[11px] font-medium text-gray-500 mb-1">Patient ID</label>
+					<input id="mrd-patient-id" type="text" bind:value={searchPatientId} placeholder="PAT-001"
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">Phone</label>
-					<input type="text" bind:value={searchPhone} placeholder="9876543210"
+					<label for="mrd-patient-phone" class="block text-[11px] font-medium text-gray-500 mb-1">Phone</label>
+					<input id="mrd-patient-phone" type="text" bind:value={searchPhone} placeholder="9876543210"
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
@@ -121,14 +121,14 @@
 
 			<div class="grid grid-cols-2 gap-2">
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">DOB From</label>
-					<input type="date" bind:value={searchDobFrom}
+					<label for="mrd-patient-dob-from" class="block text-[11px] font-medium text-gray-500 mb-1">DOB From</label>
+					<input id="mrd-patient-dob-from" type="date" bind:value={searchDobFrom}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>
 				<div>
-					<label class="block text-[11px] font-medium text-gray-500 mb-1">DOB To</label>
-					<input type="date" bind:value={searchDobTo}
+					<label for="mrd-patient-dob-to" class="block text-[11px] font-medium text-gray-500 mb-1">DOB To</label>
+					<input id="mrd-patient-dob-to" type="date" bind:value={searchDobTo}
 						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
 						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;" />
 				</div>

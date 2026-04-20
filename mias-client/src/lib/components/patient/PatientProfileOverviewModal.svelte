@@ -469,6 +469,7 @@
 	let newClaimEmail = $state('');
 	let newClaimDetails = $state('');
 
+	// svelte-ignore state_referenced_locally
 	let mappedEmail = $state(patient.email || '');
 	let claimReply = $state('');
 	let claims = $state<any[]>([]);
@@ -989,13 +990,4 @@
 	</div>
 </AquaModal>
 
-<style>
-	.tabbar-scroll {
-		-ms-overflow-style: none;
-		scrollbar-width: none;
-	}
 
-	.tabbar-scroll::-webkit-scrollbar {
-		display: none;
-	}
-</style>

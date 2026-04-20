@@ -464,5 +464,6 @@
 
 <!-- Backdrop for filter -->
 {#if filterOpen}
-	<div class="fixed inset-0 z-10" onclick={() => filterOpen = false}></div>
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-10" onclick={() => filterOpen = false} onkeydown={(e) => { if (e.key === 'Escape') filterOpen = false; }}></div>
 {/if}
