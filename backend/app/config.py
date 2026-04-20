@@ -23,9 +23,9 @@ class Settings(BaseSettings):
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 200
-    MRD_RATE_LIMIT_PER_MINUTE: int = 60
-    MRD_MAX_CONCURRENT_PER_USER: int = 3
-    MRD_MAX_CONCURRENT_GLOBAL: int = 50
+    MRD_RATE_LIMIT_PER_MINUTE: int = 120
+    MRD_MAX_CONCURRENT_PER_USER: int = 10
+    MRD_MAX_CONCURRENT_GLOBAL: int = 100
 
     # App
     DEBUG: bool = False

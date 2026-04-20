@@ -38,6 +38,7 @@
 	let prescriptions = $state<MrdPrescription[]>([]);
 	let loadingTab = $state<TabKey | null>(null);
 	let loadedTabs = $state<Set<TabKey>>(new Set());
+	let lastFetchedPatientId = $state<string | null>(null);
 
 	const tabs = [
 		{ id: 'records', label: 'Records' },
@@ -55,7 +56,7 @@
 	}
 
 	async function fetchTab(tab: TabKey) {
-		if (!patient || loadedTabs.has(tab)) return;
+		if (!patient || loadedTabs.has(tab) || loadingTab === tab) return;
 		loadingTab = tab;
 		const dates = getDateRange();
 		try {
@@ -84,12 +85,13 @@
 
 	// Reset state when patient changes
 	$effect(() => {
-		if (patient && open) {
+		if (patient && open && patient.id !== lastFetchedPatientId) {
 			records = [];
 			admissions = [];
 			prescriptions = [];
 			loadedTabs = new Set();
 			activeTab = 'records';
+			lastFetchedPatientId = patient.id;
 			fetchTab('records');
 		}
 	});
