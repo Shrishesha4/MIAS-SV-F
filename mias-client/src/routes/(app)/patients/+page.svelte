@@ -182,6 +182,12 @@
 		clinicPatients = await studentApi.getClinicPatients(student.id, clinic.id);
 	}
 
+	async function handleStudentClinicSelection(clinic: Clinic | null) {
+		await loadStudentClinicPatients(clinic);
+		if (!clinic || !student || activeClinicSession?.clinic_id === clinic.id) return;
+		await handleCheckIn();
+	}
+
 	function handleClinicSearchInput(query: string) {
 		if (selectedClinic && query !== clinicDisplayLabel(selectedClinic)) {
 			selectedClinic = null;
@@ -656,7 +662,7 @@
 									placeholder="Search and select clinic..."
 									bind:value={clinicSearch}
 									onInput={handleClinicSearchInput}
-									onSelect={(clinic) => void loadStudentClinicPatients(clinic as Clinic)}
+									onSelect={(clinic) => void handleStudentClinicSelection(clinic as Clinic)}
 									onClear={clearClinicSelection}
 								/>
 								{#if selectedClinic}
@@ -686,26 +692,21 @@
 											Check Out
 										</button>
 									</div>
-								{:else if selectedClinic && (!activeClinicSession)}
-									<!-- Check In Button -->
-									<button
-										class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
-										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
-										disabled={checkingIn}
-										onclick={handleCheckIn}
-									>
+								{:else if selectedClinic}
+									<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2);">
 										{#if checkingIn}
-											<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+											<div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+											<p class="text-xs text-blue-700">Checking in to <span class="font-semibold">{selectedClinic.name}</span>...</p>
 										{:else}
-											<LogIn class="w-4 h-4" />
+											<Building class="w-4 h-4 text-blue-600 shrink-0" />
+											<p class="text-xs text-blue-700">
+												{#if activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
+													Choosing <span class="font-semibold">{selectedClinic.name}</span> above will switch your active clinic immediately.
+												{:else}
+													Selecting a clinic above checks you in immediately.
+												{/if}
+											</p>
 										{/if}
-										Check In to {selectedClinic.name}
-									</button>
-								{:else if selectedClinic && activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
-									<!-- Already checked in elsewhere notice -->
-									<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
-										<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
-										<p class="text-xs text-amber-700">Already checked in to <span class="font-semibold">{activeClinicSession.clinic_name}</span>. Check out first.</p>
 									</div>
 								{/if}
 							</div>

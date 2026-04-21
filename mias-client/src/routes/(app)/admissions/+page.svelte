@@ -1273,6 +1273,10 @@
 				fields={admissionIntakeFields}
 				bind:values={admitFormData}
 				idPrefix="admission-intake"
+				aiPatientId={selectedPatient?.id}
+				aiDepartment={admitFormData.department || admitDepartment || null}
+				aiFormName="Admission Intake"
+				aiPriorDiagnoses={selectedPatient?.primary_diagnosis ? [{ diagnosis: selectedPatient.primary_diagnosis }] : null}
 			/>
 
 			<button

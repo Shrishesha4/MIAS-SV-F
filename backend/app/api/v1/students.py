@@ -24,6 +24,7 @@ from app.models.prescription import Prescription, PrescriptionMedication, Prescr
 from app.models.notification import PatientNotification
 from app.models.student import StudentNotification
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
+from app.services.daily_checkins import ensure_daily_checkin
 from app.services.patient_insurance import sync_patient_insurance_category
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
@@ -792,6 +793,13 @@ async def check_in_to_clinic(
     now = datetime.utcnow()
     if active_session and active_session.clinic_id == clinic.id:
         active_session.is_selected = 1
+        await ensure_daily_checkin(
+            db,
+            user_id=user.id,
+            role=UserRole.STUDENT,
+            checked_in_at=active_session.checked_in_at or now,
+            clinic_id=clinic.id,
+        )
         await db.commit()
         return {
             "status": "already_checked_in",
@@ -829,6 +837,13 @@ async def check_in_to_clinic(
     )
     db.add(session)
     await _create_student_checkin_log(db, session=session, checked_in_at=now)
+    await ensure_daily_checkin(
+        db,
+        user_id=user.id,
+        role=UserRole.STUDENT,
+        checked_in_at=now,
+        clinic_id=clinic.id,
+    )
     await db.commit()
 
     return {

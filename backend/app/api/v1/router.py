@@ -26,6 +26,7 @@ from app.api.v1 import (
     billing,
     operation_theaters,
     mrd,
+    diagnosis,
 )
 
 api_router = APIRouter()
@@ -56,3 +57,4 @@ api_router.include_router(attendance.router)
 api_router.include_router(billing.router)
 api_router.include_router(operation_theaters.router)
 api_router.include_router(mrd.router)
+api_router.include_router(diagnosis.router)

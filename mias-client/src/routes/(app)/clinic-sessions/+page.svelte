@@ -67,6 +67,8 @@
 	const currentFacultyCheckedInSession = $derived(
 		facultySessions.find(s => s.checked_in_at && !s.checked_out_at)
 	);
+	const clinicSelectionChecksIn = $derived(role === 'STUDENT' || role === 'FACULTY');
+	const clinicListVisible = $derived(clinicSelectionChecksIn || showClinicSelector);
 
 	async function loadStudentSessions() {
 		if (!student?.id) return;
@@ -225,6 +227,19 @@
 		} catch (err) {
 			toastStore.addToast('Failed to load clinic patients', 'error');
 			clinicPatients = [];
+		}
+	}
+
+	async function handleClinicSelection(clinic: ClinicInfo) {
+		await selectClinic(clinic);
+		if (role === 'STUDENT') {
+			if (!student?.id || currentCheckedInSession?.clinic_id === clinic.id) return;
+			await handleStudentCheckIn();
+			return;
+		}
+		if (role === 'FACULTY') {
+			if (!faculty?.id || currentFacultyCheckedInSession?.clinic_id === clinic.id) return;
+			await handleFacultyCheckIn();
 		}
 	}
 
@@ -392,15 +407,17 @@
 				{:else if selectedClinic}
 					<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
 						<p class="font-semibold text-gray-800">Ready to start clinic duty</p>
-						<p class="mt-1 text-sm text-gray-600">Check in to {selectedClinic.name} to bring your assigned patients into this clinic.</p>
-						<div class="mt-3 flex items-center justify-between gap-3">
-							<div class="text-xs text-gray-500">
-								<div>{selectedClinic.department}</div>
-								<div>{selectedClinic.location}</div>
-							</div>
-							<AquaButton variant="primary" size="sm" loading={checkingIn} onclick={handleStudentCheckIn}>
-								Check In Here
-							</AquaButton>
+						{#if checkingIn}
+							<p class="mt-1 text-sm text-blue-600">Checking in to {selectedClinic.name}...</p>
+						{:else}
+							<p class="mt-1 text-sm text-gray-600">Tap a clinic below to check in and bring your assigned patients into that clinic.</p>
+							{#if currentCheckedInSession && currentCheckedInSession.clinic_id !== selectedClinic.id}
+								<p class="mt-1 text-xs text-amber-700">Choosing {selectedClinic.name} will switch you from {currentCheckedInSession.clinic_name}.</p>
+							{/if}
+						{/if}
+						<div class="mt-3 text-xs text-gray-500">
+							<div>{selectedClinic.department}</div>
+							<div>{selectedClinic.location}</div>
 						</div>
 					</div>
 				{:else}
@@ -446,15 +463,17 @@
 				{:else if selectedClinic}
 					<div class="p-4 rounded-xl" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.06);">
 						<p class="font-semibold text-gray-800">Ready to supervise</p>
-						<p class="mt-1 text-sm text-gray-600">Check in to {selectedClinic.name} to mark yourself available in this clinic.</p>
-						<div class="mt-3 flex items-center justify-between gap-3">
-							<div class="text-xs text-gray-500">
-								<div>{selectedClinic.department}</div>
-								<div>{selectedClinic.location}</div>
-							</div>
-							<AquaButton variant="primary" size="sm" loading={facultyCheckingIn} onclick={handleFacultyCheckIn}>
-								Check In Here
-							</AquaButton>
+						{#if facultyCheckingIn}
+							<p class="mt-1 text-sm text-blue-600">Checking in to {selectedClinic.name}...</p>
+						{:else}
+							<p class="mt-1 text-sm text-gray-600">Tap a clinic below to mark yourself available in that clinic.</p>
+							{#if currentFacultyCheckedInSession && currentFacultyCheckedInSession.clinic_id !== selectedClinic.id}
+								<p class="mt-1 text-xs text-amber-700">Choosing {selectedClinic.name} will switch you from {currentFacultyCheckedInSession.clinic_name}.</p>
+							{/if}
+						{/if}
+						<div class="mt-3 text-xs text-gray-500">
+							<div>{selectedClinic.department}</div>
+							<div>{selectedClinic.location}</div>
 						</div>
 					</div>
 				{:else}
@@ -491,12 +510,14 @@
 								<Plus class="w-3 h-3" /> {selectedClinic?.access_mode === 'APPOINTMENT_ONLY' ? 'Schedule Appointment' : 'Add Appointment'}
 							</button>
 						{/if}
-						<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
-							style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
-							       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);"
-							onclick={() => showClinicSelector = !showClinicSelector}>
-							Change Clinic
-						</button>
+						{#if !clinicSelectionChecksIn}
+							<button class="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
+								style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8);
+								       color: #1e40af; border: 1px solid rgba(0,0,0,0.15);"
+								onclick={() => showClinicSelector = !showClinicSelector}>
+								Change Clinic
+							</button>
+						{/if}
 					</div>
 				</div>
 				{#if selectedClinic?.faculty_name}
@@ -506,13 +527,13 @@
 					</div>
 				{/if}
 			</div>
-			{#if showClinicSelector}
+			{#if clinicListVisible}
 				<div class="border-t border-gray-100 p-3 space-y-2">
 					{#each clinics as clinic}
 						<button class="w-full text-left p-3 rounded-lg cursor-pointer"
 							style="background: {selectedClinic?.id === clinic.id ? 'rgba(59,130,246,0.1)' : '#f8f9fb'};
 							       border: 1px solid {selectedClinic?.id === clinic.id ? 'rgba(59,130,246,0.3)' : 'rgba(0,0,0,0.06)'};"
-							onclick={() => selectClinic(clinic)}>
+							onclick={() => void handleClinicSelection(clinic)}>
 							<div class="flex items-center gap-2">
 								<p class="text-sm font-semibold text-gray-800">{clinic.name}</p>
 								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{clinicAccessModeLabel(clinic.access_mode)}</span>
@@ -520,6 +541,9 @@
 							<p class="text-xs text-gray-500">{clinic.department} · {clinic.location}</p>
 							{#if clinic.faculty_name}
 								<p class="text-xs text-gray-400">Dr. {clinic.faculty_name}</p>
+							{/if}
+							{#if clinicSelectionChecksIn}
+								<p class="mt-1 text-[11px] font-medium text-blue-600">Tap to {selectedClinic?.id === clinic.id && ((role === 'STUDENT' && currentCheckedInSession?.clinic_id === clinic.id) || (role === 'FACULTY' && currentFacultyCheckedInSession?.clinic_id === clinic.id)) ? 'view this clinic' : 'check in here'}</p>
 							{/if}
 						</button>
 					{/each}

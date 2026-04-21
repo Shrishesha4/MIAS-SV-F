@@ -16,7 +16,7 @@ export interface AttendanceStatus {
 	checked_in_at: string | null;
 	open_hour: number;
 	role: string;
-	skip_modal?: boolean;  // True for admin users, IP patients day 2+
+	skip_modal?: boolean;  // True when this role should not be blocked by the daily check-in modal
 	counts: AttendanceCounts;
 }
 

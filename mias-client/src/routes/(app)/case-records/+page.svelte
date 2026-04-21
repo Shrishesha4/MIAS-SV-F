@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { DiagnosisSuggestion as AIDiagnosisSuggestion } from '$lib/api/ai';
 	import { studentApi, type AssignedPatient } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
 	import { autocompleteApi, type DiagnosisSuggestion } from '$lib/api/autocomplete';
@@ -156,6 +157,11 @@
 		formData['diagnosis'] = item.text;
 		icdCode = item.icd_code || '';
 		icdDescription = item.icd_description || item.text;
+	}
+
+	function handleAIDiagnosisSelect(suggestion: AIDiagnosisSuggestion) {
+		icdCode = suggestion.icd_code || '';
+		icdDescription = suggestion.disease;
 	}
 
 	function patientDisplayLabel(patient: AssignedPatient) {
@@ -619,6 +625,11 @@
 					onDiagnosisInput={handleDiagnosisSearch}
 					onDiagnosisSelect={handleDiagnosisSelect}
 					onDiagnosisClear={() => { icdCode = ''; icdDescription = ''; diagnosisSuggestions = []; }}
+					aiPatientId={selectedPatientId}
+					aiDepartment={selectedForm?.department || selectedDepartment || null}
+					aiFormName={selectedForm?.name || null}
+					aiPriorDiagnoses={selectedPatient?.primary_diagnosis ? [{ diagnosis: selectedPatient.primary_diagnosis }] : null}
+					onAISuggestionSelect={handleAIDiagnosisSelect}
 				/>
 				{#if icdCode}
 					<div class="mt-1.5 flex items-center gap-1.5">

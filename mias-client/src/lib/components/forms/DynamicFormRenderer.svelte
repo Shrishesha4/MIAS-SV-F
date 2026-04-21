@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
-	import type { DiagnosisSuggestion } from '$lib/api/autocomplete';
+	import DiagnosisSuggestions from './DiagnosisSuggestions.svelte';
+	import type { DiagnosisSuggestion as AIDiagnosisSuggestion } from '$lib/api/ai';
+	import type { DiagnosisSuggestion as AutocompleteDiagnosisSuggestion } from '$lib/api/autocomplete';
 	import type { FormFieldDefinition, FormRule } from '$lib/types/forms';
 	import { createFormEngine } from '$lib/utils/formEngine';
 	import { formsApi } from '$lib/api/forms';
@@ -17,11 +19,19 @@
 		rules?: FormRule[];
 		values?: Record<string, any>;
 		idPrefix?: string;
-		diagnosisSuggestions?: DiagnosisSuggestion[];
+		diagnosisSuggestions?: AutocompleteDiagnosisSuggestion[];
 		diagnosisLoading?: boolean;
 		onDiagnosisInput?: (query: string) => void;
-		onDiagnosisSelect?: (item: DiagnosisSuggestion) => void;
+		onDiagnosisSelect?: (item: AutocompleteDiagnosisSuggestion) => void;
 		onDiagnosisClear?: () => void;
+		// AI Diagnosis props
+		aiPatientId?: string;
+		aiDepartment?: string | null;
+		aiFormName?: string | null;
+		aiPriorDiagnoses?: Array<Record<string, any>> | null;
+		aiTopN?: number;
+		aiAutoAnalyze?: boolean;
+		onAISuggestionSelect?: (suggestion: AIDiagnosisSuggestion) => void;
 	}
 
 	let {
@@ -34,6 +44,13 @@
 		onDiagnosisInput,
 		onDiagnosisSelect,
 		onDiagnosisClear,
+		aiPatientId,
+		aiDepartment,
+		aiFormName,
+		aiPriorDiagnoses,
+		aiTopN = 5,
+		aiAutoAnalyze = true,
+		onAISuggestionSelect,
 	}: Props = $props();
 
 	// Lookup options cache for dynamic selects
@@ -88,6 +105,48 @@
 	}
 
 	const visibleFields = $derived(fields.filter((f) => formState.visibility[f.key] !== false));
+
+	function normalizeFieldToken(value: string | null | undefined): string {
+		return (value ?? '').trim().toLowerCase();
+	}
+
+	function findFieldKeyByHint(
+		predicate: (field: FormFieldDefinition, normalizedKey: string, normalizedLabel: string) => boolean,
+	): string | null {
+		const match = fields.find((field) =>
+			predicate(field, normalizeFieldToken(field.key), normalizeFieldToken(field.label))
+		);
+		return match?.key ?? null;
+	}
+
+	const aiDiagnosisFieldKey = $derived.by(() =>
+		findFieldKeyByHint((_, normalizedKey, normalizedLabel) =>
+			['diagnosis', 'primary_diagnosis', 'provisional_diagnosis', 'final_diagnosis'].includes(normalizedKey)
+				|| normalizedLabel.includes('diagnosis')
+		)
+	);
+
+	const aiIcdCodeFieldKey = $derived.by(() =>
+		findFieldKeyByHint((_, normalizedKey, normalizedLabel) =>
+			normalizedKey === 'icd_code'
+				|| normalizedKey === 'diagnosis_code'
+				|| (normalizedLabel.includes('icd') && normalizedLabel.includes('code'))
+		)
+	);
+
+	function handleAISuggestionSelect(suggestion: AIDiagnosisSuggestion): void {
+		if (aiDiagnosisFieldKey) {
+			values[aiDiagnosisFieldKey] = suggestion.disease;
+		}
+
+		if (aiIcdCodeFieldKey && suggestion.icd_code) {
+			values[aiIcdCodeFieldKey] = suggestion.icd_code;
+		}
+
+		if (onAISuggestionSelect) {
+			onAISuggestionSelect(suggestion);
+		}
+	}
 </script>
 
 {#each visibleFields as field (field.key)}
@@ -192,3 +251,17 @@
 		{/if}
 	</div>
 {/each}
+
+<!-- AI Diagnosis Suggestions -->
+{#if aiPatientId}
+	<DiagnosisSuggestions
+		patientId={aiPatientId}
+		department={aiDepartment}
+		formName={aiFormName}
+		formValues={values}
+		priorDiagnoses={aiPriorDiagnoses}
+		topN={aiTopN}
+		autoAnalyze={aiAutoAnalyze}
+		onSuggestionSelect={handleAISuggestionSelect}
+	/>
+{/if}

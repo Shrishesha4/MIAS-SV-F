@@ -275,6 +275,12 @@
 		clinicPatients = await studentApi.getClinicPatients(student.id, clinic.id);
 	}
 
+	async function handleStudentClinicSelection(clinic: Clinic | null) {
+		await loadStudentClinicPatients(clinic);
+		if (!clinic || !student || activeClinicSession?.clinic_id === clinic.id) return;
+		await handleCheckIn();
+	}
+
 	async function refreshStudentClinicState(preferredClinicId?: string | null) {
 		if (!student) return;
 		const sessions = await studentApi.getClinicSessions(student.id);
@@ -315,6 +321,12 @@
 		}
 		facultyClinicSearch = clinic.name;
 		facultyClinicPatients = await facultyApi.getClinicPatients(clinic.id);
+	}
+
+	async function handleFacultyClinicSelection(clinic: any | null) {
+		await loadFacultyClinicPatients(clinic);
+		if (!clinic || !faculty || activeFacultyClinicSession?.clinic_id === clinic.id) return;
+		await handleFacultyCheckIn();
 	}
 
 	async function refreshFacultyClinicState(preferredClinicId?: string | null) {
@@ -917,7 +929,7 @@
 									placeholder="Search and select clinic..."
 									bind:value={clinicSearch}
 									onInput={handleClinicSearchInput}
-									onSelect={(clinic) => void loadStudentClinicPatients(clinic as Clinic)}
+									onSelect={(clinic) => void handleStudentClinicSelection(clinic as Clinic)}
 									onClear={clearClinicSelection}
 								/>
 								{#if selectedClinic}
@@ -948,27 +960,20 @@
 										</button>
 									</div>
 								{:else if selectedClinic}
-									<!-- Check In Button -->
-									<div class="space-y-2">
-										{#if activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
-											<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
-												<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
-												<p class="text-xs text-amber-700">Currently checked in to <span class="font-semibold">{activeClinicSession.clinic_name}</span>. Checking in here will switch your active clinic.</p>
-											</div>
+									<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2);">
+										{#if checkingIn}
+											<div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+											<p class="text-xs text-blue-700">Checking in to <span class="font-semibold">{selectedClinic.name}</span>...</p>
+										{:else}
+											<Building class="w-4 h-4 text-blue-600 shrink-0" />
+											<p class="text-xs text-blue-700">
+												{#if activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
+													Choosing <span class="font-semibold">{selectedClinic.name}</span> above will switch your active clinic immediately.
+												{:else}
+													Selecting a clinic above checks you in immediately.
+												{/if}
+											</p>
 										{/if}
-										<button
-											class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
-											style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
-											disabled={checkingIn}
-											onclick={handleCheckIn}
-										>
-											{#if checkingIn}
-												<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-											{:else}
-												<LogIn class="w-4 h-4" />
-											{/if}
-											Check In to {selectedClinic.name}
-										</button>
 									</div>
 								{/if}
 							</div>
@@ -1291,7 +1296,7 @@ style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#05966
 							placeholder="Search and select clinic..."
 							bind:value={facultyClinicSearch}
 							onInput={handleFacultyClinicSearchInput}
-							onSelect={(clinic) => void loadFacultyClinicPatients(clinic)}
+							onSelect={(clinic) => void handleFacultyClinicSelection(clinic)}
 							onClear={clearFacultyClinicSelection}
 						/>
 						{#if selectedFacultyClinic}
@@ -1320,26 +1325,20 @@ style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#05966
 									</button>
 								</div>
 							{:else}
-								<div class="space-y-2">
-									{#if activeFacultyClinicSession && activeFacultyClinicSession.clinic_id !== selectedFacultyClinic.id}
-										<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
-											<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
-											<p class="text-xs text-amber-700">Currently checked in to <span class="font-semibold">{activeFacultyClinicSession.clinic_name}</span>. Checking in here will switch your active clinic.</p>
-										</div>
+								<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2);">
+									{#if facultyCheckingIn}
+										<div class="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"></div>
+										<p class="text-xs text-blue-700">Checking in to <span class="font-semibold">{selectedFacultyClinic.name}</span>...</p>
+									{:else}
+										<Building class="w-4 h-4 text-blue-600 shrink-0" />
+										<p class="text-xs text-blue-700">
+											{#if activeFacultyClinicSession && activeFacultyClinicSession.clinic_id !== selectedFacultyClinic.id}
+												Choosing <span class="font-semibold">{selectedFacultyClinic.name}</span> above will switch your active clinic immediately.
+											{:else}
+												Selecting a clinic above checks you in immediately.
+											{/if}
+										</p>
 									{/if}
-									<button
-										class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
-										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
-										disabled={facultyCheckingIn}
-										onclick={handleFacultyCheckIn}
-									>
-										{#if facultyCheckingIn}
-											<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-										{:else}
-											<LogIn class="w-4 h-4" />
-										{/if}
-										Check In to {selectedFacultyClinic.name}
-									</button>
 								</div>
 							{/if}
 						{/if}

@@ -59,14 +59,12 @@
 	});
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
 
-	// Show check-in modal only if not checked in and not skipped (admin/IP day2+)
+	// Show the blocker only when the backend says today's check-in is still required.
 	const needsDailyCheckIn = $derived(
 		Boolean(
 			attendanceStatus &&
 			!attendanceStatus.checked_in &&
-			!attendanceStatus.skip_modal &&
-			authState.role !== 'STUDENT' &&
-			authState.role !== 'FACULTY'
+			!attendanceStatus.skip_modal
 		)
 	);
 	const attendanceCounts = $derived(

@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
-	import { get } from 'svelte/store';
-	import { authStore } from '$lib/stores/auth';
+import { goto } from '$app/navigation';
+import { get } from 'svelte/store';
+import { authStore } from '$lib/stores/auth';
+import client from '$lib/api/client';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import { insuranceCategoriesApi, type InsuranceCategory } from '$lib/api/insuranceCategories';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
@@ -109,6 +110,8 @@
 	let confirmAction: (() => Promise<void>) | null = $state(null);
 	let confirmMessage = $state('');
 	let actionLoading = $state(false);
+
+	
 
 	const filteredCharges = $derived.by(() => charges.filter((charge) => charge.category === activeCategory));
 
@@ -1004,6 +1007,8 @@
 		}
 	}
 
+	
+
 </script>
 
 <svelte:window onmousemove={handleResizeMouseMove} onmouseup={stopColumnResize} />
@@ -1562,3 +1567,5 @@
 		</div>
 	</AquaModal>
 {/if}
+
+

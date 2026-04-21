@@ -18,6 +18,7 @@ from app.models.admission import Admission
 from app.models.prescription import Prescription
 from app.models.student import Clinic, Student
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
+from app.services.daily_checkins import ensure_daily_checkin
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
@@ -133,6 +134,14 @@ async def check_in_faculty_to_clinic(
 
     now = datetime.utcnow()
     if active_session and active_session.clinic_id == clinic.id:
+        await ensure_daily_checkin(
+            db,
+            user_id=user.id,
+            role=UserRole.FACULTY,
+            checked_in_at=active_session.checked_in_at or now,
+            clinic_id=clinic.id,
+        )
+        await db.commit()
         return {
             "status": "already_checked_in",
             "session_id": active_session.id,
@@ -158,6 +167,13 @@ async def check_in_faculty_to_clinic(
         checked_in_at=now,
     )
     db.add(session)
+    await ensure_daily_checkin(
+        db,
+        user_id=user.id,
+        role=UserRole.FACULTY,
+        checked_in_at=now,
+        clinic_id=clinic.id,
+    )
     await db.commit()
 
     return {

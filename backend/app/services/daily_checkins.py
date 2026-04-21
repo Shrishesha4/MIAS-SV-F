@@ -6,8 +6,6 @@ import uuid
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
-
 from app.models.daily_checkin import DailyCheckIn
 from app.models.user import User, UserRole
 from app.models.admission import Admission
@@ -44,8 +42,7 @@ async def ensure_daily_checkin(
     timestamp = checked_in_at or datetime.utcnow()
     check_in = await get_daily_checkin(db, user_id=user_id, target_date=timestamp.date())
     if check_in:
-        # If clinic_id provided and not yet set, update it
-        if clinic_id and not check_in.clinic_id:
+        if clinic_id and check_in.clinic_id != clinic_id:
             check_in.clinic_id = clinic_id
         return check_in
 
@@ -62,16 +59,11 @@ async def ensure_daily_checkin(
     return check_in
 
 
-async def ensure_ip_auto_checkin(
+async def get_active_patient_admission(
     db: AsyncSession,
     *,
     user_id: str,
-) -> DailyCheckIn | None:
-    """
-    Auto-check-in for admitted (inpatient) patients on day 2+.
-    Returns the check-in record if auto-created, else None (needs manual check-in).
-    """
-    # Find patient record for this user
+) -> Admission | None:
     patient_result = await db.execute(
         select(Patient).where(Patient.user_id == user_id)
     )
@@ -79,7 +71,6 @@ async def ensure_ip_auto_checkin(
     if not patient:
         return None
 
-    # Find active admission
     admission_result = await db.execute(
         select(Admission)
         .where(
@@ -88,31 +79,7 @@ async def ensure_ip_auto_checkin(
         )
         .order_by(Admission.admission_date.desc())
     )
-    admission = admission_result.scalar_one_or_none()
-    if not admission:
-        return None  # Not admitted, needs manual check-in
-
-    # Check if admission is day 2+ (admission date is before today)
-    today = datetime.utcnow().date()
-    if admission.admission_date >= today:
-        return None  # Day 1, needs manual check-in
-
-    # Day 2+: auto-check-in to the same ward/clinic
-    existing = await get_daily_checkin(db, user_id=user_id, target_date=today)
-    if existing:
-        return existing
-
-    check_in = DailyCheckIn(
-        id=str(uuid.uuid4()),
-        user_id=user_id,
-        role=UserRole.PATIENT,
-        check_in_date=today,
-        checked_in_at=datetime.utcnow(),
-        clinic_id=admission.clinic_id,  # Re-use the admission's clinic
-    )
-    db.add(check_in)
-    await db.flush()
-    return check_in
+    return admission_result.scalar_one_or_none()
 
 
 async def get_daily_checkin_counts(
@@ -157,6 +124,7 @@ def build_daily_checkin_status(
     user: User,
     check_in: DailyCheckIn | None,
     counts: dict[str, int],
+    skip_modal: bool = False,
 ) -> dict:
     return {
         "today": datetime.utcnow().date().isoformat(),
@@ -164,5 +132,6 @@ def build_daily_checkin_status(
         "checked_in_at": check_in.checked_in_at.isoformat() if check_in else None,
         "open_hour": CHECK_IN_OPEN_HOUR,
         "role": user.role.value,
+        "skip_modal": skip_modal,
         "counts": counts,
     }

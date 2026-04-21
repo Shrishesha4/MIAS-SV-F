@@ -12,7 +12,7 @@ from app.services.daily_checkins import (
     ensure_daily_checkin,
     get_daily_checkin,
     get_daily_checkin_counts,
-    ensure_ip_auto_checkin,
+    get_active_patient_admission,
 )
 
 
@@ -23,12 +23,24 @@ class CheckInRequest(BaseModel):
     clinic_id: Optional[str] = None
 
 
+async def _should_skip_daily_checkin_modal(
+    db: AsyncSession,
+    *,
+    user: User,
+) -> bool:
+    if user.role in {UserRole.ADMIN, UserRole.STUDENT, UserRole.FACULTY}:
+        return True
+    if user.role == UserRole.PATIENT:
+        admission = await get_active_patient_admission(db, user_id=user.id)
+        return admission is None
+    return False
+
+
 @router.get("/today")
 async def get_today_checkin_status(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Admin users are auto-checked-in and don't need daily check-in
     if user.role == UserRole.ADMIN:
         counts = await get_daily_checkin_counts(db)
         return {
@@ -41,17 +53,14 @@ async def get_today_checkin_status(
             "counts": counts,
         }
 
-    # For admitted patients (IP), auto-check-in on day 2+
-    if user.role == UserRole.PATIENT:
-        auto_checkin = await ensure_ip_auto_checkin(db, user_id=user.id)
-        if auto_checkin:
-            await db.commit()
-            counts = await get_daily_checkin_counts(db)
-            return build_daily_checkin_status(user=user, check_in=auto_checkin, counts=counts)
-
     check_in = await get_daily_checkin(db, user_id=user.id)
     counts = await get_daily_checkin_counts(db)
-    return build_daily_checkin_status(user=user, check_in=check_in, counts=counts)
+    return build_daily_checkin_status(
+        user=user,
+        check_in=check_in,
+        counts=counts,
+        skip_modal=await _should_skip_daily_checkin_modal(db, user=user),
+    )
 
 
 @router.post("/check-in")
@@ -60,7 +69,6 @@ async def check_in_today(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Admin users don't need to check in
     if user.role == UserRole.ADMIN:
         counts = await get_daily_checkin_counts(db)
         return {
@@ -81,4 +89,9 @@ async def check_in_today(
     )
     await db.commit()
     counts = await get_daily_checkin_counts(db)
-    return build_daily_checkin_status(user=user, check_in=check_in, counts=counts)
+    return build_daily_checkin_status(
+        user=user,
+        check_in=check_in,
+        counts=counts,
+        skip_modal=await _should_skip_daily_checkin_modal(db, user=user),
+    )

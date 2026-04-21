@@ -490,3 +490,241 @@ async def test_provider_connection(config: AIProviderSettings) -> dict[str, str]
         "diagnosis": str(payload.get("diagnosis") or "").strip(),
         "treatment": str(payload.get("treatment") or "").strip(),
     }
+
+
+# ─── Diagnosis Suggestion Service ─────────────────────────────────────────────
+
+DIAGNOSIS_SYSTEM_PROMPT = (
+    "You are a medical diagnostic assistant for a teaching hospital. "
+    "Based on the patient information and current form data provided, "
+    "analyze the symptoms and clinical findings to suggest the top N primary diagnosis diseases. "
+    "Return valid JSON only with exactly this structure: "
+    "'suggestions': array of objects, each with 'disease' (string), 'confidence' (number 0-100), "
+    "'reasoning' (string explaining why), and 'icd_code' (string if available). "
+    "Return exactly the requested number of suggestions ranked by confidence (highest first). "
+    "Only include diseases that are clinically plausible given the data. "
+    "If the context is insufficient, note that in the reasoning."
+)
+
+
+def _isoformat(value: date | datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.isoformat()
+
+
+def _serialize_recent_diagnosis_entries(patient: Patient, limit: int = 5) -> list[dict[str, Any]]:
+    entries = [entry for entry in (patient.diagnosis_entries or []) if entry.is_active]
+    return [
+        {
+            "diagnosis": entry.diagnosis,
+            "icd_code": entry.icd_code,
+            "icd_description": entry.icd_description,
+            "added_at": _isoformat(entry.added_at),
+        }
+        for entry in entries[:limit]
+    ]
+
+
+def _serialize_recent_admissions(patient: Patient, limit: int = 3) -> list[dict[str, Any]]:
+    admissions = sorted(
+        patient.admissions or [],
+        key=lambda admission: admission.admission_date or datetime.min,
+        reverse=True,
+    )
+    return [
+        {
+            "admission_date": _isoformat(admission.admission_date),
+            "discharge_date": _isoformat(admission.discharge_date),
+            "status": admission.status,
+            "department": admission.department,
+            "ward": admission.ward,
+            "attending_doctor": admission.attending_doctor,
+            "reason": admission.reason,
+            "diagnosis": admission.diagnosis,
+            "chief_complaints": admission.chief_complaints,
+            "history_of_present_illness": admission.history_of_present_illness,
+            "past_medical_history": admission.past_medical_history,
+            "provisional_diagnosis": admission.provisional_diagnosis,
+            "physical_examination": admission.physical_examination,
+            "discharge_summary": admission.discharge_summary,
+        }
+        for admission in admissions[:limit]
+    ]
+
+
+def _serialize_recent_case_records(patient: Patient, limit: int = 3) -> list[dict[str, Any]]:
+    records = sorted(
+        patient.case_records or [],
+        key=lambda record: record.date or record.created_at or datetime.min,
+        reverse=True,
+    )
+    return [
+        {
+            "date": _isoformat(record.date),
+            "type": record.type,
+            "department": record.department,
+            "form_name": record.form_name,
+            "procedure_name": record.procedure_name,
+            "description": record.description,
+            "findings": record.findings,
+            "diagnosis": record.diagnosis,
+            "treatment": record.treatment,
+        }
+        for record in records[:limit]
+    ]
+
+
+def _serialize_recent_prescriptions(patient: Patient, limit: int = 3) -> list[dict[str, Any]]:
+    prescriptions = sorted(
+        patient.prescriptions or [],
+        key=lambda prescription: prescription.date or prescription.created_at or datetime.min,
+        reverse=True,
+    )
+    return [
+        {
+            "date": _isoformat(prescription.date),
+            "department": prescription.department,
+            "doctor": prescription.doctor,
+            "status": prescription.status.value if hasattr(prescription.status, "value") else prescription.status,
+            "notes": prescription.notes,
+            "medications": [
+                {
+                    "name": medication.name,
+                    "dosage": medication.dosage,
+                    "frequency": medication.frequency,
+                    "duration": medication.duration,
+                    "instructions": medication.instructions,
+                }
+                for medication in (prescription.medications or [])[:5]
+            ],
+        }
+        for prescription in prescriptions[:limit]
+    ]
+
+
+def _serialize_latest_vitals(patient: Patient) -> dict[str, Any] | None:
+    latest_vital = max(
+        patient.vitals or [],
+        key=lambda vital: vital.recorded_at or datetime.min,
+        default=None,
+    )
+    if latest_vital is None:
+        return None
+
+    vitals = {
+        "recorded_at": _isoformat(latest_vital.recorded_at),
+        "systolic_bp": latest_vital.systolic_bp,
+        "diastolic_bp": latest_vital.diastolic_bp,
+        "heart_rate": latest_vital.heart_rate,
+        "respiratory_rate": latest_vital.respiratory_rate,
+        "temperature": latest_vital.temperature,
+        "oxygen_saturation": latest_vital.oxygen_saturation,
+        "weight": latest_vital.weight,
+        "blood_glucose": latest_vital.blood_glucose,
+        "cholesterol": latest_vital.cholesterol,
+        "bmi": latest_vital.bmi,
+        "extra_values": latest_vital.extra_values,
+    }
+    return {key: value for key, value in vitals.items() if value is not None and value != {}}
+
+
+def build_diagnosis_user_prompt(
+    patient: Patient,
+    department: str | None,
+    form_name: str | None,
+    form_values: dict[str, Any],
+    prior_diagnoses: list[dict[str, Any]] | None = None,
+    top_n: int = 5,
+) -> str:
+    patient_age = None
+    if patient.date_of_birth:
+        today = date.today()
+        patient_age = today.year - patient.date_of_birth.year - (
+            (today.month, today.day) < (patient.date_of_birth.month, patient.date_of_birth.day)
+        )
+
+    allergies = [allergy.allergen for allergy in (patient.allergies or [])]
+    alerts = [
+        {"title": alert.title, "severity": alert.severity}
+        for alert in (patient.medical_alerts or [])
+        if alert.is_active
+    ]
+
+    context: dict[str, Any] = {
+        "patient_demographics": {
+            "name": patient.name,
+            "patient_id": patient.patient_id,
+            "age": patient_age,
+            "gender": patient.gender.value if patient.gender else None,
+            "blood_group": patient.blood_group,
+            "category": patient.category,
+        },
+        "patient_history": {
+            "primary_diagnosis": patient.primary_diagnosis,
+            "allergies": allergies,
+            "active_medical_alerts": alerts,
+            "recent_diagnosis_entries": _serialize_recent_diagnosis_entries(patient),
+            "recent_admissions": _serialize_recent_admissions(patient),
+            "recent_case_records": _serialize_recent_case_records(patient),
+            "recent_prescriptions": _serialize_recent_prescriptions(patient),
+            "latest_vitals": _serialize_latest_vitals(patient),
+        },
+        "current_form": {
+            "department": department,
+            "form_name": form_name,
+            "form_values": form_values,
+        },
+        "instructions": {
+            "required_output": "suggestions array with disease, confidence, reasoning, icd_code",
+            "count": top_n,
+            "format": "Return JSON only.",
+        },
+    }
+
+    if prior_diagnoses:
+        context["prior_diagnoses"] = prior_diagnoses
+
+    return _stringify_context(context)
+
+
+async def get_diagnosis_suggestions(
+    db: AsyncSession,
+    patient: Patient,
+    department: str | None,
+    form_name: str | None,
+    form_values: dict[str, Any],
+    prior_diagnoses: list[dict[str, Any]] | None = None,
+    top_n: int = 5,
+) -> list[dict[str, Any]]:
+    config = await get_enabled_provider_settings(db)
+    system_prompt = DIAGNOSIS_SYSTEM_PROMPT
+    user_prompt = build_diagnosis_user_prompt(
+        patient=patient,
+        department=department,
+        form_name=form_name,
+        form_values=form_values,
+        prior_diagnoses=prior_diagnoses,
+        top_n=top_n,
+    )
+    response = await request_structured_completion(config, system_prompt, user_prompt)
+
+    suggestions = response.get("suggestions")
+    if not suggestions or not isinstance(suggestions, list):
+        raise AIProviderError("The AI provider did not return diagnosis suggestions")
+
+    # Validate and normalize suggestions
+    validated = []
+    for s in suggestions[:top_n]:
+        if isinstance(s, dict):
+            validated.append({
+                "disease": str(s.get("disease") or "").strip(),
+                "confidence": min(max(float(s.get("confidence") or 0), 0), 100),
+                "reasoning": str(s.get("reasoning") or "").strip(),
+                "icd_code": str(s.get("icd_code") or "").strip(),
+            })
+
+    if not validated:
+        raise AIProviderError("No valid diagnosis suggestions returned")
+
+    return validated

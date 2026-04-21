@@ -1306,10 +1306,10 @@ async def _seed_supplementary(db, now, start_date):
         ]
         for cat_name, sort in FORM_CATS:
             await db.execute(text(
-                "INSERT INTO form_category_options (id, name, sort_order, is_active, is_system) "
-                "VALUES (:id, :name, :sort, true, true) "
+                "INSERT INTO form_category_options (id, name, sort_order, is_active, is_system, created_at) "
+                "VALUES (:id, :name, :sort, true, true, :now) "
                 "ON CONFLICT (name) DO NOTHING"
-            ), {"id": uid(), "name": cat_name, "sort": sort})
+            ), {"id": uid(), "name": cat_name, "sort": sort, "now": now})
         await db.commit()
         print(f"    ✓ {len(FORM_CATS)} form categories")
 

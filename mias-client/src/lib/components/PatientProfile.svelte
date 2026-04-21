@@ -5,6 +5,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { toastStore } from '$lib/stores/toast';
+	import type { DiagnosisSuggestion as AIDiagnosisSuggestion } from '$lib/api/ai';
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { formsApi } from '$lib/api/forms';
@@ -384,6 +385,11 @@
 		crFormData['diagnosis'] = item.text;
 		crIcdCode = item.icd_code || '';
 		crIcdDescription = item.icd_description || item.text;
+	}
+
+	function handleCrAIDiagnosisSelect(suggestion: AIDiagnosisSuggestion) {
+		crIcdCode = suggestion.icd_code || '';
+		crIcdDescription = suggestion.disease;
 	}
 
 	function crFormDisplayLabel(form: FormDefinition) {
@@ -2849,6 +2855,11 @@
 				onDiagnosisInput={handleCrDiagnosisSearch}
 				onDiagnosisSelect={handleCrDiagnosisSelect}
 				onDiagnosisClear={() => { crIcdCode = ''; crIcdDescription = ''; crDiagnosisSuggestions = []; }}
+				aiPatientId={pid}
+				aiDepartment={selectedCrForm?.department || null}
+				aiFormName={selectedCrForm?.name || null}
+				aiPriorDiagnoses={patient?.primary_diagnosis ? [{ diagnosis: patient.primary_diagnosis }] : null}
+				onAISuggestionSelect={handleCrAIDiagnosisSelect}
 			/>
 			{#if crIcdCode}
 				<div class="mt-1.5 flex items-center gap-1.5">
