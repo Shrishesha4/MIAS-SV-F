@@ -14,13 +14,12 @@
 	import { nurseApi } from '$lib/api/nurse';
 	import { billingApi } from '$lib/api/billing';
 	import { otApi } from '$lib/api/ot';
-	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { getMenuItems } from '$lib/config/menuItems';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import NavBar from '$lib/components/layout/NavBar.svelte';
 	import SideMenu from '$lib/components/layout/SideMenu.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
-	import { LogOut, Search, Pin, PinOff, Loader2, UserCheck, Building2 } from 'lucide-svelte';
+	import { LogOut, Search, Pin, PinOff, Loader2, UserCheck } from 'lucide-svelte';
 	import { page } from '$app/state';
 	import ToastContainer from '$lib/components/ui/ToastContainer.svelte';
 
@@ -37,11 +36,6 @@
 	let attendanceLoading = $state(false);
 	let attendanceSubmitting = $state(false);
 
-	// Clinic picker for student/faculty
-	let clinics = $state<ClinicInfo[]>([]);
-	let selectedClinicId = $state<string>('');
-	let clinicsLoading = $state(false);
-
 	// Floating sidebar state
 	let sidebarPinned = $state(false);
 	let sidebarHovered = $state(false);
@@ -54,16 +48,26 @@
 	const sidebarOpen = $derived(sidebarPinned || sidebarHovered);
 
 	const currentPath = $derived(page.url.pathname);
-	const pageTransitionKey = $derived(currentPath.startsWith('/admin') ? '/admin' : currentPath.startsWith('/billing') ? '/billing' : currentPath.startsWith('/ot-manager') ? '/ot-manager' : currentPath);
+	const pageTransitionKey = $derived.by(() => {
+		if (currentPath.startsWith('/admin')) return '/admin';
+		if (currentPath.startsWith('/billing')) return '/billing';
+		if (currentPath.startsWith('/ot-manager')) return '/ot-manager';
+		if (/^\/patients\/[^/]+\/radiology\/[^/]+$/.test(currentPath)) {
+			return currentPath.replace(/\/radiology\/[^/]+$/, '/radiology');
+		}
+		return currentPath;
+	});
 	const menuItems = $derived(getMenuItems(authState.role ?? ''));
 
 	// Show check-in modal only if not checked in and not skipped (admin/IP day2+)
 	const needsDailyCheckIn = $derived(
-		Boolean(attendanceStatus && !attendanceStatus.checked_in && !attendanceStatus.skip_modal)
-	);
-	// Student/faculty need to pick a clinic
-	const needsClinicPicker = $derived(
-		needsDailyCheckIn && (authState.role === 'STUDENT' || authState.role === 'FACULTY')
+		Boolean(
+			attendanceStatus &&
+			!attendanceStatus.checked_in &&
+			!attendanceStatus.skip_modal &&
+			authState.role !== 'STUDENT' &&
+			authState.role !== 'FACULTY'
+		)
 	);
 	const attendanceCounts = $derived(
 		attendanceStatus?.counts ?? {
@@ -129,28 +133,13 @@
 	}
 
 	async function loadAttendanceStatus() {
+		if (authState.role === 'STUDENT' || authState.role === 'FACULTY') {
+			attendanceStatus = null;
+			return;
+		}
 		attendanceLoading = true;
 		try {
 			attendanceStatus = await attendanceApi.getTodayStatus();
-			// Load clinics if student/faculty needs to pick one
-			if (
-				attendanceStatus &&
-				!attendanceStatus.checked_in &&
-				!attendanceStatus.skip_modal &&
-				(authState.role === 'STUDENT' || authState.role === 'FACULTY')
-			) {
-				clinicsLoading = true;
-				try {
-					clinics = await clinicsApi.listClinics();
-					// Pre-select first active clinic
-					const activeClinics = clinics.filter(c => c.is_active);
-					if (activeClinics.length > 0) {
-						selectedClinicId = activeClinics[0].id;
-					}
-				} finally {
-					clinicsLoading = false;
-				}
-			}
 		} catch {
 			attendanceStatus = null;
 		} finally {
@@ -160,12 +149,9 @@
 
 	async function submitDailyCheckIn() {
 		if (attendanceSubmitting) return;
-		// For student/faculty, require clinic selection
-		if (needsClinicPicker && !selectedClinicId) return;
 		attendanceSubmitting = true;
 		try {
-			const clinicId = needsClinicPicker ? selectedClinicId : undefined;
-			attendanceStatus = await attendanceApi.checkInToday(clinicId);
+			attendanceStatus = await attendanceApi.checkInToday();
 		} finally {
 			attendanceSubmitting = false;
 		}
@@ -396,40 +382,8 @@
 			<div class="space-y-4">
 				<div class="rounded-2xl px-4 py-4" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid #93c5fd;">
 					<p class="text-sm font-semibold text-gray-900">Please mark today&apos;s hospital presence before continuing.</p>
-					<p class="mt-1 text-xs text-gray-600">
-						{#if needsClinicPicker}
-							Select the clinic you're working in today.
-						{:else}
-							Everyone checks in once each day so the hospital census stays accurate.
-						{/if}
-					</p>
+					<p class="mt-1 text-xs text-gray-600">Everyone checks in once each day so the hospital census stays accurate.</p>
 				</div>
-
-				{#if needsClinicPicker}
-					<!-- Clinic picker for student/faculty -->
-					<div>
-						<label class="block text-xs font-medium text-gray-700 mb-1.5">
-							<Building2 class="inline w-3.5 h-3.5 mr-1 -mt-0.5" />
-							Select your clinic for today
-						</label>
-						{#if clinicsLoading}
-							<div class="flex items-center justify-center py-4">
-								<Loader2 class="w-5 h-5 text-blue-500 animate-spin" />
-							</div>
-						{:else}
-							<select
-								bind:value={selectedClinicId}
-								class="w-full rounded-xl px-4 py-3 text-sm outline-none"
-								style="background: #fff; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
-							>
-								<option value="" disabled>Choose a clinic...</option>
-								{#each clinics.filter(c => c.is_active) as clinic}
-									<option value={clinic.id}>{clinic.name} ({clinic.department})</option>
-								{/each}
-							</select>
-						{/if}
-					</div>
-				{/if}
 
 				<div class="grid grid-cols-1 gap-3">
 					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
@@ -461,7 +415,7 @@
 					class="w-full rounded-2xl px-4 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
 					style="background: linear-gradient(to bottom, #2563eb, #1d4ed8); box-shadow: 0 2px 6px rgba(29,78,216,0.35);"
 					onclick={submitDailyCheckIn}
-					disabled={attendanceSubmitting || (needsClinicPicker && !selectedClinicId)}
+					disabled={attendanceSubmitting}
 				>
 					{#if attendanceSubmitting}
 						<Loader2 class="mr-2 inline h-4 w-4 animate-spin" /> Completing check-in

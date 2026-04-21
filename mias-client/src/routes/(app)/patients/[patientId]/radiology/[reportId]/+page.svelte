@@ -140,7 +140,11 @@
 
 	function openStudy(studyId: string) {
 		if (!patientId || studyId === reportId) return;
-		void goto(`/patients/${patientId}/radiology/${studyId}`);
+		void goto(`/patients/${patientId}/radiology/${studyId}`, {
+			replaceState: true,
+			noScroll: true,
+			keepFocus: true,
+		});
 	}
 
 	function showPreviousStudy() {
@@ -236,7 +240,7 @@
 	});
 </script>
 
-<div class="fixed inset-0 z-[90] overflow-hidden bg-[#111418] text-white">
+<div class="fixed inset-x-0 bottom-0 top-[56px] z-[90] overflow-hidden bg-[#111418] text-white">
 	{#if loading}
 		<div class="flex h-full items-center justify-center">
 			<div class="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-sm font-semibold text-slate-200 backdrop-blur-sm">

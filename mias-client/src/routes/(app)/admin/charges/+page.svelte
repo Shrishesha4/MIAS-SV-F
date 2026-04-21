@@ -30,6 +30,7 @@
 		patientCategoryName: string;
 		patientColorPrimary: string;
 		patientColorSecondary: string;
+		isBase?: boolean;
 		isLegacy?: boolean;
 	};
 
@@ -158,6 +159,10 @@
 		return (registrationColumnWidths[key] ?? 92) >= 132;
 	}
 
+	function pricingTierTitle(tier: PricingTierOption): string {
+		return tier.insuranceName ? `${tier.patientCategoryName} • ${tier.insuranceName}` : tier.patientCategoryName;
+	}
+
 	function buildPricingColumns(
 		chargeItems: ChargeItem[],
 		categoryItems: PatientCategoryConfig[],
@@ -169,6 +174,29 @@
 			sortedCategories.map((category) => [normalizePricingKey(category.name), category])
 		);
 		const seenTierKeys = new Set<string>();
+
+		for (const category of sortedCategories) {
+			const normalizedTierKey = normalizePricingKey(category.name);
+			if (!normalizedTierKey || seenTierKeys.has(normalizedTierKey)) {
+				continue;
+			}
+
+			tiers.push({
+				key: category.name,
+				insuranceId: null,
+				insuranceName: '',
+				insuranceIconKey: 'off',
+				insuranceBadgeSymbol: null,
+				insuranceColorPrimary: category.color_primary,
+				insuranceColorSecondary: category.color_secondary,
+				patientCategoryId: category.id,
+				patientCategoryName: category.name,
+				patientColorPrimary: category.color_primary,
+				patientColorSecondary: category.color_secondary,
+				isBase: true
+			});
+			seenTierKeys.add(normalizedTierKey);
+		}
 
 		for (const insurance of sortInsuranceCategories(insuranceItems)) {
 			for (const patientCategory of sortInsurancePatientCategories(insurance.patient_categories || [])) {
@@ -1186,56 +1214,58 @@
     					{#each orderedPricingTiers as tier (tier.key)}
     						{@const InsuranceIcon = insuranceIcons[tier.insuranceIconKey]}
     						<div
-    							class={`charge-column-header relative flex min-h-[65px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedColumnKey === tier.key ? 'is-dragging' : ''} ${dragOverColumnKey === tier.key && draggedColumnKey !== null && draggedColumnKey !== tier.key ? 'is-drop-target' : ''}`}
-    							role="columnheader"
-    							tabindex="0"
-    							aria-label={`Reorder column ${tier.patientCategoryName} ${tier.insuranceName}`}
-    							title={`${tier.patientCategoryName} • ${tier.insuranceName}`}
-    							draggable="true"
-    							style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(tier.patientColorPrimary, 0.12)});`}
+     							class={`charge-column-header relative flex min-h-[65px] flex-col items-center justify-center overflow-hidden border-r border-slate-300 px-1 py-1 text-center ${draggedColumnKey === tier.key ? 'is-dragging' : ''} ${dragOverColumnKey === tier.key && draggedColumnKey !== null && draggedColumnKey !== tier.key ? 'is-drop-target' : ''}`}
+     							role="columnheader"
+     							tabindex="0"
+    							aria-label={`Reorder column ${pricingTierTitle(tier)}`}
+    							title={pricingTierTitle(tier)}
+     							draggable="true"
+     							style={`background: linear-gradient(to bottom, #ffffff, ${withAlpha(tier.patientColorPrimary, 0.12)});`}
     							ondragstart={(event) => handleColumnDragStart(event, tier.key)}
     							ondragover={(event) => handleColumnDragOver(event, tier.key)}
     							ondragenter={(event) => handleColumnDragOver(event, tier.key)}
     							ondrop={(event) => handleColumnDrop(event, tier.key)}
     							ondragend={resetColumnDragState}
     						>
-    							{#if showExpandedColumnHeader(tier.key)}
-    								<div class="flex flex-col items-center gap-1 px-1">
-       									<div
+     							{#if showExpandedColumnHeader(tier.key)}
+     								<div class="flex flex-col items-center gap-1 px-1">
+        									<div
                                             class="mx-auto flex flex-col items-center justify-center text-black leading-tight"
                                             style={`width: auto; height: auto;`}
                                         >
-    										{#if tier.insuranceBadgeSymbol}
-    											<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
-    										{:else}
-    											<InsuranceIcon class="h-3 w-3" />
-    										{/if}
-    									</div>
-    									<p class="text-[11px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
-    									<p class="text-[9px] leading-tight text-slate-500">{tier.insuranceName}</p>
-    								</div>
-    							{:else}
-   								<div
+    										{#if !tier.isBase && tier.insuranceBadgeSymbol}
+     											<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
+    										{:else if !tier.isBase}
+     											<InsuranceIcon class="h-3 w-3" />
+     										{/if}
+     									</div>
+     									<p class="text-[11px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
+    									{#if !tier.isBase}
+    										<p class="text-[9px] leading-tight text-slate-500">{tier.insuranceName}</p>
+    									{/if}
+     								</div>
+     							{:else}
+    								<div
                                     class="mx-auto flex flex-col items-center justify-center text-black leading-tight"
                                     style={`width: auto; height: auto;`}
                                 >
-    									{#if tier.insuranceBadgeSymbol}
-    										<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
-    										<p class="text-[8px] leading-tight text-slate-500">{tier.insuranceName}</p>
-    									{:else}
-    										<InsuranceIcon class="h-3 w-3" />
-    									{/if}
-    									<p class="text-[8px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
-    								</div>
+    									{#if !tier.isBase && tier.insuranceBadgeSymbol}
+     										<!-- <span class="text-[8px] font-black leading-none">{tier.insuranceBadgeSymbol.slice(0, 2)}</span> -->
+     										<p class="text-[8px] leading-tight text-slate-500">{tier.insuranceName}</p>
+    									{:else if !tier.isBase}
+     										<InsuranceIcon class="h-3 w-3" />
+     									{/if}
+     									<p class="text-[8px] font-black leading-tight text-slate-700">{tier.patientCategoryName}</p>
+     								</div>
     								<!-- <div class="mx-auto mt-1 h-1 w-7" style={`background: linear-gradient(90deg, ${tier.patientColorPrimary}, ${tier.patientColorSecondary});`}></div> -->
     								<!-- <p class="mt-1 text-[7px] font-black uppercase leading-none tracking-[0.12em] text-slate-700">{compactLabel(tier.patientCategoryName)}</p> -->
     							{/if}
-    							<button
-    								type="button"
-    								class="column-resizer"
-    								aria-label={`Resize ${tier.patientCategoryName} ${tier.insuranceName} column`}
-    								onmousedown={(event) => startColumnResize(event, tier.key, columnWidths[tier.key] ?? 72)}
-    							></button>
+     							<button
+     								type="button"
+     								class="column-resizer"
+    								aria-label={`Resize ${pricingTierTitle(tier)} column`}
+     								onmousedown={(event) => startColumnResize(event, tier.key, columnWidths[tier.key] ?? 72)}
+     							></button>
     						</div>
     					{/each}
     				</div>
@@ -1334,13 +1364,13 @@
     							<div class="min-w-0 border-r border-slate-200 shadow-[inset_-1px_0_0_rgba(0,0,0,0.04)]" style="background: {priceIsSet ? '#fff' : '#f8fafc'};">
     								<label class="flex h-[33px] items-center gap-1 px-1" class:bg-blue-50={savingPriceKey === inputKey}>
     									<span class="text-[10pt] font-semibold leading-none" style="color: {priceIsSet ? '#94a3b8' : '#cbd5e1'};">{priceIsSet ? '₹' : ''}</span>
-    									<input
-    										id={priceCellId(charge.id, tier.key)}
-    										type="number"
+     									<input
+     										id={priceCellId(charge.id, tier.key)}
+     										type="number"
     										min="0"
     										step="1"
     										placeholder="–"
-    										title={`${charge.name} • ${tier.patientCategoryName} • ${tier.insuranceName}`}
+    										title={`${charge.name} • ${pricingTierTitle(tier)}`}
     										class="compact-number-input h-full w-full min-w-0 bg-transparent px-0 text-center text-[11pt] font-semibold tracking-tight tabular-nums outline-none placeholder:text-slate-300 placeholder:font-normal"
     										style="color: {priceIsSet ? '#0f172a' : '#94a3b8'};"
     										value={getPriceInputValue(charge, tier.key)}

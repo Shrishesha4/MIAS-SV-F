@@ -101,6 +101,7 @@
 	let generateContext = $state<'studio' | 'settings'>('studio');
 
 	const selectedField = $derived(formEditorFields[selectedFieldIndex] ?? null);
+	const hasGeneratedDraft = $derived(formEditorFields.some((field) => field.label.trim() || field.key.trim()));
 	const previewSchema = $derived.by(() => {
 		const serializedFields = serializeFields(formEditorFields);
 		const duplicateKeys = new Set<string>();
@@ -249,6 +250,151 @@
 			required: false,
 			placeholder: ''
 		};
+	}
+
+	function normalizeGeneratedField(field: Partial<FormFieldDefinition>): FormFieldDefinition {
+		return {
+			key: slugify(field.key || field.label || ''),
+			label: String(field.label || '').trim(),
+			type: normalizeFieldType(field.type),
+			required: Boolean(field.required),
+			placeholder: String(field.placeholder || ''),
+			options: Array.isArray(field.options) ? [...field.options] : [],
+			rows: typeof field.rows === 'number' ? field.rows : undefined,
+			accept: field.accept || undefined,
+			multiple: Boolean(field.multiple),
+			help_text: String(field.help_text || ''),
+			condition: field.condition
+				? {
+					field: String(field.condition.field || '').trim(),
+					operator: field.condition.operator,
+					...(field.condition.value !== undefined ? { value: field.condition.value } : {})
+				}
+				: undefined,
+		};
+	}
+
+	function isGeneratedPatientIdentityField(field: Partial<FormFieldDefinition>): boolean {
+		const key = slugify(field.key || '');
+		const label = String(field.label || '')
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.replace(/\s+/g, ' ');
+		return ['patient_id', 'patient_name', 'patient_dob', 'patient_date_of_birth', 'date_of_birth', 'dob'].includes(key)
+			|| ['patient id', 'patient name', 'patient dob', 'patient date of birth', 'date of birth', 'dob'].includes(label);
+	}
+
+	function isGeneratedInstructionalField(field: Partial<FormFieldDefinition>): boolean {
+		const key = slugify(field.key || '');
+		const label = String(field.label || '')
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.replace(/\s+/g, ' ');
+		const placeholder = String(field.placeholder || '')
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.replace(/\s+/g, ' ');
+		const helpText = String(field.help_text || '')
+			.toLowerCase()
+			.trim()
+			.replace(/[^a-z0-9]+/g, ' ')
+			.replace(/\s+/g, ' ');
+		const combined = [label, placeholder, helpText].filter(Boolean).join(' ');
+		return ['generate_', 'calculate_', 'submit_', 'save_', 'print_', 'export_'].some((prefix) => key.startsWith(prefix))
+			|| ['generate ', 'calculate ', 'submit ', 'save ', 'print ', 'export '].some((prefix) => label.startsWith(prefix))
+			|| [
+				'clicking this will',
+				'this will trigger',
+				'trigger the generation',
+				'generate differential diagnosis',
+				'generate diagnosis',
+				'ai generated',
+			].some((marker) => combined.includes(marker));
+	}
+
+	function sanitizeGeneratedCondition(
+		condition: FormFieldDefinition['condition'],
+		validKeys: Set<string>
+	): FormFieldDefinition['condition'] {
+		if (!condition?.field) {
+			return undefined;
+		}
+		const operator = condition.operator;
+		const field = condition.field.trim();
+		const requiresValue = operator !== 'empty' && operator !== 'not_empty';
+		const hasValue = condition.value !== undefined && condition.value !== null && condition.value !== '';
+		if (!validKeys.has(field) || (requiresValue && !hasValue)) {
+			return undefined;
+		}
+		return requiresValue ? { field, operator, value: condition.value } : { field, operator };
+	}
+
+	function mergeGeneratedFields(
+		currentFields: FormFieldDefinition[],
+		generatedFields: FormFieldDefinition[]
+	): FormFieldDefinition[] {
+		const merged = currentFields.map((field) => normalizeGeneratedField(field));
+		const keyAliases = new Map<string, string>();
+		const keyIndex = new Map<string, number>();
+		const labelIndex = new Map<string, number>();
+
+		function registerField(field: FormFieldDefinition, index: number) {
+			if (field.key) {
+				keyIndex.set(field.key, index);
+			}
+			const normalizedLabel = slugify(field.label || '');
+			if (normalizedLabel) {
+				labelIndex.set(normalizedLabel, index);
+			}
+		}
+
+		merged.forEach(registerField);
+
+		for (const incomingField of generatedFields.map((field) => normalizeGeneratedField(field))) {
+			const matchedIndex = keyIndex.get(incomingField.key) ?? labelIndex.get(slugify(incomingField.label || ''));
+			if (matchedIndex === undefined) {
+				merged.push(incomingField);
+				registerField(incomingField, merged.length - 1);
+				continue;
+			}
+
+			const currentField = merged[matchedIndex];
+			const preservedKey = currentField.key || incomingField.key;
+			if (incomingField.key && incomingField.key !== preservedKey) {
+				keyAliases.set(incomingField.key, preservedKey);
+			}
+			const incomingOptions = incomingField.options ?? [];
+			const currentOptions = currentField.options ?? [];
+
+			const nextField: FormFieldDefinition = {
+				...currentField,
+				...incomingField,
+				key: preservedKey,
+				options: incomingField.type === 'select'
+					? (incomingOptions.length > 0 ? [...incomingOptions] : [...currentOptions])
+					: [...incomingOptions],
+				condition: incomingField.condition ?? currentField.condition,
+			};
+			merged[matchedIndex] = nextField;
+			registerField(nextField, matchedIndex);
+		}
+
+		const validKeys = new Set(merged.map((field) => field.key).filter(Boolean));
+		return merged.map((field) => ({
+			...field,
+			condition: sanitizeGeneratedCondition(
+				field.condition
+					? {
+						...field.condition,
+						field: keyAliases.get(field.condition.field) ?? field.condition.field,
+					}
+					: undefined,
+				validKeys
+			),
+		}));
 	}
 
 	async function loadFormStudio() {
@@ -832,8 +978,8 @@
 			generateError = 'Please describe what this form is for';
 			return;
 		}
-		const hasExistingFields = formEditorFields.some(f => f.label.trim() || f.key.trim());
-		
+		const hasExistingFields = hasGeneratedDraft;
+
 		generating = true;
 		generateError = '';
 		try {
@@ -844,18 +990,30 @@
 				formEditorName.trim() || undefined
 			);
 			formEditorName = result.name || formEditorName || 'Generated Form';
-			formEditorFields = (result.fields || []).map(f => ({
-				...f,
-				type: normalizeFieldType(f.type)
-			}));
-			selectedFieldIndex = 0;
-			previewValues = {};
+			const generatedFields = (result.fields || [])
+				.filter((field) => !isGeneratedPatientIdentityField(field) && !isGeneratedInstructionalField(field))
+				.map((field) => normalizeGeneratedField(field));
+			if (hasExistingFields && generatedFields.length === 0) {
+				generateDescription = '';
+				closeGeneratePrompt();
+				toastStore.addToast('No additional refinements suggested', 'success');
+				showFormEditor = true;
+				return;
+			}
+			const nextFields = hasExistingFields
+				? mergeGeneratedFields(formEditorFields, generatedFields)
+				: generatedFields;
+			formEditorFields = nextFields;
+			selectedFieldIndex = hasExistingFields ? Math.min(selectedFieldIndex, Math.max(0, nextFields.length - 1)) : 0;
+			if (!hasExistingFields) {
+				previewValues = {};
+			}
 			generateDescription = ''; // Clear for next refinement
 			closeGeneratePrompt();
 			toastStore.addToast(
-				hasExistingFields 
-					? `Refined form: ${formEditorFields.length} fields` 
-					: `Generated ${formEditorFields.length} fields`,
+				hasExistingFields
+					? `Refined form: ${nextFields.length} fields`
+					: `Generated ${nextFields.length} fields`,
 				'success'
 			);
 			// Ensure editor stays open
@@ -920,7 +1078,7 @@
 							isEditingFormName = false;
 						}
 					}}
-					class="mt-1 w-full rounded-[12px] border border-slate-300 px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none md:max-w-[420px]"
+					class="mt-1 w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none md:max-w-[420px]"
 					style="background: rgba(255,255,255,0.96); box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);"
 					placeholder="Untitled form"
 				/>
@@ -1164,7 +1322,7 @@
 				<div class="flex items-center gap-3 px-4 py-3.5 rounded-xl border transition-colors"
 					style="background: white; border-color: rgba(0,0,0,0.08); box-shadow: 0 1px 4px rgba(0,0,0,0.05); opacity: {form.is_active ? 1 : 0.7};">
 					<!-- Icon -->
-					<div class="w-12 h-12 rounded-[12px] flex items-center justify-center shrink-0"
+					<div class="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
 						style="background: linear-gradient(135deg, #3b82f6, #2563eb); box-shadow: 0 4px 12px rgba(37,99,235,0.3);">
 						<FileText class="w-6 h-6 text-white" />
 					</div>
@@ -1512,10 +1670,10 @@
 					onclick={() => openGeneratePrompt('studio')}
 					class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold text-white cursor-pointer"
 					style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 4px 10px rgba(109,40,217,0.25);"
-					title="AI Generate fields"
+					title={hasGeneratedDraft ? 'AI refine fields' : 'AI generate fields'}
 				>
 					<Sparkles class="w-3.5 h-3.5" />
-					<span class="hidden sm:inline">Generate</span>
+					<span class="hidden sm:inline">{hasGeneratedDraft ? 'Refine' : 'Generate'}</span>
 				</button>
 				<button
 					type="button"
@@ -1533,7 +1691,7 @@
 			</div>
 
 			{#if formSaveError}
-				<div class="shrink-0 mx-4 mt-3 rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
+				<div class="shrink-0 mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{formSaveError}</div>
 			{/if}
 
 			<!-- ── SCROLLABLE 3-COLUMN CONTENT ── -->
@@ -1572,7 +1730,7 @@
 							<button
 								type="button"
 								onclick={addFormField}
-								class="w-full rounded-[12px] border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
+								class="w-full rounded-xl border border-dashed border-slate-300 px-3 py-3 text-xs font-semibold text-slate-500 cursor-pointer hover:border-slate-400 hover:text-slate-700"
 								style="background: rgba(255,255,255,0.55);"
 							>
 								<Plus class="mr-1.5 inline-block h-3.5 w-3.5" />Add Field
@@ -1751,7 +1909,7 @@
 								Duplicate field keys: {previewSchema.duplicates.join(', ')}. Save blocked until resolved.
 							</div>
 						{/if}
-						<div class="rounded-[12px] border border-slate-300 p-3" style="background: #ffffff; min-height: 200px;">
+						<div class="rounded-xl border border-slate-300 p-3" style="background: #ffffff; min-height: 200px;">
 							{#if previewSchema.fields.length > 0}
 								<DynamicFormRenderer fields={previewSchema.fields} rules={formEditorRules} bind:values={previewValues} idPrefix="form-studio-preview" />
 							{:else}
@@ -1783,12 +1941,12 @@
 {/if}
 
 {#if showFormSettingsModal}
-	<AquaModal title="Form Settings" onclose={() => (showFormSettingsModal = false)} panelClass="sm:max-w-[560px]" contentClass="p-0">
+	<AquaModal title="Form Settings" onclose={() => (showFormSettingsModal = false)} panelClass="sm:max-w-[560px]" contentClass="p-0" zIndex={10000}>
 		<div class="space-y-4 px-4 py-4">
 			<div class="grid gap-3 sm:grid-cols-2">
 				<div>
 					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category</p>
-					<select class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer" style="background: white;" bind:value={formEditorSection} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; formEditorSection = value; if (!editingFormId) { formEditorType = value; } else { formEditorType = formEditorType || value; } }}>
+					<select class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer" style="background: white;" bind:value={formEditorSection} onchange={(event) => { const value = (event.currentTarget as HTMLSelectElement).value; formEditorSection = value; if (!editingFormId) { formEditorType = value; } else { formEditorType = formEditorType || value; } }}>
 						{#each sectionTabs as section}
 							<option value={section}>{section}</option>
 						{/each}
@@ -1796,18 +1954,18 @@
 				</div>
 				<div>
 					<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Sort Order</p>
-					<input type="number" min="0" class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: white;" bind:value={formEditorSortOrder} />
+					<input type="number" min="0" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" style="background: white;" bind:value={formEditorSortOrder} />
 				</div>
 			</div>
 			{#if formEditorSection === 'CLINICAL' || formEditorType === 'CASE_RECORD'}
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div>
 						<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Department</p>
-						<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Oral Surgery" bind:value={formEditorDepartment} />
+						<input class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Oral Surgery" bind:value={formEditorDepartment} />
 					</div>
 					<div>
 						<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Procedure Name</p>
-						<input class="w-full rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Extraction" bind:value={formEditorProcedureName} />
+						<input class="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none" placeholder="e.g. Extraction" bind:value={formEditorProcedureName} />
 					</div>
 				</div>
 			{/if}
@@ -1826,7 +1984,7 @@
 						<button
 							type="button"
 							onclick={() => (showIconPicker = true)}
-							class="flex flex-1 items-center gap-2 rounded-[12px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50"
+							class="flex flex-1 items-center gap-2 rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-700 transition-colors hover:border-blue-400 hover:bg-blue-50"
 						>
 							{#if formEditorIcon}
 								<span class="font-semibold text-blue-700">{formEditorIcon}</span>
@@ -1893,7 +2051,7 @@
 			{/if}
 			<div class="flex gap-2">
 				<button type="button" onclick={() => openGeneratePrompt('settings')} class="flex-1 inline-flex items-center justify-center gap-1.5 rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer" style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 8px 18px rgba(109,40,217,0.2);">
-					<Sparkles class="w-3.5 h-3.5" />Generate Fields
+					<Sparkles class="w-3.5 h-3.5" />{hasGeneratedDraft ? 'Refine Fields' : 'Generate Fields'}
 				</button>
 				<button type="button" onclick={saveFormSettings} disabled={savingSettings} class="flex-1 rounded-[999px] py-2.5 text-sm font-bold text-white cursor-pointer disabled:opacity-60" style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.2);">
 					{savingSettings ? 'Saving…' : 'Save Settings'}
@@ -1920,7 +2078,7 @@
 	>
 		<div class="space-y-4 px-4 py-4" style="background: linear-gradient(to bottom, #ffffff, #f4f7fb);">
 			{#if categorySaveError}
-				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{categorySaveError}</div>
+				<div class="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{categorySaveError}</div>
 			{/if}
 			<div>
 				<p class="mb-2 text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Category Name</p>
@@ -1935,14 +2093,14 @@
 {/if}
 
 {#if showGeneratePrompt}
-	{@const isRefining = formEditorFields.some(f => f.label.trim() || f.key.trim())}
-	<AquaModal title={isRefining ? "Refine Form with AI" : "AI Form Generator"} onclose={closeGeneratePrompt} panelClass="sm:max-w-[480px]" contentClass="p-0" zIndex={10000}>
+	{@const isRefining = hasGeneratedDraft}
+	<AquaModal title={isRefining ? "Refine Form with AI" : "AI Form Generator"} onclose={closeGeneratePrompt} panelClass="sm:max-w-[480px]" contentClass="p-0" zIndex={10001}>
 		<div class="space-y-4 px-4 py-4 rounded-b-[20px]" style="background: linear-gradient(to bottom, #faf5ff, #f3e8ff);">
 			{#if generateError}
-				<div class="rounded-[12px] border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{generateError}</div>
+				<div class="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 text-xs font-medium text-red-600">{generateError}</div>
 			{/if}
 			{#if isRefining}
-				<div class="rounded-[12px] border border-purple-200 bg-purple-50 px-3.5 py-2.5 text-xs text-purple-700">
+				<div class="rounded-xl border border-purple-200 bg-purple-50 px-3.5 py-2.5 text-xs text-purple-700">
 					<strong>Refining {formEditorFields.length} existing fields.</strong> Describe changes: add fields, remove fields, modify types, etc.
 				</div>
 			{/if}

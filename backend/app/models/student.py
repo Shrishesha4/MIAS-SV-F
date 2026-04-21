@@ -44,6 +44,7 @@ class Student(Base):
     case_records = relationship("CaseRecord", back_populates="student")
     notifications = relationship("StudentNotification", back_populates="student")
     clinic_sessions = relationship("ClinicSession", back_populates="student")
+    clinic_checkin_logs = relationship("StudentClinicCheckinLog", back_populates="student")
 
 
 class StudentAttendance(Base):
@@ -127,6 +128,26 @@ class ClinicSession(Base):
     student = relationship("Student", back_populates="clinic_sessions")
     clinic = relationship("Clinic", back_populates="sessions")
     verified_by = relationship("Faculty", foreign_keys=[verified_by_faculty_id])
+    checkin_log = relationship("StudentClinicCheckinLog", back_populates="clinic_session", uselist=False)
+
+
+class StudentClinicCheckinLog(Base):
+    __tablename__ = "student_clinic_checkin_logs"
+    __table_args__ = (
+        Index("idx_student_clinic_checkin_logs_student_time", "student_id", "checked_in_at"),
+    )
+
+    id = Column(String, primary_key=True)
+    student_id = Column(String, ForeignKey("students.id"), nullable=False, index=True)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=False, index=True)
+    clinic_session_id = Column(String, ForeignKey("clinic_sessions.id"), nullable=False, unique=True, index=True)
+    checked_in_at = Column(DateTime, nullable=False)
+    checked_out_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
+
+    student = relationship("Student", back_populates="clinic_checkin_logs")
+    clinic = relationship("Clinic", back_populates="student_checkin_logs")
+    clinic_session = relationship("ClinicSession", back_populates="checkin_log")
 
 
 class Clinic(Base):
@@ -155,6 +176,7 @@ class Clinic(Base):
     sessions = relationship("ClinicSession", back_populates="clinic")
     appointments = relationship("ClinicAppointment", back_populates="clinic")
     faculty_sessions = relationship("FacultyClinicSession", back_populates="clinic")
+    student_checkin_logs = relationship("StudentClinicCheckinLog", back_populates="clinic")
     insurance_configs = relationship("InsuranceClinicConfig", back_populates="clinic", cascade="all, delete-orphan")
 
 

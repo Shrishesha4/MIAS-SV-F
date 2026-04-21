@@ -112,6 +112,7 @@ export interface Vital {
   platelet?: number;
   rbc?: number;
   hct?: number;
+  extra_values?: Record<string, number | string | null>;
   notes?: string;
 }
 
@@ -123,6 +124,7 @@ export interface VitalParameterConfig {
   unit?: string | null;
   min_value?: number | null;
   max_value?: number | null;
+  value_style?: 'single' | 'slash';
   is_active?: boolean;
   sort_order?: number;
 }

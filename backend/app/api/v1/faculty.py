@@ -120,10 +120,9 @@ async def check_in_faculty_to_clinic(
                 FacultyClinicSession.checked_out_at.is_(None),
             )
         )
+        .order_by(FacultyClinicSession.checked_in_at.desc())
     )
-    active_session = active_session_result.scalar_one_or_none()
-    if active_session:
-        raise HTTPException(status_code=400, detail=f"Already checked in to {active_session.clinic_name}")
+    active_session = active_session_result.scalars().first()
 
     clinic_result = await db.execute(
         select(Clinic).where(Clinic.id == body.clinic_id)
@@ -133,6 +132,21 @@ async def check_in_faculty_to_clinic(
         raise HTTPException(status_code=404, detail="Clinic not found")
 
     now = datetime.utcnow()
+    if active_session and active_session.clinic_id == clinic.id:
+        return {
+            "status": "already_checked_in",
+            "session_id": active_session.id,
+            "checked_in_at": active_session.checked_in_at.isoformat() if active_session.checked_in_at else None,
+            "clinic_id": clinic.id,
+            "clinic_name": clinic.name,
+        }
+
+    switched_from_clinic_name = None
+    if active_session:
+        switched_from_clinic_name = active_session.clinic_name
+        active_session.checked_out_at = now
+        active_session.status = "Completed"
+
     session = FacultyClinicSession(
         id=str(uuid.uuid4()),
         faculty_id=faculty_id,
@@ -152,6 +166,7 @@ async def check_in_faculty_to_clinic(
         "checked_in_at": now.isoformat(),
         "clinic_id": clinic.id,
         "clinic_name": clinic.name,
+        "switched_from_clinic_name": switched_from_clinic_name,
     }
 
 

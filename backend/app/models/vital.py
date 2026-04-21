@@ -1,8 +1,33 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index, Boolean
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Index, Boolean, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
+
+
+CORE_VITAL_FIELD_NAMES = (
+    "systolic_bp",
+    "diastolic_bp",
+    "heart_rate",
+    "respiratory_rate",
+    "temperature",
+    "oxygen_saturation",
+    "weight",
+    "blood_glucose",
+    "cholesterol",
+    "bmi",
+    "creatinine",
+    "urea",
+    "sodium",
+    "potassium",
+    "sgot",
+    "sgpt",
+    "hemoglobin",
+    "wbc",
+    "platelet",
+    "rbc",
+    "hct",
+)
 
 
 class VitalParameter(Base):
@@ -16,6 +41,7 @@ class VitalParameter(Base):
     unit = Column(String, nullable=True)  # e.g., "mmHg", "bpm", "°C"
     min_value = Column(Float, nullable=True)  # For validation
     max_value = Column(Float, nullable=True)  # For validation
+    value_style = Column(String, nullable=False, default="single")  # single, slash
     is_active = Column(Boolean, default=True)
     sort_order = Column(Integer, default=0)
 
@@ -59,6 +85,7 @@ class Vital(Base):
     platelet = Column(Float, nullable=True)
     rbc = Column(Float, nullable=True)
     hct = Column(Float, nullable=True)
+    extra_values = Column(JSON, nullable=False, default=dict)
 
     # Relationships
     patient = relationship("Patient", back_populates="vitals")

@@ -200,6 +200,38 @@ def _parse_json_payload(raw_text: str) -> dict[str, Any]:
         except json.JSONDecodeError as e:
             logger.warning("Fallback JSON parse failed: %s", e)
 
+    for start_index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        depth = 0
+        in_string = False
+        escape_next = False
+        for end_index in range(start_index, len(cleaned)):
+            current = cleaned[end_index]
+            if escape_next:
+                escape_next = False
+                continue
+            if current == "\\":
+                escape_next = True
+                continue
+            if current == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if current == "{":
+                depth += 1
+            elif current == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = cleaned[start_index:end_index + 1]
+                    try:
+                        parsed = json.loads(candidate)
+                        if isinstance(parsed, dict):
+                            return parsed
+                    except json.JSONDecodeError:
+                        break
+
     logger.error("Failed to parse AI response as JSON. Full response: %s", raw_text[:2000])
     raise AIProviderError("The AI provider response was not valid JSON")
 
@@ -226,6 +258,12 @@ async def _call_openai_compatible(
             {"role": "user", "content": user_prompt},
         ],
     }
+    if (
+        config.provider == AIProviderType.OPENAI
+        or "api.openai.com" in base_url
+        or "openrouter.ai" in base_url
+    ):
+        payload["response_format"] = {"type": "json_object"}
     headers = {
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",

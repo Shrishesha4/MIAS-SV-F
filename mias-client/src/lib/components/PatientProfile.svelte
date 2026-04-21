@@ -17,7 +17,6 @@
 		defaultPrescriptionCreateFields,
 		defaultPrescriptionEditFields,
 		defaultPrescriptionRequestFields,
-		defaultVitalEntryFields,
 	} from '$lib/config/default-form-definitions';
 	import type { FormDefinition, FormFieldDefinition } from '$lib/types/forms';
 	import {
@@ -178,52 +177,56 @@
 	let crDiagnosisLoading = $state(false);
 	let crIcdCode = $state('');
 	let crIcdDescription = $state('');
-	let selectedVitalFormId = $state('');
-	let vitalFormSearch = $state('');
 
-	const defaultVitalForm: FormDefinition = {
-		id: '__default_vital_entry__',
-		slug: 'default-vital-entry',
-		name: 'Quick Vital Entry',
-		description: 'Default vital entry template for major parameters.',
-		form_type: 'VITAL_ENTRY',
-		section: 'CLINICAL',
-		department: null,
-		procedure_name: null,
-		fields: defaultVitalEntryFields,
-		sort_order: 0,
-		is_active: true,
-		created_at: null,
-		updated_at: null,
+	const chartVitalPalette = [
+		{ borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)' },
+		{ borderColor: '#fb7185', backgroundColor: 'rgba(251,113,133,0.1)' },
+		{ borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)' },
+		{ borderColor: '#ff4d5a', backgroundColor: 'rgba(255,77,90,0.1)' },
+		{ borderColor: '#157efb', backgroundColor: 'rgba(21,126,251,0.1)' },
+		{ borderColor: '#7dc9e8', backgroundColor: 'rgba(125,201,232,0.1)' },
+		{ borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.1)' },
+		{ borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)' },
+		{ borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.1)' },
+		{ borderColor: '#14b8a6', backgroundColor: 'rgba(20,184,166,0.1)' },
+	];
+
+	type ChartVitalSeries = {
+		key: string;
+		label: string;
+		unit?: string;
+		borderColor: string;
+		backgroundColor: string;
+		borderDash?: number[];
+		icon: ComponentType;
 	};
 
-	const supportedVitalKeys = new Set([
-		'systolic_bp',
-		'diastolic_bp',
-		'heart_rate',
-		'respiratory_rate',
-		'temperature',
-		'oxygen_saturation',
-		'weight',
-		'blood_glucose',
-		'cholesterol',
-		'bmi',
-		'creatinine',
-		'urea',
-		'sodium',
-		'potassium',
-		'sgot',
-		'sgpt',
-		'hemoglobin',
-		'wbc',
-		'platelet',
-		'rbc',
-		'hct',
-	]);
+	const vitalIconMap: Record<string, ComponentType> = {
+		systolic_bp: HeartPulse,
+		diastolic_bp: HeartPulse,
+		heart_rate: Activity,
+		respiratory_rate: Wind,
+		temperature: Thermometer,
+		oxygen_saturation: Droplet,
+		weight: Scale,
+		blood_glucose: CircleDot,
+		cholesterol: CircleDot,
+		bmi: Scale,
+		creatinine: FlaskConical,
+		urea: FlaskConical,
+		sodium: Droplet,
+		potassium: Droplet,
+		sgot: Activity,
+		sgpt: Activity,
+		hemoglobin: Droplet,
+		wbc: Activity,
+		platelet: Activity,
+		rbc: Droplet,
+		hct: Droplet,
+	};
 
 	const configuredVitalFields = $derived.by<FormFieldDefinition[]>(() =>
 		vitalParameterConfigs
-			.filter((parameter) => supportedVitalKeys.has(parameter.name))
 			.map((parameter) => ({
 				key: parameter.name,
 				label: parameter.display_name,
@@ -301,39 +304,7 @@
 	function openCaseRecordEntry(record: any) {
 		selectedCaseRecord = record;
 	}
-	const vitalFormOptions = $derived.by((): FormDefinition[] => {
-		const activeVitalForms = caseRecordForms.filter(
-			(form) => form.form_type === 'VITAL_ENTRY' && form.is_active
-		);
-		return [
-			defaultVitalForm,
-			...activeVitalForms.filter((form) => form.id !== defaultVitalForm.id),
-		];
-	});
-	const searchableVitalForms = $derived.by(() =>
-		vitalFormOptions.map((form) => ({
-			...form,
-			meta: [form.department, form.procedure_name, form.description].filter(Boolean).join(' · '),
-			badge: form.department || 'Vitals',
-		}))
-	);
-	const filteredVitalForms = $derived.by(() => {
-		const query = vitalFormSearch.trim().toLowerCase();
-		if (!query) return searchableVitalForms;
-		return searchableVitalForms.filter((form) =>
-			[form.name, form.department, form.procedure_name, form.description]
-				.filter(Boolean)
-				.some((value) => String(value).toLowerCase().includes(query))
-		);
-	});
-	const selectedVitalForm = $derived(
-		vitalFormOptions.find((form) => form.id === selectedVitalFormId) || vitalFormOptions[0] || defaultVitalForm
-	);
-	const selectedVitalFields: FormFieldDefinition[] = $derived(
-		selectedVitalForm?.id === defaultVitalForm.id
-			? (configuredVitalFields.length > 0 ? configuredVitalFields : defaultVitalEntryFields)
-			: (selectedVitalForm?.fields?.length ? selectedVitalForm.fields : (configuredVitalFields.length > 0 ? configuredVitalFields : defaultVitalEntryFields))
-	);
+	const selectedVitalFields: FormFieldDefinition[] = $derived(configuredVitalFields);
 	const majorVitalFieldKeys = new Set([
 		'systolic_bp',
 		'diastolic_bp',
@@ -350,9 +321,34 @@
 		}
 		return map;
 	});
+	const hasMajorVitalFields = $derived(majorVitalFieldMap.size > 0);
 	const supplementalVitalFields = $derived.by(() => {
 		return selectedVitalFields.filter((field) => !majorVitalFieldKeys.has(field.key));
 	});
+	const chartVitalSeries = $derived.by<ChartVitalSeries[]>(() =>
+		[...vitalParameterConfigs]
+			.sort((left, right) => (left.sort_order ?? Number.MAX_SAFE_INTEGER) - (right.sort_order ?? Number.MAX_SAFE_INTEGER))
+			.map((parameter, index) => {
+				const palette = chartVitalPalette[index % chartVitalPalette.length];
+				return {
+					key: parameter.name,
+					label: parameter.display_name,
+					unit: parameter.unit ?? undefined,
+					borderColor: palette.borderColor,
+					backgroundColor: palette.backgroundColor,
+					borderDash: parameter.name === 'diastolic_bp' ? [5, 5] : undefined,
+					icon: vitalIconMap[parameter.name] ?? Activity,
+				};
+			})
+	);
+	const chartTrendsTitle = $derived(
+		chartVitalSeries.length === 1 ? chartVitalSeries[0].label : 'Configured Vital Trends'
+	);
+	const chartTrendsSubtitle = $derived(
+		chartVitalSeries.length > 0
+			? chartVitalSeries.map((series) => series.label).join(', ')
+			: 'No active vital parameters enabled in admin panel'
+	);
 	const prescriptionCreateFields = $derived(
 		resolveFormFieldsByType(caseRecordForms, 'PRESCRIPTION_CREATE', defaultPrescriptionCreateFields)
 	);
@@ -417,26 +413,6 @@
 		crIcdCode = '';
 		crIcdDescription = '';
 		crDiagnosisSuggestions = [];
-	}
-
-	function vitalFormDisplayLabel(form: FormDefinition) {
-		const suffix = [form.department, form.procedure_name].filter(Boolean).join(' · ');
-		return suffix ? `${form.name} · ${suffix}` : form.name;
-	}
-
-	function setDefaultVitalFormSelection() {
-		const defaultForm = vitalFormOptions.find((form) => form.id === defaultVitalForm.id) || defaultVitalForm;
-		selectedVitalFormId = defaultForm.id;
-		vitalFormSearch = vitalFormDisplayLabel(defaultForm);
-	}
-
-	function handleVitalFormSelect(form: FormDefinition) {
-		selectedVitalFormId = form.id;
-		vitalFormSearch = vitalFormDisplayLabel(form);
-	}
-
-	function handleVitalFormClear() {
-		setDefaultVitalFormSelection();
 	}
 
 	function openVitalModal() {
@@ -571,19 +547,46 @@
 		showAllGallery ? filteredGalleryItems : filteredGalleryItems.slice(0, 2)
 	);
 
-	const vitalCards = $derived(latestVital ? [
-		{ icon: HeartPulse, label: 'Blood\nPressure', value: `${latestVital.systolic_bp ?? '—'}/${latestVital.diastolic_bp ?? '—'}`, unit: 'mmHg', color: '#3b82f6' },
-		{ icon: Activity, label: 'Heart\nRate', value: `${latestVital.heart_rate ?? '—'}`, unit: 'bpm', color: '#3b82f6' },
-		{ icon: Thermometer, label: 'Temp', value: `${latestVital.temperature?.toFixed(1) ?? '—'}`, unit: '°F', color: '#ef4444' },
-		{ icon: Droplet, label: 'SpO₂', value: `${latestVital.oxygen_saturation ?? '—'}`, unit: '%', color: '#3b82f6' },
-		{ icon: Wind, label: 'Resp\nRate', value: `${latestVital.respiratory_rate ?? '—'}`, unit: '/min', color: '#22c55e' },
-		{ icon: Scale, label: 'Weight', value: `${latestVital.weight?.toFixed(0) ?? '—'}`, unit: 'lbs', color: '#6366f1' },
-		{ icon: CircleDot, label: 'Glucose', value: `${latestVital.blood_glucose ?? '—'}`, unit: 'mg/dL', color: '#f97316' },
-	] : []);
+	function formatVitalMetricValue(vital: any, key: string) {
+		const rawValue = vital?.[key];
+		if (rawValue === null || rawValue === undefined || rawValue === '') return '—';
+
+		const numericValue = Number(rawValue);
+		if (!Number.isFinite(numericValue)) return String(rawValue);
+		if (key === 'temperature' || !Number.isInteger(numericValue)) return numericValue.toFixed(1);
+		return `${Math.round(numericValue)}`;
+	}
+
+	const vitalCards = $derived.by(() =>
+		latestVital
+			? chartVitalSeries.map((series) => ({
+				icon: series.icon,
+				label: series.label,
+				value: formatVitalMetricValue(latestVital, series.key),
+				unit: series.unit ?? '',
+				color: series.borderColor,
+			}))
+			: []
+	);
+
+	function getVisibleChartSeries() {
+		if (groupViewMode) return chartVitalSeries;
+
+		const groupedSeriesKeys: Record<string, string[]> = {
+			bp: ['systolic_bp', 'diastolic_bp'],
+			hr: ['heart_rate'],
+			spo2: ['oxygen_saturation'],
+		};
+		const selectedKeys = groupedSeriesKeys[selectedParameter];
+		if (!selectedKeys) return chartVitalSeries;
+
+		const filteredSeries = chartVitalSeries.filter((series) => selectedKeys.includes(series.key));
+		return filteredSeries.length > 0 ? filteredSeries : chartVitalSeries;
+	}
 
 	function buildChart() {
-		if (!chartCanvas || vitals.length === 0) return;
 		chartInstance?.destroy();
+		if (!chartCanvas || vitals.length === 0 || chartVitalSeries.length === 0) return;
 		trendTooltip = { visible: false, x: 0, label: '', items: [] };
 
 		const vitalsSlice = vitals.slice(0, parseInt(selectedTimeRange)).reverse();
@@ -591,32 +594,24 @@
 			const d = new Date(v.recorded_at);
 			return `${d.getMonth() + 1}/${d.getDate()}`;
 		});
-
-		let datasets: any[];
-
-		if (groupViewMode) {
-			datasets = [
-				{ label: 'Sys', data: vitalsSlice.map((v: any) => v.systolic_bp ?? null), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#ef4444', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#ef4444' },
-				{ label: 'Dia', data: vitalsSlice.map((v: any) => v.diastolic_bp ?? null), borderColor: '#fb7185', backgroundColor: 'rgba(251,113,133,0.1)', borderDash: [5, 5], tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#fb7185', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#fb7185' },
-				{ label: 'Heart Rate', data: vitalsSlice.map((v: any) => v.heart_rate ?? null), borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#f97316', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#f97316' },
-				{ label: 'Temperature', data: vitalsSlice.map((v: any) => v.temperature ?? null), borderColor: '#ff4d5a', backgroundColor: 'rgba(255,77,90,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#ff4d5a', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#ff4d5a' },
-				{ label: 'Oxygen Saturation', data: vitalsSlice.map((v: any) => v.oxygen_saturation ?? null), borderColor: '#157efb', backgroundColor: 'rgba(21,126,251,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#157efb', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#157efb' },
-				{ label: 'Respiratory Rate', data: vitalsSlice.map((v: any) => v.respiratory_rate ?? null), borderColor: '#7dc9e8', backgroundColor: 'rgba(125,201,232,0.1)', tension: 0.42, fill: false, pointRadius: 2.5, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointBackgroundColor: '#ffffff', pointBorderColor: '#7dc9e8', pointHoverBackgroundColor: '#ffffff', pointHoverBorderColor: '#7dc9e8' },
-			];
-		} else if (selectedParameter === 'bp') {
-			datasets = [
-				{ label: 'Systolic', data: vitalsSlice.map((v: any) => v.systolic_bp ?? 0), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-				{ label: 'Diastolic', data: vitalsSlice.map((v: any) => v.diastolic_bp ?? 0), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-			];
-		} else if (selectedParameter === 'hr') {
-			datasets = [
-				{ label: 'Heart Rate', data: vitalsSlice.map((v: any) => v.heart_rate ?? 0), borderColor: '#ef4444', backgroundColor: 'rgba(239,68,68,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-			];
-		} else {
-			datasets = [
-				{ label: 'SpO₂', data: vitalsSlice.map((v: any) => v.oxygen_saturation ?? 0), borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.1)', tension: 0.4, fill: false, pointRadius: 2 },
-			];
-		}
+		const datasets = getVisibleChartSeries().map((series) => ({
+			label: series.label,
+			fieldKey: series.key,
+			unit: series.unit,
+			data: vitalsSlice.map((v: any) => v[series.key] ?? null),
+			borderColor: series.borderColor,
+			backgroundColor: series.backgroundColor,
+			borderDash: series.borderDash,
+			tension: 0.42,
+			fill: false,
+			pointRadius: 2.5,
+			pointHoverRadius: 5,
+			pointHoverBorderWidth: 2,
+			pointBackgroundColor: '#ffffff',
+			pointBorderColor: series.borderColor,
+			pointHoverBackgroundColor: '#ffffff',
+			pointHoverBorderColor: series.borderColor,
+		}));
 
 		const hoverGuidePlugin = {
 			id: 'hoverGuide',
@@ -665,7 +660,7 @@
 									.filter((point: any) => point.raw !== null && point.raw !== undefined)
 									.map((point: any) => ({
 										label: point.dataset.label,
-										value: formatTrendTooltipValue(point.dataset.label, point.raw),
+										value: formatTrendTooltipValue(point.raw, point.dataset),
 										color: point.dataset.borderColor,
 										y: point.element.y - 18,
 									})),
@@ -683,14 +678,24 @@
 
 	$effect(() => {
 		if (activeTab === 'trends' && trendsView === 'charts') {
-			selectedParameter; selectedTimeRange; groupViewMode; vitals;
+			selectedParameter; selectedTimeRange; groupViewMode; vitals; chartVitalSeries;
 			setTimeout(buildChart, 50);
 		}
 	});
 
-	function formatTrendTooltipValue(label: string, value: number) {
-		if (label === 'Temperature') return `${Math.round(value)}`;
-		return `${Math.round(value)}`;
+	function formatTrendTooltipValue(
+		value: number,
+		dataset: { fieldKey?: string; unit?: string }
+	) {
+		const numericValue = Number(value);
+		if (!Number.isFinite(numericValue)) return '—';
+
+		const formattedValue =
+			dataset.fieldKey === 'temperature' || !Number.isInteger(numericValue)
+				? numericValue.toFixed(1)
+				: `${Math.round(numericValue)}`;
+
+		return dataset.unit ? `${formattedValue} ${dataset.unit}` : formattedValue;
 	}
 
 	function getGradeColor(grade: string | undefined) {
@@ -1041,12 +1046,15 @@
 	// ── Vital Submit ──────────────────────────────────────────────
 	function resetVitalForm() {
 		vitalFormData = {};
-		setDefaultVitalFormSelection();
 	}
 
 	async function submitVital() {
 		if (!patient || vSubmitting) return;
 		if (studentReadOnly) return;
+		if (selectedVitalFields.length === 0) {
+			toastStore.addToast('No active vital parameters configured.', 'error');
+			return;
+		}
 		vSubmitting = true;
 		try {
 			const submittedValues = await persistFormFiles(
@@ -1055,11 +1063,7 @@
 				(file, options) => formsApi.uploadFile(file, options),
 				'patient-profile-vital'
 			);
-			const urineOutput = asOptionalNumber(submittedValues.urine_output_ml);
 			const vitalPayload = selectedVitalFields.reduce<Record<string, number | string>>((payload, field) => {
-				if (!supportedVitalKeys.has(field.key)) {
-					return payload;
-				}
 				const value = asOptionalNumber(submittedValues[field.key]);
 				if (value !== undefined) {
 					payload[field.key] = value;
@@ -1069,23 +1073,6 @@
 				recorded_by: studentData?.name || 'Student',
 			});
 			await patientApi.createVital(patient.id, vitalPayload);
-			if (urineOutput) {
-				if (currentAdmission?.id) {
-					try {
-						await patientApi.addIOEvent(currentAdmission.id, {
-							event_time: new Date().toISOString(),
-							event_type: 'URINE',
-							amount_ml: urineOutput,
-							description: 'Quick vital entry',
-						});
-					} catch (error) {
-						console.error('Failed to record urine output', error);
-						toastStore.addToast('Vital saved, but urine output could not be recorded.', 'error');
-					}
-				} else {
-					toastStore.addToast('Vital saved. Urine output requires an active admission.', 'info');
-				}
-			}
 			vitals = await patientApi.getVitals(patient.id, 30);
 			showAddVitalModal = false;
 			resetVitalForm();
@@ -2342,12 +2329,17 @@
 						<HeartPulse class="mx-auto mb-3 h-10 w-10 opacity-50" />
 						<p class="text-sm">No vitals recorded yet</p>
 					</div>
+				{:else if chartVitalSeries.length === 0}
+					<div class="py-12 text-center text-slate-400">
+						<HeartPulse class="mx-auto mb-3 h-10 w-10 opacity-50" />
+						<p class="text-sm">No active vital parameters enabled in admin</p>
+					</div>
 				{:else if trendsView === 'charts'}
 					<div class="rounded-[24px] p-3 md:p-4" style="background: linear-gradient(to bottom, #ffffff, #f8fbff); border: 1px solid rgba(226,232,240,0.95); box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);">
 						<div class="mb-3 flex items-center justify-between gap-3">
 							<div>
-								<p class="text-sm font-bold text-slate-800">Combined Trends</p>
-								<p class="text-xs text-slate-400">Blood pressure, heart rate, SpO₂, and respiratory rate</p>
+								<p class="text-sm font-bold text-slate-800">{chartTrendsTitle}</p>
+								<p class="text-xs text-slate-400">{chartTrendsSubtitle}</p>
 							</div>
 							<ChevronDown class="h-5 w-5 text-blue-500" />
 						</div>
@@ -2374,24 +2366,20 @@
 								<thead style="background: linear-gradient(to bottom, #f8fafc, #eef2f7);">
 									<tr>
 										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Recorded</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">BP</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">HR</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Temp</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">SpO₂</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Resp</th>
-										<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">Weight</th>
+										{#each chartVitalSeries as series (series.key)}
+											<th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">
+												{series.label}
+											</th>
+										{/each}
 									</tr>
 								</thead>
 								<tbody>
 									{#each vitals.slice(0, parseInt(selectedTimeRange)) as vital, index}
 										<tr style="background: {index % 2 === 0 ? 'white' : 'rgba(248,250,252,0.84)'}; border-top: 1px solid rgba(226,232,240,0.9);">
 											<td class="px-4 py-3 font-medium text-slate-600">{formatReportDate(vital.recorded_at)}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.systolic_bp ?? '—'}/{vital.diastolic_bp ?? '—'}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.heart_rate ?? '—'}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.temperature ?? '—'}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.oxygen_saturation ?? '—'}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.respiratory_rate ?? '—'}</td>
-											<td class="px-4 py-3 text-slate-800">{vital.weight ?? '—'}</td>
+											{#each chartVitalSeries as series (series.key)}
+												<td class="px-4 py-3 text-slate-800">{formatVitalMetricValue(vital, series.key)}</td>
+											{/each}
 										</tr>
 									{/each}
 								</tbody>
@@ -2925,114 +2913,90 @@
 			</div>
 			<div>
 				<h3 class="text-[1.7rem] font-black leading-none text-slate-900">Quick Vital Entry</h3>
-				<p class="mt-1 text-[0.72rem] font-black uppercase tracking-[0.24em] text-red-600">Major Parameters</p>
+				<p class="mt-1 text-[0.72rem] font-black uppercase tracking-[0.24em] text-red-600">{hasMajorVitalFields ? 'Parameters' : 'Parameters'}</p>
 			</div>
 		</div>
 	{/snippet}
 
 	<div class="space-y-5">
-		<div>
-			<div class="mb-1.5 block text-sm font-medium text-slate-700">
-				Vital Form
+		{#if selectedVitalFields.length === 0}
+			<div class="rounded-[1.5rem] border border-slate-200/80 bg-white/90 px-5 py-10 text-center text-sm text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+				No active vital parameters are configured in the admin panel.
 			</div>
-			<Autocomplete
-				items={filteredVitalForms}
-				labelKey="name"
-				sublabelKey="meta"
-				badgeKey="badge"
-				minChars={0}
-				placeholder="Search available vital forms..."
-				bind:value={vitalFormSearch}
-				onSelect={handleVitalFormSelect}
-				onClear={handleVitalFormClear}
-			/>
-			{#if selectedVitalForm?.description}
-				<p class="mt-1.5 text-xs text-slate-500">{selectedVitalForm.description}</p>
-			{/if}
-		</div>
-
-		<div class="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-slate-50/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
-			<div class="mb-5 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Blood Pressure (mmHg)</div>
-			{#if majorVitalFieldMap.has('systolic_bp') || majorVitalFieldMap.has('diastolic_bp')}
-			<div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-				<input
-					bind:value={vitalFormData.systolic_bp}
-					type="number"
-					placeholder={majorVitalFieldMap.get('systolic_bp')?.label || 'Sys'}
-					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					disabled={!majorVitalFieldMap.has('systolic_bp')}
-				/>
-				<div class="pb-1 text-4xl font-black text-slate-400">/</div>
-				<input
-					bind:value={vitalFormData.diastolic_bp}
-					type="number"
-					placeholder={majorVitalFieldMap.get('diastolic_bp')?.label || 'Dia'}
-					class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					disabled={!majorVitalFieldMap.has('diastolic_bp')}
-				/>
-			</div>
-			{/if}
-
-			<div class="mt-6 grid gap-5 sm:grid-cols-2">
-				{#if majorVitalFieldMap.has('heart_rate')}
-				<div>
-					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Pulse (bpm)</div>
-					<input
-						bind:value={vitalFormData.heart_rate}
-						type="number"
-						placeholder={majorVitalFieldMap.get('heart_rate')?.label || '72'}
-						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					/>
-				</div>
-				{/if}
-				{#if majorVitalFieldMap.has('respiratory_rate')}
-				<div>
-					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Resp. Rate (min)</div>
-					<input
-						bind:value={vitalFormData.respiratory_rate}
-						type="number"
-						placeholder={majorVitalFieldMap.get('respiratory_rate')?.label || '16'}
-						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					/>
-				</div>
-				{/if}
-				<div>
-					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Urine Output (mL)</div>
-					<input
-						bind:value={vitalFormData.urine_output_ml}
-						type="number"
-						placeholder="300"
-						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					/>
-					{#if !currentAdmission}
-						<p class="mt-1.5 text-[11px] text-slate-400">Saved only when the patient has an active admission.</p>
+		{:else}
+			{#if hasMajorVitalFields}
+				<div class="rounded-[1.75rem] border border-slate-200/80 bg-gradient-to-b from-slate-50 via-white to-slate-50/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+					<div class="mb-5 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Primary Parameters</div>
+					{#if majorVitalFieldMap.has('systolic_bp') || majorVitalFieldMap.has('diastolic_bp')}
+					<div class="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+						<input
+							bind:value={vitalFormData.systolic_bp}
+							type="number"
+							placeholder={majorVitalFieldMap.get('systolic_bp')?.label || 'Sys'}
+							class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+							disabled={!majorVitalFieldMap.has('systolic_bp')}
+						/>
+						<div class="pb-1 text-4xl font-black text-slate-400">/</div>
+						<input
+							bind:value={vitalFormData.diastolic_bp}
+							type="number"
+							placeholder={majorVitalFieldMap.get('diastolic_bp')?.label || 'Dia'}
+							class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+							disabled={!majorVitalFieldMap.has('diastolic_bp')}
+						/>
+					</div>
 					{/if}
-				</div>
-				{#if majorVitalFieldMap.has('blood_glucose')}
-				<div>
-					<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Glucose (mg/dL)</div>
-					<input
-						bind:value={vitalFormData.blood_glucose}
-						type="number"
-						placeholder={majorVitalFieldMap.get('blood_glucose')?.label || '110'}
-						class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
-					/>
-				</div>
-				{/if}
-			</div>
-		</div>
 
-		{#if supplementalVitalFields.length > 0}
-			<div class="rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
-				<div class="mb-3 text-[0.72rem] font-black uppercase tracking-[0.24em] text-slate-500">Additional Fields</div>
-				<div class="grid gap-4 sm:grid-cols-2">
-					<DynamicFormRenderer
-						fields={supplementalVitalFields}
-						bind:values={vitalFormData}
-						idPrefix="patient-profile-vital"
-					/>
+					<div class="mt-6 grid gap-5 sm:grid-cols-2">
+						{#if majorVitalFieldMap.has('heart_rate')}
+						<div>
+							<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Pulse (bpm)</div>
+							<input
+								bind:value={vitalFormData.heart_rate}
+								type="number"
+								placeholder={majorVitalFieldMap.get('heart_rate')?.label || '72'}
+								class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+							/>
+						</div>
+						{/if}
+						{#if majorVitalFieldMap.has('respiratory_rate')}
+						<div>
+							<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Resp. Rate (min)</div>
+							<input
+								bind:value={vitalFormData.respiratory_rate}
+								type="number"
+								placeholder={majorVitalFieldMap.get('respiratory_rate')?.label || '16'}
+								class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+							/>
+						</div>
+						{/if}
+						{#if majorVitalFieldMap.has('blood_glucose')}
+						<div>
+							<div class="mb-2 text-[0.76rem] font-black uppercase tracking-[0.24em] text-slate-500">Glucose (mg/dL)</div>
+							<input
+								bind:value={vitalFormData.blood_glucose}
+								type="number"
+								placeholder={majorVitalFieldMap.get('blood_glucose')?.label || '110'}
+								class="h-16 w-full rounded-[1.35rem] border border-slate-200 bg-white px-6 text-2xl font-black text-slate-700 outline-none placeholder:font-bold placeholder:text-slate-400 focus:border-red-300 focus:ring-4 focus:ring-red-100"
+							/>
+						</div>
+						{/if}
+					</div>
 				</div>
-			</div>
+			{/if}
+
+			{#if supplementalVitalFields.length > 0}
+				<div class="rounded-[1.5rem] border border-slate-200/80 bg-white/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.95)]">
+					<div class="mb-3 text-[0.72rem] font-black uppercase tracking-[0.24em] text-slate-500">{hasMajorVitalFields ? 'Parameters' : 'Parameters'}</div>
+					<div class="grid gap-4 sm:grid-cols-2">
+						<DynamicFormRenderer
+							fields={supplementalVitalFields}
+							bind:values={vitalFormData}
+							idPrefix="patient-profile-vital"
+						/>
+					</div>
+				</div>
+			{/if}
 		{/if}
 	</div>
 	<div class="mt-6 flex justify-end gap-3 border-t border-slate-200 pt-5">
@@ -3045,7 +3009,7 @@
 			style="background: linear-gradient(to bottom, #ff5b5b, #d40000 72%); border: 1px solid rgba(117,0,0,0.35);
 			       box-shadow: 0 8px 18px rgba(212,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.32);"
 			onclick={submitVital}
-			disabled={vSubmitting}>
+			disabled={vSubmitting || selectedVitalFields.length === 0}>
 			{vSubmitting ? 'Saving...' : 'Save All Entries'}
 		</button>
 	</div>

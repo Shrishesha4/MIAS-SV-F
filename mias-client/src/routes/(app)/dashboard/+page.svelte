@@ -89,10 +89,18 @@
 	let admittedPatientsOffset = $state(0);
 	const ADMITTED_PATIENTS_LIMIT = 50;
 	let facultyClinics: any[] = $state([]);
+	let facultyClinicSessions: any[] = $state([]);
 	let selectedFacultyClinic: any = $state(null);
 	let facultyClinicPatients: any[] = $state([]);
+	let facultyClinicSearch = $state('');
+	let facultyCheckingIn = $state(false);
+	let facultyCheckingOut = $state(false);
 	let facultyTab = $state('admitted');
 	let facultyPatientSearch = $state('');
+
+	const activeFacultyClinicSession = $derived(
+		facultyClinicSessions.find((s) => s.checked_in_at && !s.checked_out_at) ?? null
+	);
 
 	const studentTabs = [
 		{ id: 'clinic', label: 'Clinic' },
@@ -159,6 +167,23 @@
 		const query = clinicSearch.trim().toLowerCase();
 		if (!query) return searchableClinics;
 		return searchableClinics.filter((clinic) =>
+			[clinic.name, clinic.department, clinic.location, clinic.faculty_name]
+				.filter(Boolean)
+				.some((value) => String(value).toLowerCase().includes(query))
+		);
+	});
+
+	const searchableFacultyClinics = $derived.by(() =>
+		facultyClinics.map((clinic) => ({
+			...clinic,
+			meta: [clinic.department, clinic.location, clinic.faculty_name].filter(Boolean).join(' · '),
+		}))
+	);
+
+	const filteredFacultyClinicOptions = $derived.by(() => {
+		const query = facultyClinicSearch.trim().toLowerCase();
+		if (!query) return searchableFacultyClinics;
+		return searchableFacultyClinics.filter((clinic) =>
 			[clinic.name, clinic.department, clinic.location, clinic.faculty_name]
 				.filter(Boolean)
 				.some((value) => String(value).toLowerCase().includes(query))
@@ -250,6 +275,23 @@
 		clinicPatients = await studentApi.getClinicPatients(student.id, clinic.id);
 	}
 
+	async function refreshStudentClinicState(preferredClinicId?: string | null) {
+		if (!student) return;
+		const sessions = await studentApi.getClinicSessions(student.id);
+		clinicSessions = sessions;
+		const targetClinicId =
+			preferredClinicId ??
+			sessions.find((session: any) => session.checked_in_at && !session.checked_out_at)?.clinic_id ??
+			selectedClinic?.id ??
+			null;
+		if (!targetClinicId) {
+			clinicPatients = [];
+			return;
+		}
+		const clinic = clinics.find((item) => item.id === targetClinicId) ?? null;
+		await loadStudentClinicPatients(clinic);
+	}
+
 	function handleClinicSearchInput(query: string) {
 		if (selectedClinic && query !== clinicDisplayLabel(selectedClinic)) {
 			selectedClinic = null;
@@ -265,13 +307,59 @@
 		clinicPatients = [];
 	}
 
+	async function loadFacultyClinicPatients(clinic: any | null) {
+		selectedFacultyClinic = clinic;
+		if (!clinic) {
+			facultyClinicPatients = [];
+			return;
+		}
+		facultyClinicSearch = clinic.name;
+		facultyClinicPatients = await facultyApi.getClinicPatients(clinic.id);
+	}
+
+	async function refreshFacultyClinicState(preferredClinicId?: string | null) {
+		if (!faculty) return;
+		const sessions = await facultyApi.getClinicSessions(faculty.id);
+		facultyClinicSessions = sessions;
+		const targetClinicId =
+			preferredClinicId ??
+			sessions.find((session: any) => session.checked_in_at && !session.checked_out_at)?.clinic_id ??
+			selectedFacultyClinic?.id ??
+			null;
+		if (!targetClinicId) {
+			facultyClinicPatients = [];
+			return;
+		}
+		const clinic = facultyClinics.find((item) => item.id === targetClinicId) ?? null;
+		await loadFacultyClinicPatients(clinic);
+	}
+
+	function handleFacultyClinicSearchInput(query: string) {
+		if (selectedFacultyClinic && query !== selectedFacultyClinic.name) {
+			selectedFacultyClinic = null;
+			facultyClinicPatients = [];
+		}
+	}
+
+	function clearFacultyClinicSelection() {
+		facultyClinicSearch = '';
+		selectedFacultyClinic = null;
+		facultyClinicPatients = [];
+	}
+
 	async function handleCheckIn() {
 		if (!student || !selectedClinic) return;
 		checkingIn = true;
 		try {
-			await studentApi.checkInToClinic(student.id, selectedClinic.id);
-			clinicSessions = await studentApi.getClinicSessions(student.id);
-			toastStore.addToast(`Checked in to ${selectedClinic.name}`, 'success');
+			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id);
+			await refreshStudentClinicState(selectedClinic.id);
+			if (result?.switched_from_clinic_name) {
+				toastStore.addToast(`Switched from ${result.switched_from_clinic_name} to ${selectedClinic.name}`, 'success');
+			} else if (result?.status === 'already_checked_in') {
+				toastStore.addToast(`Already checked in to ${selectedClinic.name}`, 'success');
+			} else {
+				toastStore.addToast(`Checked in to ${selectedClinic.name}`, 'success');
+			}
 		} catch (err: any) {
 			toastStore.addToast(err?.response?.data?.detail ?? 'Check-in failed', 'error');
 		} finally {
@@ -284,12 +372,46 @@
 		checkingOut = true;
 		try {
 			await studentApi.checkOutClinic(student.id, activeClinicSession.id);
-			clinicSessions = await studentApi.getClinicSessions(student.id);
+			await refreshStudentClinicState(selectedClinic?.id ?? activeClinicSession.clinic_id ?? null);
 			toastStore.addToast('Checked out successfully', 'success');
 		} catch (err: any) {
 			toastStore.addToast(err?.response?.data?.detail ?? 'Check-out failed', 'error');
 		} finally {
 			checkingOut = false;
+		}
+	}
+
+	async function handleFacultyCheckIn() {
+		if (!faculty || !selectedFacultyClinic) return;
+		facultyCheckingIn = true;
+		try {
+			const result = await facultyApi.checkInToClinic(faculty.id, selectedFacultyClinic.id);
+			await refreshFacultyClinicState(selectedFacultyClinic.id);
+			if (result?.switched_from_clinic_name) {
+				toastStore.addToast(`Switched from ${result.switched_from_clinic_name} to ${selectedFacultyClinic.name}`, 'success');
+			} else if (result?.status === 'already_checked_in') {
+				toastStore.addToast(`Already checked in to ${selectedFacultyClinic.name}`, 'success');
+			} else {
+				toastStore.addToast(`Checked in to ${selectedFacultyClinic.name}`, 'success');
+			}
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Faculty check-in failed', 'error');
+		} finally {
+			facultyCheckingIn = false;
+		}
+	}
+
+	async function handleFacultyCheckOut() {
+		if (!faculty || !activeFacultyClinicSession) return;
+		facultyCheckingOut = true;
+		try {
+			await facultyApi.checkOutFromClinic(faculty.id, activeFacultyClinicSession.id);
+			await refreshFacultyClinicState(selectedFacultyClinic?.id ?? activeFacultyClinicSession.clinic_id ?? null);
+			toastStore.addToast('Checked out successfully', 'success');
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Faculty check-out failed', 'error');
+		} finally {
+			facultyCheckingOut = false;
 		}
 	}
 
@@ -472,10 +594,19 @@
 				admittedPatients = admissionsRes.items || [];
 				admittedPatientsTotal = admissionsRes.total || 0;
 				admittedPatientsOffset = 0;
-				facultyClinics = await facultyApi.getFacultyClinics(faculty.id);
-				if (facultyClinics.length > 0) {
-					selectedFacultyClinic = facultyClinics[0];
-					facultyClinicPatients = await facultyApi.getClinicPatients(facultyClinics[0].id);
+				const [clinicList, clinicSessionList] = await Promise.all([
+					facultyApi.getFacultyClinics(faculty.id),
+					facultyApi.getClinicSessions(faculty.id),
+				]);
+				facultyClinics = clinicList;
+				facultyClinicSessions = clinicSessionList;
+				const activeFacultyClinicId = clinicSessionList.find((session: any) => session.checked_in_at && !session.checked_out_at)?.clinic_id;
+				const initialFacultyClinic =
+					clinicList.find((clinic: any) => clinic.id === activeFacultyClinicId) ??
+					clinicList[0] ??
+					null;
+				if (initialFacultyClinic) {
+					await loadFacultyClinicPatients(initialFacultyClinic);
 				}
 			} else if (role === 'NURSE') {
 				// Redirect nurses to their station dashboard
@@ -816,26 +947,28 @@
 											Check Out
 										</button>
 									</div>
-								{:else if selectedClinic && (!activeClinicSession)}
+								{:else if selectedClinic}
 									<!-- Check In Button -->
-									<button
-										class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
-										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
-										disabled={checkingIn}
-										onclick={handleCheckIn}
-									>
-										{#if checkingIn}
-											<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-										{:else}
-											<LogIn class="w-4 h-4" />
+									<div class="space-y-2">
+										{#if activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
+											<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
+												<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
+												<p class="text-xs text-amber-700">Currently checked in to <span class="font-semibold">{activeClinicSession.clinic_name}</span>. Checking in here will switch your active clinic.</p>
+											</div>
 										{/if}
-										Check In to {selectedClinic.name}
-									</button>
-								{:else if selectedClinic && activeClinicSession && activeClinicSession.clinic_id !== selectedClinic.id}
-									<!-- Already checked in elsewhere notice -->
-									<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
-										<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
-										<p class="text-xs text-amber-700">Already checked in to <span class="font-semibold">{activeClinicSession.clinic_name}</span>. Check out first.</p>
+										<button
+											class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
+											style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+											disabled={checkingIn}
+											onclick={handleCheckIn}
+										>
+											{#if checkingIn}
+												<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+											{:else}
+												<LogIn class="w-4 h-4" />
+											{/if}
+											Check In to {selectedClinic.name}
+										</button>
 									</div>
 								{/if}
 							</div>
@@ -1147,7 +1280,71 @@ style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#05966
 			</div>
 
 			<!-- Search Bar -->
-			<div class="p-3 border-b border-gray-100">
+			<div class="p-3 border-b border-gray-100 space-y-3">
+				{#if facultyTab === 'clinic' && facultyClinics.length > 0}
+					<div class="space-y-2">
+						<Autocomplete
+							items={filteredFacultyClinicOptions}
+							labelKey="name"
+							sublabelKey="meta"
+							minChars={0}
+							placeholder="Search and select clinic..."
+							bind:value={facultyClinicSearch}
+							onInput={handleFacultyClinicSearchInput}
+							onSelect={(clinic) => void loadFacultyClinicPatients(clinic)}
+							onClear={clearFacultyClinicSelection}
+						/>
+						{#if selectedFacultyClinic}
+							<p class="text-xs text-gray-500">{selectedFacultyClinic.department} · {selectedFacultyClinic.location}</p>
+							{#if activeFacultyClinicSession && activeFacultyClinicSession.clinic_id === selectedFacultyClinic.id}
+								<div class="flex items-center justify-between px-3 py-2 rounded-lg" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25);">
+									<div class="flex items-center gap-2">
+										<CheckCircle2 class="w-4 h-4 text-emerald-600 shrink-0" />
+										<div>
+											<p class="text-xs font-semibold text-emerald-700">Checked In</p>
+											<p class="text-[11px] text-emerald-600">Since {new Date(activeFacultyClinicSession.checked_in_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
+										</div>
+									</div>
+									<button
+										class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-60"
+										style="background: linear-gradient(to bottom, #ef4444, #dc2626); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+										disabled={facultyCheckingOut}
+										onclick={handleFacultyCheckOut}
+									>
+										{#if facultyCheckingOut}
+											<div class="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+										{:else}
+											<LogOut class="w-3 h-3" />
+										{/if}
+										Check Out
+									</button>
+								</div>
+							{:else}
+								<div class="space-y-2">
+									{#if activeFacultyClinicSession && activeFacultyClinicSession.clinic_id !== selectedFacultyClinic.id}
+										<div class="flex items-center gap-2 px-3 py-2 rounded-lg" style="background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);">
+											<AlertTriangle class="w-4 h-4 text-amber-600 shrink-0" />
+											<p class="text-xs text-amber-700">Currently checked in to <span class="font-semibold">{activeFacultyClinicSession.clinic_name}</span>. Checking in here will switch your active clinic.</p>
+										</div>
+									{/if}
+									<button
+										class="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-60"
+										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; box-shadow: 0 1px 3px rgba(0,0,0,0.2);"
+										disabled={facultyCheckingIn}
+										onclick={handleFacultyCheckIn}
+									>
+										{#if facultyCheckingIn}
+											<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+										{:else}
+											<LogIn class="w-4 h-4" />
+										{/if}
+										Check In to {selectedFacultyClinic.name}
+									</button>
+								</div>
+							{/if}
+						{/if}
+					</div>
+				{/if}
 				<div class="relative">
 					<input
 						type="text"

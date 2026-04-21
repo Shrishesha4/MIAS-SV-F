@@ -12,6 +12,7 @@ from app.models.user import User, UserRole
 from app.models.student import (
     Student, StudentPatientAssignment, StudentAttendance,
     DisciplinaryAction, ClinicSession, Clinic, ClinicAppointment,
+    StudentClinicCheckinLog,
 )
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.patient import Patient, Allergy, MedicalAlert
@@ -31,6 +32,50 @@ router = APIRouter(prefix="/students", tags=["Students"])
 
 class ClinicCheckInRequest(BaseModel):
     clinic_id: str
+
+
+async def _create_student_checkin_log(
+    db: AsyncSession,
+    *,
+    session: ClinicSession,
+    checked_in_at: datetime,
+) -> None:
+    existing_log = (
+        await db.execute(
+            select(StudentClinicCheckinLog).where(
+                StudentClinicCheckinLog.clinic_session_id == session.id
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_log:
+        existing_log.checked_in_at = checked_in_at
+        existing_log.checked_out_at = None
+        return
+
+    db.add(StudentClinicCheckinLog(
+        id=str(uuid.uuid4()),
+        student_id=session.student_id,
+        clinic_id=session.clinic_id,
+        clinic_session_id=session.id,
+        checked_in_at=checked_in_at,
+    ))
+
+
+async def _close_student_checkin_log(
+    db: AsyncSession,
+    *,
+    clinic_session_id: str,
+    checked_out_at: datetime,
+) -> None:
+    log = (
+        await db.execute(
+            select(StudentClinicCheckinLog).where(
+                StudentClinicCheckinLog.clinic_session_id == clinic_session_id
+            )
+        )
+    ).scalar_one_or_none()
+    if log and not log.checked_out_at:
+        log.checked_out_at = checked_out_at
 
 
 async def _complete_case_record_generation(
@@ -726,10 +771,9 @@ async def check_in_to_clinic(
                 ClinicSession.checked_out_at.is_(None),
             )
         )
+        .order_by(ClinicSession.checked_in_at.desc())
     )
-    active_session = active_session_result.scalar_one_or_none()
-    if active_session:
-        raise HTTPException(status_code=400, detail=f"Already checked in to {active_session.clinic_name}")
+    active_session = active_session_result.scalars().first()
 
     clinic_result = await db.execute(
         select(Clinic).where(Clinic.id == body.clinic_id)
@@ -741,10 +785,35 @@ async def check_in_to_clinic(
     current_sessions_result = await db.execute(
         select(ClinicSession).where(ClinicSession.student_id == student_id)
     )
-    for session in current_sessions_result.scalars().all():
+    current_sessions = current_sessions_result.scalars().all()
+    for session in current_sessions:
         session.is_selected = 0
 
     now = datetime.utcnow()
+    if active_session and active_session.clinic_id == clinic.id:
+        active_session.is_selected = 1
+        await db.commit()
+        return {
+            "status": "already_checked_in",
+            "session_id": active_session.id,
+            "checked_in_at": active_session.checked_in_at.isoformat() if active_session.checked_in_at else None,
+            "clinic_id": clinic.id,
+            "clinic_name": clinic.name,
+        }
+
+    switched_from_clinic_name = None
+    if active_session:
+        switched_from_clinic_name = active_session.clinic_name
+        active_session.checked_out_at = now
+        active_session.time_end = now.strftime("%I:%M %p")
+        active_session.status = "Completed"
+        active_session.is_selected = 0
+        await _close_student_checkin_log(
+            db,
+            clinic_session_id=active_session.id,
+            checked_out_at=now,
+        )
+
     session = ClinicSession(
         id=str(uuid.uuid4()),
         student_id=student_id,
@@ -759,6 +828,7 @@ async def check_in_to_clinic(
         checked_in_at=now,
     )
     db.add(session)
+    await _create_student_checkin_log(db, session=session, checked_in_at=now)
     await db.commit()
 
     return {
@@ -767,6 +837,7 @@ async def check_in_to_clinic(
         "checked_in_at": now.isoformat(),
         "clinic_id": clinic.id,
         "clinic_name": clinic.name,
+        "switched_from_clinic_name": switched_from_clinic_name,
     }
 
 
@@ -825,6 +896,7 @@ async def check_in_to_clinic_session(
     now = datetime.utcnow()
     session.checked_in_at = now
     session.status = "Active"
+    await _create_student_checkin_log(db, session=session, checked_in_at=now)
     await db.commit()
     
     return {
@@ -870,6 +942,11 @@ async def check_out_from_clinic_session(
     # Calculate duration in minutes
     duration_minutes = int((now - session.checked_in_at).total_seconds() / 60)
     
+    await _close_student_checkin_log(
+        db,
+        clinic_session_id=session.id,
+        checked_out_at=now,
+    )
     await db.commit()
     
     return {

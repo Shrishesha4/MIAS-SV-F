@@ -7,6 +7,7 @@ from app.models.patient_category import PatientCategoryOption
 from app.models.student import (
     Student, StudentAttendance, DisciplinaryAction,
     StudentPatientAssignment, StudentNotification, ClinicSession,
+    StudentClinicCheckinLog,
     Clinic, ClinicAppointment
 )
 from app.models.lab import (

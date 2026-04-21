@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, text, and_, or_, distinct, extract
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta, date
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr
 import uuid
 
@@ -46,6 +46,22 @@ from app.services.patient_categories import (
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 # ── helpers ──────────────────────────────────────────────────────────
+
+
+def _serialize_vital_parameter(param: VitalParameter) -> dict:
+    return {
+        "id": param.id,
+        "name": param.name,
+        "display_name": param.display_name,
+        "category": param.category,
+        "unit": param.unit,
+        "min_value": param.min_value,
+        "max_value": param.max_value,
+        "value_style": param.value_style,
+        "is_active": param.is_active,
+        "sort_order": param.sort_order,
+    }
+
 
 
 def _uid() -> str:
@@ -1483,9 +1499,10 @@ class VitalParameterCreate(BaseModel):
     name: str
     display_name: str
     category: str = "Primary"
-    unit: Optional[str] = None
+    unit: str
     min_value: Optional[float] = None
     max_value: Optional[float] = None
+    value_style: Literal["single", "slash"] = "single"
     is_active: bool = True
     sort_order: int = 0
 
@@ -1496,6 +1513,7 @@ class VitalParameterUpdate(BaseModel):
     unit: Optional[str] = None
     min_value: Optional[float] = None
     max_value: Optional[float] = None
+    value_style: Optional[Literal["single", "slash"]] = None
     is_active: Optional[bool] = None
     sort_order: Optional[int] = None
 
@@ -1512,20 +1530,7 @@ async def list_vital_parameters(
         query = query.where(VitalParameter.is_active == True)
     result = await db.execute(query)
     parameters = result.scalars().all()
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "display_name": p.display_name,
-            "category": p.category,
-            "unit": p.unit,
-            "min_value": p.min_value,
-            "max_value": p.max_value,
-            "is_active": p.is_active,
-            "sort_order": p.sort_order,
-        }
-        for p in parameters
-    ]
+    return [_serialize_vital_parameter(p) for p in parameters]
 
 
 @router.post("/vital-parameters")
@@ -1535,37 +1540,37 @@ async def create_vital_parameter(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new vital parameter configuration."""
+    name = data.name.strip()
+    display_name = data.display_name.strip()
+    if not name or not display_name:
+        raise HTTPException(status_code=400, detail="Name and display name are required")
+
     # Check if parameter with same name exists
     existing = (await db.execute(
-        select(VitalParameter).where(VitalParameter.name == data.name)
+        select(VitalParameter).where(VitalParameter.name == name)
     )).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=400, detail=f"Parameter '{data.name}' already exists")
+        raise HTTPException(status_code=400, detail=f"Parameter '{name}' already exists")
+
+    unit = data.unit.strip()
+    if not unit:
+        raise HTTPException(status_code=400, detail="Unit is required")
 
     param = VitalParameter(
         id=_uid(),
-        name=data.name,
-        display_name=data.display_name,
+        name=name,
+        display_name=display_name,
         category=data.category,
-        unit=data.unit,
+        unit=unit,
         min_value=data.min_value,
         max_value=data.max_value,
+        value_style=data.value_style,
         is_active=data.is_active,
         sort_order=data.sort_order,
     )
     db.add(param)
     await db.commit()
-    return {
-        "id": param.id,
-        "name": param.name,
-        "display_name": param.display_name,
-        "category": param.category,
-        "unit": param.unit,
-        "min_value": param.min_value,
-        "max_value": param.max_value,
-        "is_active": param.is_active,
-        "sort_order": param.sort_order,
-    }
+    return _serialize_vital_parameter(param)
 
 
 @router.get("/vital-parameters/{param_id}")
@@ -1580,17 +1585,7 @@ async def get_vital_parameter(
     )).scalar_one_or_none()
     if not param:
         raise HTTPException(status_code=404, detail="Vital parameter not found")
-    return {
-        "id": param.id,
-        "name": param.name,
-        "display_name": param.display_name,
-        "category": param.category,
-        "unit": param.unit,
-        "min_value": param.min_value,
-        "max_value": param.max_value,
-        "is_active": param.is_active,
-        "sort_order": param.sort_order,
-    }
+    return _serialize_vital_parameter(param)
 
 
 @router.patch("/vital-parameters/{param_id}")
@@ -1608,21 +1603,21 @@ async def update_vital_parameter(
         raise HTTPException(status_code=404, detail="Vital parameter not found")
 
     update_data = data.model_dump(exclude_unset=True)
+    if "unit" in update_data:
+        unit = (update_data["unit"] or "").strip()
+        if not unit:
+            raise HTTPException(status_code=400, detail="Unit is required")
+        update_data["unit"] = unit
+    if "display_name" in update_data and update_data["display_name"] is not None:
+        display_name = update_data["display_name"].strip()
+        if not display_name:
+            raise HTTPException(status_code=400, detail="Display name is required")
+        update_data["display_name"] = display_name
     for key, value in update_data.items():
         setattr(param, key, value)
 
     await db.commit()
-    return {
-        "id": param.id,
-        "name": param.name,
-        "display_name": param.display_name,
-        "category": param.category,
-        "unit": param.unit,
-        "min_value": param.min_value,
-        "max_value": param.max_value,
-        "is_active": param.is_active,
-        "sort_order": param.sort_order,
-    }
+    return _serialize_vital_parameter(param)
 
 
 @router.delete("/vital-parameters/{param_id}")

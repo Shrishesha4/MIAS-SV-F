@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import uuid
@@ -601,7 +602,8 @@ FORM_GENERATION_SYSTEM_PROMPT = (
     '  "required": boolean,\n'
     '  "placeholder": example input text or empty string,\n'
     '  "options": string array (required and non-empty ONLY if type is "select", otherwise empty array []),\n'
-    '  "help_text": short guidance or empty string.\n\n'
+    '  "help_text": short guidance or empty string,\n'
+    '  "condition": null OR an object with "field", "operator", and optional "value".\n\n'
     "Rules:\n"
     "- Generate 5-15 fields appropriate for the described form.\n"
     "- Use textarea for long-form text (clinical notes, findings, descriptions).\n"
@@ -610,6 +612,12 @@ FORM_GENERATION_SYSTEM_PROMPT = (
     "- Use number for numeric measurements or counts.\n"
     "- Field keys must be unique snake_case.\n"
     "- Do NOT use types: file, password, diagnosis, department_select, faculty_select, clinic_select.\n"
+    "- Do NOT include patient identity fields that are already available elsewhere, especially Patient Name, Patient ID, Patient Date of Birth, or DOB.\n"
+    "- Every field must collect user-entered clinical or administrative data. Never create action/button/system fields such as Generate Differential Diagnosis, Submit, Save, Print, Export, or click-to-trigger AI fields.\n"
+    '- If a field should appear only after an earlier answer, set "condition" using operators: eq, ne, contains, gt, lt, gte, lte, empty, not_empty.\n'
+    '- A "condition.field" must reference the key of an earlier field in the same form.\n'
+    '- For operators eq, ne, contains, gt, lt, gte, and lte, include a "value". For empty and not_empty, omit "value".\n'
+    '- If a field should always be visible, set "condition" to null.\n'
     "- Return ONLY the JSON object, no markdown fences or explanation."
 )
 
@@ -618,6 +626,125 @@ class FormGeneratePayload(BaseModel):
     description: str = Field(..., min_length=3, max_length=500)
     existing_fields: list[dict[str, Any]] | None = Field(default=None, description="Current fields to refine")
     form_name: str | None = Field(default=None, description="Current form name for context")
+
+
+def _build_refine_user_prompt(
+    form_name: str | None,
+    existing_fields: list[dict[str, Any]],
+    description: str,
+    *,
+    delta_only: bool,
+) -> str:
+    existing_summary = json.dumps(
+        [
+            {
+                "key": field.get("key"),
+                "label": field.get("label"),
+                "type": field.get("type"),
+                "options": field.get("options") or [],
+                "condition": field.get("condition"),
+            }
+            for field in existing_fields
+        ],
+        indent=2
+    )
+    if delta_only:
+        return (
+            f"Current form name: {form_name or 'Untitled'}\n"
+            f"Current fields:\n{existing_summary}\n\n"
+            f"User request: {description.strip()}\n\n"
+            "Refine this form based on the request. Preserve all useful existing fields, preserve existing keys whenever possible, "
+            "and prefer enhancing or adding fields over removing them unless the request clearly requires removal. "
+            'Your JSON MUST still use the top-level keys "name", "description", and "fields". '
+            'Put only the added or updated fields inside the "fields" array, and never omit the "fields" key.'
+        )
+    return (
+        f"Current form name: {form_name or 'Untitled'}\n"
+        f"Current fields:\n{existing_summary}\n\n"
+        f"User request: {description.strip()}\n\n"
+        "Refine this form based on the request. Preserve all useful existing fields, preserve existing keys whenever possible, "
+        "and return the complete updated form definition with every field included. "
+        'Your JSON MUST use the top-level keys "name", "description", and "fields".'
+    )
+
+
+def _extract_generated_fields(result: dict[str, Any]) -> list[dict[str, Any]] | None:
+    container = _extract_generated_container(result)
+    if container is None:
+        return None
+    result = container
+    raw_fields = result.get("fields")
+    if isinstance(raw_fields, list):
+        return raw_fields
+    for alternate_key in ("updated_fields", "new_fields", "added_fields", "modified_fields", "changes"):
+        alternate_fields = result.get(alternate_key)
+        if isinstance(alternate_fields, list):
+            return alternate_fields
+    return None
+
+
+def _extract_generated_container(result: dict[str, Any] | Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+    raw_fields = result.get("fields")
+    if isinstance(raw_fields, list):
+        return result
+    for alternate_key in ("updated_fields", "new_fields", "added_fields", "modified_fields", "changes"):
+        alternate_fields = result.get(alternate_key)
+        if isinstance(alternate_fields, list):
+            return result
+    for preferred_key in ("form", "updated_form", "updatedForm", "data", "result", "payload"):
+        nested = _extract_generated_container(result.get(preferred_key))
+        if nested is not None:
+            return nested
+    for value in result.values():
+        nested = _extract_generated_container(value)
+        if nested is not None:
+            return nested
+    return None
+
+
+def _is_patient_identity_field(field: dict[str, Any]) -> bool:
+    key = str(field.get("key") or "").strip().lower()
+    label = re.sub(r"[^a-z0-9]+", " ", str(field.get("label") or "").strip().lower()).strip()
+    return key in {
+        "patient_id",
+        "patient_name",
+        "patient_dob",
+        "patient_date_of_birth",
+        "date_of_birth",
+        "dob",
+    } or label in {
+        "patient id",
+        "patient name",
+        "patient dob",
+        "patient date of birth",
+        "date of birth",
+        "dob",
+    }
+
+
+def _is_instructional_generated_field(field: dict[str, Any]) -> bool:
+    key = str(field.get("key") or "").strip().lower()
+    label = re.sub(r"[^a-z0-9]+", " ", str(field.get("label") or "").strip().lower()).strip()
+    placeholder = re.sub(r"[^a-z0-9]+", " ", str(field.get("placeholder") or "").strip().lower()).strip()
+    help_text = re.sub(r"[^a-z0-9]+", " ", str(field.get("help_text") or "").strip().lower()).strip()
+    combined = " ".join(part for part in (label, placeholder, help_text) if part)
+    if key.startswith(("generate_", "calculate_", "submit_", "save_", "print_", "export_")):
+        return True
+    if label.startswith(("generate ", "calculate ", "submit ", "save ", "print ", "export ")):
+        return True
+    return any(
+        marker in combined
+        for marker in {
+            "clicking this will",
+            "this will trigger",
+            "trigger the generation",
+            "generate differential diagnosis",
+            "generate diagnosis",
+            "ai generated",
+        }
+    )
 
 
 @router.post("/generate")
@@ -634,34 +761,59 @@ async def generate_form_definition(
 
     # Build user prompt — include existing fields for refinement if provided
     if payload.existing_fields and len(payload.existing_fields) > 0:
-        existing_summary = json.dumps(
-            [{"key": f.get("key"), "label": f.get("label"), "type": f.get("type")} for f in payload.existing_fields],
-            indent=2
-        )
-        user_prompt = (
-            f"Current form name: {payload.form_name or 'Untitled'}\n"
-            f"Current fields:\n{existing_summary}\n\n"
-            f"User request: {payload.description.strip()}\n\n"
-            "Refine this form based on the request. You may add, remove, or modify fields. "
-            "Return the complete updated form definition."
-        )
+        prompts = [
+            (_build_refine_user_prompt(payload.form_name, payload.existing_fields, payload.description, delta_only=True), 2200),
+            (_build_refine_user_prompt(payload.form_name, payload.existing_fields, payload.description, delta_only=False), 3600),
+        ]
     else:
-        user_prompt = f"Generate a medical/dental form for: {payload.description.strip()}"
+        prompts = [(f"Generate a medical/dental form for: {payload.description.strip()}", 4000)]
 
-    try:
-        result = await request_structured_completion(
-            config,
-            FORM_GENERATION_SYSTEM_PROMPT,
-            user_prompt,
-            max_tokens=4000,
-        )
-    except AIProviderError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    result: dict[str, Any] | None = None
+    raw_fields: list[dict[str, Any]] | None = None
+    last_error: AIProviderError | None = None
+    last_candidate: dict[str, Any] | None = None
+    for user_prompt, max_tokens in prompts:
+        try:
+            candidate = await request_structured_completion(
+                config,
+                FORM_GENERATION_SYSTEM_PROMPT,
+                user_prompt,
+                max_tokens=max_tokens,
+            )
+        except AIProviderError as exc:
+            last_error = exc
+            continue
 
-    name = str(result.get("name") or "").strip() or "Generated Form"
-    description = str(result.get("description") or "").strip() or None
-    raw_fields = result.get("fields")
-    if not isinstance(raw_fields, list) or len(raw_fields) == 0:
+        last_candidate = candidate
+        candidate_fields = _extract_generated_fields(candidate)
+        if candidate_fields is None:
+            last_error = AIProviderError("AI did not return any fields")
+            continue
+
+        result = candidate
+        raw_fields = candidate_fields
+        break
+
+    if result is None or raw_fields is None:
+        if payload.existing_fields and last_candidate is not None:
+            candidate_container = _extract_generated_container(last_candidate) or last_candidate
+            return {
+                "name": str(candidate_container.get("name") or payload.form_name or "").strip() or "Generated Form",
+                "description": str(candidate_container.get("description") or "").strip() or None,
+                "fields": [],
+            }
+        raise HTTPException(status_code=502, detail=str(last_error or AIProviderError("AI did not return any fields")))
+
+    result_container = _extract_generated_container(result) or result
+    name = str(result_container.get("name") or result.get("name") or "").strip() or "Generated Form"
+    description = str(result_container.get("description") or result.get("description") or "").strip() or None
+    if payload.existing_fields and len(raw_fields) == 0:
+        return {
+            "name": name,
+            "description": description,
+            "fields": [],
+        }
+    if len(raw_fields) == 0:
         raise HTTPException(status_code=502, detail="AI did not return any fields")
 
     # Normalize and validate each field
@@ -675,10 +827,11 @@ async def generate_form_definition(
         label = normalized.get("label") or ""
         if not key or not label:
             continue
+        if _is_patient_identity_field(normalized) or _is_instructional_generated_field(normalized):
+            continue
         # Deduplicate keys
         if key in seen_keys:
             continue
-        seen_keys.add(key)
         # Restrict to safe types the AI should produce
         field_type = normalized.get("type", "text")
         if field_type not in ALLOWED_FIELD_TYPES:
@@ -686,8 +839,19 @@ async def generate_form_definition(
         # Ensure select fields have options
         if normalized["type"] == "select" and not normalized.get("options"):
             normalized["type"] = "text"
-        # Strip conditions from generated fields (AI shouldn't produce these)
-        normalized.pop("condition", None)
+        condition = normalized.get("condition")
+        if condition:
+            operator = str(condition.get("operator") or "").strip().lower()
+            condition_field = str(condition.get("field") or "").strip()
+            requires_value = operator not in {"empty", "not_empty"}
+            has_value = "value" in condition and condition.get("value") not in (None, "")
+            if (
+                operator not in ALLOWED_CONDITION_OPERATORS
+                or condition_field not in seen_keys
+                or (requires_value and not has_value)
+            ):
+                normalized["condition"] = None
+        seen_keys.add(key)
         normalized_fields.append(normalized)
 
     if not normalized_fields:

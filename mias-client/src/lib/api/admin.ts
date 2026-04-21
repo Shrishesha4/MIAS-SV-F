@@ -140,6 +140,7 @@ export interface VitalParameter {
   unit: string | null;
   min_value: number | null;
   max_value: number | null;
+  value_style: 'single' | 'slash';
   is_active: boolean;
   sort_order: number;
 }
@@ -165,9 +166,10 @@ export interface VitalParameterCreate {
   name: string;
   display_name: string;
   category?: string;
-  unit?: string;
+  unit: string;
   min_value?: number;
   max_value?: number;
+  value_style?: 'single' | 'slash';
   is_active?: boolean;
   sort_order?: number;
 }

@@ -12,7 +12,7 @@ from app.database import get_db
 from app.api.deps import get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.patient import Patient, Appointment, MedicalAlert, InsurancePolicy, PatientDiagnosisEntry
-from app.models.vital import Vital
+from app.models.vital import CORE_VITAL_FIELD_NAMES, Vital
 from app.models.prescription import (
     Prescription, PrescriptionStatus, PrescriptionMedication,
     MedicationDoseLog, MedicationDoseStatus,
@@ -31,6 +31,20 @@ from app.services.patient_insurance import sync_patient_insurance_category
 
 router = APIRouter(prefix="/patients", tags=["Patients"])
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
+
+
+def _serialize_vital(vital: Vital) -> dict:
+    payload = {
+        "id": vital.id,
+        "patient_id": vital.patient_id,
+        "recorded_at": vital.recorded_at.isoformat() if vital.recorded_at else None,
+        "recorded_by": vital.recorded_by,
+        "extra_values": vital.extra_values or {},
+    }
+    for field_name in CORE_VITAL_FIELD_NAMES:
+        payload[field_name] = getattr(vital, field_name)
+    payload.update(vital.extra_values or {})
+    return payload
 
 
 async def _resolve_actor_name(db: AsyncSession, user: User) -> str:
@@ -426,36 +440,7 @@ async def get_patient_vitals(
     )
 
     vitals = result.scalars().all()
-    return [
-        {
-            "id": v.id,
-            "patient_id": v.patient_id,
-            "recorded_at": v.recorded_at.isoformat() if v.recorded_at else None,
-            "recorded_by": v.recorded_by,
-            "systolic_bp": v.systolic_bp,
-            "diastolic_bp": v.diastolic_bp,
-            "heart_rate": v.heart_rate,
-            "respiratory_rate": v.respiratory_rate,
-            "temperature": v.temperature,
-            "oxygen_saturation": v.oxygen_saturation,
-            "weight": v.weight,
-            "blood_glucose": v.blood_glucose,
-            "cholesterol": v.cholesterol,
-            "bmi": v.bmi,
-            "creatinine": v.creatinine,
-            "urea": v.urea,
-            "sodium": v.sodium,
-            "potassium": v.potassium,
-            "sgot": v.sgot,
-            "sgpt": v.sgpt,
-            "hemoglobin": v.hemoglobin,
-            "wbc": v.wbc,
-            "platelet": v.platelet,
-            "rbc": v.rbc,
-            "hct": v.hct,
-        }
-        for v in vitals
-    ]
+    return [_serialize_vital(v) for v in vitals]
 
 
 @router.post("/{patient_id}/vitals")
@@ -465,6 +450,20 @@ async def create_vital(
     user: User = Depends(require_role(UserRole.STUDENT, UserRole.FACULTY, UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
 ):
+    extra_values = {
+        key: value
+        for key, value in vital_data.items()
+        if key not in CORE_VITAL_FIELD_NAMES
+        and key not in {"id", "patient_id", "recorded_at", "recorded_by", "extra_values", "notes"}
+        and value is not None
+    }
+    if isinstance(vital_data.get("extra_values"), dict):
+        extra_values.update({
+            key: value
+            for key, value in vital_data["extra_values"].items()
+            if key not in CORE_VITAL_FIELD_NAMES and value is not None
+        })
+
     vital = Vital(
         id=str(uuid.uuid4()),
         patient_id=patient_id,
@@ -491,13 +490,14 @@ async def create_vital(
         platelet=vital_data.get("platelet"),
         rbc=vital_data.get("rbc"),
         hct=vital_data.get("hct"),
+        extra_values=extra_values,
     )
 
     db.add(vital)
     await db.commit()
     await db.refresh(vital)
 
-    return {"id": vital.id, "patient_id": vital.patient_id, "recorded_at": vital.recorded_at.isoformat()}
+    return _serialize_vital(vital)
 
 
 @router.get("/{patient_id}/records")

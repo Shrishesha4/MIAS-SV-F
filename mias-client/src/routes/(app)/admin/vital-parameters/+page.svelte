@@ -19,6 +19,7 @@
 		display_name: '',
 		category: 'Primary',
 		unit: '',
+		value_style: 'single' as 'single' | 'slash',
 		min_value: '',
 		max_value: '',
 		sort_order: 0,
@@ -26,6 +27,7 @@
 	});
 
 	const categories = ['Primary', 'Secondary', 'Biochemistry', 'Haematology'];
+	const unitPresets = ['mmHg', 'bpm', '%', '°F', '/min', 'mg/dL', 'kg', 'lbs', 'mEq/L', 'U/L', 'g/dL', '×10³/µL', '×10⁶/µL'];
 
 	async function loadParameters() {
 		try {
@@ -45,6 +47,7 @@
 			display_name: '',
 			category: 'Primary',
 			unit: '',
+			value_style: 'single',
 			min_value: '',
 			max_value: '',
 			sort_order: parameters.length,
@@ -60,6 +63,7 @@
 			display_name: param.display_name,
 			category: param.category,
 			unit: param.unit || '',
+			value_style: param.value_style || 'single',
 			min_value: param.min_value?.toString() || '',
 			max_value: param.max_value?.toString() || '',
 			sort_order: param.sort_order,
@@ -69,20 +73,21 @@
 	}
 
 	async function handleSave() {
-		if (!formData.name || !formData.display_name) {
-			toastStore.addToast('Name and display name are required', 'error');
+		if (!formData.name.trim() || !formData.display_name.trim() || !formData.unit.trim()) {
+			toastStore.addToast('Name, display name, and unit are required', 'error');
 			return;
 		}
 
 		saving = true;
 		try {
 			const data = {
-				name: formData.name,
-				display_name: formData.display_name,
+				name: formData.name.trim(),
+				display_name: formData.display_name.trim(),
 				category: formData.category,
-				unit: formData.unit || undefined,
+				unit: formData.unit.trim(),
 				min_value: formData.min_value ? parseFloat(formData.min_value) : undefined,
 				max_value: formData.max_value ? parseFloat(formData.max_value) : undefined,
+				value_style: formData.value_style,
 				sort_order: formData.sort_order,
 				is_active: formData.is_active
 			};
@@ -171,6 +176,7 @@
 											<p class="text-xs text-gray-500">
 												{param.name}
 												{#if param.unit}· {param.unit}{/if}
+												· {param.value_style === 'slash' ? 'Slash value' : 'Single value'}
 												{#if param.min_value !== null && param.max_value !== null}
 													· Range: {param.min_value}-{param.max_value}
 												{/if}
@@ -278,9 +284,49 @@
 						class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
 						placeholder="e.g., mmHg"
 						bind:value={formData.unit}
+						required
 					/>
 				</div>
 			</div>
+
+			<div class="space-y-2">
+				<div class="flex flex-wrap gap-2">
+					{#each unitPresets as preset (preset)}
+						<button
+							type="button"
+							class="rounded-full px-3 py-1 text-xs font-semibold transition-colors"
+							style="background: {formData.unit === preset ? 'rgba(59,130,246,0.12)' : '#f8fafc'}; color: {formData.unit === preset ? '#2563eb' : '#475569'}; border: 1px solid {formData.unit === preset ? 'rgba(59,130,246,0.26)' : 'rgba(148,163,184,0.22)'};"
+							onclick={() => formData.unit = preset}
+						>
+							{preset}
+						</button>
+					{/each}
+				</div>
+				<p class="text-xs text-gray-400">Pick a unit or type your own. Every vital parameter now requires one.</p>
+			</div>
+
+			<fieldset class="space-y-2">
+				<legend class="block text-sm font-medium text-gray-700 mb-2">Value Style</legend>
+				<div class="grid grid-cols-2 gap-2">
+					<button
+						type="button"
+						class="rounded-xl px-3 py-2 text-sm font-semibold transition-colors"
+						style="background: {formData.value_style === 'single' ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : '#f8fafc'}; color: {formData.value_style === 'single' ? '#2563eb' : '#475569'}; border: 1px solid {formData.value_style === 'single' ? 'rgba(59,130,246,0.24)' : 'rgba(148,163,184,0.22)'};"
+						onclick={() => formData.value_style = 'single'}
+					>
+						Single value
+					</button>
+					<button
+						type="button"
+						class="rounded-xl px-3 py-2 text-sm font-semibold transition-colors"
+						style="background: {formData.value_style === 'slash' ? 'linear-gradient(to bottom, #eff6ff, #dbeafe)' : '#f8fafc'}; color: {formData.value_style === 'slash' ? '#2563eb' : '#475569'}; border: 1px solid {formData.value_style === 'slash' ? 'rgba(59,130,246,0.24)' : 'rgba(148,163,184,0.22)'};"
+						onclick={() => formData.value_style = 'slash'}
+					>
+						Slash style
+					</button>
+				</div>
+				<p class="mt-2 text-xs text-gray-400">Use slash style for paired readings such as pressure-style values. Use single value for normal numeric vitals.</p>
+			</fieldset>
 
 			<div class="grid grid-cols-2 gap-4">
 				<div>

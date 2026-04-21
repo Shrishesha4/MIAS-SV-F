@@ -83,7 +83,7 @@ export const patientApi = {
     return response.data;
   },
 
-  async createVital(patientId: string, vital: Partial<Vital>): Promise<Vital> {
+  async createVital(patientId: string, vital: Record<string, string | number | null | undefined>): Promise<Vital> {
     const response = await client.post(`/patients/${patientId}/vitals`, vital);
     return response.data;
   },

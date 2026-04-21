@@ -7,9 +7,23 @@ from datetime import datetime, timedelta
 from app.database import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.vital import Vital, VitalParameter
+from app.models.vital import CORE_VITAL_FIELD_NAMES, Vital, VitalParameter
 
 router = APIRouter(prefix="/vitals", tags=["Vitals"])
+
+
+def _serialize_vital(vital: Vital) -> dict:
+    payload = {
+        "id": vital.id,
+        "patient_id": vital.patient_id,
+        "recorded_at": vital.recorded_at.isoformat() if vital.recorded_at else None,
+        "recorded_by": vital.recorded_by,
+        "extra_values": vital.extra_values or {},
+    }
+    for field_name in CORE_VITAL_FIELD_NAMES:
+        payload[field_name] = getattr(vital, field_name)
+    payload.update(vital.extra_values or {})
+    return payload
 
 
 @router.get("/parameters")
@@ -33,6 +47,7 @@ async def get_active_vital_parameters(
             "unit": p.unit,
             "min_value": p.min_value,
             "max_value": p.max_value,
+            "value_style": p.value_style,
             "is_active": p.is_active,
             "sort_order": p.sort_order,
         }
@@ -57,18 +72,4 @@ async def get_latest_vitals(
     if not vital:
         return None
 
-    return {
-        "id": vital.id,
-        "patient_id": vital.patient_id,
-        "recorded_at": vital.recorded_at.isoformat() if vital.recorded_at else None,
-        "systolic_bp": vital.systolic_bp,
-        "diastolic_bp": vital.diastolic_bp,
-        "heart_rate": vital.heart_rate,
-        "respiratory_rate": vital.respiratory_rate,
-        "temperature": vital.temperature,
-        "oxygen_saturation": vital.oxygen_saturation,
-        "weight": vital.weight,
-        "blood_glucose": vital.blood_glucose,
-        "cholesterol": vital.cholesterol,
-        "bmi": vital.bmi,
-    }
+    return _serialize_vital(vital)
