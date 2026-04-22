@@ -21,6 +21,7 @@ from app.models.lab import ChargeItem, ChargePrice
 from app.models.student import Clinic
 from app.models.user import User, UserRole
 from app.services.ai_provider import AIProviderError, get_enabled_provider_settings, request_structured_completion
+from app.services.charge_sync import sync_charge_sources
 from app.services.form_categories import ensure_form_categories, infer_form_section, normalize_form_section_name
 
 router = APIRouter(prefix="/forms", tags=["Forms"])
@@ -503,6 +504,7 @@ async def create_form_definition(
     )
     db.add(form)
     await db.flush()
+    await sync_charge_sources(db)
     await db.refresh(form)
     return _serialize_form(form)
 
@@ -553,6 +555,7 @@ async def update_form_definition(
     form.allowed_roles = payload.allowed_roles
 
     await db.flush()
+    await sync_charge_sources(db)
     await db.refresh(form)
     return _serialize_form(form)
 

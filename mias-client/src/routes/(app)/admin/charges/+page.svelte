@@ -123,10 +123,6 @@ import client from '$lib/api/client';
 		return [...categories].sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
 	}
 
-	function sortInsurancePatientCategories(categories: InsuranceCategory['patient_categories']) {
-		return [...categories].sort((left, right) => left.name.localeCompare(right.name));
-	}
-
 	function normalizePricingKey(value: string): string {
 		return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 	}
@@ -168,14 +164,10 @@ import client from '$lib/api/client';
 
 	function buildPricingColumns(
 		chargeItems: ChargeItem[],
-		categoryItems: PatientCategoryConfig[],
-		insuranceItems: InsuranceCategory[]
+		categoryItems: PatientCategoryConfig[]
 	): PricingTierOption[] {
 		const tiers: PricingTierOption[] = [];
 		const sortedCategories = sortPatientCategories(categoryItems);
-		const categoriesByName = new Map(
-			sortedCategories.map((category) => [normalizePricingKey(category.name), category])
-		);
 		const seenTierKeys = new Set<string>();
 
 		for (const category of sortedCategories) {
@@ -201,36 +193,6 @@ import client from '$lib/api/client';
 			seenTierKeys.add(normalizedTierKey);
 		}
 
-		for (const insurance of sortInsuranceCategories(insuranceItems)) {
-			for (const patientCategory of sortInsurancePatientCategories(insurance.patient_categories || [])) {
-				const matchedCategory = categoriesByName.get(normalizePricingKey(patientCategory.name));
-				if (!matchedCategory) {
-					continue;
-				}
-
-				const tierKey = `${insurance.name} - ${patientCategory.name}`;
-				const normalizedTierKey = normalizePricingKey(tierKey);
-				if (seenTierKeys.has(normalizedTierKey)) {
-					continue;
-				}
-
-				tiers.push({
-					key: tierKey,
-					insuranceId: insurance.id,
-					insuranceName: insurance.name,
-					insuranceIconKey: insurance.icon_key,
-					insuranceBadgeSymbol: insurance.custom_badge_symbol?.trim().toUpperCase() || null,
-					insuranceColorPrimary: insurance.color_primary,
-					insuranceColorSecondary: insurance.color_secondary,
-					patientCategoryId: matchedCategory.id,
-					patientCategoryName: patientCategory.name,
-					patientColorPrimary: matchedCategory.color_primary,
-					patientColorSecondary: matchedCategory.color_secondary
-				});
-				seenTierKeys.add(normalizedTierKey);
-			}
-		}
-
 		for (const charge of chargeItems) {
 			for (const existingTierKey of Object.keys(charge.prices || {})) {
 				const normalizedTierKey = normalizePricingKey(existingTierKey);
@@ -238,29 +200,21 @@ import client from '$lib/api/client';
 					continue;
 				}
 
-				const matchedCategory = sortedCategories.find(
-					(category) => normalizedTierKey.endsWith(`- ${normalizePricingKey(category.name)}`)
-				);
-				if (matchedCategory) {
-					tiers.push({
-						key: existingTierKey,
-						insuranceId: null,
-						insuranceName: existingTierKey.replace(new RegExp(`\\s*-\\s*${matchedCategory.name}$`, 'i'), '').trim() || existingTierKey,
-						insuranceIconKey: 'off',
-						insuranceBadgeSymbol: null,
-						insuranceColorPrimary: '#94A3B8',
-						insuranceColorSecondary: '#475569',
-						patientCategoryId: matchedCategory.id,
-						patientCategoryName: matchedCategory.name,
-						patientColorPrimary: matchedCategory.color_primary,
-						patientColorSecondary: matchedCategory.color_secondary,
-						isLegacy: true
-					});
-				} else {
-					// Skip unknown legacy tiers that can't be matched
-					// These are orphaned price entries without proper category mapping
-					continue;
-				}
+				tiers.push({
+					key: existingTierKey,
+					insuranceId: null,
+					insuranceName: '',
+					insuranceIconKey: 'off',
+					insuranceBadgeSymbol: null,
+					insuranceColorPrimary: '#94A3B8',
+					insuranceColorSecondary: '#475569',
+					patientCategoryId: null,
+					patientCategoryName: existingTierKey,
+					patientColorPrimary: '#94A3B8',
+					patientColorSecondary: '#475569',
+					isBase: true,
+					isLegacy: true
+				});
 
 				seenTierKeys.add(normalizedTierKey);
 			}
@@ -323,7 +277,7 @@ import client from '$lib/api/client';
 		}
 	}
 
-	const availablePricingTiers = $derived.by(() => buildPricingColumns(charges, priceCategories, insuranceCategories));
+	const availablePricingTiers = $derived.by(() => buildPricingColumns(charges, priceCategories));
 	const pricingColumns = $derived.by(() => availablePricingTiers.map((tier) => tier.key));
 	const orderedPricingTiers = $derived.by(() => {
 		const byKey = new Map(availablePricingTiers.map((tier) => [tier.key, tier]));
@@ -731,7 +685,7 @@ import client from '$lib/api/client';
 			registrationFees = fees;
 			regFeeClinicMap = clinicMap;
 
-			const nextPricingColumns = buildPricingColumns(chargeItems, categoryItems, insuranceItems).map((tier) => tier.key);
+			const nextPricingColumns = buildPricingColumns(chargeItems, categoryItems).map((tier) => tier.key);
 			syncColumnOrder(nextPricingColumns);
 			charges = chargeItems.map((charge) => mergeChargePrices(charge, nextPricingColumns));
 		} catch (e: any) {

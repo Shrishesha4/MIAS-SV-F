@@ -94,12 +94,40 @@ def upgrade() -> None:
 	op.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS accepted_by_user_id VARCHAR")
 	op.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP")
 	op.execute(
-		"ALTER TABLE reports ADD CONSTRAINT IF NOT EXISTS fk_reports_lab_id "
-		"FOREIGN KEY (lab_id) REFERENCES labs(id)"
+		"""
+		DO $$
+		BEGIN
+		    IF NOT EXISTS (
+		        SELECT 1
+		        FROM pg_constraint
+		        WHERE conrelid = 'reports'::regclass
+		          AND conname = 'fk_reports_lab_id'
+		    ) THEN
+		        ALTER TABLE reports
+		        ADD CONSTRAINT fk_reports_lab_id
+		        FOREIGN KEY (lab_id) REFERENCES labs(id);
+		    END IF;
+		END
+		$$;
+		"""
 	)
 	op.execute(
-		"ALTER TABLE reports ADD CONSTRAINT IF NOT EXISTS fk_reports_accepted_by_user_id "
-		"FOREIGN KEY (accepted_by_user_id) REFERENCES users(id)"
+		"""
+		DO $$
+		BEGIN
+		    IF NOT EXISTS (
+		        SELECT 1
+		        FROM pg_constraint
+		        WHERE conrelid = 'reports'::regclass
+		          AND conname = 'fk_reports_accepted_by_user_id'
+		    ) THEN
+		        ALTER TABLE reports
+		        ADD CONSTRAINT fk_reports_accepted_by_user_id
+		        FOREIGN KEY (accepted_by_user_id) REFERENCES users(id);
+		    END IF;
+		END
+		$$;
+		"""
 	)
 	op.execute(
 		"CREATE INDEX IF NOT EXISTS ix_reports_lab_id ON reports (lab_id)"

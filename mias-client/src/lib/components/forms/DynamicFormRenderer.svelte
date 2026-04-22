@@ -105,6 +105,13 @@
 	}
 
 	const visibleFields = $derived(fields.filter((f) => formState.visibility[f.key] !== false));
+	const aiFormValuesSnapshot = $derived.by(() => {
+		const snapshot: Record<string, any> = {};
+		for (const field of fields) {
+			snapshot[field.key] = values[field.key];
+		}
+		return snapshot;
+	});
 
 	function normalizeFieldToken(value: string | null | undefined): string {
 		return (value ?? '').trim().toLowerCase();
@@ -258,7 +265,7 @@
 		patientId={aiPatientId}
 		department={aiDepartment}
 		formName={aiFormName}
-		formValues={values}
+		formValues={aiFormValuesSnapshot}
 		priorDiagnoses={aiPriorDiagnoses}
 		topN={aiTopN}
 		autoAnalyze={aiAutoAnalyze}
