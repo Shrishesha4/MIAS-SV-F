@@ -12,6 +12,10 @@ import client from '$lib/api/client';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { Pencil, Check, Power, X, ShieldCheck, Landmark, Briefcase, Building2, Wallet, HeartPulse, CircleOff, Maximize2, Minimize2 } from 'lucide-svelte';
 
+	// UI-only tab discriminant. REGISTRATION is not a backend ChargeCategory value;
+	// it surfaces InsuranceClinicConfig fees, not ChargeItem rows.
+	type ChargesTab = ChargeCategory | 'REGISTRATION';
+
 	type ChargeMetaDraft = {
 		name: string;
 		item_code: string;
@@ -41,7 +45,7 @@ import client from '$lib/api/client';
 	let charges: ChargeItem[] = $state([]);
 	let priceCategories = $state<PatientCategoryConfig[]>([]);
 	let insuranceCategories = $state<InsuranceCategory[]>([]);
-	let activeCategory: ChargeCategory = $state('REGISTRATION');
+	let activeCategory: ChargesTab = $state('REGISTRATION');
 
 	// Registration fees keyed by "insuranceId::patientCategoryId" — per combo
 	let registrationFees = $state<Record<string, number>>({});
@@ -892,7 +896,7 @@ import client from '$lib/api/client';
 		chargeData = {
 			name: '',
 			item_code: '',
-			category: activeCategory,
+			category: activeCategory === 'REGISTRATION' ? 'CLINICAL' : activeCategory,
 			description: '',
 			is_active: true,
 			prices: Object.fromEntries(pricingColumns.map((c) => [c, 0]))
@@ -984,7 +988,7 @@ import client from '$lib/api/client';
 					variant="jiggle"
 					stretch={false}
 					ariaLabel="Charge master categories"
-					onchange={(id) => activeCategory = id as ChargeCategory}
+					onchange={(id) => activeCategory = id as ChargesTab}
 				/>
 			</div>
 		</div>
@@ -1012,7 +1016,7 @@ import client from '$lib/api/client';
 						variant="jiggle"
 						stretch={false}
 						ariaLabel="Charge master categories"
-						onchange={(id) => activeCategory = id as ChargeCategory}
+						onchange={(id) => activeCategory = id as ChargesTab}
 					/>
 				</div>
 			{/if}

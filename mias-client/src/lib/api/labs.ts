@@ -94,7 +94,8 @@ export interface UpdateLabTestGroupRequest {
 }
 
 // Charge Master
-export type ChargeCategory = 'REGISTRATION' | 'CLINICAL' | 'LABS' | 'ADMIN';
+// Matches backend ChargeCategory enum exactly — REGISTRATION is not a charge item category.
+export type ChargeCategory = 'CLINICAL' | 'LABS' | 'ADMIN';
 export type ChargeTier = string;
 
 export interface ChargeItem {
