@@ -10,7 +10,7 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { slide, fade } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
-	import { FlaskConical, Trash2, X, Plus, Pencil, Power, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, CheckCircle2, XCircle } from 'lucide-svelte';
+	import { FlaskConical, Trash2, X, Plus, Pencil, Power, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, CheckCircle2, XCircle, Users } from 'lucide-svelte';
 
 	const DEFAULT_LAB_TYPE = 'General';
 	const COMMON_LAB_TYPES = [
@@ -428,6 +428,15 @@
 {labs.filter(l => l.is_active).length} active · {labs.filter(l => !l.is_active).length} inactive
 </p>
 </div>
+<div class="flex items-center gap-2">
+<button
+onclick={() => goto('/admin/labs/technicians')}
+class="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold rounded-xl cursor-pointer transition-all hover:scale-105 active:scale-95"
+style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); color: #0f172a; border: 1px solid rgba(148,163,184,0.45); box-shadow: 0 2px 8px rgba(15,23,42,0.08);"
+>
+<Users class="w-4 h-4" />
+Technician Batches
+</button>
 <button
 onclick={openCreateModal}
 class="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white rounded-xl cursor-pointer transition-all hover:scale-105 active:scale-95"
@@ -436,6 +445,7 @@ style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2
 <Plus class="w-4 h-4" />
 Add Lab
 </button>
+</div>
 </div>
 
 <!-- ── Desktop Table ──────────────────────────────── -->

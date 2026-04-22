@@ -22,12 +22,15 @@ class Report(Base):
 
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
+    lab_id = Column(String, ForeignKey("labs.id"), nullable=True, index=True)
     date = Column(DateTime, nullable=False)
     time = Column(String, nullable=True)
     title = Column(String, nullable=False)
     type = Column(String, nullable=False)  # Laboratory, Radiology, etc.
     department = Column(String, nullable=False)
     ordered_by = Column(String, nullable=False)
+    accepted_by_user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
+    accepted_at = Column(DateTime, nullable=True)
     performed_by = Column(String, nullable=True)
     supervised_by = Column(String, nullable=True)
     status = Column(SQLEnum(ReportStatus), default=ReportStatus.PENDING)
@@ -38,6 +41,8 @@ class Report(Base):
 
     # Relationships
     patient = relationship("Patient", back_populates="reports")
+    lab = relationship("Lab")
+    accepted_by_user = relationship("User")
     findings = relationship("ReportFinding", back_populates="report", cascade="all, delete-orphan")
     images = relationship("ReportImage", back_populates="report", cascade="all, delete-orphan")
 

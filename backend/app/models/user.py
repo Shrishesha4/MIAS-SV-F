@@ -10,6 +10,7 @@ class UserRole(str, enum.Enum):
     PATIENT = "PATIENT"
     STUDENT = "STUDENT"
     FACULTY = "FACULTY"
+    LAB_TECHNICIAN = "LAB_TECHNICIAN"
     ADMIN = "ADMIN"
     RECEPTION = "RECEPTION"
     NURSE = "NURSE"
@@ -39,6 +40,7 @@ class User(Base):
     patient = relationship("Patient", back_populates="user", uselist=False)
     student = relationship("Student", back_populates="user", uselist=False)
     faculty = relationship("Faculty", back_populates="user", uselist=False)
+    lab_technician = relationship("LabTechnician", back_populates="user", uselist=False)
     nurse = relationship("Nurse", back_populates="user", uselist=False)
     billing = relationship("Billing", back_populates="user", uselist=False)
     ot_manager = relationship("OTManager", back_populates="user", uselist=False)

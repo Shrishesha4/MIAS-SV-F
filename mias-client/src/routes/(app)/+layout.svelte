@@ -11,6 +11,7 @@
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { labTechnicianApi } from '$lib/api/lab-technicians';
 	import { nurseApi } from '$lib/api/nurse';
 	import { billingApi } from '$lib/api/billing';
 	import { otApi } from '$lib/api/ot';
@@ -131,7 +132,7 @@
 	}
 
 	async function loadAttendanceStatus() {
-		if (authState.role === 'STUDENT' || authState.role === 'FACULTY') {
+		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'LAB_TECHNICIAN') {
 			attendanceStatus = null;
 			return;
 		}
@@ -180,6 +181,14 @@
 				userIdDisplay = faculty.faculty_id;
 				const notifs = await facultyApi.getNotifications(faculty.id);
 				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
+			} else if (a.role === 'LAB_TECHNICIAN') {
+				const technician = await labTechnicianApi.getMe();
+				userName = technician.name;
+				userIdDisplay = technician.technician_id;
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/labs' as string);
+				}
 			} else if (a.role === 'NURSE') {
 				const nurse = await nurseApi.getMe();
 				userName = nurse.name;
@@ -347,7 +356,7 @@
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
 	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
-			showBack={currentPath !== '/dashboard' && currentPath !== '/admin' && currentPath !== '/reception' && currentPath !== '/billing' && currentPath !== '/ot-manager' && currentPath !== '/mrd/dashboard'}
+			showBack={!(['/dashboard', '/admin', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs'] as string[]).includes(currentPath as string)}
 			notificationCount={unreadNotifications}
 			onmenuclick={() => sideMenuOpen = true}
 			onmenuenter={handleTriggerEnter}

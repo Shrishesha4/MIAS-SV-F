@@ -2,7 +2,7 @@ import {
 	Home, User, FileText, Clipboard, Pill, Activity,
 	TestTube, Wallet, Bell, GraduationCap,
 	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope, CreditCard, Cpu,
-	Archive, Search, Download
+	Archive, Search, Download, FlaskConical
 } from 'lucide-svelte';
 
 export interface MenuItem {
@@ -52,6 +52,10 @@ export const nurseMenuItems: MenuItem[] = [
 	{ icon: User, label: 'Profile', path: '/nurse-profile' },
 ];
 
+export const labTechnicianMenuItems: MenuItem[] = [
+	{ icon: FlaskConical, label: 'Lab Dashboard', path: '/labs' },
+];
+
 export const billingMenuItems: MenuItem[] = [
 	{ icon: CreditCard, label: 'Cashier', path: '/billing' },
 ];
@@ -76,6 +80,7 @@ export function getMenuItems(role: string): MenuItem[] {
 		case 'ADMIN': return adminMenuItems;
 		case 'RECEPTION': return receptionMenuItems;
 		case 'NURSE': return nurseMenuItems;
+		case 'LAB_TECHNICIAN': return labTechnicianMenuItems;
 		case 'BILLING': return billingMenuItems;
 		case 'OT_MANAGER': return otManagerMenuItems;
 		case 'MRD': return mrdMenuItems;

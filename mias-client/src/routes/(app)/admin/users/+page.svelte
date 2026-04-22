@@ -21,7 +21,7 @@
 	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
-	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'BILLING' | 'OT_MANAGER' | 'MRD';
+	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'LAB_TECHNICIAN' | 'BILLING' | 'OT_MANAGER' | 'MRD';
 
 	type CreateUserFormData = {
 		username: string;
@@ -425,6 +425,11 @@
 			payload.availability = normalizeOptionalString(newUserData.availability);
 		}
 
+		if (newUserRole === 'LAB_TECHNICIAN') {
+			payload.department = normalizeOptionalString(newUserData.department);
+			payload.phone = normalizeOptionalString(newUserData.phone);
+		}
+
 		if (newUserRole === 'NURSE') {
 			payload.department = normalizeOptionalString(newUserData.department);
 			payload.phone = normalizeOptionalString(newUserData.phone);
@@ -463,6 +468,7 @@
 		{ id: 'PATIENT', label: 'Patients' },
 		{ id: 'STUDENT', label: 'Students' },
 		{ id: 'FACULTY', label: 'Faculty' },
+		{ id: 'LAB_TECHNICIAN', label: 'Lab Techs' },
 		{ id: 'NURSE', label: 'Nurses' },
 		{ id: 'RECEPTION', label: 'Reception' },
 		{ id: 'BILLING', label: 'Billing' },
@@ -476,6 +482,7 @@
 			PATIENT: '#10b981',
 			STUDENT: '#f59e0b',
 			FACULTY: '#8b5cf6',
+			LAB_TECHNICIAN: '#7c3aed',
 			ADMIN: '#ef4444',
 			RECEPTION: '#3b82f6',
 			NURSE: '#14b8a6',
@@ -656,6 +663,7 @@
 				>
 					<!-- <option value="PATIENT">Patient</option> -->
 					<option value="NURSE">Nurse</option>
+					<option value="LAB_TECHNICIAN">Lab Technician</option>
 					<option value="RECEPTION">Reception</option>
 					<option value="BILLING">Billing & Cashier</option>
 					<option value="OT_MANAGER">OT Manager</option>
@@ -840,6 +848,31 @@
 						<div>
 							<label class="block text-xs font-semibold text-gray-700 mb-1">Availability</label>
 							<input type="text" bind:value={newUserData.availability} placeholder="Enter availability" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			{#if newUserRole === 'LAB_TECHNICIAN'}
+				<div class="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/35 p-3">
+					<p class="text-xs font-bold uppercase tracking-wide text-indigo-700">Lab Technician Profile</p>
+					<div class="grid gap-3 md:grid-cols-2">
+						<div>
+							<label class="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
+							<input type="tel" bind:value={newUserData.phone} placeholder="Enter phone number" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+						</div>
+						<div>
+							<label class="block text-xs font-semibold text-gray-700 mb-1">Department</label>
+							{#if departments.length > 0}
+								<select bind:value={newUserData.department} class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+									<option value="">Select department</option>
+									{#each departments as department}
+										<option value={department.name}>{department.name}</option>
+									{/each}
+								</select>
+							{:else}
+								<input type="text" bind:value={newUserData.department} placeholder="Enter department" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+							{/if}
 						</div>
 					</div>
 				</div>

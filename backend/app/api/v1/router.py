@@ -6,6 +6,7 @@ from app.api.v1 import (
     patients,
     students,
     faculty,
+    lab_technicians,
     nurses,
     vitals,
     prescriptions,
@@ -36,6 +37,7 @@ api_router.include_router(ai_provider.router)
 api_router.include_router(patients.router)
 api_router.include_router(students.router)
 api_router.include_router(faculty.router)
+api_router.include_router(lab_technicians.router)
 api_router.include_router(nurses.router)
 api_router.include_router(vitals.router)
 api_router.include_router(prescriptions.router)

@@ -30,6 +30,7 @@ from app.models.icd_code import ICDCode
 from app.models.medical_record import MedicalRecord
 from app.models.case_record import CaseRecord, Approval, ApprovalStatus
 from app.models.notification import PatientNotification
+from app.models.lab_technician import LabTechnician
 from app.models.nurse import Nurse
 from app.models.billing import Billing
 from app.models.ot_manager import OTManager
@@ -226,6 +227,11 @@ async def list_users(
         elif u.role == UserRole.FACULTY:
             f = (await db.execute(select(Faculty.name).where(Faculty.user_id == u.id))).scalar()
             item["name"] = f or u.username
+        elif u.role == UserRole.LAB_TECHNICIAN:
+            technician_name = (
+                await db.execute(select(LabTechnician.name).where(LabTechnician.user_id == u.id))
+            ).scalar()
+            item["name"] = technician_name or u.username
         else:
             item["name"] = u.username
         items.append(item)
@@ -283,6 +289,7 @@ async def delete_user(
             selectinload(User.patient),
             selectinload(User.student),
             selectinload(User.faculty),
+            selectinload(User.lab_technician),
             selectinload(User.nurse)
         )
         .where(User.id == user_id)
@@ -301,6 +308,8 @@ async def delete_user(
             await db.delete(target.student)
         if target.faculty:
             await db.delete(target.faculty)
+        if target.lab_technician:
+            await db.delete(target.lab_technician)
         if target.nurse:
             await db.delete(target.nurse)
         
@@ -381,6 +390,9 @@ def _generate_faculty_id():
 
 def _generate_nurse_id():
     return f"NR{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+def _generate_lab_technician_id():
+    return f"LT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
 def _generate_billing_id():
     return f"BL{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
@@ -509,6 +521,18 @@ async def admin_create_user(
             email=email,
             photo=data.photo,
             availability=data.availability,
+        ))
+    elif role == UserRole.LAB_TECHNICIAN:
+        db.add(LabTechnician(
+            id=str(uuid.uuid4()),
+            technician_id=_generate_lab_technician_id(),
+            user_id=user_id,
+            name=name,
+            phone=data.phone,
+            email=email,
+            photo=data.photo,
+            department=data.department,
+            has_selected_lab=0,
         ))
     elif role == UserRole.NURSE:
         db.add(Nurse(
@@ -704,6 +728,17 @@ async def bulk_import_users(
                     phone=row.get("phone") or None,
                     email=email,
                     availability=row.get("availability") or None,
+                ))
+            elif role == UserRole.LAB_TECHNICIAN:
+                db.add(LabTechnician(
+                    id=str(uuid.uuid4()),
+                    technician_id=_generate_lab_technician_id(),
+                    user_id=user_id,
+                    name=display_name,
+                    phone=row.get("phone") or None,
+                    email=email,
+                    department=row.get("department") or None,
+                    has_selected_lab=0,
                 ))
             elif role == UserRole.NURSE:
                 db.add(Nurse(

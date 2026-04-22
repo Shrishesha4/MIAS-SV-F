@@ -620,6 +620,9 @@
 				if (initialFacultyClinic) {
 					await loadFacultyClinicPatients(initialFacultyClinic);
 				}
+			} else if (role === 'LAB_TECHNICIAN') {
+				goto('/labs' as string);
+				return;
 			} else if (role === 'NURSE') {
 				// Redirect nurses to their station dashboard
 				goto('/nurse-station');

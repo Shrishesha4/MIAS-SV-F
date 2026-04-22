@@ -41,6 +41,9 @@
 		if (currentPath.startsWith('/admin/ot')) {
 			return { title: 'Operation Theaters', activeNav: 'ot', titleIcon: Cpu };
 		}
+		if (currentPath.startsWith('/admin/labs')) {
+			return { title: 'Labs', activeNav: 'labs', titleIcon: FlaskConical };
+		}
 
 		switch (currentPath) {
 			case '/admin':
@@ -50,8 +53,6 @@
 				return { title: 'Medical Departments', activeNav: 'departments', titleIcon: Stethoscope };
 			case '/admin/users':
 				return { title: 'System Administration', activeNav: 'users', titleIcon: Users };
-			case '/admin/labs':
-				return { title: 'Labs', activeNav: 'labs', titleIcon: FlaskConical };
 			case '/admin/charges':
 				return { title: 'Charge Master', activeNav: 'charges', titleIcon: IndianRupee };
 			case '/admin/programmes':

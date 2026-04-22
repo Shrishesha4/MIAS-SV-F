@@ -14,6 +14,7 @@ from app.models.lab import (
     Lab, LabTest, LabTestGroup, lab_test_group_members,
     ChargeItem, ChargePrice, ChargeCategory
 )
+from app.models.lab_technician import LabTechnician, LabTechnicianGroup, lab_technician_group_labs
 from app.models.faculty import Faculty, FacultyClinicSession, FacultyNotification, FacultySchedule
 from app.models.nurse import Nurse, NurseNotification
 from app.models.nurse_order import NurseOrder

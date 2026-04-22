@@ -869,6 +869,7 @@ async def place_lab_order(
             report = Report(
                 id=str(uuid.uuid4()),
                 patient_id=data.patient_id,
+                lab_id=data.lab_id,
                 date=now,
                 time=now.strftime("%H:%M"),
                 title=test.name,
@@ -896,6 +897,7 @@ async def place_lab_order(
             report = Report(
                 id=str(uuid.uuid4()),
                 patient_id=data.patient_id,
+                lab_id=data.lab_id,
                 date=now,
                 time=now.strftime("%H:%M"),
                 title=group.name,
