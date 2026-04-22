@@ -90,6 +90,20 @@ async def get_charge_price_categories(db: AsyncSession) -> list[str]:
 
 def _ensure_price_tiers(item: ChargeItem, db: AsyncSession, category_names: list[str]) -> None:
     existing = _base_prices(item)
+    valid_keys = {name.casefold() for name in category_names}
+
+    # Remove rows that are orphaned (tier not in active patient categories) or
+    # are duplicates that _base_prices skipped (not returned as canonical).
+    canonical_ids = {p.id for p in existing.values()}
+    for price in list(item.prices):
+        is_canonical = price.id in canonical_ids
+        is_valid_tier = normalize_patient_category_name(price.tier or '').casefold() in valid_keys
+        if not is_canonical or not is_valid_tier:
+            item.prices.remove(price)
+
+    # Refresh existing to only the rows that survived.
+    existing = {k: v for k, v in existing.items() if k in valid_keys}
+
     for category_name in category_names:
         category_key = category_name.casefold()
         existing_price = existing.get(category_key)
