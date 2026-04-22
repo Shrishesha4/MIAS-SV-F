@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from datetime import datetime
 import uuid
 
 from app.api.deps import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
 from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory
+from app.models.patient import Patient
+from app.models.report import Report, ReportStatus
+from app.models.wallet import WalletTransaction, WalletType, TransactionType, PatientWallet
 from app.core.exceptions import NotFoundException
 from app.services.charge_sync import (
     get_charge_price_categories,
@@ -778,3 +782,163 @@ async def delete_charge_item(
     await db.delete(item)
     await db.commit()
     return {"message": "Charge item deleted successfully"}
+
+
+# ============ Lab Order ============
+
+class LabOrderRequest(BaseModel):
+    patient_id: str
+    lab_id: str
+    test_ids: List[str] = Field(default_factory=list)
+    group_ids: List[str] = Field(default_factory=list)
+    clinical_notes: Optional[str] = None
+
+
+async def _get_or_create_wallet(db: AsyncSession, patient_id: str, wt: WalletType) -> PatientWallet:
+    result = await db.execute(
+        select(PatientWallet)
+        .where(PatientWallet.patient_id == patient_id)
+        .where(PatientWallet.wallet_type == wt)
+    )
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        wallet = PatientWallet(
+            id=str(uuid.uuid4()),
+            patient_id=patient_id,
+            wallet_type=wt,
+            balance=0,
+        )
+        db.add(wallet)
+        await db.flush()
+    return wallet
+
+
+@router.post("/order")
+async def place_lab_order(
+    data: LabOrderRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Place a lab investigation order for a patient."""
+    # Validate patient
+    pat_result = await db.execute(select(Patient).where(Patient.id == data.patient_id))
+    patient = pat_result.scalar_one_or_none()
+    if not patient:
+        raise NotFoundException("Patient not found")
+
+    # Validate lab
+    lab_result = await db.execute(select(Lab).where(Lab.id == data.lab_id, Lab.is_active == True))
+    lab = lab_result.scalar_one_or_none()
+    if not lab:
+        raise NotFoundException("Lab not found or inactive")
+
+    # Resolve patient category key for pricing
+    patient_cat_key = _price_category_key(patient.category)
+
+    # Fetch charges keyed by source_id
+    charges_result = await db.execute(
+        select(ChargeItem)
+        .options(selectinload(ChargeItem.prices))
+        .where(ChargeItem.is_active == True)
+        .where(ChargeItem.category == ChargeCategory.LABS)
+    )
+    charge_map: dict[str, float] = {}
+    for ci in charges_result.scalars().all():
+        for price in ci.prices:
+            if _price_category_key(price.tier) == patient_cat_key:
+                if ci.source_id:
+                    charge_map[ci.source_id] = float(price.price)
+                break
+
+    now = datetime.utcnow()
+    ordered_by = current_user.username
+    created_reports: list[dict] = []
+    total_amount: float = 0.0
+
+    # Fetch selected tests
+    if data.test_ids:
+        tests_result = await db.execute(
+            select(LabTest).where(
+                LabTest.id.in_(data.test_ids),
+                LabTest.lab_id == data.lab_id,
+                LabTest.is_active == True,
+            )
+        )
+        for test in tests_result.scalars().all():
+            price = charge_map.get(test.id, 0.0)
+            report = Report(
+                id=str(uuid.uuid4()),
+                patient_id=data.patient_id,
+                date=now,
+                time=now.strftime("%H:%M"),
+                title=test.name,
+                type="Laboratory",
+                department=lab.department or lab.name,
+                ordered_by=ordered_by,
+                status=ReportStatus.PENDING,
+                notes=data.clinical_notes,
+            )
+            db.add(report)
+            total_amount += price
+            created_reports.append({"id": report.id, "title": report.title, "price": price})
+
+    # Fetch selected groups
+    if data.group_ids:
+        groups_result = await db.execute(
+            select(LabTestGroup).where(
+                LabTestGroup.id.in_(data.group_ids),
+                LabTestGroup.lab_id == data.lab_id,
+                LabTestGroup.is_active == True,
+            )
+        )
+        for group in groups_result.scalars().all():
+            price = charge_map.get(group.id, 0.0)
+            report = Report(
+                id=str(uuid.uuid4()),
+                patient_id=data.patient_id,
+                date=now,
+                time=now.strftime("%H:%M"),
+                title=group.name,
+                type="Laboratory",
+                department=lab.department or lab.name,
+                ordered_by=ordered_by,
+                status=ReportStatus.PENDING,
+                notes=data.clinical_notes,
+            )
+            db.add(report)
+            total_amount += price
+            created_reports.append({"id": report.id, "title": report.title, "price": price})
+
+    if not created_reports:
+        raise HTTPException(status_code=400, detail="No valid tests or groups selected")
+
+    # Deduct from hospital wallet if total > 0
+    if total_amount > 0:
+        wallet = await _get_or_create_wallet(db, data.patient_id, WalletType.HOSPITAL)
+        new_balance = float(wallet.balance) - total_amount
+        if new_balance < 0:
+            raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+        await db.execute(
+            update(PatientWallet)
+            .where(PatientWallet.patient_id == data.patient_id)
+            .where(PatientWallet.wallet_type == WalletType.HOSPITAL)
+            .values(balance=new_balance, updated_at=now)
+        )
+        txn = WalletTransaction(
+            id=str(uuid.uuid4()),
+            patient_id=data.patient_id,
+            wallet_type=WalletType.HOSPITAL,
+            type=TransactionType.DEBIT,
+            amount=total_amount,
+            description=f"Lab order: {', '.join(r['title'] for r in created_reports)}",
+            date=now,
+            time=now.strftime("%H:%M"),
+        )
+        db.add(txn)
+
+    await db.commit()
+    return {
+        "reports": created_reports,
+        "total_charged": total_amount,
+        "message": f"{len(created_reports)} investigation(s) ordered successfully",
+    }

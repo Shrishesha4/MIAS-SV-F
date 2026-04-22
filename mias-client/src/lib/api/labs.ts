@@ -195,7 +195,18 @@ export const labsApi = {
 
 	async deleteGroup(labId: string, groupId: string): Promise<void> {
 		await client.delete(`/labs/${labId}/groups/${groupId}`);
-	}
+	},
+
+	async placeOrder(data: {
+		patient_id: string;
+		lab_id: string;
+		test_ids?: string[];
+		group_ids?: string[];
+		clinical_notes?: string;
+	}): Promise<{ reports: { id: string; title: string; price: number }[]; total_charged: number; message: string }> {
+		const response = await client.post('/labs/order', data);
+		return response.data;
+	},
 };
 
 export const chargesApi = {

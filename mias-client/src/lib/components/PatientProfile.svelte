@@ -48,6 +48,7 @@
 	import PrescriptionForm from '$lib/components/PrescriptionForm.svelte';
 	import OTBookingPanel from '$lib/components/case-records/OTBookingPanel.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import LabOrderModal from '$lib/components/labs/LabOrderModal.svelte';
 	import { Chart, registerables } from 'chart.js';
 	import {
 		AlertTriangle, FileText, HeartPulse, Pill, Clock, Plus,
@@ -117,6 +118,7 @@
 	let admissions: any[] = $state([]);
 	let alertHistory: any[] = $state([]);
 	let loading = $state(true);
+	let showLabOrderModal = $state(false);
 
 	// Reference data
 	let facultyApprovers: { id: string; name: string; department: string }[] = $state([]);
@@ -807,7 +809,7 @@
 			showReadOnlyToast();
 			return;
 		}
-		toastStore.addToast('Lab ordering workflow is not available in this view yet', 'info');
+		showLabOrderModal = true;
 	}
 
 	function openRadiologyViewer(reportId?: string) {
@@ -2782,6 +2784,15 @@
 	editable={canManagePatientProfile}
 	onclose={() => { showProfileOverviewModal = false; }}
 	onpatientupdated={handlePatientOverviewUpdate}
+/>
+{/if}
+
+{#if showLabOrderModal && patient}
+<LabOrderModal
+	patientId={pid}
+	patientCategory={patient.category}
+	onclose={() => { showLabOrderModal = false; }}
+	onordered={async () => { reports = await patientApi.getReports(pid).catch(() => reports); }}
 />
 {/if}
 
