@@ -20,7 +20,7 @@
 		error = '';
 		try {
 			const result = await authApi.login(username, password);
-			authStore.setTokens(result.access_token, result.refresh_token, result.user_id, result.role);
+			authStore.setTokens(result.access_token, result.user_id, result.role);
 			if (result.role === 'STUDENT') {
 				goto('/patients');
 			} else {

@@ -3,7 +3,6 @@ import { browser } from '$app/environment';
 
 interface AuthState {
   accessToken: string | null;
-  refreshToken: string | null;
   userId: string | null;
   role: string | null;
   isAuthenticated: boolean;
@@ -13,18 +12,19 @@ function getInitialState(): AuthState {
   if (!browser) {
     return {
       accessToken: null,
-      refreshToken: null,
       userId: null,
       role: null,
       isAuthenticated: false,
     };
   }
+  // Access token is never persisted to localStorage (memory only).
+  // userId and role are kept for UI pre-population only; the server always
+  // re-validates identity via the access token.
   return {
-    accessToken: localStorage.getItem('accessToken'),
-    refreshToken: localStorage.getItem('refreshToken'),
+    accessToken: null,
     userId: localStorage.getItem('userId'),
     role: localStorage.getItem('role'),
-    isAuthenticated: !!localStorage.getItem('accessToken'),
+    isAuthenticated: false,
   };
 }
 
@@ -33,10 +33,10 @@ function createAuthStore() {
 
   return {
     subscribe,
-    setTokens: (accessToken: string, refreshToken: string, userId?: string, role?: string) => {
+    setTokens: (accessToken: string, userId?: string, role?: string) => {
       if (browser) {
-        localStorage.setItem('accessToken', accessToken);
-        localStorage.setItem('refreshToken', refreshToken);
+        // Access token is memory-only — never written to localStorage.
+        // userId and role are safe to persist (not credentials).
         if (userId) localStorage.setItem('userId', userId);
         if (role) localStorage.setItem('role', role);
       }
@@ -44,7 +44,6 @@ function createAuthStore() {
       update((state) => ({
         ...state,
         accessToken,
-        refreshToken,
         userId: userId || state.userId,
         role: role || state.role,
         isAuthenticated: true,
@@ -52,15 +51,12 @@ function createAuthStore() {
     },
     logout: () => {
       if (browser) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
         localStorage.removeItem('userId');
         localStorage.removeItem('role');
       }
 
       set({
         accessToken: null,
-        refreshToken: null,
         userId: null,
         role: null,
         isAuthenticated: false,

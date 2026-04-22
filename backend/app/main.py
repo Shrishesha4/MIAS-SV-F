@@ -8,7 +8,7 @@ import os
 from app.config import settings
 from app.database import engine, dispose_analytics_engine
 from app.api.v1.router import api_router
-from app.core.middleware import limiter
+from app.core.middleware import limiter, SecurityHeadersMiddleware
 from app.core.redis_client import close_redis
 
 # Import all models so they are registered with metadata
@@ -39,6 +39,9 @@ app = FastAPI(
 # Rate limiting
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Security headers on all responses
+app.add_middleware(SecurityHeadersMiddleware)
 
 # CORS Configuration
 app.add_middleware(

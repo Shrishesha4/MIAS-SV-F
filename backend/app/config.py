@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000", "http://100.81.224.31:5173", "http://100.81.224.31:4173"]
 
+    # Cookie security — set COOKIE_SECURE=true in production (requires HTTPS)
+    COOKIE_SECURE: bool = False
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 200
     MRD_RATE_LIMIT_PER_MINUTE: int = 120

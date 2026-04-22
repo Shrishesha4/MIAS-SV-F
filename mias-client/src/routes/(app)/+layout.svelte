@@ -6,6 +6,7 @@
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import { authStore } from '$lib/stores/auth';
+	import { authApi } from '$lib/api/auth';
 	import { notificationCountStore } from '$lib/stores/notifications';
 	import { attendanceApi, type AttendanceStatus } from '$lib/api/attendance';
 	import { patientApi } from '$lib/api/patients';
@@ -157,10 +158,18 @@
 	}
 
 	onMount(async () => {
-		const a = get(authStore);
+		let a = get(authStore);
 		if (!a.isAuthenticated) {
-			goto('/login');
-			return;
+			// Access token is memory-only and lost on page reload.
+			// Attempt a silent refresh using the httpOnly refresh_token cookie.
+			try {
+				const result = await authApi.refresh();
+				authStore.setTokens(result.access_token, result.user_id, result.role);
+				a = get(authStore);
+			} catch {
+				goto('/login');
+				return;
+			}
 		}
 		try {
 			if (a.role === 'PATIENT') {

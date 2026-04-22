@@ -578,7 +578,7 @@
 
 			// Auto-login after registration
 			const loginResult = await authApi.login(username, patPassword);
-			authStore.setTokens(loginResult.access_token, loginResult.refresh_token, loginResult.user_id, loginResult.role);
+			authStore.setTokens(loginResult.access_token, loginResult.user_id, loginResult.role);
 
 			// Persist clinic allocation notice for dashboard fullscreen prompt
 

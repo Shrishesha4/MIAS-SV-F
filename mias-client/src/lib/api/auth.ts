@@ -40,8 +40,9 @@ export const authApi = {
     return response.data;
   },
 
-  async refresh(refreshToken: string): Promise<LoginResponse> {
-    const response = await client.post('/auth/refresh', { refresh_token: refreshToken });
+  async refresh(): Promise<LoginResponse> {
+    // No body — the httpOnly refresh_token cookie is sent automatically.
+    const response = await client.post('/auth/refresh', null, { withCredentials: true });
     return response.data;
   },
 

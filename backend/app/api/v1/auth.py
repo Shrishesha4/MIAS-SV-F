@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -16,7 +16,7 @@ from app.services.id_generator import generate_patient_id
 from app.services.clinic_intake import ensure_clinic_checkin
 from app.services.clinic_allocation import resolve_preferred_clinic
 from app.schemas.auth import (
-    LoginRequest, TokenResponse, RefreshRequest,
+    LoginRequest, TokenResponse,
     RegisterRequest, RegisterResponse
 )
 from app.core.security import (
@@ -26,6 +26,10 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
 )
+from app.config import settings
+
+_REFRESH_COOKIE = "refresh_token"
+_REFRESH_COOKIE_PATH = "/api/v1/auth"
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -244,7 +248,11 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    request: LoginRequest,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(User).where(User.username == request.username)
     )
@@ -271,9 +279,19 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
     refresh_token = create_refresh_token({"sub": user.id})
 
+    # Refresh token goes in a httpOnly cookie, never in the response body.
+    response.set_cookie(
+        key=_REFRESH_COOKIE,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="strict",
+        path=_REFRESH_COOKIE_PATH,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         token_type="bearer",
         user_id=user.id,
         role=user.role.value,
@@ -282,9 +300,17 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(
-    request: RefreshRequest, db: AsyncSession = Depends(get_db)
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    refresh_token_cookie: str | None = Cookie(default=None, alias=_REFRESH_COOKIE),
 ):
-    payload = decode_token(request.refresh_token)
+    if not refresh_token_cookie:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing",
+        )
+
+    payload = decode_token(refresh_token_cookie)
 
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
@@ -307,9 +333,19 @@ async def refresh_token(
     )
     new_refresh_token = create_refresh_token({"sub": user.id})
 
+    # Rotate the refresh token cookie.
+    response.set_cookie(
+        key=_REFRESH_COOKIE,
+        value=new_refresh_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="strict",
+        path=_REFRESH_COOKIE_PATH,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
+
     return TokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
         token_type="bearer",
         user_id=user.id,
         role=user.role.value,
@@ -317,5 +353,12 @@ async def refresh_token(
 
 
 @router.post("/logout")
-async def logout():
+async def logout(response: Response):
+    response.delete_cookie(
+        key=_REFRESH_COOKIE,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite="strict",
+        path=_REFRESH_COOKIE_PATH,
+    )
     return {"message": "Successfully logged out"}
