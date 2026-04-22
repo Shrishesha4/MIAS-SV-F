@@ -10,6 +10,25 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# ── Production / staging safeguard ───────────────────────────────────────────
+# Refuse to run unless the database URL contains a known-safe dev/test marker.
+# To intentionally run against a non-matching URL set ALLOW_SEED=1 in the env.
+def _assert_safe_to_seed() -> None:
+    _db_url = os.environ.get("DATABASE_URL", "")
+    _allow = os.environ.get("ALLOW_SEED", "").strip().lower() in ("1", "true", "yes")
+    _safe_markers = ("localhost", "127.0.0.1", "mias_dev", "mias_test", "mias_mp")
+    _is_safe = any(marker in _db_url for marker in _safe_markers)
+    if not _allow and not _is_safe:
+        print(
+            "\n\u274c Seed refused: DATABASE_URL does not look like a development database.\n"
+            f"   DATABASE_URL = {_db_url!r}\n\n"
+            "   If you really intend to seed this database, set ALLOW_SEED=1 and re-run.\n"
+        )
+        sys.exit(1)
+
+_assert_safe_to_seed()
+# ─────────────────────────────────────────────────────────────────────────────
+
 from app.database import AsyncSessionLocal, engine
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
