@@ -13,6 +13,12 @@ class PrescriptionStatus(str, enum.Enum):
     COMPLETED = "COMPLETED"
 
 
+class PrescriptionDispensingStatus(str, enum.Enum):
+    PENDING_PREPARATION = "PENDING_PREPARATION"
+    READY_FOR_DISPATCH = "READY_FOR_DISPATCH"
+    ISSUED = "ISSUED"
+
+
 class MedicationDoseStatus(str, enum.Enum):
     TAKEN = "TAKEN"
     MISSED = "MISSED"
@@ -24,6 +30,7 @@ class Prescription(Base):
     __table_args__ = (
         Index('idx_prescription_status_date', 'status', 'date'),
         Index('idx_prescription_patient_status', 'patient_id', 'status'),
+        Index('idx_prescription_dispensing_status_date', 'dispensing_status', 'date'),
     )
 
     id = Column(String, primary_key=True)
@@ -40,7 +47,17 @@ class Prescription(Base):
     hospital_website = Column(String, nullable=True)
     doctor_signature = Column(String, nullable=True)  # URL to doctor's signature image
     status = Column(SQLEnum(PrescriptionStatus), default=PrescriptionStatus.ACTIVE, index=True)
+    dispensing_status = Column(
+        SQLEnum(PrescriptionDispensingStatus, name="prescriptiondispensingstatus"),
+        default=PrescriptionDispensingStatus.PENDING_PREPARATION,
+        index=True,
+        nullable=False,
+    )
     notes = Column(Text, nullable=True)  # Additional notes
+    prepared_at = Column(DateTime, nullable=True)
+    prepared_by = Column(String, ForeignKey("users.id"), nullable=True)
+    issued_at = Column(DateTime, nullable=True)
+    issued_by = Column(String, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.utcnow())
 
     # Relationships

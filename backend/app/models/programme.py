@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, DateTime, Boolean, Text
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
@@ -20,3 +21,5 @@ class Programme(Base):
         default=lambda: datetime.utcnow(),
         onupdate=lambda: datetime.utcnow(),
     )
+
+    academic_groups = relationship("AcademicGroup", back_populates="programme")

@@ -28,7 +28,7 @@ async def _should_skip_daily_checkin_modal(
     *,
     user: User,
 ) -> bool:
-    if user.role in {UserRole.ADMIN, UserRole.STUDENT, UserRole.FACULTY}:
+    if user.role in {UserRole.ADMIN, UserRole.STUDENT, UserRole.FACULTY, UserRole.NUTRITIONIST}:
         return True
     if user.role == UserRole.PATIENT:
         admission = await get_active_patient_admission(db, user_id=user.id)

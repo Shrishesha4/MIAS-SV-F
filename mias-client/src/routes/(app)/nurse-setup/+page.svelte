@@ -44,7 +44,9 @@
 		loading = true;
 		try {
 			await nurseApi.selectStation({
+				clinic_id: selectedClinic?.id,
 				hospital: selectedClinic?.name ?? clinicId,
+				department: selectedClinic?.department,
 				shift: shift || undefined,
 			});
 
@@ -60,6 +62,10 @@
 
 	onMount(() => {
 		const auth = get(authStore);
+		if (auth.role === 'NURSE_SUPERINTENDENT') {
+			goto('/nurse-superintendent');
+			return;
+		}
 		if (auth.role !== 'NURSE') {
 			goto('/dashboard');
 			return;

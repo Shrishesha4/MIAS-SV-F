@@ -2,7 +2,7 @@ import {
 	Home, User, FileText, Clipboard, Pill, Activity,
 	TestTube, Wallet, Bell, GraduationCap,
 	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope, CreditCard, Cpu,
-	Archive, Search, Download, FlaskConical
+	Archive, Search, Download, FlaskConical, ChefHat
 } from 'lucide-svelte';
 
 export interface MenuItem {
@@ -52,12 +52,25 @@ export const nurseMenuItems: MenuItem[] = [
 	{ icon: User, label: 'Profile', path: '/nurse-profile' },
 ];
 
+export const nurseSuperintendentMenuItems: MenuItem[] = [
+	{ icon: Stethoscope, label: 'Stations', path: '/nurse-superintendent' },
+	{ icon: User, label: 'Profile', path: '/nurse-profile' },
+];
+
+export const nutritionistMenuItems: MenuItem[] = [
+	{ icon: ChefHat, label: 'Nutritionist Portal', path: '/nutritionist' },
+];
+
 export const labTechnicianMenuItems: MenuItem[] = [
 	{ icon: FlaskConical, label: 'Lab Dashboard', path: '/labs' },
 ];
 
 export const billingMenuItems: MenuItem[] = [
 	{ icon: CreditCard, label: 'Cashier', path: '/billing' },
+];
+
+export const pharmacyMenuItems: MenuItem[] = [
+	{ icon: Pill, label: 'Pharmacy Dashboard', path: '/pharmacy' },
 ];
 
 export const otManagerMenuItems: MenuItem[] = [
@@ -80,8 +93,11 @@ export function getMenuItems(role: string): MenuItem[] {
 		case 'ADMIN': return adminMenuItems;
 		case 'RECEPTION': return receptionMenuItems;
 		case 'NURSE': return nurseMenuItems;
+		case 'NURSE_SUPERINTENDENT': return nurseSuperintendentMenuItems;
+		case 'NUTRITIONIST': return nutritionistMenuItems;
 		case 'LAB_TECHNICIAN': return labTechnicianMenuItems;
 		case 'BILLING': return billingMenuItems;
+		case 'PHARMACY': return pharmacyMenuItems;
 		case 'OT_MANAGER': return otManagerMenuItems;
 		case 'MRD': return mrdMenuItems;
 		default: return patientMenuItems;

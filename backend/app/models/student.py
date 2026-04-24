@@ -20,6 +20,7 @@ class Student(Base):
     year = Column(Integer, nullable=False)
     semester = Column(Integer, nullable=False)
     program = Column(String, nullable=False)
+    academic_group_id = Column(String, ForeignKey("academic_groups.id"), nullable=True, index=True)
     degree = Column(String, nullable=True)
     photo = Column(String, nullable=True)
     gpa = Column(Float, nullable=False)
@@ -34,6 +35,7 @@ class Student(Base):
 
     # Relationships
     user = relationship("User", back_populates="student")
+    academic_group = relationship("AcademicGroup", back_populates="students")
     emergency_contact = relationship(
         "EmergencyContact", back_populates="student", uselist=False,
         foreign_keys="EmergencyContact.student_id",
@@ -173,9 +175,12 @@ class Clinic(Base):
     )
 
     faculty = relationship("Faculty")
+    nutritionist = relationship("Nutritionist", back_populates="clinic", uselist=False)
     sessions = relationship("ClinicSession", back_populates="clinic")
     appointments = relationship("ClinicAppointment", back_populates="clinic")
     faculty_sessions = relationship("FacultyClinicSession", back_populates="clinic")
+    nutritionist_sessions = relationship("NutritionistClinicSession", back_populates="clinic")
+    nutritionist_notes = relationship("NutritionistNote", back_populates="clinic")
     student_checkin_logs = relationship("StudentClinicCheckinLog", back_populates="clinic")
     insurance_configs = relationship("InsuranceClinicConfig", back_populates="clinic", cascade="all, delete-orphan")
 

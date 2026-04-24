@@ -1,13 +1,30 @@
 <script lang="ts">
-  import { ArrowLeft, Menu, Bell, HeartPulse, Search, X } from 'lucide-svelte';
-  import { goto } from '$app/navigation';
+  import { ArrowLeft, Menu, Bell, HeartPulse, Search, X, GraduationCap, Target } from 'lucide-svelte';
+
+  import { resolve } from '$app/paths';
   import { patientApi } from '$lib/api/patients';
+
+  interface SearchPatientResult {
+    id: string;
+    name?: string | null;
+    patient_id?: string | null;
+    gender?: string | null;
+    blood_group?: string | null;
+  }
+
+  interface AcademicBadge {
+    label: string;
+    percent: number;
+    completedTargets: number;
+    totalTargets: number;
+  }
 
   interface Props {
     showBack?: boolean;
     showMenu?: boolean;
     showNotifications?: boolean;
     notificationCount?: number;
+    academicBadge?: AcademicBadge | null;
     onmenuclick?: () => void;
     onmenuenter?: () => void;
     onmenuleave?: () => void;
@@ -18,6 +35,7 @@
     showMenu = true,
     showNotifications = true,
     notificationCount = 0,
+    academicBadge = null,
     onmenuclick,
     onmenuenter,
     onmenuleave,
@@ -25,7 +43,7 @@
 
   // Patient search state
   let searchQuery = $state('');
-  let searchResults = $state<any[]>([]);
+  let searchResults = $state<SearchPatientResult[]>([]);
   let searchOpen = $state(false);
   let searching = $state(false);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -56,8 +74,8 @@
     }, 300);
   }
 
-  function selectPatient(patient: any) {
-    goto(`/patients/${patient.id}`);
+  function selectPatient(patient: SearchPatientResult) {
+    window.location.assign(resolve(`/patients/${patient.id}`));
     searchQuery = '';
     searchResults = [];
     searchOpen = false;
@@ -70,8 +88,13 @@
   }
 
   function handleSearchBlur() {
-    // Delay closing to allow click on results
-    setTimeout(() => { searchOpen = false; }, 200);
+    setTimeout(() => {
+      searchOpen = false;
+    }, 200);
+  }
+
+  function openAcademicProfile() {
+    window.location.assign(resolve('/profile'));
   }
 </script>
 
@@ -82,12 +105,11 @@
          border-bottom: 1px solid rgba(0,0,0,0.15);"
 >
   <div class="flex items-center gap-2 shrink-0">
-    <!-- {#if showBack}
+    {#if showBack}
       <button class="text-white/90 cursor-pointer hover:text-white transition-colors" onclick={goBack}>
         <ArrowLeft class="w-5 h-5" />
       </button>
-    {/if} -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    {/if}
     <div
       role="button"
       tabindex="0"
@@ -106,7 +128,28 @@
     </div>
   </div>
 
-  <!-- Patient Search -->
+  {#if academicBadge}
+    <button
+      class="hidden sm:flex shrink-0 items-center gap-2 rounded-xl px-3 py-1.5 cursor-pointer transition-transform hover:-translate-y-0.5"
+      style="background: rgba(255,255,255,0.14);
+             border: 1px solid rgba(255,255,255,0.24);
+             box-shadow: 0 1px 3px rgba(0,0,0,0.18);"
+      onclick={openAcademicProfile}
+      title="Open academic progress"
+    >
+      <div class="w-7 h-7 rounded-full flex items-center justify-center"
+        style="background: linear-gradient(to bottom, #1d4ed8, #1e40af); border: 1px solid rgba(255,255,255,0.22);">
+        <GraduationCap class="w-3.5 h-3.5 text-white" />
+      </div>
+      <div class="leading-tight text-left">
+        <p class="text-[10px] uppercase tracking-[0.14em] text-white/70 font-bold">{academicBadge.label}</p>
+        <p class="text-xs font-semibold text-white">
+          {academicBadge.percent}% · {academicBadge.completedTargets}/{academicBadge.totalTargets || 0} targets
+        </p>
+      </div>
+    </button>
+  {/if}
+
   <div class="flex-1 min-w-0 md:flex-1 md:flex md:justify-center relative">
     <div class="relative w-full md:w-56">
       <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" style="color: #64748b;" />
@@ -129,7 +172,6 @@
         </button>
       {/if}
 
-      <!-- Search dropdown -->
       {#if searchOpen && searchResults.length > 0}
         <div
           class="motion-surface absolute left-0 right-0 top-full mt-1 rounded-lg overflow-hidden max-h-64 overflow-y-auto z-50"
@@ -168,13 +210,29 @@
   </div>
 
   <div class="flex items-center gap-2 shrink-0">
+    {#if academicBadge}
+      <button
+        class="motion-control relative rounded-full px-2.5 py-1.5 text-white cursor-pointer transition-colors sm:hidden"
+        style="background: linear-gradient(to bottom, #5a8ed6, #3a6bb5);
+               border: 1.5px solid rgba(255,255,255,0.3);
+               box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
+        onclick={openAcademicProfile}
+        title="Academic progress"
+      >
+        <div class="flex items-center gap-1.5">
+          <Target class="w-3.5 h-3.5" />
+          <span class="text-[11px] font-bold">{academicBadge.percent}%</span>
+        </div>
+      </button>
+    {/if}
+
     {#if showNotifications}
       <button
         class="motion-control relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors"
         style="background: linear-gradient(to bottom, #5a8ed6, #3a6bb5);
                border: 1.5px solid rgba(255,255,255,0.3);
                box-shadow: 0 1px 3px rgba(0,0,0,0.3);"
-        onclick={() => goto('/notifications')}
+        onclick={() => window.location.assign(resolve('/notifications'))}
       >
         <Bell class="w-4 h-4 text-white" />
         {#if notificationCount > 0}

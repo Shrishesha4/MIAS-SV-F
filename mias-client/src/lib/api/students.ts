@@ -96,6 +96,80 @@ export interface AttendanceCalendarSession {
   duration_minutes: number | null;
 }
 
+export interface StudentAcademicGroupSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  programme_id: string;
+}
+
+export interface StudentAcademicProgressSummary {
+  overall_percent: number;
+  completed_targets: number;
+  total_targets: number;
+  approved_case_records: number;
+  total_earned_points: number;
+  total_possible_points: number;
+}
+
+export interface StudentAcademicProgressTarget {
+  id: string;
+  sort_order: number;
+  metric_name: string;
+  metric_key: string;
+  category: string;
+  target_value: number;
+  completed_value: number;
+  remaining_value: number;
+  percent: number;
+  is_complete: boolean;
+  form_definition_id: string | null;
+  form_name: string | null;
+}
+
+export interface StudentAcademicProgressWeightageRecord {
+  id: string;
+  form_name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  date: string | null;
+  status: string;
+}
+
+export interface StudentAcademicProgressWeightageItem {
+  form_definition_id: string;
+  slug: string | null;
+  name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  section: string | null;
+  points: number;
+  approved_count: number;
+  earned_points: number;
+  has_weightage: boolean;
+}
+
+export interface StudentAcademicProgressWeightages {
+  total_approved_forms: number;
+  total_configured_forms: number;
+  total_possible_points: number;
+  total_earned_points: number;
+  average_points_per_approved_form: number;
+  items: StudentAcademicProgressWeightageItem[];
+  unmatched_records: StudentAcademicProgressWeightageRecord[];
+}
+
+export interface StudentAcademicProgress {
+  student_id: string;
+  student_name: string;
+  programme_name: string;
+  academic_group: StudentAcademicGroupSummary | null;
+  summary: StudentAcademicProgressSummary;
+  targets: StudentAcademicProgressTarget[];
+  weightages: StudentAcademicProgressWeightages;
+}
+
 export const studentApi = {
   async getMe() {
     const response = await client.get('/students/me');
@@ -123,9 +197,29 @@ export const studentApi = {
     return response.data;
   },
 
-  async getProgress(studentId: string) {
+  async getProgress(studentId: string): Promise<{
+    gpa: number;
+    academic_standing: string;
+    attendance: {
+      overall?: number;
+      clinical?: number;
+      lecture?: number;
+      lab?: number;
+    };
+    academic_group_id?: string | null;
+    academic_group_name?: string | null;
+    academic_progress?: StudentAcademicProgress | null;
+    summary?: StudentAcademicProgressSummary | null;
+    targets?: StudentAcademicProgressTarget[];
+    weightages?: StudentAcademicProgressWeightages | null;
+  }> {
     const response = await client.get(`/students/${studentId}/progress`);
     return response.data;
+  },
+
+  async getAcademicProgress(studentId: string): Promise<StudentAcademicProgress | null> {
+    const response = await client.get(`/students/${studentId}/progress`);
+    return response.data?.academic_progress ?? null;
   },
 
   async getClinicSessions(studentId: string): Promise<ClinicSession[]> {

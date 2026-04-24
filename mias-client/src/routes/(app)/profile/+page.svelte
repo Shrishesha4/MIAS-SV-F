@@ -22,7 +22,7 @@
 	import {
 		User, Phone, Mail, MapPin, Calendar, Shield, Crown,
 		Heart, AlertTriangle, GraduationCap, Stethoscope, BadgeCheck,
-		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot,
+		Award, CheckCircle2, BookOpen, Clock, XCircle, CircleDot, Target,
 		Upload, PenTool, Camera, Image, Plus, CreditCard, Droplet, Edit3
 	} from 'lucide-svelte';
 
@@ -59,6 +59,18 @@
 	const profileEditFields = $derived(
 		resolveFormFieldsByType(profileForms, 'PROFILE_EDIT', defaultProfileEditFields)
 	);
+	const academicSummary = $derived(sp?.academic_progress?.summary ?? null);
+	const academicTargets = $derived(sp?.academic_progress?.targets ?? []);
+	const incompleteAcademicTargets = $derived(
+		academicTargets
+			.filter((target: any) => !target.is_complete)
+			.sort((left: any, right: any) => {
+				if (left.percent !== right.percent) return left.percent - right.percent;
+				return left.sort_order - right.sort_order;
+			})
+			.slice(0, 3)
+	);
+	const academicWeightages = $derived(sp?.academic_progress?.weightages ?? null);
 
 	const API_BASE = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:8001';
 
@@ -263,11 +275,17 @@
 						<BookOpen class="w-3 h-3" />
 						<span>{sp.degree}</span>
 					</div>
-					<div class="flex items-center gap-2 mt-2">
+					<div class="flex items-center gap-2 mt-2 flex-wrap">
 						<span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
 							style="background: linear-gradient(to bottom, #3b82f620, #3b82f610); color: #2563eb; border: 1px solid rgba(59,130,246,0.3);">
 							Year {sp.year}, Sem {sp.semester}
 						</span>
+						{#if sp.academic_group_name}
+							<span class="px-2 py-0.5 rounded-full text-[10px] font-bold"
+								style="background: linear-gradient(to bottom, #8b5cf620, #8b5cf610); color: #7c3aed; border: 1px solid rgba(124,58,237,0.25);">
+								Group: {sp.academic_group_name}
+							</span>
+						{/if}
 					</div>
 				</div>
 			</div>
@@ -296,30 +314,128 @@
 						<BookOpen class="w-4 h-4 text-blue-600" />
 						<span class="font-semibold text-gray-700 text-sm">Academic Progress</span>
 					</div>
-					<!-- Overall Attendance -->
-					<div class="mb-3">
-						<div class="flex justify-between text-xs mb-1">
-							<span class="text-gray-600">Overall Attendance</span>
-						<span class="font-semibold text-gray-700">{sp.attendance?.overall ?? 0}%</span>
-					</div>
-					<div class="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
-						<div class="h-full rounded-full transition-all"
-							style="width: {sp.attendance?.overall ?? 0}%; background: linear-gradient(to right, #3b82f6, #2563eb);">
+
+					<div class="grid grid-cols-2 gap-3 mb-4">
+						<div class="p-3 rounded-xl" style="background: rgba(37,99,235,0.07); border: 1px solid rgba(37,99,235,0.12);">
+							<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Overall progress</p>
+							<p class="mt-1 text-2xl font-bold text-gray-800">{academicSummary?.overall_percent ?? 0}%</p>
+						</div>
+						<div class="p-3 rounded-xl" style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.14);">
+							<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Completed targets</p>
+							<p class="mt-1 text-2xl font-bold text-gray-800">{academicSummary?.completed_targets ?? 0}/{academicSummary?.total_targets ?? 0}</p>
+						</div>
+						<div class="p-3 rounded-xl" style="background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.12);">
+							<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Approved records</p>
+							<p class="mt-1 text-2xl font-bold text-gray-800">{academicSummary?.approved_case_records ?? 0}</p>
+						</div>
+						<div class="p-3 rounded-xl" style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.14);">
+							<p class="text-[10px] uppercase tracking-[0.14em] text-gray-500">Earned points</p>
+							<p class="mt-1 text-2xl font-bold text-gray-800">
+								{academicSummary?.total_earned_points ?? 0}/{academicSummary?.total_possible_points ?? 0}
+							</p>
 						</div>
 					</div>
-				</div>
-				<!-- Clinical Attendance -->
-				<div>
-					<div class="flex justify-between text-xs mb-1">
-						<span class="text-gray-600">Clinical Attendance</span>
-						<span class="font-semibold text-gray-700">{sp.attendance?.clinical ?? 0}%</span>
-					</div>
-					<div class="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
-						<div class="h-full rounded-full transition-all"
-							style="width: {sp.attendance?.clinical ?? 0}%; background: linear-gradient(to right, #2563eb, #1d4ed8);">
+
+					<div class="mb-3">
+						<div class="flex justify-between text-xs mb-1">
+							<span class="text-gray-600">Overall Academic Progress</span>
+							<span class="font-semibold text-gray-700">{academicSummary?.overall_percent ?? 0}%</span>
+						</div>
+						<div class="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
+							<div class="h-full rounded-full transition-all"
+								style="width: {academicSummary?.overall_percent ?? 0}%; background: linear-gradient(to right, #8b5cf6, #2563eb);">
 							</div>
 						</div>
 					</div>
+
+					<div class="mb-3">
+						<div class="flex justify-between text-xs mb-1">
+							<span class="text-gray-600">Overall Attendance</span>
+							<span class="font-semibold text-gray-700">{sp.attendance?.overall ?? 0}%</span>
+						</div>
+						<div class="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
+							<div class="h-full rounded-full transition-all"
+								style="width: {sp.attendance?.overall ?? 0}%; background: linear-gradient(to right, #3b82f6, #2563eb);">
+							</div>
+						</div>
+					</div>
+
+					<div>
+						<div class="flex justify-between text-xs mb-1">
+							<span class="text-gray-600">Clinical Attendance</span>
+							<span class="font-semibold text-gray-700">{sp.attendance?.clinical ?? 0}%</span>
+						</div>
+						<div class="w-full h-2 rounded-full bg-gray-200 overflow-hidden">
+							<div class="h-full rounded-full transition-all"
+								style="width: {sp.attendance?.clinical ?? 0}%; background: linear-gradient(to right, #2563eb, #1d4ed8);">
+							</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+					<div class="rounded-xl p-3" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.05);">
+						<div class="flex items-center gap-2 mb-2">
+							<GraduationCap class="w-4 h-4 text-violet-600" />
+							<span class="font-semibold text-gray-700 text-sm">Academic Group</span>
+						</div>
+						<p class="text-sm font-medium text-gray-800">{sp.academic_group_name || 'Not assigned yet'}</p>
+						<p class="mt-1 text-xs text-gray-500">
+							{sp.academic_progress?.programme_name || sp.program}
+						</p>
+					</div>
+
+					<div class="rounded-xl p-3" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.05);">
+						<div class="flex items-center gap-2 mb-2">
+							<Target class="w-4 h-4 text-blue-600" />
+							<span class="font-semibold text-gray-700 text-sm">Weighted Forms</span>
+						</div>
+						<p class="text-sm font-medium text-gray-800">
+							{academicWeightages?.total_approved_forms ?? 0} approved of {academicWeightages?.total_configured_forms ?? 0} configured
+						</p>
+						<p class="mt-1 text-xs text-gray-500">
+							Avg points / approved form: {academicWeightages?.average_points_per_approved_form ?? 0}
+						</p>
+					</div>
+				</div>
+
+				<div class="rounded-xl p-3" style="background: #f8f9fb; border: 1px solid rgba(0,0,0,0.05);">
+					<div class="flex items-center gap-2 mb-3">
+						<CircleDot class="w-4 h-4 text-orange-500" />
+						<span class="font-semibold text-gray-700 text-sm">Next Academic Targets</span>
+					</div>
+
+					{#if incompleteAcademicTargets.length > 0}
+						<div class="space-y-2">
+							{#each incompleteAcademicTargets as target}
+								<div class="rounded-lg p-3" style="background: white; border: 1px solid rgba(0,0,0,0.05);">
+									<div class="flex items-start justify-between gap-3">
+										<div class="min-w-0">
+											<p class="text-sm font-medium text-gray-800">{target.metric_name}</p>
+											<p class="text-xs text-gray-500">
+												{target.completed_value}/{target.target_value} completed
+												{#if target.form_name}
+													· {target.form_name}
+												{/if}
+											</p>
+										</div>
+										<span class="shrink-0 text-xs font-semibold text-blue-700">{target.percent}%</span>
+									</div>
+									<div class="mt-2 w-full h-2 rounded-full bg-gray-200 overflow-hidden">
+										<div
+											class="h-full rounded-full"
+											style="width: {target.percent}%; background: linear-gradient(to right, #f59e0b, #f97316);"
+										></div>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<div class="rounded-lg p-3 text-sm text-green-700"
+							style="background: rgba(34,197,94,0.08); border: 1px solid rgba(34,197,94,0.16);">
+							All configured targets are complete.
+						</div>
+					{/if}
 				</div>
 
 				<div class="flex items-center gap-2 text-sm text-gray-500">
@@ -482,7 +598,7 @@
 				<Clock class="w-4 h-4 text-blue-600 mr-2" />
 				<span class="text-blue-900 font-semibold text-sm">Clinic Attendance History</span>
 			{/snippet}
-			
+
 			<div class="flex items-center justify-between mb-4">
 				<button class="p-2 rounded-lg hover:bg-gray-100" aria-label="Previous month" onclick={() => changeMonth(-1)}>
 					<svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

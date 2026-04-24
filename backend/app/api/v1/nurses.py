@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from sqlalchemy.orm import selectinload
@@ -21,10 +21,96 @@ from app.api.v1.patient_serialization import serialize_patient_badge_context, se
 
 router = APIRouter(prefix="/nurses", tags=["Nurses"])
 
+NURSE_ACCESS_ROLES = (UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT)
+
+
+async def _get_nurse_profile(db: AsyncSession, *, user_id: str) -> Nurse:
+    result = await db.execute(select(Nurse).where(Nurse.user_id == user_id))
+    nurse = result.scalar_one_or_none()
+    if not nurse:
+        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    return nurse
+
+
+async def _get_active_clinic(db: AsyncSession, clinic_id: str) -> Clinic:
+    result = await db.execute(
+        select(Clinic).where(Clinic.id == clinic_id, Clinic.is_active == True)
+    )
+    clinic = result.scalar_one_or_none()
+    if not clinic:
+        raise HTTPException(status_code=404, detail="Clinic not found")
+    return clinic
+
+
+async def _find_active_clinic_by_name(db: AsyncSession, clinic_name: str | None) -> Clinic | None:
+    if not clinic_name:
+        return None
+    normalized_name = clinic_name.strip().lower()
+    if not normalized_name:
+        return None
+    result = await db.execute(
+        select(Clinic)
+        .where(func.lower(Clinic.name) == normalized_name, Clinic.is_active == True)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _resolve_nurse_clinic(db: AsyncSession, nurse: Nurse) -> Clinic | None:
+    if nurse.clinic_id:
+        result = await db.execute(
+            select(Clinic).where(Clinic.id == nurse.clinic_id, Clinic.is_active == True)
+        )
+        clinic = result.scalar_one_or_none()
+        if clinic:
+            return clinic
+    return await _find_active_clinic_by_name(db, nurse.hospital)
+
+
+async def _list_clinic_wards(db: AsyncSession, clinic_id: str) -> list[str]:
+    result = await db.execute(
+        select(Nurse.ward)
+        .join(User, Nurse.user_id == User.id)
+        .where(
+            Nurse.clinic_id == clinic_id,
+            User.role == UserRole.NURSE,
+            Nurse.ward.is_not(None),
+            Nurse.ward != "",
+        )
+        .distinct()
+        .order_by(Nurse.ward.asc())
+    )
+    return [ward for ward in result.scalars().all() if ward]
+
+
+async def _resolve_station_scope(
+    db: AsyncSession,
+    *,
+    nurse: Nurse,
+    clinic_id: str | None,
+    ward: str | None,
+) -> tuple[Clinic | None, list[str]]:
+    clinic = None
+    effective_wards: list[str] = []
+
+    effective_clinic_id = clinic_id or nurse.clinic_id
+    if effective_clinic_id:
+        clinic = await _get_active_clinic(db, effective_clinic_id)
+
+    normalized_ward = (ward or "").strip()
+    if normalized_ward:
+        effective_wards = [normalized_ward]
+    elif not clinic_id and nurse.ward:
+        effective_wards = [nurse.ward]
+    elif clinic:
+        effective_wards = await _list_clinic_wards(db, clinic.id)
+
+    return clinic, effective_wards
+
 
 @router.get("/clinics")
 async def list_available_clinics(
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Return active clinics for nurse station selection."""
@@ -41,17 +127,11 @@ async def list_available_clinics(
 
 @router.get("/wards", response_model=List[str])
 async def list_available_wards(
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Return distinct ward names derived from admissions data."""
-    nurse_result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = nurse_result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     ward_result = await db.execute(
         select(Admission.ward)
@@ -71,41 +151,113 @@ async def list_available_wards(
 
 @router.get("/me", response_model=NurseResponse)
 async def get_current_nurse(
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current logged-in nurse's profile"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
+    clinic = await _resolve_nurse_clinic(db, nurse)
+    if clinic:
+        nurse.clinic_id = clinic.id
+        nurse.hospital = clinic.name
+        if not nurse.department:
+            nurse.department = clinic.department
 
     return nurse
+
+
+@router.get("/stations")
+async def list_superintendent_stations(
+    user: User = Depends(require_role(UserRole.NURSE_SUPERINTENDENT)),
+    db: AsyncSession = Depends(get_db),
+):
+    clinics_result = await db.execute(
+        select(Clinic)
+        .where(Clinic.is_active == True)
+        .order_by(Clinic.name.asc())
+    )
+    clinics = clinics_result.scalars().all()
+    clinics_by_id = {clinic.id: clinic for clinic in clinics}
+
+    nurse_rows_result = await db.execute(
+        select(Nurse, User.role)
+        .join(User, Nurse.user_id == User.id)
+        .where(User.role.in_([UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT]))
+        .order_by(Nurse.name.asc())
+    )
+
+    active_admission_counts_result = await db.execute(
+        select(Admission.ward, func.count(Admission.id))
+        .where(Admission.status == "Active")
+        .group_by(Admission.ward)
+    )
+    active_admission_counts = {
+        ward: count for ward, count in active_admission_counts_result.all() if ward
+    }
+
+    stations = {
+        clinic.id: {
+            "clinic_id": clinic.id,
+            "clinic_name": clinic.name,
+            "location": clinic.location,
+            "department": clinic.department,
+            "wards": [],
+            "assigned_nurses": [],
+            "active_patient_count": 0,
+        }
+        for clinic in clinics
+    }
+
+    for nurse, role in nurse_rows_result.all():
+        if role != UserRole.NURSE:
+            continue
+        clinic = clinics_by_id.get(nurse.clinic_id) or await _find_active_clinic_by_name(db, nurse.hospital)
+        if not clinic:
+            continue
+        station = stations[clinic.id]
+        if nurse.ward and nurse.ward not in station["wards"]:
+            station["wards"].append(nurse.ward)
+        station["assigned_nurses"].append(
+            {
+                "id": nurse.id,
+                "nurse_id": nurse.nurse_id,
+                "name": nurse.name,
+                "ward": nurse.ward,
+                "shift": nurse.shift,
+            }
+        )
+
+    for station in stations.values():
+        station["wards"].sort()
+        station["assigned_nurses"].sort(key=lambda item: item["name"])
+        station["active_patient_count"] = sum(
+            active_admission_counts.get(ward, 0) for ward in station["wards"]
+        )
+
+    return list(stations.values())
 
 
 @router.put("/me/station", response_model=NurseResponse)
 async def select_nurse_station(
     station: NurseStationSelect,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """First-time setup: select hospital and ward/station"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
-
-    nurse.hospital = station.hospital
+    clinic = None
+    if station.clinic_id:
+        clinic = await _get_active_clinic(db, station.clinic_id)
+        nurse.clinic_id = clinic.id
+        nurse.hospital = clinic.name
+    else:
+        nurse.clinic_id = None
+        nurse.hospital = station.hospital
     nurse.ward = station.ward
     nurse.shift = station.shift
-    nurse.department = station.department
-    nurse.has_selected_station = 1
+    nurse.department = station.department or (clinic.department if clinic else nurse.department)
+    nurse.has_selected_station = 1 if (nurse.clinic_id or nurse.hospital or user.role == UserRole.NURSE_SUPERINTENDENT) else 0
 
     nurse_id = nurse.id  # Store ID before commit
     await db.commit()
@@ -122,20 +274,24 @@ async def select_nurse_station(
 @router.put("/me", response_model=NurseResponse)
 async def update_nurse_profile(
     updates: NurseUpdate,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Update nurse profile information"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     # Update fields
     update_data = updates.model_dump(exclude_unset=True)
+    if "clinic_id" in update_data:
+        clinic_id = update_data.pop("clinic_id")
+        if clinic_id:
+            clinic = await _get_active_clinic(db, clinic_id)
+            nurse.clinic_id = clinic.id
+            nurse.hospital = clinic.name
+            if not update_data.get("department"):
+                nurse.department = clinic.department
+        else:
+            nurse.clinic_id = None
     for field, value in update_data.items():
         setattr(nurse, field, value)
 
@@ -153,29 +309,38 @@ async def update_nurse_profile(
 
 @router.get("/ward-patients")
 async def get_ward_patients(
-    user: User = Depends(require_role(UserRole.NURSE)),
+    clinic_id: Optional[str] = Query(default=None),
+    ward: Optional[str] = Query(default=None),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all active ward patients and newly registered patients visible to nurses."""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
+    nurse = await _get_nurse_profile(db, user_id=user.id)
+    clinic, station_wards = await _resolve_station_scope(
+        db,
+        nurse=nurse,
+        clinic_id=clinic_id,
+        ward=ward,
     )
-    nurse = result.scalar_one_or_none()
 
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
-
-    if not nurse.hospital:
+    if user.role == UserRole.NURSE and not (clinic or nurse.hospital):
         raise HTTPException(status_code=400, detail="Nurse has not selected a clinic yet")
+    if user.role == UserRole.NURSE_SUPERINTENDENT and not (clinic_id or ward):
+        raise HTTPException(status_code=400, detail="Station context is required")
 
-    # All nurses can see all currently admitted ward patients.
-    result = await db.execute(
-        select(Admission)
-        .options(selectinload(Admission.patient).selectinload(Patient.insurance_policies))
-        .where(Admission.status == "Active")
-        .order_by(Admission.admission_date.desc())
-    )
-    admissions = result.scalars().all()
+    admissions: list[Admission] = []
+    if station_wards or not clinic:
+        admissions_query = (
+            select(Admission)
+            .options(selectinload(Admission.patient).selectinload(Patient.insurance_policies))
+            .where(Admission.status == "Active")
+            .order_by(Admission.admission_date.desc())
+        )
+        if station_wards:
+            admissions_query = admissions_query.where(Admission.ward.in_(station_wards))
+
+        result = await db.execute(admissions_query)
+        admissions = result.scalars().all()
 
     patients_data = []
     for admission in admissions:
@@ -217,18 +382,23 @@ async def get_ward_patients(
 
     newly_registered = []
     for patient in recent_patients:
-        appointment_result = await db.execute(
-            select(func.count(Appointment.id)).where(Appointment.patient_id == patient.id)
-        )
-        clinic_appointment_result = await db.execute(
-            select(func.count(ClinicAppointment.id)).where(ClinicAppointment.patient_id == patient.id)
-        )
-        admission_result = await db.execute(
-            select(func.count(Admission.id)).where(Admission.patient_id == patient.id)
-        )
+        appointment_query = select(func.count(Appointment.id)).where(Appointment.patient_id == patient.id)
+        clinic_appointment_query = select(func.count(ClinicAppointment.id)).where(ClinicAppointment.patient_id == patient.id)
+        admission_query = select(func.count(Admission.id)).where(Admission.patient_id == patient.id)
+
+        if clinic:
+            clinic_appointment_query = clinic_appointment_query.where(ClinicAppointment.clinic_id == clinic.id)
+            if station_wards:
+                admission_query = admission_query.where(Admission.ward.in_(station_wards))
+
+        appointment_result = await db.execute(appointment_query)
+        clinic_appointment_result = await db.execute(clinic_appointment_query)
+        admission_result = await db.execute(admission_query)
 
         has_appointment = ((appointment_result.scalar() or 0) > 0) or ((clinic_appointment_result.scalar() or 0) > 0)
         has_admission = (admission_result.scalar() or 0) > 0
+        if clinic and not has_appointment and not has_admission:
+            continue
 
         age = None
         if patient.date_of_birth:
@@ -252,9 +422,11 @@ async def get_ward_patients(
     return {
         "nurse": {
             "name": nurse.name,
-            "hospital": nurse.hospital,
-            "ward": nurse.ward,
+            "hospital": clinic.name if clinic else nurse.hospital,
+            "ward": ", ".join(station_wards) if station_wards else nurse.ward,
             "shift": nurse.shift,
+            "clinic_id": clinic.id if clinic else nurse.clinic_id,
+            "department": clinic.department if clinic else nurse.department,
         },
         "patients": patients_data,
         "newly_registered": newly_registered,
@@ -263,17 +435,11 @@ async def get_ward_patients(
 
 @router.get("/notifications")
 async def get_nurse_notifications(
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Get notifications for the current nurse"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     result = await db.execute(
         select(NurseNotification)
@@ -299,17 +465,11 @@ async def get_nurse_notifications(
 @router.put("/notifications/{notification_id}/read")
 async def mark_notification_read(
     notification_id: str,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark a notification as read"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     result = await db.execute(
         select(NurseNotification)
@@ -334,7 +494,7 @@ async def mark_notification_read(
 @router.get("/patients/{patient_id}/orders")
 async def get_patient_orders(
     patient_id: str,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all orders for a specific patient"""
@@ -364,17 +524,11 @@ async def get_patient_orders(
 @router.put("/orders/{order_id}/complete")
 async def complete_order(
     order_id: str,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Mark an order as completed"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     result = await db.execute(
         select(NurseOrder).where(NurseOrder.id == order_id)
@@ -440,17 +594,11 @@ async def create_sbar_note(
     patient_id: str,
     admission_id: str,
     data: SBARNoteCreate,
-    user: User = Depends(require_role(UserRole.NURSE)),
+    user: User = Depends(require_role(*NURSE_ACCESS_ROLES)),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new SBAR note for a patient"""
-    result = await db.execute(
-        select(Nurse).where(Nurse.user_id == user.id)
-    )
-    nurse = result.scalar_one_or_none()
-
-    if not nurse:
-        raise HTTPException(status_code=404, detail="Nurse profile not found")
+    nurse = await _get_nurse_profile(db, user_id=user.id)
 
     patient_result = await db.execute(
         select(Patient).where(Patient.id == patient_id)

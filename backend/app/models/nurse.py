@@ -15,9 +15,10 @@ class Nurse(Base):
     phone = Column(String, nullable=True)
     email = Column(String, nullable=True)
     photo = Column(String, nullable=True)
+    clinic_id = Column(String, ForeignKey("clinics.id"), nullable=True, index=True)
     
     # Hospital/Ward assignment
-    hospital = Column(String, nullable=True)  # e.g., "Saveetha Medical College Hospital"
+    hospital = Column(String, nullable=True)  # Stored clinic display name
     ward = Column(String, nullable=True)  # e.g., "ICU Ward A"
     shift = Column(String, nullable=True)  # e.g., "Morning Shift (08:00-16:00)"
     department = Column(String, nullable=True)  # e.g., "Critical Care"
@@ -34,6 +35,7 @@ class Nurse(Base):
 
     # Relationships
     user = relationship("User", back_populates="nurse")
+    clinic = relationship("Clinic")
     notifications = relationship("NurseNotification", back_populates="nurse")
     completed_orders = relationship("NurseOrder", back_populates="nurse")
     sbar_notes = relationship("SBARNote", back_populates="nurse")

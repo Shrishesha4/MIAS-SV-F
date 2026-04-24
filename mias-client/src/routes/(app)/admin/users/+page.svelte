@@ -11,6 +11,7 @@
 		type PatientCategoryConfig,
 		type Programme,
 	} from '$lib/api/admin';
+	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
@@ -21,7 +22,7 @@
 	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
-	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'LAB_TECHNICIAN' | 'BILLING' | 'OT_MANAGER' | 'MRD';
+	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'NURSE_SUPERINTENDENT' | 'NUTRITIONIST' | 'LAB_TECHNICIAN' | 'BILLING' | 'PHARMACY' | 'OT_MANAGER' | 'MRD';
 
 	type CreateUserFormData = {
 		username: string;
@@ -51,6 +52,7 @@
 		department: string;
 		specialty: string;
 		availability: string;
+		clinic_id: string;
 		hospital: string;
 		ward: string;
 		shift: string;
@@ -90,6 +92,7 @@
 			department: '',
 			specialty: '',
 			availability: '',
+			clinic_id: '',
 			hospital: '',
 			ward: '',
 			shift: '',
@@ -125,6 +128,7 @@
 	let departments = $state.raw<Department[]>([]);
 	let programmes = $state.raw<Programme[]>([]);
 	let patientCategories = $state.raw<PatientCategoryConfig[]>([]);
+	let clinics = $state.raw<ClinicInfo[]>([]);
 
 	// Read initial filter from URL
 	onMount(() => {
@@ -185,13 +189,15 @@
 			'date_of_birth', 'gender', 'blood_group', 'phone', 'address', 'category', 'aadhaar_id', 'abha_id', 'primary_diagnosis',
 			'year', 'semester', 'program', 'degree', 'gpa', 'academic_standing', 'academic_advisor',
 			'department', 'specialty', 'availability',
-			'hospital', 'ward', 'shift'
+			'hospital', 'ward', 'shift', 'clinic_id'
 		];
 		const examples = [
-			['NURSE', 'Jane Smith', 'jsmith', 'jane@example.com', 'Pass@1234', '', '', '', '9876543210', '', '', '', '', '', '', '', '', '', '', '', '', 'Cardiology', '', '', 'Main Hospital', 'Ward A', 'Morning'],
+			['NURSE', 'Jane Smith', 'jsmith', 'jane@example.com', 'Pass@1234', '', '', '', '9876543210', '', '', '', '', '', '', '', '', '', '', '', '', 'Cardiology', '', '', 'Main Hospital', 'Ward A', 'Morning', ''],
+			['NUTRITIONIST', 'Asha Menon', 'asha_nutri', 'asha@example.com', 'Pass@1234', '', '', '', '9123456789', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'CLINIC_UUID'],
+			['PHARMACY', 'Asha Menon', 'asha_pharm', 'asha.pharmacy@example.com', 'Pass@1234', '', '', '', '9876501234', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
 			// ['PATIENT', 'Ravi Kumar', 'ravi_k', 'ravi@example.com', 'Pass@1234', '1995-06-15', 'MALE', 'O+', '9123456789', '12 MG Road', 'STAFF', '123456789012', '', 'Hypertension', '', '', '', '', '', '', '', '', '', '', '', '', ''],
-			['STUDENT', 'Priya Nair', 'priya_n', 'priya@example.com', 'Pass@1234', '', '', '', '', '', '', '', '', '', '2', '3', 'MBBS', 'Bachelor of Medicine', '7.8', 'Good Standing', 'Dr. Mehta', '', '', '', '', '', ''],
-			['FACULTY', 'Dr. Arjun Rao', 'arjun_r', 'arjun@example.com', 'Pass@1234', '', '', '', '9988776655', '', '', '', '', '', '', '', '', '', '', '', '', 'Neurology', 'Neurologist', 'Mon-Fri 9-5', '', '', ''],
+			['STUDENT', 'Priya Nair', 'priya_n', 'priya@example.com', 'Pass@1234', '', '', '', '', '', '', '', '', '', '2', '3', 'MBBS', 'Bachelor of Medicine', '7.8', 'Good Standing', 'Dr. Mehta', '', '', '', '', '', '', ''],
+			['FACULTY', 'Dr. Arjun Rao', 'arjun_r', 'arjun@example.com', 'Pass@1234', '', '', '', '9988776655', '', '', '', '', '', '', '', '', '', '', '', '', 'Neurology', 'Neurologist', 'Mon-Fri 9-5', '', '', '', ''],
 		];
 		const csvContent = [headers, ...examples].map((r) => r.join(',')).join('\n');
 		const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -255,14 +261,16 @@
 
 	async function loadCreateUserOptions() {
 		try {
-			const [departmentItems, programmeItems, categoryItems] = await Promise.all([
+			const [departmentItems, programmeItems, categoryItems, clinicItems] = await Promise.all([
 				adminApi.getDepartments(),
 				adminApi.getProgrammes(),
 				adminApi.getPatientCategories(),
+				clinicsApi.listClinics(),
 			]);
 			departments = departmentItems.filter((department) => department.is_active);
 			programmes = programmeItems.filter((programme) => programme.is_active);
 			patientCategories = categoryItems.filter((category) => category.is_active);
+			clinics = clinicItems.filter((clinic) => clinic.is_active);
 			if (!newUserData.category) {
 				newUserData.category = defaultPatientCategoryName();
 			}
@@ -379,6 +387,11 @@
 			return;
 		}
 
+		if (newUserRole === 'NUTRITIONIST' && !newUserData.clinic_id) {
+			toastStore.addToast('Assigned clinic is required for nutritionists', 'error');
+			return;
+		}
+
 		if (hasValue(newUserData.gpa) && parseOptionalFloat(newUserData.gpa) === undefined) {
 			toastStore.addToast('GPA must be a valid number', 'error');
 			return;
@@ -425,12 +438,17 @@
 			payload.availability = normalizeOptionalString(newUserData.availability);
 		}
 
+		if (newUserRole === 'NUTRITIONIST') {
+			payload.clinic_id = normalizeOptionalString(newUserData.clinic_id);
+			payload.phone = normalizeOptionalString(newUserData.phone);
+		}
+
 		if (newUserRole === 'LAB_TECHNICIAN') {
 			payload.department = normalizeOptionalString(newUserData.department);
 			payload.phone = normalizeOptionalString(newUserData.phone);
 		}
 
-		if (newUserRole === 'NURSE') {
+		if (newUserRole === 'NURSE' || newUserRole === 'NURSE_SUPERINTENDENT') {
 			payload.department = normalizeOptionalString(newUserData.department);
 			payload.phone = normalizeOptionalString(newUserData.phone);
 			payload.hospital = normalizeOptionalString(newUserData.hospital);
@@ -468,10 +486,13 @@
 		{ id: 'PATIENT', label: 'Patients' },
 		{ id: 'STUDENT', label: 'Students' },
 		{ id: 'FACULTY', label: 'Faculty' },
+		{ id: 'NUTRITIONIST', label: 'Nutritionists' },
 		{ id: 'LAB_TECHNICIAN', label: 'Lab Techs' },
 		{ id: 'NURSE', label: 'Nurses' },
+		{ id: 'NURSE_SUPERINTENDENT', label: 'Superintendents' },
 		{ id: 'RECEPTION', label: 'Reception' },
 		{ id: 'BILLING', label: 'Billing' },
+		{ id: 'PHARMACY', label: 'Pharmacy' },
 		{ id: 'OT_MANAGER', label: 'OT Manager' },
 		{ id: 'MRD', label: 'MRD' },
 		{ id: 'ADMIN', label: 'Admins' },
@@ -482,11 +503,14 @@
 			PATIENT: '#10b981',
 			STUDENT: '#f59e0b',
 			FACULTY: '#8b5cf6',
+			NUTRITIONIST: '#059669',
 			LAB_TECHNICIAN: '#7c3aed',
 			ADMIN: '#ef4444',
 			RECEPTION: '#3b82f6',
 			NURSE: '#14b8a6',
+			NURSE_SUPERINTENDENT: '#0f766e',
 			BILLING: '#f97316',
+			PHARMACY: '#10b981',
 			OT_MANAGER: '#0891b2',
 			MRD: '#6366f1',
 		};
@@ -663,9 +687,12 @@
 				>
 					<!-- <option value="PATIENT">Patient</option> -->
 					<option value="NURSE">Nurse</option>
+					<option value="NURSE_SUPERINTENDENT">Nurse Superintendent</option>
+					<option value="NUTRITIONIST">Nutritionist</option>
 					<option value="LAB_TECHNICIAN">Lab Technician</option>
 					<option value="RECEPTION">Reception</option>
 					<option value="BILLING">Billing & Cashier</option>
+					<option value="PHARMACY">Pharmacy</option>
 					<option value="OT_MANAGER">OT Manager</option>
 					<option value="MRD">MRD (Medical Records)</option>
 					<option value="STUDENT">Student</option>
@@ -853,6 +880,32 @@
 				</div>
 			{/if}
 
+			{#if newUserRole === 'NUTRITIONIST'}
+				<div class="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/35 p-3">
+					<p class="text-xs font-bold uppercase tracking-wide text-emerald-700">Nutritionist Profile</p>
+					<div class="grid gap-3 md:grid-cols-2">
+						<div>
+							<label class="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
+							<input type="tel" bind:value={newUserData.phone} placeholder="Enter phone number" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+						</div>
+						<div>
+							<label class="block text-xs font-semibold text-gray-700 mb-1">Assigned Clinic *</label>
+							{#if clinics.length > 0}
+								<select bind:value={newUserData.clinic_id} class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+									<option value="">Select clinic</option>
+									{#each clinics as clinic}
+										<option value={clinic.id}>{clinic.name} • {clinic.department}</option>
+									{/each}
+								</select>
+							{:else}
+								<input type="text" bind:value={newUserData.clinic_id} placeholder="Enter clinic ID" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+							{/if}
+						</div>
+					</div>
+					<p class="text-[11px] text-emerald-700">Each clinic can have only one active nutritionist assignment.</p>
+				</div>
+			{/if}
+
 			{#if newUserRole === 'LAB_TECHNICIAN'}
 				<div class="space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/35 p-3">
 					<p class="text-xs font-bold uppercase tracking-wide text-indigo-700">Lab Technician Profile</p>
@@ -878,7 +931,7 @@
 				</div>
 			{/if}
 
-			{#if newUserRole === 'NURSE'}
+			{#if newUserRole === 'NURSE' || newUserRole === 'NURSE_SUPERINTENDENT'}
 				<div class="space-y-3 rounded-xl border border-teal-100 bg-teal-50/35 p-3">
 					<p class="text-xs font-bold uppercase tracking-wide text-teal-700">Nurse Profile</p>
 					<div class="grid gap-3 md:grid-cols-2">

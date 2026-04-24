@@ -18,7 +18,7 @@
 	let clinicsLoading = $state(false);
 
 	let form = $state({
-		hospital: '',
+		clinic_id: '',
 		phone: '',
 		email: '',
 	});
@@ -33,7 +33,7 @@
 			nurse = nurseProfile;
 			clinics = availableClinics;
 			form = {
-				hospital: nurseProfile.hospital || '',
+				clinic_id: nurseProfile.clinic_id || '',
 				phone: nurseProfile.phone || '',
 				email: nurseProfile.email || '',
 			};
@@ -68,7 +68,7 @@
 	function handleCancel() {
 		if (nurse) {
 			form = {
-				hospital: nurse.hospital || '',
+				clinic_id: nurse.clinic_id || '',
 				phone: nurse.phone || '',
 				email: nurse.email || '',
 			};
@@ -78,7 +78,7 @@
 
 	onMount(async () => {
 		const auth = get(authStore);
-		if (auth.role !== 'NURSE') {
+		if (auth.role !== 'NURSE' && auth.role !== 'NURSE_SUPERINTENDENT') {
 			goto('/dashboard');
 			return;
 		}
@@ -136,17 +136,17 @@
 					</div>
 					{#if editMode}
 						<select
-							bind:value={form.hospital}
+							bind:value={form.clinic_id}
 							disabled={clinicsLoading}
 							class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
 						>
 							<option value="">{clinicsLoading ? 'Loading...' : 'Select Clinic'}</option>
 							{#each clinics as clinic}
-								<option value={clinic.name}>{clinic.name}{clinic.location ? ` — ${clinic.location}` : ''}</option>
+								<option value={clinic.id}>{clinic.name}{clinic.location ? ` — ${clinic.location}` : ''}</option>
 							{/each}
 						</select>
 					{:else}
-						<p class="text-base text-gray-900">{form.hospital || 'Not assigned'}</p>
+						<p class="text-base text-gray-900">{nurse.hospital || 'Not assigned'}</p>
 					{/if}
 				</div>
 			</div>

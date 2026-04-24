@@ -16,13 +16,14 @@ from app.models.lab import (
 )
 from app.models.lab_technician import LabTechnician, LabTechnicianGroup, lab_technician_group_labs
 from app.models.faculty import Faculty, FacultyClinicSession, FacultyNotification, FacultySchedule
+from app.models.nutritionist import Nutritionist, NutritionistClinicSession, NutritionistNote
 from app.models.nurse import Nurse, NurseNotification
 from app.models.nurse_order import NurseOrder
 from app.models.sbar_note import SBARNote
 from app.models.medical_record import MedicalRecord, RecordType, MedicalFinding, MedicalImage
 from app.models.vital import Vital, VitalParameter
 from app.models.prescription import (
-    Prescription, PrescriptionMedication, PrescriptionStatus,
+    Prescription, PrescriptionMedication, PrescriptionStatus, PrescriptionDispensingStatus,
     MedicationDoseLog, MedicationDoseStatus,
     PrescriptionRequest, PrescriptionRequestStatus,
 )
@@ -33,6 +34,7 @@ from app.models.wallet import WalletTransaction, WalletType, TransactionType, Tr
 from app.models.notification import PatientNotification, ScheduledNotification
 from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
 from app.models.department import Department
+from app.models.academic import AcademicGroup, AcademicTarget, AcademicFormWeightage
 from app.models.programme import Programme
 from app.models.form_definition import FormDefinition
 from app.models.form_category import FormCategoryOption

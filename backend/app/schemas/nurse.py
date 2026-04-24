@@ -6,6 +6,7 @@ class NurseBase(BaseModel):
     name: str
     phone: Optional[str] = None
     email: Optional[str] = None
+    clinic_id: Optional[str] = None
     hospital: Optional[str] = None
     ward: Optional[str] = None
     shift: Optional[str] = None
@@ -20,6 +21,7 @@ class NurseUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    clinic_id: Optional[str] = None
     hospital: Optional[str] = None
     ward: Optional[str] = None
     shift: Optional[str] = None
@@ -27,7 +29,8 @@ class NurseUpdate(BaseModel):
 
 
 class NurseStationSelect(BaseModel):
-    hospital: str
+    clinic_id: Optional[str] = None
+    hospital: Optional[str] = None
     ward: Optional[str] = None
     shift: Optional[str] = None
     department: Optional[str] = None

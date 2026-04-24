@@ -623,9 +623,18 @@
 			} else if (role === 'LAB_TECHNICIAN') {
 				goto('/labs' as string);
 				return;
+			} else if (role === 'NUTRITIONIST') {
+				goto('/nutritionist');
+				return;
 			} else if (role === 'NURSE') {
 				// Redirect nurses to their station dashboard
 				goto('/nurse-station');
+				return;
+			} else if (role === 'NURSE_SUPERINTENDENT') {
+				goto('/nurse-superintendent');
+				return;
+			} else if (role === 'PHARMACY') {
+				goto('/pharmacy');
 				return;
 			}
 		} catch (err: any) {

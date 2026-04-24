@@ -8,12 +8,29 @@ export interface Nurse {
   name: string;
   phone: string | null;
   email: string | null;
+  clinic_id: string | null;
   hospital: string | null;
   ward: string | null;
   shift: string | null;
   department: string | null;
   has_selected_station: number;
   photo: string | null;
+}
+
+export interface NurseStationSummary {
+  clinic_id: string;
+  clinic_name: string;
+  location: string | null;
+  department: string;
+  wards: string[];
+  assigned_nurses: Array<{
+    id: string;
+    nurse_id: string;
+    name: string;
+    ward: string | null;
+    shift: string | null;
+  }>;
+  active_patient_count: number;
 }
 
 export interface WardPatient {
@@ -61,7 +78,8 @@ export interface NurseClinic {
 }
 
 export interface StationSelection {
-  hospital: string;
+  clinic_id?: string;
+  hospital?: string;
   ward?: string;
   shift?: string;
   department?: string;
@@ -107,6 +125,11 @@ export const nurseApi = {
     return response.data;
   },
 
+  async getStations(): Promise<NurseStationSummary[]> {
+    const response = await client.get('/nurses/stations');
+    return response.data;
+  },
+
   async getAvailableWards(): Promise<string[]> {
     const response = await client.get('/nurses/wards');
     return response.data;
@@ -117,8 +140,13 @@ export const nurseApi = {
     return response.data;
   },
 
-  async getWardPatients(): Promise<{ nurse: { name: string; hospital: string; ward: string; shift: string }; patients: WardPatient[]; newly_registered: NewlyRegisteredPatient[] }> {
-    const response = await client.get('/nurses/ward-patients');
+  async getWardPatients(params?: { clinicId?: string; ward?: string }): Promise<{ nurse: { name: string; hospital: string; ward: string; shift: string; clinic_id?: string | null; department?: string | null }; patients: WardPatient[]; newly_registered: NewlyRegisteredPatient[] }> {
+    const response = await client.get('/nurses/ward-patients', {
+      params: {
+        clinic_id: params?.clinicId,
+        ward: params?.ward,
+      },
+    });
     return response.data;
   },
 

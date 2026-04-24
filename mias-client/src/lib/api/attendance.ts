@@ -4,6 +4,7 @@ export interface AttendanceCounts {
 	patients: number;
 	students: number;
 	faculty: number;
+	nutritionists: number;
 	nurses: number;
 	reception: number;
 	admins: number;

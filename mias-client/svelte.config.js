@@ -15,6 +15,7 @@ export default {
         'style-src':   ['self', 'unsafe-inline'],
         'img-src':     ['self', 'data:', 'blob:'],
         'font-src':    ['self'],
+        'connect-src': ['self', 'http://localhost:8001', 'https://localhost:8001'],
         'object-src':  ['none'],
         'base-uri':    ['self'],
         'frame-ancestors': ['none'],

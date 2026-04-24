@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/state';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { clinicsApi, type ClinicInfo } from '$lib/api/clinics';
@@ -16,7 +17,7 @@
 	import { ChevronRight, ChevronDown, Stethoscope, ClipboardList, FileText, Loader2, UserCheck, UserPlus, AlertCircle, Zap, RefreshCw } from 'lucide-svelte';
 
 	let loading = $state(true);
-	let nurseInfo = $state<{ name: string; hospital: string; ward: string; shift: string } | null>(null);
+	let nurseInfo = $state<{ name: string; hospital: string; ward: string; shift: string; clinic_id?: string | null; department?: string | null } | null>(null);
 	let patients = $state<WardPatient[]>([]);
 	let newlyRegisteredPatients = $state<NewlyRegisteredPatient[]>([]);
 	let pendingPatients = $state<PendingPatient[]>([]);
@@ -37,6 +38,9 @@
 	const intakePatients = $derived(
 		pendingPatients.filter((patient) => patient.workflow_status === 'unchecked' || patient.workflow_status === 'unassigned')
 	);
+	const selectedClinicId = $derived(page.url.searchParams.get('clinicId') ?? '');
+	const selectedWard = $derived(page.url.searchParams.get('ward') ?? '');
+	const selectedClinicName = $derived(page.url.searchParams.get('clinicName') ?? '');
 
 	function formatAge(age: number | null) {
 		return age === null ? 'Age N/A' : `${age} yrs`;
@@ -235,14 +239,20 @@
 		try {
 			loading = true;
 			const [data, queue, clinicList] = await Promise.all([
-				nurseApi.getWardPatients(),
+				nurseApi.getWardPatients({
+					clinicId: selectedClinicId || undefined,
+					ward: selectedWard || undefined,
+				}),
 				staffApi.getPendingPatients(),
 				clinicsApi.listClinics()
 			]);
 			nurseInfo = data.nurse;
 			patients = data.patients;
 			newlyRegisteredPatients = data.newly_registered;
-			pendingPatients = queue;
+			const effectiveClinicId = selectedClinicId || data.nurse.clinic_id || '';
+			pendingPatients = effectiveClinicId
+				? queue.filter((patient) => patient.clinic_id === effectiveClinicId)
+				: queue;
 			clinics = clinicList;
 		} catch (error: any) {
 			console.error('Error loading ward data:', error);
@@ -254,8 +264,12 @@
 
 	onMount(async () => {
 		const auth = get(authStore);
-		if (auth.role !== 'NURSE') {
+		if (auth.role !== 'NURSE' && auth.role !== 'NURSE_SUPERINTENDENT') {
 			goto('/dashboard');
+			return;
+		}
+		if (auth.role === 'NURSE_SUPERINTENDENT' && !selectedClinicId && !selectedWard) {
+			goto('/nurse-superintendent');
 			return;
 		}
 		await loadWardData();
@@ -280,7 +294,7 @@
 					</div>
 					<div class="flex-1 min-w-0">
 						<h1 class="text-xl font-bold text-gray-900 truncate">Nurse Station</h1>
-						<p class="text-sm text-gray-600 truncate">{nurseInfo?.ward} • {nurseInfo?.shift || 'All Day'}</p>
+						<p class="text-sm text-gray-600 truncate">{selectedWard || nurseInfo?.ward || selectedClinicName || nurseInfo?.hospital} • {nurseInfo?.shift || 'All Day'}</p>
 					</div>
 				</div>
 			{/snippet}

@@ -23,6 +23,10 @@
 			authStore.setTokens(result.access_token, result.user_id, result.role);
 			if (result.role === 'STUDENT') {
 				goto('/patients');
+			} else if (result.role === 'NUTRITIONIST') {
+				goto('/nutritionist');
+			} else if (result.role === 'PHARMACY') {
+				goto('/pharmacy');
 			} else {
 				goto('/dashboard');
 			}

@@ -1,32 +1,46 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
-from sqlalchemy.orm import selectinload
-from datetime import datetime, date
 import uuid
-from pydantic import BaseModel
+from datetime import date, datetime
 
-from app.database import AsyncSessionLocal, get_db
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.api.deps import get_current_user, require_role
-from app.models.user import User, UserRole
-from app.models.student import (
-    Student, StudentPatientAssignment, StudentAttendance,
-    DisciplinaryAction, ClinicSession, Clinic, ClinicAppointment,
-    StudentClinicCheckinLog,
+from app.api.v1.patient_serialization import (
+    serialize_patient_badge_context,
+    serialize_patient_insurance,
 )
-from app.models.case_record import CaseRecord, Approval, ApprovalType, ApprovalStatus
-from app.models.patient import Patient, Allergy, MedicalAlert
-from app.models.faculty import Faculty, FacultyNotification
+from app.database import AsyncSessionLocal, get_db
 from app.models.admission import Admission
+from app.models.case_record import Approval, ApprovalStatus, ApprovalType, CaseRecord
 from app.models.department import Department
+from app.models.faculty import Faculty, FacultyNotification
 from app.models.form_definition import FormDefinition
-from app.models.prescription import Prescription, PrescriptionMedication, PrescriptionStatus
 from app.models.notification import PatientNotification
-from app.models.student import StudentNotification
+from app.models.patient import Allergy, MedicalAlert, Patient
+from app.models.prescription import (
+    Prescription,
+    PrescriptionMedication,
+    PrescriptionStatus,
+)
+from app.models.student import (
+    Clinic,
+    ClinicAppointment,
+    ClinicSession,
+    DisciplinaryAction,
+    Student,
+    StudentAttendance,
+    StudentClinicCheckinLog,
+    StudentNotification,
+    StudentPatientAssignment,
+)
+from app.models.user import User, UserRole
+from app.services.academics import get_student_academic_progress
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
 from app.services.daily_checkins import ensure_daily_checkin
 from app.services.patient_insurance import sync_patient_insurance_category
-from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 
 router = APIRouter(prefix="/students", tags=["Students"])
 
@@ -53,13 +67,15 @@ async def _create_student_checkin_log(
         existing_log.checked_out_at = None
         return
 
-    db.add(StudentClinicCheckinLog(
-        id=str(uuid.uuid4()),
-        student_id=session.student_id,
-        clinic_id=session.clinic_id,
-        clinic_session_id=session.id,
-        checked_in_at=checked_in_at,
-    ))
+    db.add(
+        StudentClinicCheckinLog(
+            id=str(uuid.uuid4()),
+            student_id=session.student_id,
+            clinic_id=session.clinic_id,
+            clinic_session_id=session.id,
+            checked_in_at=checked_in_at,
+        )
+    )
 
 
 async def _close_student_checkin_log(
@@ -92,9 +108,7 @@ async def _complete_case_record_generation(
 ):
     async with AsyncSessionLocal() as db:
         record = (
-            await db.execute(
-                select(CaseRecord).where(CaseRecord.id == record_id)
-            )
+            await db.execute(select(CaseRecord).where(CaseRecord.id == record_id))
         ).scalar_one_or_none()
         if not record:
             return
@@ -147,6 +161,7 @@ async def get_current_student(
             selectinload(Student.attendance),
             selectinload(Student.disciplinary_actions),
             selectinload(Student.emergency_contact),
+            selectinload(Student.academic_group),
         )
         .where(Student.user_id == user.id)
     )
@@ -174,6 +189,8 @@ async def get_current_student(
             "address": student.emergency_contact.address,
         }
 
+    academic_progress = await get_student_academic_progress(db, student_id=student.id)
+
     return {
         "id": student.id,
         "student_id": student.student_id,
@@ -186,6 +203,10 @@ async def get_current_student(
         "gpa": student.gpa,
         "academic_standing": student.academic_standing,
         "academic_advisor": student.academic_advisor,
+        "academic_group_id": student.academic_group_id,
+        "academic_group_name": student.academic_group.name
+        if student.academic_group
+        else None,
         "attendance": attendance_data,
         "disciplinary_actions": [
             {
@@ -200,6 +221,7 @@ async def get_current_student(
             for da in student.disciplinary_actions
         ],
         "emergency_contact": emergency_contact_data,
+        "academic_progress": academic_progress,
     }
 
 
@@ -209,11 +231,9 @@ async def get_emergency_contacts(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all doctors as emergency contacts for students"""
-    result = await db.execute(
-        select(Faculty).order_by(Faculty.name)
-    )
+    result = await db.execute(select(Faculty).order_by(Faculty.name))
     faculty = result.scalars().all()
-    
+
     return [
         {
             "id": f.id,
@@ -278,7 +298,7 @@ async def get_faculty_approvers(
     """Get faculty members who can approve case records"""
     result = await db.execute(select(Faculty))
     faculty = result.scalars().all()
-    
+
     return [
         {
             "id": f.id,
@@ -295,10 +315,7 @@ async def get_all_clinics(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all available clinics"""
-    result = await db.execute(
-        select(Clinic)
-        .options(selectinload(Clinic.faculty))
-    )
+    result = await db.execute(select(Clinic).options(selectinload(Clinic.faculty)))
     clinics = result.scalars().all()
     return [
         {
@@ -326,7 +343,11 @@ async def get_clinic_patients_static(
 
     result = await db.execute(
         select(ClinicAppointment)
-        .options(selectinload(ClinicAppointment.patient).selectinload(Patient.insurance_policies))
+        .options(
+            selectinload(ClinicAppointment.patient).selectinload(
+                Patient.insurance_policies
+            )
+        )
         .where(
             and_(
                 ClinicAppointment.clinic_id == clinic_id,
@@ -396,10 +417,12 @@ async def get_assigned_patients(
     result = await db.execute(
         select(StudentPatientAssignment)
         .options(
-            selectinload(StudentPatientAssignment.patient)
-            .selectinload(Patient.allergies),
-            selectinload(StudentPatientAssignment.patient)
-            .selectinload(Patient.insurance_policies),
+            selectinload(StudentPatientAssignment.patient).selectinload(
+                Patient.allergies
+            ),
+            selectinload(StudentPatientAssignment.patient).selectinload(
+                Patient.insurance_policies
+            ),
         )
         .where(
             StudentPatientAssignment.student_id == student_id,
@@ -412,14 +435,18 @@ async def get_assigned_patients(
     for a in assignments:
         if not a.patient:
             continue
-        
+
         # Calculate age from date_of_birth
         age = None
         if a.patient.date_of_birth:
             today = date.today()
             dob = a.patient.date_of_birth
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        
+            age = (
+                today.year
+                - dob.year
+                - ((today.month, today.day) < (dob.month, dob.day))
+            )
+
         # Prefer the patient's synced primary diagnosis summary, then fall back to the latest case record.
         primary_diagnosis = a.patient.primary_diagnosis
         diag_result = await db.execute(
@@ -431,22 +458,26 @@ async def get_assigned_patients(
         latest_record = diag_result.scalar_one_or_none()
         if not primary_diagnosis and latest_record and latest_record.diagnosis:
             primary_diagnosis = latest_record.diagnosis
-        
-        patients.append({
-            "id": a.patient.id,
-            "patient_id": a.patient.patient_id,
-            "name": a.patient.name,
-            "age": age,
-            "gender": a.patient.gender.value if a.patient.gender else None,
-            "blood_group": a.patient.blood_group,
-            "photo": a.patient.photo,
-            "primary_diagnosis": primary_diagnosis,
-            "status": a.status,
-            "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
-            **serialize_patient_badge_context(a.patient),
-            "insurance_policies": serialize_patient_insurance(a.patient),
-        })
-    
+
+        patients.append(
+            {
+                "id": a.patient.id,
+                "patient_id": a.patient.patient_id,
+                "name": a.patient.name,
+                "age": age,
+                "gender": a.patient.gender.value if a.patient.gender else None,
+                "blood_group": a.patient.blood_group,
+                "photo": a.patient.photo,
+                "primary_diagnosis": primary_diagnosis,
+                "status": a.status,
+                "assigned_date": a.assigned_date.isoformat()
+                if a.assigned_date
+                else None,
+                **serialize_patient_badge_context(a.patient),
+                "insurance_policies": serialize_patient_insurance(a.patient),
+            }
+        )
+
     return patients
 
 
@@ -470,10 +501,13 @@ async def get_student_case_records(
             )
         )
         query = select(CaseRecord).where(
-            (CaseRecord.student_id == student_id) | (CaseRecord.patient_id.in_(assigned_patient_ids))
+            (CaseRecord.student_id == student_id)
+            | (CaseRecord.patient_id.in_(assigned_patient_ids))
         )
     result = await db.execute(
-        query.options(selectinload(CaseRecord.approval).selectinload(Approval.faculty)).order_by(CaseRecord.date.desc())
+        query.options(
+            selectinload(CaseRecord.approval).selectinload(Approval.faculty)
+        ).order_by(CaseRecord.date.desc())
     )
     records = result.scalars().all()
 
@@ -503,12 +537,16 @@ async def get_student_case_records(
             "provider": r.provider,
             "status": r.status,
             "approved_by": r.approved_by,
-            "approver_name": r.approval.faculty.name if r.approval and r.approval.faculty else None,
+            "approver_name": r.approval.faculty.name
+            if r.approval and r.approval.faculty
+            else None,
             "approved_at": r.approved_at,
             "created_by_name": r.created_by_name,
             "created_by_role": r.created_by_role,
             "last_modified_by": r.last_modified_by,
-            "last_modified_at": r.last_modified_at.isoformat() if r.last_modified_at else None,
+            "last_modified_at": r.last_modified_at.isoformat()
+            if r.last_modified_at
+            else None,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in records
@@ -562,7 +600,10 @@ async def get_academic_progress(
 ):
     result = await db.execute(
         select(Student)
-        .options(selectinload(Student.attendance))
+        .options(
+            selectinload(Student.attendance),
+            selectinload(Student.academic_group),
+        )
         .where(Student.id == student_id)
     )
     student = result.scalar_one_or_none()
@@ -578,10 +619,20 @@ async def get_academic_progress(
             "lab": student.attendance.lab,
         }
 
+    academic_progress = await get_student_academic_progress(db, student_id=student.id)
+
     return {
         "gpa": student.gpa,
         "academic_standing": student.academic_standing,
         "attendance": attendance_data,
+        "academic_group_id": student.academic_group_id,
+        "academic_group_name": student.academic_group.name
+        if student.academic_group
+        else None,
+        "academic_progress": academic_progress,
+        "summary": academic_progress["summary"] if academic_progress else None,
+        "targets": academic_progress["targets"] if academic_progress else [],
+        "weightages": academic_progress["weightages"] if academic_progress else None,
     }
 
 
@@ -614,8 +665,12 @@ async def get_clinic_sessions(
             "status": s.status,
             "is_selected": bool(s.is_selected),
             "checked_in_at": s.checked_in_at.isoformat() if s.checked_in_at else None,
-            "checked_out_at": s.checked_out_at.isoformat() if s.checked_out_at else None,
-            "doctor_name": s.clinic.faculty.name if s.clinic and s.clinic.faculty else None,
+            "checked_out_at": s.checked_out_at.isoformat()
+            if s.checked_out_at
+            else None,
+            "doctor_name": s.clinic.faculty.name
+            if s.clinic and s.clinic.faculty
+            else None,
             "location": s.clinic.location if s.clinic else None,
         }
         for s in sessions
@@ -629,10 +684,7 @@ async def get_available_clinics(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all available clinics for the student to choose from"""
-    result = await db.execute(
-        select(Clinic)
-        .options(selectinload(Clinic.faculty))
-    )
+    result = await db.execute(select(Clinic).options(selectinload(Clinic.faculty)))
     clinics = result.scalars().all()
     return [
         {
@@ -656,10 +708,14 @@ async def get_clinic_patients(
     """Get patients with appointments at a clinic for today"""
     today_start = datetime.combine(date.today(), datetime.min.time())
     today_end = datetime.combine(date.today(), datetime.max.time())
-    
+
     result = await db.execute(
         select(ClinicAppointment)
-        .options(selectinload(ClinicAppointment.patient).selectinload(Patient.insurance_policies))
+        .options(
+            selectinload(ClinicAppointment.patient).selectinload(
+                Patient.insurance_policies
+            )
+        )
         .where(
             and_(
                 ClinicAppointment.clinic_id == clinic_id,
@@ -690,20 +746,31 @@ async def get_clinic_patients(
     for appointment in appointments:
         if appointment.patient:
             included_patient_ids.add(appointment.patient.id)
-        clinic_patients.append({
-            "id": appointment.id,
-            "patient_id": appointment.patient.patient_id if appointment.patient else None,
-            "patient_db_id": appointment.patient.id if appointment.patient else None,
-            "patient_name": appointment.patient.name if appointment.patient else None,
-            "photo": appointment.patient.photo if appointment.patient else None,
-            "appointment_time": appointment.appointment_time,
-            "provider_name": appointment.provider_name,
-            "status": appointment.status,
-            "source": "appointment",
-            "is_assigned": bool(appointment.patient and appointment.patient.id in assigned_patient_ids),
-            **serialize_patient_badge_context(appointment.patient),
-            "insurance_policies": serialize_patient_insurance(appointment.patient),
-        })
+        clinic_patients.append(
+            {
+                "id": appointment.id,
+                "patient_id": appointment.patient.patient_id
+                if appointment.patient
+                else None,
+                "patient_db_id": appointment.patient.id
+                if appointment.patient
+                else None,
+                "patient_name": appointment.patient.name
+                if appointment.patient
+                else None,
+                "photo": appointment.patient.photo if appointment.patient else None,
+                "appointment_time": appointment.appointment_time,
+                "provider_name": appointment.provider_name,
+                "status": appointment.status,
+                "source": "appointment",
+                "is_assigned": bool(
+                    appointment.patient
+                    and appointment.patient.id in assigned_patient_ids
+                ),
+                **serialize_patient_badge_context(appointment.patient),
+                "insurance_policies": serialize_patient_insurance(appointment.patient),
+            }
+        )
 
     active_session_result = await db.execute(
         select(ClinicSession)
@@ -717,15 +784,27 @@ async def get_clinic_patients(
         )
     )
     active_sessions = active_session_result.scalars().all()
-    active_students = {session.student_id: session.student for session in active_sessions if session.student}
-    active_session_by_student = {session.student_id: session for session in active_sessions}
+    active_students = {
+        session.student_id: session.student
+        for session in active_sessions
+        if session.student
+    }
+    active_session_by_student = {
+        session.student_id: session for session in active_sessions
+    }
     if active_students:
         active_assignment_result = await db.execute(
             select(StudentPatientAssignment)
-            .options(selectinload(StudentPatientAssignment.patient).selectinload(Patient.insurance_policies))
+            .options(
+                selectinload(StudentPatientAssignment.patient).selectinload(
+                    Patient.insurance_policies
+                )
+            )
             .where(
                 and_(
-                    StudentPatientAssignment.student_id.in_(list(active_students.keys())),
+                    StudentPatientAssignment.student_id.in_(
+                        list(active_students.keys())
+                    ),
                     StudentPatientAssignment.status == "Active",
                 )
             )
@@ -736,20 +815,26 @@ async def get_clinic_patients(
             if not patient or patient.id in included_patient_ids:
                 continue
             session = active_session_by_student.get(assignment.student_id)
-            clinic_patients.append({
-                "id": assignment.id,
-                "patient_id": patient.patient_id,
-                "patient_db_id": patient.id,
-                "patient_name": patient.name,
-                "photo": patient.photo,
-                "appointment_time": session.checked_in_at.strftime("%I:%M %p") if session and session.checked_in_at else "Now",
-                "provider_name": active_students[assignment.student_id].name if active_students.get(assignment.student_id) else None,
-                "status": "Checked In",
-                "source": "assignment",
-                "is_assigned": assignment.student_id == student_id,
-                **serialize_patient_badge_context(patient),
-                "insurance_policies": serialize_patient_insurance(patient),
-            })
+            clinic_patients.append(
+                {
+                    "id": assignment.id,
+                    "patient_id": patient.patient_id,
+                    "patient_db_id": patient.id,
+                    "patient_name": patient.name,
+                    "photo": patient.photo,
+                    "appointment_time": session.checked_in_at.strftime("%I:%M %p")
+                    if session and session.checked_in_at
+                    else "Now",
+                    "provider_name": active_students[assignment.student_id].name
+                    if active_students.get(assignment.student_id)
+                    else None,
+                    "status": "Checked In",
+                    "source": "assignment",
+                    "is_assigned": assignment.student_id == student_id,
+                    **serialize_patient_badge_context(patient),
+                    "insurance_policies": serialize_patient_insurance(patient),
+                }
+            )
             included_patient_ids.add(patient.id)
 
     return clinic_patients
@@ -776,9 +861,7 @@ async def check_in_to_clinic(
     )
     active_session = active_session_result.scalars().first()
 
-    clinic_result = await db.execute(
-        select(Clinic).where(Clinic.id == body.clinic_id)
-    )
+    clinic_result = await db.execute(select(Clinic).where(Clinic.id == body.clinic_id))
     clinic = clinic_result.scalar_one_or_none()
     if not clinic:
         raise HTTPException(status_code=404, detail="Clinic not found")
@@ -804,7 +887,9 @@ async def check_in_to_clinic(
         return {
             "status": "already_checked_in",
             "session_id": active_session.id,
-            "checked_in_at": active_session.checked_in_at.isoformat() if active_session.checked_in_at else None,
+            "checked_in_at": active_session.checked_in_at.isoformat()
+            if active_session.checked_in_at
+            else None,
             "clinic_id": clinic.id,
             "clinic_name": clinic.name,
         }
@@ -871,7 +956,7 @@ async def select_clinic_session(
     sessions = result.scalars().all()
     for s in sessions:
         s.is_selected = 0
-    
+
     # Select the chosen session
     result = await db.execute(
         select(ClinicSession).where(ClinicSession.id == session_id)
@@ -881,7 +966,7 @@ async def select_clinic_session(
         session.is_selected = 1
         await db.commit()
         return {"status": "selected", "session_id": session_id}
-    
+
     raise HTTPException(status_code=404, detail="Session not found")
 
 
@@ -895,25 +980,24 @@ async def check_in_to_clinic_session(
     """Record student check-in time for a clinic session (attendance tracking)."""
     result = await db.execute(
         select(ClinicSession).where(
-            and_(
-                ClinicSession.id == session_id,
-                ClinicSession.student_id == student_id
-            )
+            and_(ClinicSession.id == session_id, ClinicSession.student_id == student_id)
         )
     )
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Clinic session not found")
-    
+
     if session.checked_in_at:
-        raise HTTPException(status_code=400, detail="Already checked in to this session")
-    
+        raise HTTPException(
+            status_code=400, detail="Already checked in to this session"
+        )
+
     now = datetime.utcnow()
     session.checked_in_at = now
     session.status = "Active"
     await _create_student_checkin_log(db, session=session, checked_in_at=now)
     await db.commit()
-    
+
     return {
         "status": "checked_in",
         "session_id": session_id,
@@ -932,38 +1016,37 @@ async def check_out_from_clinic_session(
     """Record student check-out time for a clinic session (attendance tracking)."""
     result = await db.execute(
         select(ClinicSession).where(
-            and_(
-                ClinicSession.id == session_id,
-                ClinicSession.student_id == student_id
-            )
+            and_(ClinicSession.id == session_id, ClinicSession.student_id == student_id)
         )
     )
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="Clinic session not found")
-    
+
     if not session.checked_in_at:
         raise HTTPException(status_code=400, detail="Must check in before checking out")
-    
+
     if session.checked_out_at:
-        raise HTTPException(status_code=400, detail="Already checked out from this session")
-    
+        raise HTTPException(
+            status_code=400, detail="Already checked out from this session"
+        )
+
     now = datetime.utcnow()
     session.checked_out_at = now
     session.time_end = now.strftime("%I:%M %p")
     session.status = "Completed"
     session.is_selected = 0
-    
+
     # Calculate duration in minutes
     duration_minutes = int((now - session.checked_in_at).total_seconds() / 60)
-    
+
     await _close_student_checkin_log(
         db,
         clinic_session_id=session.id,
         checked_out_at=now,
     )
     await db.commit()
-    
+
     return {
         "status": "checked_out",
         "session_id": session_id,
@@ -988,44 +1071,53 @@ async def get_attendance_calendar(
         now = datetime.utcnow()
         month = month or now.month
         year = year or now.year
-    
+
     # Calculate date range for the month
     from calendar import monthrange
+
     first_day = datetime(year, month, 1)
     last_day = datetime(year, month, monthrange(year, month)[1], 23, 59, 59)
-    
+
     result = await db.execute(
         select(ClinicSession)
         .where(
             and_(
                 ClinicSession.student_id == student_id,
                 ClinicSession.date >= first_day,
-                ClinicSession.date <= last_day
+                ClinicSession.date <= last_day,
             )
         )
         .order_by(ClinicSession.date)
     )
     sessions = result.scalars().all()
-    
+
     calendar_entries = []
     for s in sessions:
         duration_minutes = None
         if s.checked_in_at and s.checked_out_at:
-            duration_minutes = int((s.checked_out_at - s.checked_in_at).total_seconds() / 60)
-        
-        calendar_entries.append({
-            "id": s.id,
-            "date": s.date.strftime("%Y-%m-%d"),
-            "clinic_name": s.clinic_name,
-            "department": s.department,
-            "time_start": s.time_start,
-            "time_end": s.time_end,
-            "status": s.status,
-            "checked_in_at": s.checked_in_at.isoformat() if s.checked_in_at else None,
-            "checked_out_at": s.checked_out_at.isoformat() if s.checked_out_at else None,
-            "duration_minutes": duration_minutes,
-        })
-    
+            duration_minutes = int(
+                (s.checked_out_at - s.checked_in_at).total_seconds() / 60
+            )
+
+        calendar_entries.append(
+            {
+                "id": s.id,
+                "date": s.date.strftime("%Y-%m-%d"),
+                "clinic_name": s.clinic_name,
+                "department": s.department,
+                "time_start": s.time_start,
+                "time_end": s.time_end,
+                "status": s.status,
+                "checked_in_at": s.checked_in_at.isoformat()
+                if s.checked_in_at
+                else None,
+                "checked_out_at": s.checked_out_at.isoformat()
+                if s.checked_out_at
+                else None,
+                "duration_minutes": duration_minutes,
+            }
+        )
+
     return {
         "month": month,
         "year": year,
@@ -1089,8 +1181,9 @@ async def get_previous_patients(
     result = await db.execute(
         select(StudentPatientAssignment)
         .options(
-            selectinload(StudentPatientAssignment.patient)
-            .selectinload(Patient.insurance_policies)
+            selectinload(StudentPatientAssignment.patient).selectinload(
+                Patient.insurance_policies
+            )
         )
         .where(
             StudentPatientAssignment.student_id == student_id,
@@ -1131,7 +1224,9 @@ async def get_previous_patients(
     for assignment in assignments:
         assignments_by_patient.setdefault(assignment.patient_id, []).append(assignment)
     for grouped_assignments in assignments_by_patient.values():
-        grouped_assignments.sort(key=lambda assignment: assignment.assigned_date or datetime.min)
+        grouped_assignments.sort(
+            key=lambda assignment: assignment.assigned_date or datetime.min
+        )
 
     patients = []
     for a in assignments:
@@ -1153,7 +1248,10 @@ async def get_previous_patients(
                 continue
             if a.assigned_date and admission.discharge_date < a.assigned_date:
                 continue
-            if next_assignment_date and admission.discharge_date >= next_assignment_date:
+            if (
+                next_assignment_date
+                and admission.discharge_date >= next_assignment_date
+            ):
                 continue
             matching_admission = admission
             break
@@ -1162,32 +1260,46 @@ async def get_previous_patients(
         if a.patient.date_of_birth:
             today = date.today()
             dob = a.patient.date_of_birth
-            age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
-        patients.append({
-            "id": a.id,
-            "patient_db_id": a.patient.id,
-            "assignment_id": a.id,
-            "admission_id": matching_admission.id if matching_admission else None,
-            "admission_date": matching_admission.admission_date.isoformat() if matching_admission and matching_admission.admission_date else None,
-            "discharge_date": matching_admission.discharge_date.isoformat() if matching_admission and matching_admission.discharge_date else None,
-            "patient_id": a.patient.patient_id,
-            "name": a.patient.name,
-            "age": age,
-            "gender": a.patient.gender.value if a.patient.gender else None,
-            "blood_group": a.patient.blood_group,
-            "photo": a.patient.photo,
-            "status": a.status,
-            "assigned_date": a.assigned_date.isoformat() if a.assigned_date else None,
-            "department": matching_admission.department if matching_admission else None,
-            "primary_diagnosis": (
-                (matching_admission.diagnosis if matching_admission else None)
-                or a.patient.primary_diagnosis
-            ),
-            **serialize_patient_badge_context(a.patient),
-            "insurance_policies": serialize_patient_insurance(a.patient),
-            "case_record_count": case_record_counts.get(a.patient.id, 0),
-            "total_admissions": len(admissions_by_patient.get(a.patient.id, [])),
-        })
+            age = (
+                today.year
+                - dob.year
+                - ((today.month, today.day) < (dob.month, dob.day))
+            )
+        patients.append(
+            {
+                "id": a.id,
+                "patient_db_id": a.patient.id,
+                "assignment_id": a.id,
+                "admission_id": matching_admission.id if matching_admission else None,
+                "admission_date": matching_admission.admission_date.isoformat()
+                if matching_admission and matching_admission.admission_date
+                else None,
+                "discharge_date": matching_admission.discharge_date.isoformat()
+                if matching_admission and matching_admission.discharge_date
+                else None,
+                "patient_id": a.patient.patient_id,
+                "name": a.patient.name,
+                "age": age,
+                "gender": a.patient.gender.value if a.patient.gender else None,
+                "blood_group": a.patient.blood_group,
+                "photo": a.patient.photo,
+                "status": a.status,
+                "assigned_date": a.assigned_date.isoformat()
+                if a.assigned_date
+                else None,
+                "department": matching_admission.department
+                if matching_admission
+                else None,
+                "primary_diagnosis": (
+                    (matching_admission.diagnosis if matching_admission else None)
+                    or a.patient.primary_diagnosis
+                ),
+                **serialize_patient_badge_context(a.patient),
+                "insurance_policies": serialize_patient_insurance(a.patient),
+                "case_record_count": case_record_counts.get(a.patient.id, 0),
+                "total_admissions": len(admissions_by_patient.get(a.patient.id, [])),
+            }
+        )
     patients.sort(
         key=lambda patient: patient["discharge_date"] or patient["assigned_date"] or "",
         reverse=True,
@@ -1208,7 +1320,7 @@ async def submit_case_record_for_approval(
     stu_result = await db.execute(select(Student).where(Student.id == student_id))
     stu = stu_result.scalar_one_or_none()
     student_name = stu.name if stu else "Student"
-    
+
     # Create the case record
     record = CaseRecord(
         id=str(uuid.uuid4()),
@@ -1245,19 +1357,23 @@ async def submit_case_record_for_approval(
     # This ensures faculty can see pending approvals even if AI generation fails
     faculty_id = body.get("faculty_id")
     patient_id = body.get("patient_id")
-    
+
     if faculty_id:
         # Validate faculty exists
-        faculty_result = await db.execute(select(Faculty).where(Faculty.id == faculty_id))
+        faculty_result = await db.execute(
+            select(Faculty).where(Faculty.id == faculty_id)
+        )
         faculty = faculty_result.scalar_one_or_none()
         if not faculty:
             raise HTTPException(status_code=400, detail="Invalid faculty_id")
-        
+
         # Get patient name for notification
-        patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
+        patient_result = await db.execute(
+            select(Patient).where(Patient.id == patient_id)
+        )
         patient = patient_result.scalar_one_or_none()
         patient_name = patient.name if patient else "Patient"
-        
+
         # Create approval record
         approval = Approval(
             id=str(uuid.uuid4()),
@@ -1269,7 +1385,7 @@ async def submit_case_record_for_approval(
             status=ApprovalStatus.PENDING,
         )
         db.add(approval)
-        
+
         # Create notification for faculty
         notification = FacultyNotification(
             id=str(uuid.uuid4()),
@@ -1304,7 +1420,7 @@ async def submit_admission_request(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit an admission request for faculty approval.
-    
+
     Student creates an admission record (status=Pending Approval)
     and an Approval record linked to it.
     """
@@ -1313,7 +1429,9 @@ async def submit_admission_request(
     patient_id = body.get("patient_id")
     faculty_id = body.get("faculty_id")
     if not patient_id or not faculty_id:
-        raise HTTPException(status_code=400, detail="patient_id and faculty_id are required")
+        raise HTTPException(
+            status_code=400, detail="patient_id and faculty_id are required"
+        )
 
     # Validate patient exists
     patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
@@ -1366,6 +1484,7 @@ async def submit_admission_request(
 
     # Create notification for faculty
     from app.models.faculty import FacultyNotification
+
     notification = FacultyNotification(
         id=str(uuid.uuid4()),
         faculty_id=faculty_id,
@@ -1411,7 +1530,9 @@ async def get_student_admission_requests(
                 "id": a.patient.id,
                 "patient_id": a.patient.patient_id,
                 "name": a.patient.name,
-            } if a.patient else None,
+            }
+            if a.patient
+            else None,
             "admission": {
                 "id": a.admission.id,
                 "department": a.admission.department,
@@ -1419,7 +1540,9 @@ async def get_student_admission_requests(
                 "reason": a.admission.reason,
                 "diagnosis": a.admission.diagnosis,
                 "status": a.admission.status,
-            } if a.admission else None,
+            }
+            if a.admission
+            else None,
         }
         for a in approvals
     ]
@@ -1433,7 +1556,7 @@ async def submit_prescription(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a prescription for faculty approval.
-    
+
     Student creates a prescription (status=ACTIVE) with medications
     and an Approval record linked to it for faculty review.
     """
@@ -1442,7 +1565,9 @@ async def submit_prescription(
     patient_id = body.get("patient_id")
     faculty_id = body.get("faculty_id")
     if not patient_id or not faculty_id:
-        raise HTTPException(status_code=400, detail="patient_id and faculty_id are required")
+        raise HTTPException(
+            status_code=400, detail="patient_id and faculty_id are required"
+        )
 
     # Validate patient exists
     patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
@@ -1508,6 +1633,7 @@ async def submit_prescription(
 
     # Create notification for faculty
     from app.models.faculty import FacultyNotification
+
     notification = FacultyNotification(
         id=str(uuid.uuid4()),
         faculty_id=faculty_id,
@@ -1519,4 +1645,9 @@ async def submit_prescription(
     db.add(notification)
 
     await db.commit()
-    return {"id": prescription.id, "prescription_id": rx_id, "approval_id": approval.id, "status": "submitted"}
+    return {
+        "id": prescription.id,
+        "prescription_id": rx_id,
+        "approval_id": approval.id,
+        "status": "submitted",
+    }

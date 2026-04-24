@@ -6,6 +6,7 @@ from app.api.v1 import (
     patients,
     students,
     faculty,
+    nutritionists,
     lab_technicians,
     nurses,
     vitals,
@@ -15,6 +16,7 @@ from app.api.v1 import (
     admission_review,
     wallet,
     notifications,
+    pharmacy,
     approvals,
     autocomplete,
     admin,
@@ -37,8 +39,10 @@ api_router.include_router(ai_provider.router)
 api_router.include_router(patients.router)
 api_router.include_router(students.router)
 api_router.include_router(faculty.router)
+api_router.include_router(nutritionists.router)
 api_router.include_router(lab_technicians.router)
 api_router.include_router(nurses.router)
+api_router.include_router(pharmacy.router)
 api_router.include_router(vitals.router)
 api_router.include_router(prescriptions.router)
 api_router.include_router(reports.router)

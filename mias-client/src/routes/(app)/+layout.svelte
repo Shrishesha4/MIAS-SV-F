@@ -12,10 +12,12 @@
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { nutritionistApi } from '$lib/api/nutritionists';
 	import { labTechnicianApi } from '$lib/api/lab-technicians';
 	import { nurseApi } from '$lib/api/nurse';
 	import { billingApi } from '$lib/api/billing';
 	import { otApi } from '$lib/api/ot';
+	import type { StudentAcademicProgressSummary } from '$lib/api/students';
 	import { getMenuItems } from '$lib/config/menuItems';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import NavBar from '$lib/components/layout/NavBar.svelte';
@@ -34,9 +36,16 @@
 	let userName = $state('User');
 	let userIdDisplay = $state('');
 	let unreadNotifications = $state(get(notificationCountStore));
+	let studentAcademicBadge = $state<{
+		label: string;
+		percent: number;
+		completedTargets: number;
+		totalTargets: number;
+	} | null>(null);
 	let attendanceStatus = $state<AttendanceStatus | null>(null);
 	let attendanceLoading = $state(false);
 	let attendanceSubmitting = $state(false);
+	let attendanceClinicId = $state<string | null>(null);
 
 	// Floating sidebar state
 	let sidebarPinned = $state(false);
@@ -74,6 +83,7 @@
 			patients: 0,
 			students: 0,
 			faculty: 0,
+			nutritionists: 0,
 			nurses: 0,
 			reception: 0,
 			admins: 0,
@@ -133,8 +143,9 @@
 	}
 
 	async function loadAttendanceStatus() {
-		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'LAB_TECHNICIAN') {
+		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'NUTRITIONIST' || authState.role === 'LAB_TECHNICIAN' || authState.role === 'PHARMACY') {
 			attendanceStatus = null;
+			attendanceClinicId = null;
 			return;
 		}
 		attendanceLoading = true;
@@ -151,7 +162,11 @@
 		if (attendanceSubmitting) return;
 		attendanceSubmitting = true;
 		try {
-			attendanceStatus = await attendanceApi.checkInToday();
+			attendanceStatus = await attendanceApi.checkInToday(
+				authState.role === 'NURSE' || authState.role === 'NURSE_SUPERINTENDENT'
+					? (attendanceClinicId ?? undefined)
+					: undefined
+			);
 		} finally {
 			attendanceSubmitting = false;
 		}
@@ -172,6 +187,7 @@
 			}
 		}
 		try {
+			studentAcademicBadge = null;
 			if (a.role === 'PATIENT') {
 				const patient = await patientApi.getCurrentPatient();
 				userName = patient.name;
@@ -182,6 +198,17 @@
 				const student = await studentApi.getMe();
 				userName = student.name;
 				userIdDisplay = student.student_id;
+
+				const summary: StudentAcademicProgressSummary | null = student.academic_progress?.summary ?? null;
+				studentAcademicBadge = summary
+					? {
+							label: student.academic_standing || 'Academic Progress',
+							percent: Math.round(summary.overall_percent ?? 0),
+							completedTargets: summary.completed_targets ?? 0,
+							totalTargets: summary.total_targets ?? 0
+						}
+					: null;
+
 				const notifs = await studentApi.getNotifications(student.id);
 				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
 			} else if (a.role === 'FACULTY') {
@@ -190,6 +217,14 @@
 				userIdDisplay = faculty.faculty_id;
 				const notifs = await facultyApi.getNotifications(faculty.id);
 				notificationCountStore.set(notifs.filter((n: any) => !n.is_read).length);
+			} else if (a.role === 'NUTRITIONIST') {
+				const nutritionist = await nutritionistApi.getMe();
+				userName = nutritionist.name;
+				userIdDisplay = nutritionist.nutritionist_id;
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/nutritionist');
+				}
 			} else if (a.role === 'LAB_TECHNICIAN') {
 				const technician = await labTechnicianApi.getMe();
 				userName = technician.name;
@@ -202,11 +237,21 @@
 				const nurse = await nurseApi.getMe();
 				userName = nurse.name;
 				userIdDisplay = nurse.nurse_id;
+				attendanceClinicId = nurse.clinic_id;
 				notificationCountStore.set(0);
 				// Redirect to station selection if not yet selected (but not if already on setup or station pages)
 				const currentPath = window.location.pathname;
 				if (!nurse.has_selected_station && currentPath !== '/nurse-setup') {
 					goto('/nurse-setup');
+				}
+			} else if (a.role === 'NURSE_SUPERINTENDENT') {
+				const nurse = await nurseApi.getMe();
+				userName = nurse.name;
+				userIdDisplay = nurse.nurse_id;
+				attendanceClinicId = nurse.clinic_id;
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/nurse-superintendent');
 				}
 			} else if (a.role === 'ADMIN') {
 				userName = 'Administrator';
@@ -234,6 +279,13 @@
 				notificationCountStore.set(0);
 				if (window.location.pathname === '/dashboard') {
 					goto('/billing');
+				}
+			} else if (a.role === 'PHARMACY') {
+				userName = 'Pharmacy';
+				userIdDisplay = 'PHARMACY';
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/pharmacy');
 				}
 			} else if (a.role === 'OT_MANAGER') {
 				try {
@@ -365,8 +417,9 @@
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
 	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
-			showBack={!(['/dashboard', '/admin', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs'] as string[]).includes(currentPath as string)}
+			showBack={!(['/dashboard', '/admin', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs', '/nutritionist', '/nurse-superintendent'] as string[]).includes(currentPath as string)}
 			notificationCount={unreadNotifications}
+			academicBadge={authState.role === 'STUDENT' ? studentAcademicBadge : null}
 			onmenuclick={() => sideMenuOpen = true}
 			onmenuenter={handleTriggerEnter}
 			onmenuleave={handleTriggerLeave}

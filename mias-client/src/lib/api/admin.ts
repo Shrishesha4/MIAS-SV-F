@@ -80,7 +80,146 @@ export interface Programme {
   duration_years: string | null;
   is_active: boolean;
   student_count: number;
+  group_count?: number;
   created_at: string | null;
+}
+
+export interface AcademicGroup {
+  id: string;
+  programme_id: string;
+  programme_name: string | null;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  student_count: number;
+  target_count: number;
+  student_ids: string[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AcademicTarget {
+  id: string;
+  group_id: string;
+  group_name: string | null;
+  programme_id: string | null;
+  programme_name: string | null;
+  form_definition_id: string | null;
+  form_name: string | null;
+  metric_name: string;
+  metric_key: string;
+  category: string;
+  target_value: number;
+  sort_order: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AcademicWeightageItem {
+  form_definition_id: string;
+  slug: string | null;
+  name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  section: string | null;
+  points: number;
+  has_weightage: boolean;
+  updated_at: string | null;
+}
+
+export interface AcademicOverviewStudent {
+  id: string;
+  student_id: string;
+  name: string;
+  year: number;
+  semester: number;
+  program: string;
+  gpa: number;
+  academic_standing: string;
+  academic_group_id: string | null;
+  academic_group_name: string | null;
+}
+
+export interface AcademicOverviewResponse {
+  programmes: Programme[];
+  groups: AcademicGroup[];
+  targets: AcademicTarget[];
+  weightages: AcademicWeightageItem[];
+  students: AcademicOverviewStudent[];
+}
+
+export interface StudentAcademicGroupSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  programme_id: string;
+}
+
+export interface StudentAcademicProgressSummary {
+  overall_percent: number;
+  completed_targets: number;
+  total_targets: number;
+  approved_case_records: number;
+  total_earned_points: number;
+  total_possible_points: number;
+}
+
+export interface StudentAcademicProgressTarget {
+  id: string;
+  sort_order: number;
+  metric_name: string;
+  metric_key: string;
+  category: string;
+  target_value: number;
+  completed_value: number;
+  remaining_value: number;
+  percent: number;
+  is_complete: boolean;
+  form_definition_id: string | null;
+  form_name: string | null;
+}
+
+export interface StudentAcademicProgressWeightageRecord {
+  id: string;
+  form_name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  date: string | null;
+  status: string;
+}
+
+export interface StudentAcademicProgressWeightageItem {
+  form_definition_id: string;
+  slug: string | null;
+  name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  section: string | null;
+  points: number;
+  approved_count: number;
+  earned_points: number;
+  has_weightage: boolean;
+}
+
+export interface StudentAcademicProgressWeightages {
+  total_approved_forms: number;
+  total_configured_forms: number;
+  total_possible_points: number;
+  total_earned_points: number;
+  average_points_per_approved_form: number;
+  items: StudentAcademicProgressWeightageItem[];
+  unmatched_records: StudentAcademicProgressWeightageRecord[];
+}
+
+export interface StudentAcademicProgress {
+  student_id: string;
+  student_name: string;
+  programme_name: string;
+  academic_group: StudentAcademicGroupSummary | null;
+  summary: StudentAcademicProgressSummary;
+  targets: StudentAcademicProgressTarget[];
+  weightages: StudentAcademicProgressWeightages;
 }
 
 export type AIProviderType = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'OPENAI_COMPATIBLE';
@@ -203,9 +342,11 @@ export interface AdminCreateUserPayload {
   department?: string;
   specialty?: string;
   availability?: string;
+  clinic_id?: string;
   hospital?: string;
   ward?: string;
   shift?: string;
+  counter_name?: string;
 }
 
 // ── API ──────────────────────────────────────────────────────────────
@@ -339,6 +480,98 @@ export const adminApi = {
 
   async deleteProgramme(progId: string) {
     const r = await client.delete(`/admin/programmes/${progId}`);
+    return r.data;
+  },
+
+  async getAcademicsOverview(): Promise<AcademicOverviewResponse> {
+    const r = await client.get('/admin/programmes/academics/overview');
+    return r.data;
+  },
+
+  async getAcademicGroups(programmeId?: string): Promise<AcademicGroup[]> {
+    const r = await client.get('/admin/programmes/academic-groups', {
+      params: programmeId ? { programme_id: programmeId } : undefined,
+    });
+    return r.data;
+  },
+
+  async createAcademicGroup(data: {
+    programme_id: string;
+    name: string;
+    description?: string;
+    is_active?: boolean;
+    student_ids?: string[];
+  }): Promise<AcademicGroup> {
+    const r = await client.post('/admin/programmes/academic-groups', data);
+    return r.data;
+  },
+
+  async updateAcademicGroup(groupId: string, data: {
+    programme_id: string;
+    name: string;
+    description?: string;
+    is_active?: boolean;
+    student_ids?: string[];
+  }): Promise<AcademicGroup> {
+    const r = await client.put(`/admin/programmes/academic-groups/${groupId}`, data);
+    return r.data;
+  },
+
+  async deleteAcademicGroup(groupId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/programmes/academic-groups/${groupId}`);
+    return r.data;
+  },
+
+  async getAcademicTargets(groupId?: string): Promise<AcademicTarget[]> {
+    const r = await client.get('/admin/programmes/academic-targets', {
+      params: groupId ? { group_id: groupId } : undefined,
+    });
+    return r.data;
+  },
+
+  async createAcademicTarget(data: {
+    group_id: string;
+    form_definition_id?: string;
+    metric_name: string;
+    category?: string;
+    target_value?: number;
+    sort_order?: number;
+  }): Promise<AcademicTarget> {
+    const r = await client.post('/admin/programmes/academic-targets', data);
+    return r.data;
+  },
+
+  async updateAcademicTarget(targetId: string, data: {
+    group_id: string;
+    form_definition_id?: string;
+    metric_name: string;
+    category?: string;
+    target_value?: number;
+    sort_order?: number;
+  }): Promise<AcademicTarget> {
+    const r = await client.put(`/admin/programmes/academic-targets/${targetId}`, data);
+    return r.data;
+  },
+
+  async deleteAcademicTarget(targetId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/programmes/academic-targets/${targetId}`);
+    return r.data;
+  },
+
+  async getAcademicWeightages(): Promise<AcademicWeightageItem[]> {
+    const r = await client.get('/admin/programmes/academic-weightages');
+    return r.data;
+  },
+
+  async updateAcademicWeightage(formDefinitionId: string, data: {
+    points: number;
+  }): Promise<AcademicWeightageItem> {
+    const r = await client.put(`/admin/programmes/academic-weightages/${formDefinitionId}`, data);
+    return r.data;
+  },
+
+  async getStudentAcademicProgress(studentId: string): Promise<StudentAcademicProgress> {
+    const r = await client.get(`/admin/programmes/students/${studentId}/academic-progress`);
     return r.data;
   },
 

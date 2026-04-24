@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, Column, DateTime, Index, Integer, JSON, String, Text
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.database import Base
@@ -29,3 +30,5 @@ class FormDefinition(Base):
     allowed_roles = Column(JSON, nullable=True)  # e.g. ["FACULTY","STUDENT"] or null = all roles
     created_at = Column(DateTime, default=lambda: datetime.utcnow(), nullable=False)
     updated_at = Column(DateTime, default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow(), nullable=False)
+
+    academic_weightage = relationship("AcademicFormWeightage", back_populates="form_definition", uselist=False)

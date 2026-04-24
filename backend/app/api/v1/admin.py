@@ -1,42 +1,48 @@
 """Admin panel API – dashboard, user management, departments, analytics."""
-from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case, text, and_, or_, distinct, extract
-from sqlalchemy.orm import selectinload
-from datetime import datetime, timedelta, date
-from typing import Literal, Optional
-from pydantic import BaseModel, EmailStr
-import uuid
 
-from app.services.id_generator import generate_patient_id as _async_generate_patient_id
+import uuid
+from datetime import date, datetime, timedelta
+from typing import Literal, Optional
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import and_, case, distinct, extract, func, or_, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import invalidate_user_cache, require_role
+from app.core.security import get_password_hash
 from app.database import get_db
-from app.api.deps import require_role, invalidate_user_cache
-from app.models.user import User, UserRole
+from app.models.academic import AcademicFormWeightage, AcademicGroup, AcademicTarget
+from app.models.admission import Admission
+from app.models.billing import Billing
+from app.models.case_record import Approval, ApprovalStatus, CaseRecord
+from app.models.department import Department
+from app.models.faculty import Faculty
+from app.models.form_definition import FormDefinition
+from app.models.icd_code import ICDCode
+from app.models.lab import ChargePrice
+from app.models.lab_technician import LabTechnician
+from app.models.medical_record import MedicalRecord
+from app.models.notification import PatientNotification
+from app.models.nurse import Nurse
+from app.models.nutritionist import Nutritionist
+from app.models.ot_manager import OTManager
 from app.models.patient import Patient
-from app.models.patient_category import PatientCategoryOption
 from app.models.patient_category import (
     DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY,
     DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY,
+    PatientCategoryOption,
     get_default_patient_category_colors,
 )
-from app.models.student import Student
-from app.models.faculty import Faculty
-from app.models.department import Department
-from app.models.programme import Programme
-from app.models.admission import Admission
 from app.models.prescription import Prescription
+from app.models.programme import Programme
+from app.models.student import Clinic, Student
+from app.models.user import User, UserRole
 from app.models.vital import Vital, VitalParameter
-from app.models.icd_code import ICDCode
-from app.models.medical_record import MedicalRecord
-from app.models.case_record import CaseRecord, Approval, ApprovalStatus
-from app.models.notification import PatientNotification
-from app.models.lab_technician import LabTechnician
-from app.models.nurse import Nurse
-from app.models.billing import Billing
-from app.models.ot_manager import OTManager
-from app.core.security import get_password_hash
-from app.models.lab import ChargePrice
+from app.services.academics import get_student_academic_progress
 from app.services.charge_sync import sync_charge_price_categories
+from app.services.id_generator import generate_patient_id as _async_generate_patient_id
 from app.services.patient_categories import (
     ensure_patient_categories,
     get_default_patient_category_name,
@@ -62,7 +68,6 @@ def _serialize_vital_parameter(param: VitalParameter) -> dict:
         "is_active": param.is_active,
         "sort_order": param.sort_order,
     }
-
 
 
 def _uid() -> str:
@@ -104,6 +109,128 @@ def _serialize_icd_code(item: ICDCode) -> dict:
     }
 
 
+def _serialize_academic_group(group: AcademicGroup) -> dict:
+    students = list(group.students or [])
+    targets = list(group.targets or [])
+    return {
+        "id": group.id,
+        "programme_id": group.programme_id,
+        "programme_name": group.programme.name
+        if getattr(group, "programme", None)
+        else None,
+        "name": group.name,
+        "description": group.description,
+        "is_active": group.is_active,
+        "student_count": len(students),
+        "target_count": len(targets),
+        "student_ids": [student.id for student in students],
+        "created_at": group.created_at.isoformat() if group.created_at else None,
+        "updated_at": group.updated_at.isoformat() if group.updated_at else None,
+    }
+
+
+def _serialize_academic_target(target: AcademicTarget) -> dict:
+    group = getattr(target, "group", None)
+    form_definition = getattr(target, "form_definition", None)
+    return {
+        "id": target.id,
+        "group_id": target.group_id,
+        "group_name": group.name if group else None,
+        "programme_id": group.programme_id if group else None,
+        "programme_name": group.programme.name
+        if group and getattr(group, "programme", None)
+        else None,
+        "form_definition_id": target.form_definition_id,
+        "form_name": form_definition.name if form_definition else None,
+        "metric_name": target.metric_name,
+        "metric_key": target.metric_name.strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("-", "_"),
+        "category": target.category,
+        "target_value": target.target_value,
+        "sort_order": target.sort_order,
+        "created_at": target.created_at.isoformat() if target.created_at else None,
+        "updated_at": target.updated_at.isoformat() if target.updated_at else None,
+    }
+
+
+def _serialize_academic_weightage(weightage: AcademicFormWeightage) -> dict:
+    form_definition = weightage.form_definition
+    return {
+        "id": weightage.id,
+        "form_definition_id": weightage.form_definition_id,
+        "slug": form_definition.slug if form_definition else None,
+        "name": form_definition.name if form_definition else None,
+        "department": form_definition.department if form_definition else None,
+        "procedure_name": form_definition.procedure_name if form_definition else None,
+        "section": form_definition.section if form_definition else None,
+        "points": weightage.points,
+        "has_weightage": True,
+        "updated_at": weightage.updated_at.isoformat()
+        if weightage.updated_at
+        else None,
+    }
+
+
+def _serialize_case_record_form(
+    form: FormDefinition, weightage: AcademicFormWeightage | None = None
+) -> dict:
+    return {
+        "form_definition_id": form.id,
+        "slug": form.slug,
+        "name": form.name,
+        "department": form.department,
+        "procedure_name": form.procedure_name,
+        "section": form.section,
+        "points": int(weightage.points) if weightage else 0,
+        "has_weightage": weightage is not None,
+        "updated_at": weightage.updated_at.isoformat()
+        if weightage and weightage.updated_at
+        else None,
+    }
+
+
+def _serialize_programme(
+    programme: Programme, *, student_count: int = 0, group_count: int = 0
+) -> dict:
+    return {
+        "id": programme.id,
+        "name": programme.name,
+        "code": programme.code,
+        "description": programme.description,
+        "degree_type": programme.degree_type,
+        "duration_years": programme.duration_years,
+        "is_active": programme.is_active,
+        "student_count": student_count,
+        "group_count": group_count,
+        "created_at": programme.created_at.isoformat()
+        if programme.created_at
+        else None,
+    }
+
+
+class AcademicGroupUpsert(BaseModel):
+    programme_id: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool = True
+    student_ids: list[str] = []
+
+
+class AcademicTargetUpsert(BaseModel):
+    group_id: str
+    form_definition_id: Optional[str] = None
+    metric_name: str
+    category: Optional[str] = "ACADEMIC"
+    target_value: int = 0
+    sort_order: int = 0
+
+
+class AcademicWeightageUpsert(BaseModel):
+    points: int = 0
+
+
 # ── Dashboard Overview ───────────────────────────────────────────────
 
 
@@ -117,7 +244,9 @@ async def admin_dashboard(
     total_students = (await db.execute(select(func.count(Student.id)))).scalar() or 0
     total_faculty = (await db.execute(select(func.count(Faculty.id)))).scalar() or 0
     total_departments = (
-        await db.execute(select(func.count(Department.id)).where(Department.is_active == True))
+        await db.execute(
+            select(func.count(Department.id)).where(Department.is_active == True)
+        )
     ).scalar() or 0
 
     total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
@@ -132,11 +261,15 @@ async def admin_dashboard(
         )
     ).scalar() or 0
 
-    total_prescriptions = (await db.execute(select(func.count(Prescription.id)))).scalar() or 0
+    total_prescriptions = (
+        await db.execute(select(func.count(Prescription.id)))
+    ).scalar() or 0
 
     pending_approvals = (
         await db.execute(
-            select(func.count(Approval.id)).where(Approval.status == ApprovalStatus.PENDING)
+            select(func.count(Approval.id)).where(
+                Approval.status == ApprovalStatus.PENDING
+            )
         )
     ).scalar() or 0
 
@@ -144,14 +277,15 @@ async def admin_dashboard(
     category_result = await db.execute(
         select(Patient.category, func.count(Patient.id)).group_by(Patient.category)
     )
-    patient_categories = {normalize_patient_category_name(row[0] or "UNKNOWN") or "UNKNOWN": row[1] for row in category_result.all()}
+    patient_categories = {
+        normalize_patient_category_name(row[0] or "UNKNOWN") or "UNKNOWN": row[1]
+        for row in category_result.all()
+    }
 
     # Recent registrations (last 7 days)
     week_ago = datetime.utcnow() - timedelta(days=7)
     recent_registrations = (
-        await db.execute(
-            select(func.count(User.id)).where(User.created_at >= week_ago)
-        )
+        await db.execute(select(func.count(User.id)).where(User.created_at >= week_ago))
     ).scalar() or 0
 
     return {
@@ -175,9 +309,13 @@ async def admin_dashboard(
 
 @router.get("/users")
 async def list_users(
-    role: Optional[str] = Query(None, description="Filter by role: PATIENT, STUDENT, FACULTY, ADMIN"),
+    role: Optional[str] = Query(
+        None, description="Filter by role: PATIENT, STUDENT, FACULTY, ADMIN"
+    ),
     search: Optional[str] = Query(None, description="Search by username or email"),
-    status_filter: Optional[str] = Query(None, alias="status", description="active or blocked"),
+    status_filter: Optional[str] = Query(
+        None, alias="status", description="active or blocked"
+    ),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(require_role(UserRole.ADMIN)),
@@ -202,7 +340,9 @@ async def list_users(
     total = (await db.execute(count_q)).scalar() or 0
 
     # Paginate
-    query = query.order_by(User.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    query = (
+        query.order_by(User.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    )
     result = await db.execute(query)
     users = result.scalars().all()
 
@@ -219,19 +359,39 @@ async def list_users(
         }
         # Attach name from role-specific table
         if u.role == UserRole.PATIENT:
-            p = (await db.execute(select(Patient.name).where(Patient.user_id == u.id))).scalar()
+            p = (
+                await db.execute(select(Patient.name).where(Patient.user_id == u.id))
+            ).scalar()
             item["name"] = p or u.username
         elif u.role == UserRole.STUDENT:
-            s = (await db.execute(select(Student.name).where(Student.user_id == u.id))).scalar()
+            s = (
+                await db.execute(select(Student.name).where(Student.user_id == u.id))
+            ).scalar()
             item["name"] = s or u.username
         elif u.role == UserRole.FACULTY:
-            f = (await db.execute(select(Faculty.name).where(Faculty.user_id == u.id))).scalar()
+            f = (
+                await db.execute(select(Faculty.name).where(Faculty.user_id == u.id))
+            ).scalar()
             item["name"] = f or u.username
         elif u.role == UserRole.LAB_TECHNICIAN:
             technician_name = (
-                await db.execute(select(LabTechnician.name).where(LabTechnician.user_id == u.id))
+                await db.execute(
+                    select(LabTechnician.name).where(LabTechnician.user_id == u.id)
+                )
             ).scalar()
             item["name"] = technician_name or u.username
+        elif u.role == UserRole.NUTRITIONIST:
+            nutritionist_name = (
+                await db.execute(
+                    select(Nutritionist.name).where(Nutritionist.user_id == u.id)
+                )
+            ).scalar()
+            item["name"] = nutritionist_name or u.username
+        elif u.role in {UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT}:
+            nurse_name = (
+                await db.execute(select(Nurse.name).where(Nurse.user_id == u.id))
+            ).scalar()
+            item["name"] = nurse_name or u.username
         else:
             item["name"] = u.username
         items.append(item)
@@ -246,7 +406,9 @@ async def block_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Block (deactivate) a user."""
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    target = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == user.id:
@@ -264,7 +426,9 @@ async def unblock_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Unblock (reactivate) a user."""
-    target = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    target = (
+        await db.execute(select(User).where(User.id == user_id))
+    ).scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
     target.is_active = True
@@ -280,17 +444,18 @@ async def delete_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a user and all associated profile data (patient/student/faculty/nurse)."""
-    from sqlalchemy.orm import selectinload
     from sqlalchemy.exc import IntegrityError
-    
+    from sqlalchemy.orm import selectinload
+
     result = await db.execute(
         select(User)
         .options(
             selectinload(User.patient),
             selectinload(User.student),
             selectinload(User.faculty),
+            selectinload(User.nutritionist),
             selectinload(User.lab_technician),
-            selectinload(User.nurse)
+            selectinload(User.nurse),
         )
         .where(User.id == user_id)
     )
@@ -299,7 +464,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     if target.id == user.id:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    
+
     try:
         # Delete associated profile records first (foreign key constraints)
         if target.patient:
@@ -308,22 +473,24 @@ async def delete_user(
             await db.delete(target.student)
         if target.faculty:
             await db.delete(target.faculty)
+        if target.nutritionist:
+            await db.delete(target.nutritionist)
         if target.lab_technician:
             await db.delete(target.lab_technician)
         if target.nurse:
             await db.delete(target.nurse)
-        
+
         await db.delete(target)
         await db.commit()
         return {"message": f"User {target.username} has been deleted"}
     except IntegrityError as e:
         await db.rollback()
         # Check if it's a foreign key constraint error
-        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        error_msg = str(e.orig) if hasattr(e, "orig") else str(e)
         if "foreign key" in error_msg.lower() or "violates" in error_msg.lower():
             raise HTTPException(
                 status_code=409,
-                detail="Cannot delete user: they have associated records (admissions, appointments, etc.). Please delete those records first or deactivate the user instead."
+                detail="Cannot delete user: they have associated records (admissions, appointments, etc.). Please delete those records first or deactivate the user instead.",
             )
         raise HTTPException(status_code=500, detail=f"Database error: {error_msg}")
 
@@ -366,6 +533,7 @@ class AdminCreateUserRequest(BaseModel):
     department: Optional[str] = None
     specialty: Optional[str] = None
     availability: Optional[str] = None
+    clinic_id: Optional[str] = None
 
     # NURSE fields
     hospital: Optional[str] = None
@@ -378,24 +546,39 @@ class AdminCreateUserRequest(BaseModel):
 
 def _generate_patient_id():
     # Kept as sync stub — call sites upgraded to use async generate_patient_id(db)
-    from datetime import datetime, timezone
     import uuid
+    from datetime import datetime, timezone
+
     return f"PT{datetime.now(timezone.utc).strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
 
 def _generate_student_id():
     return f"ST{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
+
 def _generate_faculty_id():
     return f"FA{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+
+def _generate_nutritionist_id():
+    return f"NT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
 
 def _generate_nurse_id():
     return f"NR{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
+
+def _generate_nurse_superintendent_id():
+    return f"NS{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
+
 def _generate_lab_technician_id():
     return f"LT{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
 
+
 def _generate_billing_id():
     return f"BL{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
+
 
 def _generate_ot_manager_id():
     return f"OTM{datetime.utcnow().strftime('%Y%m%d')}{str(uuid.uuid4())[:6].upper()}"
@@ -412,7 +595,9 @@ async def admin_create_user(
     email = str(data.email).strip()
 
     # Check uniqueness
-    if (await db.execute(select(User).where(User.username == username))).scalar_one_or_none():
+    if (
+        await db.execute(select(User).where(User.username == username))
+    ).scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Username already exists")
     if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already exists")
@@ -437,18 +622,24 @@ async def admin_create_user(
 
     if role == UserRole.PATIENT:
         if not data.date_of_birth:
-            raise HTTPException(status_code=400, detail="Date of birth is required for patients")
+            raise HTTPException(
+                status_code=400, detail="Date of birth is required for patients"
+            )
 
         try:
             dob = datetime.strptime(data.date_of_birth, "%Y-%m-%d").date()
         except ValueError:
-            raise HTTPException(status_code=400, detail="Date of birth must be in YYYY-MM-DD format")
+            raise HTTPException(
+                status_code=400, detail="Date of birth must be in YYYY-MM-DD format"
+            )
 
         from app.models.patient import Gender
         from app.services.clinic_allocation import resolve_preferred_clinic
         from app.services.clinic_intake import ensure_clinic_checkin
 
-        resolved_category = normalize_patient_category_name(data.category) or await get_default_patient_category_name(db)
+        resolved_category = normalize_patient_category_name(
+            data.category
+        ) or await get_default_patient_category_name(db)
         new_patient = Patient(
             id=str(uuid.uuid4()),
             patient_id=await _async_generate_patient_id(db),
@@ -476,6 +667,7 @@ async def admin_create_user(
         )
         if not preferred_clinic:
             from app.models.student import Clinic
+
             clinic_result = await db.execute(
                 select(Clinic).where(Clinic.is_active == True).limit(1)
             )
@@ -490,85 +682,158 @@ async def admin_create_user(
             )
     elif role == UserRole.STUDENT:
         if data.year is None or data.semester is None or not data.program:
-            raise HTTPException(status_code=400, detail="Year, semester, and program are required for students")
+            raise HTTPException(
+                status_code=400,
+                detail="Year, semester, and program are required for students",
+            )
 
-        db.add(Student(
-            id=str(uuid.uuid4()),
-            student_id=_generate_student_id(),
-            user_id=user_id,
-            name=name,
-            year=data.year,
-            semester=data.semester,
-            program=data.program,
-            degree=data.degree,
-            photo=data.photo,
-            gpa=data.gpa if data.gpa is not None else 0.0,
-            academic_standing=data.academic_standing or "Good Standing",
-            academic_advisor=data.academic_advisor,
-        ))
+        db.add(
+            Student(
+                id=str(uuid.uuid4()),
+                student_id=_generate_student_id(),
+                user_id=user_id,
+                name=name,
+                year=data.year,
+                semester=data.semester,
+                program=data.program,
+                degree=data.degree,
+                photo=data.photo,
+                gpa=data.gpa if data.gpa is not None else 0.0,
+                academic_standing=data.academic_standing or "Good Standing",
+                academic_advisor=data.academic_advisor,
+            )
+        )
     elif role == UserRole.FACULTY:
         if not data.department:
-            raise HTTPException(status_code=400, detail="Department is required for faculty")
+            raise HTTPException(
+                status_code=400, detail="Department is required for faculty"
+            )
 
-        db.add(Faculty(
-            id=str(uuid.uuid4()),
-            faculty_id=_generate_faculty_id(),
-            user_id=user_id,
-            name=name,
-            department=data.department,
-            specialty=data.specialty,
-            phone=data.phone,
-            email=email,
-            photo=data.photo,
-            availability=data.availability,
-        ))
+        db.add(
+            Faculty(
+                id=str(uuid.uuid4()),
+                faculty_id=_generate_faculty_id(),
+                user_id=user_id,
+                name=name,
+                department=data.department,
+                specialty=data.specialty,
+                phone=data.phone,
+                email=email,
+                photo=data.photo,
+                availability=data.availability,
+            )
+        )
+    elif role == UserRole.NUTRITIONIST:
+        if not data.clinic_id:
+            raise HTTPException(
+                status_code=400, detail="Clinic is required for nutritionists"
+            )
+
+        clinic = (
+            await db.execute(
+                select(Clinic).where(
+                    Clinic.id == data.clinic_id,
+                    Clinic.is_active == True,
+                )
+            )
+        ).scalar_one_or_none()
+        if not clinic:
+            raise HTTPException(status_code=404, detail="Assigned clinic not found")
+
+        existing_nutritionist = (
+            await db.execute(
+                select(Nutritionist).where(Nutritionist.clinic_id == data.clinic_id)
+            )
+        ).scalar_one_or_none()
+        if existing_nutritionist:
+            raise HTTPException(
+                status_code=400,
+                detail="This clinic already has a nutritionist assigned",
+            )
+
+        db.add(
+            Nutritionist(
+                id=str(uuid.uuid4()),
+                nutritionist_id=_generate_nutritionist_id(),
+                user_id=user_id,
+                clinic_id=clinic.id,
+                name=name,
+                phone=data.phone,
+                email=email,
+                photo=data.photo,
+            )
+        )
     elif role == UserRole.LAB_TECHNICIAN:
-        db.add(LabTechnician(
-            id=str(uuid.uuid4()),
-            technician_id=_generate_lab_technician_id(),
-            user_id=user_id,
-            name=name,
-            phone=data.phone,
-            email=email,
-            photo=data.photo,
-            department=data.department,
-            has_selected_lab=0,
-        ))
-    elif role == UserRole.NURSE:
-        db.add(Nurse(
-            id=str(uuid.uuid4()),
-            nurse_id=_generate_nurse_id(),
-            user_id=user_id,
-            name=name,
-            phone=data.phone,
-            email=email,
-            photo=data.photo,
-            hospital=data.hospital,
-            ward=data.ward,
-            shift=data.shift,
-            department=data.department,
-            has_selected_station=0,
-        ))
+        db.add(
+            LabTechnician(
+                id=str(uuid.uuid4()),
+                technician_id=_generate_lab_technician_id(),
+                user_id=user_id,
+                name=name,
+                phone=data.phone,
+                email=email,
+                photo=data.photo,
+                department=data.department,
+                has_selected_lab=0,
+            )
+        )
+    elif role in {UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT}:
+        clinic = None
+        if data.clinic_id:
+            clinic = (
+                await db.execute(
+                    select(Clinic).where(
+                        Clinic.id == data.clinic_id,
+                        Clinic.is_active == True,
+                    )
+                )
+            ).scalar_one_or_none()
+            if not clinic:
+                raise HTTPException(status_code=404, detail="Assigned clinic not found")
+
+        db.add(
+            Nurse(
+                id=str(uuid.uuid4()),
+                nurse_id=_generate_nurse_superintendent_id()
+                if role == UserRole.NURSE_SUPERINTENDENT
+                else _generate_nurse_id(),
+                user_id=user_id,
+                name=name,
+                phone=data.phone,
+                email=email,
+                photo=data.photo,
+                clinic_id=clinic.id if clinic else data.clinic_id,
+                hospital=clinic.name if clinic else data.hospital,
+                ward=data.ward,
+                shift=data.shift,
+                department=data.department or (clinic.department if clinic else None),
+                has_selected_station=1 if role == UserRole.NURSE_SUPERINTENDENT else 0,
+            )
+        )
     # ADMIN and RECEPTION roles: no extra profile record needed
     elif role == UserRole.BILLING:
-        db.add(Billing(
-            id=str(uuid.uuid4()),
-            billing_id=_generate_billing_id(),
-            user_id=user_id,
-            name=name,
-            phone=data.phone,
-            email=email,
-            counter_name=data.counter_name,
-        ))
+        db.add(
+            Billing(
+                id=str(uuid.uuid4()),
+                billing_id=_generate_billing_id(),
+                user_id=user_id,
+                name=name,
+                phone=data.phone,
+                email=email,
+                counter_name=data.counter_name,
+            )
+        )
     elif role == UserRole.OT_MANAGER:
-        db.add(OTManager(
-            id=str(uuid.uuid4()),
-            manager_id=_generate_ot_manager_id(),
-            user_id=user_id,
-            name=name,
-            phone=data.phone,
-            email=email,
-        ))
+        db.add(
+            OTManager(
+                id=str(uuid.uuid4()),
+                manager_id=_generate_ot_manager_id(),
+                user_id=user_id,
+                name=name,
+                phone=data.phone,
+                email=email,
+            )
+        )
     # ADMIN, RECEPTION, and MRD: no extra profile record needed
 
     await db.commit()
@@ -587,6 +852,7 @@ async def bulk_import_users(
     """Bulk import users from a CSV or Excel (.xlsx) file."""
     import csv
     import io
+
     import openpyxl
 
     if not file.filename:
@@ -601,14 +867,18 @@ async def bulk_import_users(
         text = content.decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(text))
         for row in reader:
-            rows.append({k.strip().lower(): (v.strip() if v else "") for k, v in row.items()})
+            rows.append(
+                {k.strip().lower(): (v.strip() if v else "") for k, v in row.items()}
+            )
     elif filename_lower.endswith(".xlsx") or filename_lower.endswith(".xls"):
         wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         ws = wb.active
         headers = None
         for excel_row in ws.iter_rows(values_only=True):
             if headers is None:
-                headers = [str(c).strip().lower() if c is not None else "" for c in excel_row]
+                headers = [
+                    str(c).strip().lower() if c is not None else "" for c in excel_row
+                ]
                 continue
             row_dict = {}
             for h, v in zip(headers, excel_row):
@@ -631,23 +901,55 @@ async def bulk_import_users(
         name = row.get("name", "").strip()
 
         if not username or not email or not password or not role_str:
-            results.append({"row": row_num, "username": username or "(empty)", "status": "failed", "error": "username, email, password, role are required"})
+            results.append(
+                {
+                    "row": row_num,
+                    "username": username or "(empty)",
+                    "status": "failed",
+                    "error": "username, email, password, role are required",
+                }
+            )
             failed += 1
             continue
 
         try:
             role = UserRole(role_str)
         except ValueError:
-            results.append({"row": row_num, "username": username, "status": "failed", "error": f"Invalid role: {role_str}"})
+            results.append(
+                {
+                    "row": row_num,
+                    "username": username,
+                    "status": "failed",
+                    "error": f"Invalid role: {role_str}",
+                }
+            )
             failed += 1
             continue
 
-        if (await db.execute(select(User).where(User.username == username))).scalar_one_or_none():
-            results.append({"row": row_num, "username": username, "status": "failed", "error": "Username already exists"})
+        if (
+            await db.execute(select(User).where(User.username == username))
+        ).scalar_one_or_none():
+            results.append(
+                {
+                    "row": row_num,
+                    "username": username,
+                    "status": "failed",
+                    "error": "Username already exists",
+                }
+            )
             failed += 1
             continue
-        if (await db.execute(select(User).where(User.email == email))).scalar_one_or_none():
-            results.append({"row": row_num, "username": username, "status": "failed", "error": "Email already exists"})
+        if (
+            await db.execute(select(User).where(User.email == email))
+        ).scalar_one_or_none():
+            results.append(
+                {
+                    "row": row_num,
+                    "username": username,
+                    "status": "failed",
+                    "error": "Email already exists",
+                }
+            )
             failed += 1
             continue
 
@@ -674,86 +976,138 @@ async def bulk_import_users(
                 except ValueError:
                     raise ValueError("date_of_birth must be YYYY-MM-DD")
                 from app.models.patient import Gender
+
                 gender_str = row.get("gender", "OTHER").strip().upper()
                 try:
                     gender = Gender(gender_str)
                 except ValueError:
                     gender = Gender.OTHER
-                db.add(Patient(
-                    id=str(uuid.uuid4()),
-                    patient_id=await _async_generate_patient_id(db),
-                    user_id=user_id,
-                    name=display_name,
-                    date_of_birth=dob,
-                    gender=gender,
-                    blood_group=row.get("blood_group", "") or "Unknown",
-                    phone=row.get("phone", "") or "",
-                    email=email,
-                    address=row.get("address", "") or "",
-                    aadhaar_id=row.get("aadhaar_id") or None,
-                    abha_id=row.get("abha_id") or None,
-                    primary_diagnosis=row.get("primary_diagnosis") or None,
-                    category=normalize_patient_category_name(row.get("category", "")) or await get_default_patient_category_name(db),
-                ))
+                db.add(
+                    Patient(
+                        id=str(uuid.uuid4()),
+                        patient_id=await _async_generate_patient_id(db),
+                        user_id=user_id,
+                        name=display_name,
+                        date_of_birth=dob,
+                        gender=gender,
+                        blood_group=row.get("blood_group", "") or "Unknown",
+                        phone=row.get("phone", "") or "",
+                        email=email,
+                        address=row.get("address", "") or "",
+                        aadhaar_id=row.get("aadhaar_id") or None,
+                        abha_id=row.get("abha_id") or None,
+                        primary_diagnosis=row.get("primary_diagnosis") or None,
+                        category=normalize_patient_category_name(
+                            row.get("category", "")
+                        )
+                        or await get_default_patient_category_name(db),
+                    )
+                )
             elif role == UserRole.STUDENT:
                 year_str = row.get("year", "").strip()
                 semester_str = row.get("semester", "").strip()
                 program = row.get("program", "").strip()
                 if not year_str or not semester_str or not program:
                     raise ValueError("year, semester, program required for students")
-                db.add(Student(
-                    id=str(uuid.uuid4()),
-                    student_id=_generate_student_id(),
-                    user_id=user_id,
-                    name=display_name,
-                    year=int(year_str),
-                    semester=int(semester_str),
-                    program=program,
-                    degree=row.get("degree") or None,
-                    gpa=float(row.get("gpa") or 0),
-                    academic_standing=row.get("academic_standing") or "Good Standing",
-                    academic_advisor=row.get("academic_advisor") or None,
-                ))
+                db.add(
+                    Student(
+                        id=str(uuid.uuid4()),
+                        student_id=_generate_student_id(),
+                        user_id=user_id,
+                        name=display_name,
+                        year=int(year_str),
+                        semester=int(semester_str),
+                        program=program,
+                        degree=row.get("degree") or None,
+                        gpa=float(row.get("gpa") or 0),
+                        academic_standing=row.get("academic_standing")
+                        or "Good Standing",
+                        academic_advisor=row.get("academic_advisor") or None,
+                    )
+                )
             elif role == UserRole.FACULTY:
                 department = row.get("department", "").strip()
                 if not department:
                     raise ValueError("department is required for faculty")
-                db.add(Faculty(
-                    id=str(uuid.uuid4()),
-                    faculty_id=_generate_faculty_id(),
-                    user_id=user_id,
-                    name=display_name,
-                    department=department,
-                    specialty=row.get("specialty") or None,
-                    phone=row.get("phone") or None,
-                    email=email,
-                    availability=row.get("availability") or None,
-                ))
+                db.add(
+                    Faculty(
+                        id=str(uuid.uuid4()),
+                        faculty_id=_generate_faculty_id(),
+                        user_id=user_id,
+                        name=display_name,
+                        department=department,
+                        specialty=row.get("specialty") or None,
+                        phone=row.get("phone") or None,
+                        email=email,
+                        availability=row.get("availability") or None,
+                    )
+                )
+            elif role == UserRole.NUTRITIONIST:
+                clinic_id = row.get("clinic_id", "").strip()
+                if not clinic_id:
+                    raise ValueError("clinic_id is required for nutritionists")
+                clinic = (
+                    await db.execute(
+                        select(Clinic).where(
+                            Clinic.id == clinic_id,
+                            Clinic.is_active == True,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if not clinic:
+                    raise ValueError("Assigned clinic not found")
+                existing_nutritionist = (
+                    await db.execute(
+                        select(Nutritionist).where(Nutritionist.clinic_id == clinic_id)
+                    )
+                ).scalar_one_or_none()
+                if existing_nutritionist:
+                    raise ValueError("This clinic already has a nutritionist assigned")
+                db.add(
+                    Nutritionist(
+                        id=str(uuid.uuid4()),
+                        nutritionist_id=_generate_nutritionist_id(),
+                        user_id=user_id,
+                        clinic_id=clinic.id,
+                        name=display_name,
+                        phone=row.get("phone") or None,
+                        email=email,
+                    )
+                )
             elif role == UserRole.LAB_TECHNICIAN:
-                db.add(LabTechnician(
-                    id=str(uuid.uuid4()),
-                    technician_id=_generate_lab_technician_id(),
-                    user_id=user_id,
-                    name=display_name,
-                    phone=row.get("phone") or None,
-                    email=email,
-                    department=row.get("department") or None,
-                    has_selected_lab=0,
-                ))
-            elif role == UserRole.NURSE:
-                db.add(Nurse(
-                    id=str(uuid.uuid4()),
-                    nurse_id=_generate_nurse_id(),
-                    user_id=user_id,
-                    name=display_name,
-                    phone=row.get("phone") or None,
-                    email=email,
-                    hospital=row.get("hospital") or None,
-                    ward=row.get("ward") or None,
-                    shift=row.get("shift") or None,
-                    department=row.get("department") or None,
-                    has_selected_station=0,
-                ))
+                db.add(
+                    LabTechnician(
+                        id=str(uuid.uuid4()),
+                        technician_id=_generate_lab_technician_id(),
+                        user_id=user_id,
+                        name=display_name,
+                        phone=row.get("phone") or None,
+                        email=email,
+                        department=row.get("department") or None,
+                        has_selected_lab=0,
+                    )
+                )
+            elif role in {UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT}:
+                db.add(
+                    Nurse(
+                        id=str(uuid.uuid4()),
+                        nurse_id=_generate_nurse_superintendent_id()
+                        if role == UserRole.NURSE_SUPERINTENDENT
+                        else _generate_nurse_id(),
+                        user_id=user_id,
+                        name=display_name,
+                        phone=row.get("phone") or None,
+                        email=email,
+                        clinic_id=row.get("clinic_id") or None,
+                        hospital=row.get("hospital") or None,
+                        ward=row.get("ward") or None,
+                        shift=row.get("shift") or None,
+                        department=row.get("department") or None,
+                        has_selected_station=1
+                        if role == UserRole.NURSE_SUPERINTENDENT
+                        else 0,
+                    )
+                )
 
             await db.flush()
             results.append({"row": row_num, "username": username, "status": "created"})
@@ -761,7 +1115,14 @@ async def bulk_import_users(
 
         except Exception as exc:
             await db.rollback()
-            results.append({"row": row_num, "username": username, "status": "failed", "error": str(exc)})
+            results.append(
+                {
+                    "row": row_num,
+                    "username": username,
+                    "status": "failed",
+                    "error": str(exc),
+                }
+            )
             failed += 1
             continue
 
@@ -783,9 +1144,7 @@ async def list_departments(
     db: AsyncSession = Depends(get_db),
 ):
     """List all departments with faculty counts."""
-    result = await db.execute(
-        select(Department).order_by(Department.name)
-    )
+    result = await db.execute(select(Department).order_by(Department.name))
     departments = result.scalars().all()
 
     items = []
@@ -801,21 +1160,25 @@ async def list_departments(
         head_name = None
         if dept.head_faculty_id:
             head = (
-                await db.execute(select(Faculty.name).where(Faculty.id == dept.head_faculty_id))
+                await db.execute(
+                    select(Faculty.name).where(Faculty.id == dept.head_faculty_id)
+                )
             ).scalar()
             head_name = head
 
-        items.append({
-            "id": dept.id,
-            "name": dept.name,
-            "code": dept.code,
-            "description": dept.description,
-            "head_faculty_id": dept.head_faculty_id,
-            "head_faculty_name": head_name,
-            "is_active": dept.is_active,
-            "faculty_count": fac_count,
-            "created_at": dept.created_at.isoformat() if dept.created_at else None,
-        })
+        items.append(
+            {
+                "id": dept.id,
+                "name": dept.name,
+                "code": dept.code,
+                "description": dept.description,
+                "head_faculty_id": dept.head_faculty_id,
+                "head_faculty_name": head_name,
+                "is_active": dept.is_active,
+                "faculty_count": fac_count,
+                "created_at": dept.created_at.isoformat() if dept.created_at else None,
+            }
+        )
 
     return items
 
@@ -834,10 +1197,16 @@ async def create_department(
 
     # uniqueness
     existing = (
-        await db.execute(select(Department).where((Department.name == name) | (Department.code == code)))
+        await db.execute(
+            select(Department).where(
+                (Department.name == name) | (Department.code == code)
+            )
+        )
     ).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=400, detail="Department name or code already exists")
+        raise HTTPException(
+            status_code=400, detail="Department name or code already exists"
+        )
 
     dept = Department(
         id=_uid(),
@@ -868,7 +1237,9 @@ async def update_department(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a department."""
-    dept = (await db.execute(select(Department).where(Department.id == dept_id))).scalar_one_or_none()
+    dept = (
+        await db.execute(select(Department).where(Department.id == dept_id))
+    ).scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
 
@@ -894,7 +1265,9 @@ async def delete_department(
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (deactivate) a department."""
-    dept = (await db.execute(select(Department).where(Department.id == dept_id))).scalar_one_or_none()
+    dept = (
+        await db.execute(select(Department).where(Department.id == dept_id))
+    ).scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=404, detail="Department not found")
     dept.is_active = False
@@ -962,10 +1335,12 @@ async def department_stats(
 
     items = []
     for row in dept_rows:
-        items.append({
-            "department": row.department,
-            "faculty_count": row.faculty_count,
-        })
+        items.append(
+            {
+                "department": row.department,
+                "faculty_count": row.faculty_count,
+            }
+        )
     return items
 
 
@@ -976,9 +1351,7 @@ async def role_distribution(
 ):
     """Count of users per role."""
     rows = (
-        await db.execute(
-            select(User.role, func.count(User.id)).group_by(User.role)
-        )
+        await db.execute(select(User.role, func.count(User.id)).group_by(User.role))
     ).all()
     return {str(r[0].value): r[1] for r in rows}
 
@@ -1024,7 +1397,7 @@ async def list_students(
     db: AsyncSession = Depends(get_db),
 ):
     """List all students."""
-    q = select(Student)
+    q = select(Student).options(selectinload(Student.academic_group))
     if year:
         q = q.where(Student.year == year)
     if program:
@@ -1043,6 +1416,8 @@ async def list_students(
             "program": s.program,
             "gpa": s.gpa,
             "academic_standing": s.academic_standing,
+            "academic_group_id": s.academic_group_id,
+            "academic_group_name": s.academic_group.name if s.academic_group else None,
         }
         for s in students
     ]
@@ -1057,10 +1432,13 @@ async def list_programmes(
     db: AsyncSession = Depends(get_db),
 ):
     """List all programmes."""
-    result = await db.execute(select(Programme).order_by(Programme.name))
+    result = await db.execute(
+        select(Programme)
+        .options(selectinload(Programme.academic_groups))
+        .order_by(Programme.name)
+    )
     programmes = result.scalars().all()
 
-    # Count students per programme
     items = []
     for p in programmes:
         student_count = (
@@ -1068,17 +1446,13 @@ async def list_programmes(
                 select(func.count(Student.id)).where(Student.program == p.name)
             )
         ).scalar() or 0
-        items.append({
-            "id": p.id,
-            "name": p.name,
-            "code": p.code,
-            "description": p.description,
-            "degree_type": p.degree_type,
-            "duration_years": p.duration_years,
-            "is_active": p.is_active,
-            "student_count": student_count,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-        })
+        items.append(
+            _serialize_programme(
+                p,
+                student_count=student_count,
+                group_count=len(list(p.academic_groups or [])),
+            )
+        )
     return items
 
 
@@ -1100,7 +1474,9 @@ async def create_programme(
         )
     ).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=400, detail="Programme name or code already exists")
+        raise HTTPException(
+            status_code=400, detail="Programme name or code already exists"
+        )
 
     prog = Programme(
         id=_uid(),
@@ -1118,6 +1494,7 @@ async def create_programme(
         "id": prog.id,
         "name": prog.name,
         "code": prog.code,
+        "group_count": 0,
         "message": "Programme created successfully",
     }
 
@@ -1130,7 +1507,9 @@ async def update_programme(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a programme."""
-    prog = (await db.execute(select(Programme).where(Programme.id == prog_id))).scalar_one_or_none()
+    prog = (
+        await db.execute(select(Programme).where(Programme.id == prog_id))
+    ).scalar_one_or_none()
     if not prog:
         raise HTTPException(status_code=404, detail="Programme not found")
 
@@ -1148,7 +1527,14 @@ async def update_programme(
         prog.is_active = body["is_active"]
 
     await db.commit()
-    return {"message": "Programme updated", "id": prog.id, "name": prog.name}
+    await db.refresh(prog)
+    return {
+        "message": "Programme updated",
+        "id": prog.id,
+        "name": prog.name,
+        "code": prog.code,
+        "is_active": prog.is_active,
+    }
 
 
 @router.delete("/programmes/{prog_id}")
@@ -1158,12 +1544,555 @@ async def delete_programme(
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (deactivate) a programme."""
-    prog = (await db.execute(select(Programme).where(Programme.id == prog_id))).scalar_one_or_none()
+    prog = (
+        await db.execute(select(Programme).where(Programme.id == prog_id))
+    ).scalar_one_or_none()
     if not prog:
         raise HTTPException(status_code=404, detail="Programme not found")
     prog.is_active = False
     await db.commit()
     return {"message": f"Programme '{prog.name}' deactivated"}
+
+
+@router.get("/programmes/academics/overview")
+async def get_academics_overview(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    programmes_result = await db.execute(
+        select(Programme)
+        .options(selectinload(Programme.academic_groups))
+        .order_by(Programme.name.asc())
+    )
+    programmes = list(programmes_result.scalars().all())
+
+    groups_result = await db.execute(
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets).selectinload(
+                AcademicTarget.form_definition
+            ),
+        )
+        .order_by(AcademicGroup.name.asc())
+    )
+    groups = list(groups_result.scalars().all())
+
+    targets_result = await db.execute(
+        select(AcademicTarget)
+        .options(
+            selectinload(AcademicTarget.group).selectinload(AcademicGroup.programme),
+            selectinload(AcademicTarget.form_definition),
+        )
+        .order_by(AcademicTarget.sort_order.asc(), AcademicTarget.metric_name.asc())
+    )
+    targets = list(targets_result.scalars().all())
+
+    forms_result = await db.execute(
+        select(FormDefinition)
+        .where(
+            FormDefinition.is_active == True,
+            FormDefinition.form_type == "CASE_RECORD",
+        )
+        .order_by(
+            FormDefinition.department.asc(),
+            FormDefinition.sort_order.asc(),
+            FormDefinition.name.asc(),
+        )
+    )
+    forms = list(forms_result.scalars().all())
+
+    weightages_result = await db.execute(
+        select(AcademicFormWeightage).options(
+            selectinload(AcademicFormWeightage.form_definition)
+        )
+    )
+    weightages = list(weightages_result.scalars().all())
+    weightages_by_form_id = {item.form_definition_id: item for item in weightages}
+
+    students_result = await db.execute(
+        select(Student)
+        .options(selectinload(Student.academic_group))
+        .order_by(Student.name.asc())
+    )
+    students = list(students_result.scalars().all())
+
+    programme_items = []
+    for programme in programmes:
+        student_count = (
+            await db.execute(
+                select(func.count(Student.id)).where(Student.program == programme.name)
+            )
+        ).scalar() or 0
+        programme_items.append(
+            _serialize_programme(
+                programme,
+                student_count=student_count,
+                group_count=len(list(programme.academic_groups or [])),
+            )
+        )
+
+    return {
+        "programmes": programme_items,
+        "groups": [_serialize_academic_group(group) for group in groups],
+        "targets": [_serialize_academic_target(target) for target in targets],
+        "weightages": [
+            _serialize_case_record_form(form, weightages_by_form_id.get(form.id))
+            for form in forms
+        ],
+        "students": [
+            {
+                "id": student.id,
+                "student_id": student.student_id,
+                "name": student.name,
+                "year": student.year,
+                "semester": student.semester,
+                "program": student.program,
+                "gpa": student.gpa,
+                "academic_standing": student.academic_standing,
+                "academic_group_id": student.academic_group_id,
+                "academic_group_name": student.academic_group.name
+                if student.academic_group
+                else None,
+            }
+            for student in students
+        ],
+    }
+
+
+@router.get("/programmes/academic-groups")
+async def list_academic_groups(
+    programme_id: Optional[str] = None,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    query = (
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets),
+        )
+        .order_by(AcademicGroup.name.asc())
+    )
+    if programme_id:
+        query = query.where(AcademicGroup.programme_id == programme_id)
+
+    result = await db.execute(query)
+    return [_serialize_academic_group(group) for group in result.scalars().all()]
+
+
+@router.post("/programmes/academic-groups", status_code=201)
+async def create_academic_group(
+    payload: AcademicGroupUpsert,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    programme = (
+        await db.execute(select(Programme).where(Programme.id == payload.programme_id))
+    ).scalar_one_or_none()
+    if not programme:
+        raise HTTPException(status_code=404, detail="Programme not found")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+
+    existing = (
+        await db.execute(
+            select(AcademicGroup).where(
+                AcademicGroup.programme_id == payload.programme_id,
+                AcademicGroup.name == name,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Academic group name already exists for this programme",
+        )
+
+    students_result = await db.execute(
+        select(Student).where(Student.id.in_(payload.student_ids or []))
+    )
+    students = list(students_result.scalars().all())
+    for student in students:
+        if student.program != programme.name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Student '{student.name}' does not belong to programme '{programme.name}'",
+            )
+
+    group = AcademicGroup(
+        id=_uid(),
+        programme_id=payload.programme_id,
+        name=name,
+        description=(payload.description or "").strip() or None,
+        is_active=payload.is_active,
+    )
+    db.add(group)
+    await db.flush()
+
+    for student in students:
+        student.academic_group_id = group.id
+
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets),
+        )
+        .where(AcademicGroup.id == group.id)
+    )
+    return _serialize_academic_group(refreshed.scalar_one())
+
+
+@router.put("/programmes/academic-groups/{group_id}")
+async def update_academic_group(
+    group_id: str,
+    payload: AcademicGroupUpsert,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets),
+        )
+        .where(AcademicGroup.id == group_id)
+    )
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Academic group not found")
+
+    programme = (
+        await db.execute(select(Programme).where(Programme.id == payload.programme_id))
+    ).scalar_one_or_none()
+    if not programme:
+        raise HTTPException(status_code=404, detail="Programme not found")
+
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Group name is required")
+
+    conflict = (
+        await db.execute(
+            select(AcademicGroup).where(
+                AcademicGroup.programme_id == payload.programme_id,
+                AcademicGroup.name == name,
+                AcademicGroup.id != group_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if conflict:
+        raise HTTPException(
+            status_code=400,
+            detail="Academic group name already exists for this programme",
+        )
+
+    students_result = await db.execute(
+        select(Student).where(Student.id.in_(payload.student_ids or []))
+    )
+    students = list(students_result.scalars().all())
+    selected_ids = {student.id for student in students}
+
+    for student in students:
+        if student.program != programme.name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Student '{student.name}' does not belong to programme '{programme.name}'",
+            )
+
+    for existing_student in list(group.students or []):
+        if existing_student.id not in selected_ids:
+            existing_student.academic_group_id = None
+
+    for student in students:
+        student.academic_group_id = group.id
+
+    group.programme_id = payload.programme_id
+    group.name = name
+    group.description = (payload.description or "").strip() or None
+    group.is_active = payload.is_active
+
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets),
+        )
+        .where(AcademicGroup.id == group.id)
+    )
+    return _serialize_academic_group(refreshed.scalar_one())
+
+
+@router.delete("/programmes/academic-groups/{group_id}")
+async def delete_academic_group(
+    group_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AcademicGroup)
+        .options(selectinload(AcademicGroup.students))
+        .where(AcademicGroup.id == group_id)
+    )
+    group = result.scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Academic group not found")
+
+    for student in list(group.students or []):
+        student.academic_group_id = None
+
+    await db.delete(group)
+    await db.commit()
+    return {"message": "Academic group deleted successfully"}
+
+
+@router.get("/programmes/academic-targets")
+async def list_academic_targets(
+    group_id: Optional[str] = None,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    query = (
+        select(AcademicTarget)
+        .options(
+            selectinload(AcademicTarget.group).selectinload(AcademicGroup.programme),
+            selectinload(AcademicTarget.form_definition),
+        )
+        .order_by(AcademicTarget.sort_order.asc(), AcademicTarget.metric_name.asc())
+    )
+    if group_id:
+        query = query.where(AcademicTarget.group_id == group_id)
+
+    result = await db.execute(query)
+    return [_serialize_academic_target(item) for item in result.scalars().all()]
+
+
+@router.post("/programmes/academic-targets", status_code=201)
+async def create_academic_target(
+    payload: AcademicTargetUpsert,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    group = (
+        await db.execute(
+            select(AcademicGroup).where(AcademicGroup.id == payload.group_id)
+        )
+    ).scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Academic group not found")
+
+    metric_name = payload.metric_name.strip()
+    if not metric_name:
+        raise HTTPException(status_code=400, detail="Metric name is required")
+
+    form_definition = None
+    if payload.form_definition_id:
+        form_definition = (
+            await db.execute(
+                select(FormDefinition).where(
+                    FormDefinition.id == payload.form_definition_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not form_definition:
+            raise HTTPException(status_code=404, detail="Form definition not found")
+
+    target = AcademicTarget(
+        id=_uid(),
+        group_id=payload.group_id,
+        form_definition_id=payload.form_definition_id,
+        metric_name=metric_name,
+        category=(payload.category or "ACADEMIC").strip().upper(),
+        target_value=max(int(payload.target_value), 0),
+        sort_order=max(int(payload.sort_order), 0),
+    )
+    db.add(target)
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(AcademicTarget)
+        .options(
+            selectinload(AcademicTarget.group).selectinload(AcademicGroup.programme),
+            selectinload(AcademicTarget.form_definition),
+        )
+        .where(AcademicTarget.id == target.id)
+    )
+    return _serialize_academic_target(refreshed.scalar_one())
+
+
+@router.put("/programmes/academic-targets/{target_id}")
+async def update_academic_target(
+    target_id: str,
+    payload: AcademicTargetUpsert,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    target = (
+        await db.execute(select(AcademicTarget).where(AcademicTarget.id == target_id))
+    ).scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Academic target not found")
+
+    group = (
+        await db.execute(
+            select(AcademicGroup).where(AcademicGroup.id == payload.group_id)
+        )
+    ).scalar_one_or_none()
+    if not group:
+        raise HTTPException(status_code=404, detail="Academic group not found")
+
+    if payload.form_definition_id:
+        form_definition = (
+            await db.execute(
+                select(FormDefinition).where(
+                    FormDefinition.id == payload.form_definition_id
+                )
+            )
+        ).scalar_one_or_none()
+        if not form_definition:
+            raise HTTPException(status_code=404, detail="Form definition not found")
+
+    metric_name = payload.metric_name.strip()
+    if not metric_name:
+        raise HTTPException(status_code=400, detail="Metric name is required")
+
+    target.group_id = payload.group_id
+    target.form_definition_id = payload.form_definition_id
+    target.metric_name = metric_name
+    target.category = (payload.category or "ACADEMIC").strip().upper()
+    target.target_value = max(int(payload.target_value), 0)
+    target.sort_order = max(int(payload.sort_order), 0)
+
+    await db.commit()
+
+    refreshed = await db.execute(
+        select(AcademicTarget)
+        .options(
+            selectinload(AcademicTarget.group).selectinload(AcademicGroup.programme),
+            selectinload(AcademicTarget.form_definition),
+        )
+        .where(AcademicTarget.id == target.id)
+    )
+    return _serialize_academic_target(refreshed.scalar_one())
+
+
+@router.delete("/programmes/academic-targets/{target_id}")
+async def delete_academic_target(
+    target_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    target = (
+        await db.execute(select(AcademicTarget).where(AcademicTarget.id == target_id))
+    ).scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="Academic target not found")
+
+    await db.delete(target)
+    await db.commit()
+    return {"message": "Academic target deleted successfully"}
+
+
+@router.get("/programmes/academic-weightages")
+async def list_academic_weightages(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    forms_result = await db.execute(
+        select(FormDefinition)
+        .where(
+            FormDefinition.is_active == True,
+            FormDefinition.form_type == "CASE_RECORD",
+        )
+        .order_by(
+            FormDefinition.department.asc(),
+            FormDefinition.sort_order.asc(),
+            FormDefinition.name.asc(),
+        )
+    )
+    forms = list(forms_result.scalars().all())
+
+    weightages_result = await db.execute(
+        select(AcademicFormWeightage).options(
+            selectinload(AcademicFormWeightage.form_definition)
+        )
+    )
+    weightages = list(weightages_result.scalars().all())
+    weightages_by_form_id = {item.form_definition_id: item for item in weightages}
+
+    return [
+        _serialize_case_record_form(form, weightages_by_form_id.get(form.id))
+        for form in forms
+    ]
+
+
+@router.put("/programmes/academic-weightages/{form_definition_id}")
+async def upsert_academic_weightage(
+    form_definition_id: str,
+    payload: AcademicWeightageUpsert,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    form_definition = (
+        await db.execute(
+            select(FormDefinition).where(FormDefinition.id == form_definition_id)
+        )
+    ).scalar_one_or_none()
+    if not form_definition:
+        raise HTTPException(status_code=404, detail="Form definition not found")
+
+    weightage = (
+        await db.execute(
+            select(AcademicFormWeightage).where(
+                AcademicFormWeightage.form_definition_id == form_definition_id
+            )
+        )
+    ).scalar_one_or_none()
+
+    if weightage:
+        weightage.points = max(int(payload.points), 0)
+    else:
+        weightage = AcademicFormWeightage(
+            id=_uid(),
+            form_definition_id=form_definition_id,
+            points=max(int(payload.points), 0),
+        )
+        db.add(weightage)
+
+    await db.commit()
+
+    refreshed = (
+        await db.execute(
+            select(AcademicFormWeightage)
+            .options(selectinload(AcademicFormWeightage.form_definition))
+            .where(AcademicFormWeightage.form_definition_id == form_definition_id)
+        )
+    ).scalar_one()
+    return _serialize_academic_weightage(refreshed)
+
+
+@router.get("/programmes/students/{student_id}/academic-progress")
+async def get_programme_student_academic_progress(
+    student_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    progress = await get_student_academic_progress(db, student_id=student_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return progress
 
 
 # ── System info ──────────────────────────────────────────────────────
@@ -1203,7 +2132,9 @@ class PatientCategoryUpdate(BaseModel):
     registration_fee: Optional[int] = None
 
 
-def _serialize_patient_category(item: PatientCategoryOption, usage_counts: dict[str, int]) -> dict:
+def _serialize_patient_category(
+    item: PatientCategoryOption, usage_counts: dict[str, int]
+) -> dict:
     return {
         "id": item.id,
         "name": item.name,
@@ -1263,7 +2194,9 @@ async def create_patient_category(
 
     existing = (
         await db.execute(
-            select(PatientCategoryOption).where(func.lower(PatientCategoryOption.name) == normalized_name.casefold())
+            select(PatientCategoryOption).where(
+                func.lower(PatientCategoryOption.name) == normalized_name.casefold()
+            )
         )
     ).scalar_one_or_none()
     if existing:
@@ -1283,7 +2216,9 @@ async def create_patient_category(
         ),
         is_active=data.is_active,
         sort_order=data.sort_order if data.sort_order is not None else len(categories),
-        registration_fee=data.registration_fee if data.registration_fee is not None else 100,
+        registration_fee=data.registration_fee
+        if data.registration_fee is not None
+        else 100,
     )
     db.add(item)
     await db.flush()
@@ -1301,7 +2236,9 @@ async def update_patient_category(
     db: AsyncSession = Depends(get_db),
 ):
     item = (
-        await db.execute(select(PatientCategoryOption).where(PatientCategoryOption.id == category_id))
+        await db.execute(
+            select(PatientCategoryOption).where(PatientCategoryOption.id == category_id)
+        )
     ).scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Patient category not found")
@@ -1315,7 +2252,9 @@ async def update_patient_category(
         existing = (
             await db.execute(
                 select(PatientCategoryOption)
-                .where(func.lower(PatientCategoryOption.name) == normalized_name.casefold())
+                .where(
+                    func.lower(PatientCategoryOption.name) == normalized_name.casefold()
+                )
                 .where(PatientCategoryOption.id != item.id)
             )
         ).scalar_one_or_none()
@@ -1327,7 +2266,9 @@ async def update_patient_category(
             {"new_name": normalized_name, "old_name": item.name},
         )
         await db.execute(
-            text("UPDATE charge_prices SET tier = :new_name WHERE lower(tier) = :old_name"),
+            text(
+                "UPDATE charge_prices SET tier = :new_name WHERE lower(tier) = :old_name"
+            ),
             {"new_name": normalized_name, "old_name": previous_name.casefold()},
         )
         item.name = normalized_name
@@ -1335,9 +2276,13 @@ async def update_patient_category(
     if data.description is not None:
         item.description = data.description.strip() or None
     if data.color_primary is not None:
-        item.color_primary = _normalize_hex_color(data.color_primary, DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY)
+        item.color_primary = _normalize_hex_color(
+            data.color_primary, DEFAULT_PATIENT_CATEGORY_COLOR_PRIMARY
+        )
     if data.color_secondary is not None:
-        item.color_secondary = _normalize_hex_color(data.color_secondary, DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY)
+        item.color_secondary = _normalize_hex_color(
+            data.color_secondary, DEFAULT_PATIENT_CATEGORY_COLOR_SECONDARY
+        )
     if data.is_active is not None:
         item.is_active = data.is_active
     if data.sort_order is not None:
@@ -1369,16 +2314,23 @@ async def delete_patient_category(
     db: AsyncSession = Depends(get_db),
 ):
     item = (
-        await db.execute(select(PatientCategoryOption).where(PatientCategoryOption.id == category_id))
+        await db.execute(
+            select(PatientCategoryOption).where(PatientCategoryOption.id == category_id)
+        )
     ).scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Patient category not found")
 
     usage_count = (
-        await db.execute(select(func.count(Patient.id)).where(Patient.category == item.name))
+        await db.execute(
+            select(func.count(Patient.id)).where(Patient.category == item.name)
+        )
     ).scalar() or 0
     if usage_count:
-        raise HTTPException(status_code=409, detail="Cannot delete a category that is already assigned to patients")
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot delete a category that is already assigned to patients",
+        )
 
     await db.execute(
         text("DELETE FROM charge_prices WHERE lower(tier) = :category_name"),
@@ -1411,8 +2363,12 @@ class ICDCodeUpdate(BaseModel):
 async def list_icd_codes(
     user: User = Depends(require_role(UserRole.ADMIN)),
     db: AsyncSession = Depends(get_db),
-    search: Optional[str] = Query(None, description="Search by ICD code, description, or category"),
-    include_inactive: bool = Query(True, description="Include inactive codes in the result"),
+    search: Optional[str] = Query(
+        None, description="Search by ICD code, description, or category"
+    ),
+    include_inactive: bool = Query(
+        True, description="Include inactive codes in the result"
+    ),
 ):
     query = select(ICDCode)
     if not include_inactive:
@@ -1494,7 +2450,9 @@ async def update_icd_code(
             )
         ).scalar_one_or_none()
         if existing:
-            raise HTTPException(status_code=400, detail=f"ICD code '{code}' already exists")
+            raise HTTPException(
+                status_code=400, detail=f"ICD code '{code}' already exists"
+            )
         item.code = code
 
     if data.description is not None:
@@ -1560,7 +2518,9 @@ async def list_vital_parameters(
     active_only: bool = Query(False, description="Return only active parameters"),
 ):
     """List all vital parameters configurations."""
-    query = select(VitalParameter).order_by(VitalParameter.category, VitalParameter.sort_order)
+    query = select(VitalParameter).order_by(
+        VitalParameter.category, VitalParameter.sort_order
+    )
     if active_only:
         query = query.where(VitalParameter.is_active == True)
     result = await db.execute(query)
@@ -1578,14 +2538,18 @@ async def create_vital_parameter(
     name = data.name.strip()
     display_name = data.display_name.strip()
     if not name or not display_name:
-        raise HTTPException(status_code=400, detail="Name and display name are required")
+        raise HTTPException(
+            status_code=400, detail="Name and display name are required"
+        )
 
     # Check if parameter with same name exists
-    existing = (await db.execute(
-        select(VitalParameter).where(VitalParameter.name == name)
-    )).scalar_one_or_none()
+    existing = (
+        await db.execute(select(VitalParameter).where(VitalParameter.name == name))
+    ).scalar_one_or_none()
     if existing:
-        raise HTTPException(status_code=400, detail=f"Parameter '{name}' already exists")
+        raise HTTPException(
+            status_code=400, detail=f"Parameter '{name}' already exists"
+        )
 
     unit = data.unit.strip()
     if not unit:
@@ -1615,9 +2579,9 @@ async def get_vital_parameter(
     db: AsyncSession = Depends(get_db),
 ):
     """Get a single vital parameter by ID."""
-    param = (await db.execute(
-        select(VitalParameter).where(VitalParameter.id == param_id)
-    )).scalar_one_or_none()
+    param = (
+        await db.execute(select(VitalParameter).where(VitalParameter.id == param_id))
+    ).scalar_one_or_none()
     if not param:
         raise HTTPException(status_code=404, detail="Vital parameter not found")
     return _serialize_vital_parameter(param)
@@ -1631,9 +2595,9 @@ async def update_vital_parameter(
     db: AsyncSession = Depends(get_db),
 ):
     """Update a vital parameter configuration."""
-    param = (await db.execute(
-        select(VitalParameter).where(VitalParameter.id == param_id)
-    )).scalar_one_or_none()
+    param = (
+        await db.execute(select(VitalParameter).where(VitalParameter.id == param_id))
+    ).scalar_one_or_none()
     if not param:
         raise HTTPException(status_code=404, detail="Vital parameter not found")
 
@@ -1662,9 +2626,9 @@ async def delete_vital_parameter(
     db: AsyncSession = Depends(get_db),
 ):
     """Delete a vital parameter configuration (or deactivate it)."""
-    param = (await db.execute(
-        select(VitalParameter).where(VitalParameter.id == param_id)
-    )).scalar_one_or_none()
+    param = (
+        await db.execute(select(VitalParameter).where(VitalParameter.id == param_id))
+    ).scalar_one_or_none()
     if not param:
         raise HTTPException(status_code=404, detail="Vital parameter not found")
 

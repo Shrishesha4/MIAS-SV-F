@@ -97,6 +97,7 @@ async def get_daily_checkin_counts(
         "patients": 0,
         "students": 0,
         "faculty": 0,
+        "nutritionists": 0,
         "nurses": 0,
         "reception": 0,
         "admins": 0,
@@ -106,7 +107,9 @@ async def get_daily_checkin_counts(
         UserRole.PATIENT: "patients",
         UserRole.STUDENT: "students",
         UserRole.FACULTY: "faculty",
+        UserRole.NUTRITIONIST: "nutritionists",
         UserRole.NURSE: "nurses",
+        UserRole.NURSE_SUPERINTENDENT: "nurses",
         UserRole.RECEPTION: "reception",
         UserRole.ADMIN: "admins",
     }

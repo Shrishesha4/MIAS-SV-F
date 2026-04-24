@@ -37,6 +37,7 @@ from app.models.user import User, UserRole
 from app.models.patient import Patient, Gender, MedicalAlert, InsurancePolicy
 from app.models.student import Student, StudentPatientAssignment, Clinic, ClinicAppointment, ClinicSession, StudentAttendance
 from app.models.faculty import Faculty
+from app.models.nutritionist import Nutritionist
 from app.models.nurse import Nurse
 from app.models.nurse_order import NurseOrder
 from app.models.department import Department
@@ -1647,6 +1648,27 @@ async def seed():
             db.add(clinic)
             clinic_objs.append(clinic)
         await db.flush()
+
+        # ── Nutritionists (one per clinic) ──────────────────────────
+        for idx, clinic in enumerate(clinic_objs, start=1):
+            user_id = uid()
+            username = f"nt{idx}"
+            db.add(User(
+                id=user_id,
+                username=username,
+                email=f"{username}@saveetha.com",
+                password_hash=get_password_hash(username),
+                role=UserRole.NUTRITIONIST,
+            ))
+            db.add(Nutritionist(
+                id=uid(),
+                nutritionist_id=f"NT-{idx:03d}",
+                user_id=user_id,
+                clinic_id=clinic.id,
+                name=f"Nutritionist {clinic.department}",
+                phone=f"+91 90004 000{idx:02d}",
+                email=f"{username}@saveetha.com",
+            ))
 
         # ── Clinic Sessions for Students ─────────────────
         # Each student gets: one completed past session + one active current session
