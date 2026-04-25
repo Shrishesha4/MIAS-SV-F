@@ -61,7 +61,7 @@ class FacultyDataCreate(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    username: str
+    username: Optional[str] = None
     password: str
     email: str
     role: UserRoleEnum
@@ -72,3 +72,4 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     message: str
     user_id: str
+    patient_id: str

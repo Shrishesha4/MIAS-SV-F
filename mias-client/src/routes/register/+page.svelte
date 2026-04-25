@@ -542,15 +542,10 @@
 		loading = true;
 		error = '';
 		try {
-			// Generate unique username from phone + random suffix to prevent collisions
-			const phoneDigits = phone.replace(/\D/g, '');
-			const randomSuffix = Math.random().toString(36).substring(2, 8); // 6-char random string
-			const username = `${phoneDigits}${randomSuffix}`;
 			const patientCategory = patientCategoryOptions.find((c) => c.id === selectedPatientCategoryId)?.name
 				|| patientCategoryOptions[0]?.name
 				|| 'Classic';
 			const data = {
-				username,
 				password: patPassword,
 				email: patEmail.trim(),
 				role: 'PATIENT' as const,
@@ -571,16 +566,13 @@
 			};
 			const result = await authApi.signup(data);
 			createdUserId = result.user_id;
-			// generate mock patient display ID
-			createdPatientId = `SMC-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+			// Patient ID from backend is the login username
+			createdPatientId = result.patient_id;
 			paymentDone = true;
 
-
-			// Auto-login after registration
-			const loginResult = await authApi.login(username, patPassword);
+			// Auto-login after registration using patient ID as username
+			const loginResult = await authApi.login(result.patient_id, patPassword);
 			authStore.setTokens(loginResult.access_token, loginResult.user_id, loginResult.role);
-
-			// Persist clinic allocation notice for dashboard fullscreen prompt
 
 			step = 9; // show completion screen
 		} catch (err: any) {
@@ -1260,8 +1252,9 @@
 				<div class="w-full rounded-xl px-5 py-4 text-center"
 					 style="background: linear-gradient(to bottom, #eef4ff, #e0eaff);
 							border: 1.5px solid #93b8f5;">
-					<p class="text-xs font-medium text-blue-600 mb-1.5">Your Patient ID (IP)</p>
+					<p class="text-xs font-medium text-blue-600 mb-1.5">Your Patient ID</p>
 					<p class="text-2xl font-bold tracking-wide text-blue-800">{createdPatientId}</p>
+					<p class="text-xs text-blue-500 mt-2">Use this ID as your login username</p>
 				</div>
 
 				<button

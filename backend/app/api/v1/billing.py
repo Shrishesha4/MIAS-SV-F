@@ -410,6 +410,17 @@ async def get_accounts_analytics(
             }
         )
 
+    # Ensure all billing users appear even if they have no transactions
+    for bu in billing_users:
+        bu_name = str(bu.name).strip()
+        if bu_name and bu_name not in user_totals:
+            user_totals[bu_name] = {
+                "name": bu_name,
+                "total_collection": 0.0,
+                "transactions": 0,
+                "status": "Active",
+            }
+
     live_transactions = sorted(
         live_transactions,
         key=lambda item: item.get("date") or "",

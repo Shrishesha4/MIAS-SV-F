@@ -12,6 +12,7 @@
 	} from '$lib/api/billing';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import {
 		Wallet,
 		IndianRupee,
@@ -75,9 +76,6 @@
 		'background: linear-gradient(180deg, #dbe3ee 0%, #d5dee9 52%, #d2dae5 100%);';
 	const cardStyle =
 		'background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(247,249,252,0.96)); border: 1px solid rgba(130,145,166,0.22); box-shadow: 0 3px 12px rgba(73,93,124,0.12), inset 0 1px 0 rgba(255,255,255,0.72);';
-	const segmentedStyle =
-		'background: linear-gradient(to bottom, rgba(214,220,228,0.96), rgba(196,204,214,0.94)); border: 1px solid rgba(116,129,146,0.24); box-shadow: inset 0 1px 0 rgba(255,255,255,0.72);';
-
 	const viewTabs: Array<{ id: ViewTab; label: string; icon: typeof CalendarDays }> = [
 		{ id: 'TODAY', label: 'Today', icon: CalendarDays },
 		{ id: 'COLLECTIONS', label: 'Collections', icon: BadgeIndianRupee },
@@ -87,6 +85,9 @@
 
 	const trendRanges: TrendRange[] = ['1W', '1M', '1Q', '1Y'];
 	const trendSections: TrendSection[] = ['OVERVIEW', 'DEPARTMENTS', 'INVESTIGATIONS'];
+
+	const trendRangeTabs = trendRanges.map((r) => ({ id: r, label: r }));
+	const trendSectionTabs = trendSections.map((s) => ({ id: s, label: s.charAt(0) + s.slice(1).toLowerCase() }));
 
 	const branchOptions = $derived.by(() => {
 		const branch = analytics?.meta.branch || 'All Branches';
@@ -234,20 +235,6 @@
 		});
 	}
 
-	function getPrimaryButtonStyle(active: boolean) {
-		if (active) {
-			return 'background: linear-gradient(to bottom, #2f80ff, #1565d8); color: white; border: 1px solid rgba(0,0,0,0.18); box-shadow: 0 2px 10px rgba(37,99,235,0.28), inset 0 1px 0 rgba(255,255,255,0.35);';
-		}
-		return 'background: transparent; color: #4b5563; border: 1px solid transparent;';
-	}
-
-	function getTrendSubtabStyle(active: boolean) {
-		if (active) {
-			return 'background: rgba(255,255,255,0.96); color: #2563eb; border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 1px 6px rgba(15,23,42,0.08);';
-		}
-		return 'background: transparent; color: #6b7280; border: 1px solid transparent;';
-	}
-
 	function getStatusStyle(tone: AccountsAnalyticsUserRow['status_tone']) {
 		switch (tone) {
 			case 'success':
@@ -369,117 +356,73 @@
 	<title>Central Billing Oversight | MIAS</title>
 </svelte:head>
 
-<div class="min-h-screen px-3 py-3 sm:px-4 sm:py-4 lg:px-6" style={pageShellStyle}>
-	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4">
-		<div class="flex flex-col gap-3 rounded-[28px] p-4 sm:p-5" style={cardStyle}>
-			<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-				<div>
-					<p class="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
-						Central Billing Oversight
-					</p>
-					<h1 class="mt-1 text-xl font-black text-slate-800 sm:text-2xl">
-						{profile?.counter_name || 'Central Accounts Dashboard'}
-					</h1>
-					<p class="mt-1 text-sm text-slate-500">
-						{profile?.name || 'Accounts User'} · {profile?.billing_id || 'ACCOUNTS'}
-					</p>
-				</div>
-
-				<div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:min-w-[320px]">
-					<div
-						class="rounded-2xl px-4 py-3"
-						style="background: rgba(37,99,235,0.08); border: 1px solid rgba(59,130,246,0.16);"
-					>
-						<p class="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">Branch</p>
-						<p class="mt-1 text-sm font-semibold text-slate-800">{selectedBranch}</p>
-					</div>
-					<div
-						class="rounded-2xl px-4 py-3"
-						style="background: rgba(22,163,74,0.08); border: 1px solid rgba(34,197,94,0.16);"
-					>
-						<p class="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500">
-							Last Generated
-						</p>
-						<p class="mt-1 text-sm font-semibold text-slate-800">{lastGeneratedAt}</p>
-					</div>
-				</div>
-			</div>
-
-			<div
-				class="mx-auto flex w-full max-w-4xl flex-wrap items-center justify-center gap-1 rounded-2xl p-1.5"
-				style={segmentedStyle}
-			>
-				{#each viewTabs as tab (tab.id)}
-					{@const Icon = tab.icon}
-					<button
-						class="flex min-w-[132px] flex-1 cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-black uppercase tracking-[0.18em] transition-all"
-						style={getPrimaryButtonStyle(activeView === tab.id)}
-						onclick={() => (activeView = tab.id)}
-					>
-						<Icon class="h-4 w-4" />
-						<span>{tab.label}</span>
-					</button>
-				{/each}
-			</div>
+<div class="min-h-screen px-2 py-2 sm:px-3 sm:py-3" style={pageShellStyle}>
+	<div class="mx-auto flex w-full max-w-5xl flex-col gap-3">
+		<div class="flex justify-center">
+			<TabBar
+				tabs={viewTabs}
+				activeTab={activeView}
+				onchange={(id) => (activeView = id as typeof activeView)}
+				variant="jiggle"
+				stretch={false}
+			/>
 		</div>
 
 		{#if loading}
-			<div class="rounded-[28px] px-6 py-16 text-center" style={cardStyle}>
-				<div class="mx-auto h-10 w-10 animate-spin rounded-full border-3 border-blue-500 border-t-transparent"></div>
-				<p class="mt-4 text-sm font-medium text-slate-500">
-					Loading central billing oversight dashboard...
-				</p>
+			<div class="rounded-[18px] px-6 py-10 text-center" style={cardStyle}>
+				<div class="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-blue-500 border-t-transparent"></div>
+				<p class="mt-3 text-xs font-medium text-slate-500">Loading...</p>
 			</div>
 		{:else if activeView === 'TODAY'}
-			<section class="space-y-4">
-				<div class="grid gap-4 lg:grid-cols-3">
+			<section class="space-y-3">
+				<div class="grid gap-3 grid-cols-3">
 					{#each summaryCards as card (card.id)}
 						{@const Icon = card.icon}
-						<div class="rounded-[24px] px-5 py-5 text-center" style={cardStyle}>
-							<div class="mb-3 flex items-center justify-center gap-2">
-								<Icon class="h-4 w-4" style={`color: ${card.accent};`} />
-								<p class="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">
+						<div class="rounded-[16px] px-4 py-3 text-center" style={cardStyle}>
+							<div class="mb-1.5 flex items-center justify-center gap-1.5">
+								<Icon class="h-3.5 w-3.5" style={`color: ${card.accent};`} />
+								<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
 									{card.label}
 								</p>
 							</div>
-							<p class="text-3xl font-black" style={`color: ${card.accent};`}>
+							<p class="text-xl font-black" style={`color: ${card.accent};`}>
 								{formatCurrency(card.value)}
 							</p>
 						</div>
 					{/each}
 				</div>
 
-				<div class="space-y-3">
-					<p class="px-1 text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
+				<div class="space-y-2">
+					<p class="px-1 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
 						Collection by Billing Center
 					</p>
 					{#if billingCenters.length > 0}
-						<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+						<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
 							{#each billingCenters as center (center.id)}
-								<div class="rounded-[22px] px-5 py-6 text-center" style={cardStyle}>
-									<div class="mb-3 flex items-center justify-center gap-2">
-										<span class="h-2.5 w-2.5 rounded-full" style={`background: ${center.color};`}></span>
-										<p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-400">
+								<div class="rounded-[14px] px-4 py-4 text-center" style={cardStyle}>
+									<div class="mb-1.5 flex items-center justify-center gap-1.5">
+										<span class="h-2 w-2 rounded-full" style={`background: ${center.color};`}></span>
+										<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
 											{center.name}
 										</p>
 									</div>
-									<p class="text-2xl font-black text-slate-800">{formatCurrency(center.value)}</p>
+									<p class="text-lg font-black text-slate-800">{formatCurrency(center.value)}</p>
 								</div>
 							{/each}
 						</div>
 					{:else}
-						<div class="rounded-[22px] px-5 py-10 text-center" style={cardStyle}>
-							<Building2 class="mx-auto h-8 w-8 text-slate-300" />
-							<p class="mt-3 text-sm font-black uppercase tracking-[0.18em] text-slate-500">
+						<div class="rounded-[14px] px-4 py-8 text-center" style={cardStyle}>
+							<Building2 class="mx-auto h-7 w-7 text-slate-300" />
+							<p class="mt-2 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
 								No billing center data
 							</p>
 						</div>
 					{/if}
 				</div>
 
-				<div class="overflow-hidden rounded-[28px]" style={cardStyle}>
-					<div class="border-b border-slate-200/80 px-5 py-4">
-						<p class="text-sm font-black uppercase tracking-[0.2em] text-slate-600">
+				<div class="overflow-hidden rounded-[18px]" style={cardStyle}>
+					<div class="border-b border-slate-200/80 px-4 py-3">
+						<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
 							Real-Time Transactions
 						</p>
 					</div>
@@ -487,52 +430,47 @@
 					<div class="divide-y divide-slate-200/75">
 						{#if liveTransactions.length > 0}
 							{#each liveTransactions as item (item.id)}
-								<div class="flex flex-col gap-3 px-4 py-4 sm:px-5 md:flex-row md:items-center md:justify-between">
-									<div class="flex items-center gap-3">
+								<div class="flex items-center justify-between gap-3 px-4 py-3">
+									<div class="flex items-center gap-2.5">
 										<div
-											class="flex h-11 w-11 items-center justify-center rounded-full"
+											class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
 											style="background: linear-gradient(to bottom, rgba(219,234,254,0.98), rgba(191,219,254,0.92)); border: 1px solid rgba(96,165,250,0.28);"
 										>
-											<ArrowRightLeft class="h-5 w-5 text-blue-600" />
+											<ArrowRightLeft class="h-4 w-4 text-blue-600" />
 										</div>
 										<div>
-											<p class="text-base font-black text-slate-800">{item.name}</p>
-											<p class="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
-												{item.subtitle}
-											</p>
-											<p class="mt-1 text-[11px] font-semibold text-slate-400">
-												{item.provider || 'System'} · {formatDateTime(item.date)}
+											<p class="text-sm font-black text-slate-800">{item.name}</p>
+											<p class="text-[11px] font-semibold text-slate-400">
+												{item.subtitle} · {formatDateTime(item.date)}
 											</p>
 										</div>
 									</div>
-									<div class="text-left md:text-right">
-										<p class="text-2xl font-black text-slate-800">{formatCurrency(item.amount)}</p>
-										<p class="text-xs font-bold uppercase tracking-[0.08em] text-slate-500">
-											{item.method} • {item.time}
-										</p>
+									<div class="shrink-0 text-right">
+										<p class="text-base font-black text-slate-800">{formatCurrency(item.amount)}</p>
+										<p class="text-[11px] font-semibold text-slate-400">{item.method}</p>
 									</div>
 								</div>
 							{/each}
 						{:else}
-							<div class="px-6 py-12 text-center">
-								<ArrowRightLeft class="mx-auto h-10 w-10 text-slate-300" />
-								<p class="mt-3 text-sm font-medium text-slate-500">No transactions available</p>
+							<div class="px-6 py-8 text-center">
+								<ArrowRightLeft class="mx-auto h-8 w-8 text-slate-300" />
+								<p class="mt-2 text-xs font-medium text-slate-500">No transactions available</p>
 							</div>
 						{/if}
 					</div>
 				</div>
 			</section>
 		{:else if activeView === 'COLLECTIONS'}
-			<section class="space-y-4">
-				<div class="rounded-[28px] p-5" style={cardStyle}>
-					<div class="mb-5 flex items-center gap-2">
-						<Filter class="h-4 w-4 text-slate-500" />
-						<p class="text-sm font-black uppercase tracking-[0.2em] text-slate-600">
+			<section class="space-y-3">
+				<div class="rounded-[18px] p-4" style={cardStyle}>
+					<div class="mb-3 flex items-center gap-2">
+						<Filter class="h-3.5 w-3.5 text-slate-500" />
+						<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">
 							Filter Collections
 						</p>
 					</div>
 
-					<div class="grid gap-4 lg:grid-cols-4">
+					<div class="grid gap-3 lg:grid-cols-4">
 						<div>
 							<label
 								for="accounts-branch"
@@ -605,102 +543,67 @@
 					</div>
 
 					<button
-						class="mt-5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 py-4 text-base font-black text-white transition-opacity hover:opacity-95"
-						style="background: linear-gradient(to bottom, #2f80ff, #1565d8); border: 1px solid rgba(0,0,0,0.18); box-shadow: 0 3px 12px rgba(37,99,235,0.28), inset 0 1px 0 rgba(255,255,255,0.36);"
+						class="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black text-white transition-opacity hover:opacity-95"
+						style="background: linear-gradient(to bottom, #2f80ff, #1565d8); border: 1px solid rgba(0,0,0,0.18);"
 						onclick={generateReport}
 						disabled={analyticsLoading}
 					>
-						<Filter class="h-5 w-5" />
+						<Filter class="h-4 w-4" />
 						{analyticsLoading ? 'Generating...' : 'Generate Report'}
 					</button>
 				</div>
 
-				<div class="overflow-hidden rounded-[28px]" style={cardStyle}>
-					<div class="hidden grid-cols-[2.1fr_1fr_1fr_1fr] gap-4 border-b border-slate-200/80 px-6 py-4 md:grid">
-						<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Department</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Cash</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Card</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">Total</p>
+				<div class="overflow-hidden rounded-[18px]" style={cardStyle}>
+					<div class="hidden grid-cols-[2.1fr_1fr_1fr_1fr] gap-4 border-b border-slate-200/80 px-4 py-3 md:grid">
+						<p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Department</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Cash</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Card</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Total</p>
 					</div>
 
 					<div class="divide-y divide-slate-200/75">
 						{#if filteredCollectionRows.length > 0}
 							{#each filteredCollectionRows as row (row.id)}
-								<div class="px-5 py-4">
-									<div class="grid gap-2 md:grid-cols-[2.1fr_1fr_1fr_1fr] md:items-center md:gap-4">
-										<p class="text-2xl font-black text-slate-800 md:text-base">{row.department}</p>
-
-										<div class="flex items-center justify-between md:block md:text-right">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Cash
-											</p>
-											<p class="text-lg font-black text-slate-800 md:text-base">
-												{formatCurrency(row.cash)}
-											</p>
-										</div>
-
-										<div class="flex items-center justify-between md:block md:text-right">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Card
-											</p>
-											<p class="text-lg font-black text-slate-800 md:text-base">
-												{formatCurrency(row.card)}
-											</p>
-										</div>
-
-										<div class="flex items-center justify-between md:block md:text-right">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Total
-											</p>
-											<p class="text-xl font-black text-blue-600 md:text-base">
-												{formatCurrency(row.total)}
-											</p>
-										</div>
-									</div>
+								<div class="grid grid-cols-[2.1fr_1fr_1fr_1fr] items-center gap-4 px-4 py-3">
+									<p class="text-sm font-black text-slate-800">{row.department}</p>
+									<p class="text-right text-sm font-black text-slate-700">{formatCurrency(row.cash)}</p>
+									<p class="text-right text-sm font-black text-slate-700">{formatCurrency(row.card)}</p>
+									<p class="text-right text-sm font-black text-blue-600">{formatCurrency(row.total)}</p>
 								</div>
 							{/each}
 						{:else}
-							<div class="px-6 py-12 text-center">
-								<BadgeIndianRupee class="mx-auto h-10 w-10 text-slate-300" />
-								<p class="mt-3 text-sm font-medium text-slate-500">
-									No collection report data available
-								</p>
+							<div class="px-6 py-8 text-center">
+								<BadgeIndianRupee class="mx-auto h-8 w-8 text-slate-300" />
+								<p class="mt-2 text-xs font-medium text-slate-500">No collection data available</p>
 							</div>
 						{/if}
 					</div>
 				</div>
 			</section>
 		{:else if activeView === 'TRENDS'}
-			<section class="space-y-4">
-				<div class="flex flex-col items-center gap-3">
-					<div class="flex flex-wrap items-center justify-center gap-1 rounded-2xl p-1.5" style={segmentedStyle}>
-						{#each trendRanges as range (range)}
-							<button
-								class="min-w-[64px] cursor-pointer rounded-xl px-4 py-2 text-sm font-black uppercase tracking-[0.18em]"
-								style={getTrendSubtabStyle(activeTrendRange === range)}
-								onclick={() => (activeTrendRange = range)}
-							>
-								{range}
-							</button>
-						{/each}
-					</div>
-
-					<div class="flex flex-wrap items-center justify-center gap-1 rounded-2xl p-1.5" style={segmentedStyle}>
-						{#each trendSections as section (section)}
-							<button
-								class="cursor-pointer rounded-xl px-4 py-2 text-sm font-black uppercase tracking-[0.18em]"
-								style={getTrendSubtabStyle(activeTrendSection === section)}
-								onclick={() => (activeTrendSection = section)}
-							>
-								{section}
-							</button>
-						{/each}
-					</div>
+			<section class="space-y-3">
+				<div class="flex flex-col items-center gap-2">
+					<TabBar
+						tabs={trendRangeTabs}
+						activeTab={activeTrendRange}
+						onchange={(id) => (activeTrendRange = id as TrendRange)}
+						variant="jiggle"
+						size="compact"
+						stretch={false}
+					/>
+					<TabBar
+						tabs={trendSectionTabs}
+						activeTab={activeTrendSection}
+						onchange={(id) => (activeTrendSection = id as TrendSection)}
+						variant="jiggle"
+						size="compact"
+						stretch={false}
+					/>
 				</div>
 
-				<div class="rounded-[28px] p-5" style={cardStyle}>
-					<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-						<p class="text-base font-black uppercase tracking-[0.18em] text-slate-600">
+				<div class="rounded-[18px] p-4" style={cardStyle}>
+					<div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+						<p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
 							{activeTrendSection} Trend Analysis
 						</p>
 
@@ -788,27 +691,27 @@
 							</svg>
 						</div>
 
-						<div class="mt-5 grid gap-4 lg:grid-cols-3">
+						<div class="mt-4 grid gap-3 lg:grid-cols-3">
 							{#each insightCards as item (item.id)}
 								{@const Icon = item.icon}
-								<div class="rounded-[22px] p-4" style={getInsightStyle(item.tone)}>
-									<div class="mb-3 flex items-center justify-between">
-										<p class="text-[11px] font-black uppercase tracking-[0.2em]" style={getInsightTextStyle(item.tone)}>
+								<div class="rounded-[14px] p-3" style={getInsightStyle(item.tone)}>
+									<div class="mb-2 flex items-center justify-between">
+										<p class="text-[10px] font-black uppercase tracking-[0.2em]" style={getInsightTextStyle(item.tone)}>
 											{item.title}
 										</p>
-										<Icon class="h-4 w-4" style={getInsightTextStyle(item.tone)} />
+										<Icon class="h-3.5 w-3.5" style={getInsightTextStyle(item.tone)} />
 									</div>
-									<p class="text-3xl font-black" style={getInsightTextStyle(item.tone)}>{item.value}</p>
-									<p class="mt-1 text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+									<p class="text-xl font-black" style={getInsightTextStyle(item.tone)}>{item.value}</p>
+									<p class="mt-0.5 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
 										{item.description}
 									</p>
 								</div>
 							{/each}
 						</div>
 					{:else}
-						<div class="rounded-[22px] border border-dashed border-slate-300/90 px-5 py-14 text-center">
-							<TrendingUp class="mx-auto h-10 w-10 text-slate-300" />
-							<p class="mt-4 text-sm font-black uppercase tracking-[0.18em] text-slate-500">
+						<div class="rounded-[14px] border border-dashed border-slate-300/90 px-5 py-10 text-center">
+							<TrendingUp class="mx-auto h-8 w-8 text-slate-300" />
+							<p class="mt-3 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
 								No trend data available
 							</p>
 						</div>
@@ -816,118 +719,85 @@
 				</div>
 			</section>
 		{:else}
-			<section class="space-y-4">
-				<div class="rounded-[28px] p-4 sm:p-5" style={cardStyle}>
-					<div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-						<div>
-							<p class="text-sm font-black uppercase tracking-[0.18em] text-slate-600">
-								Central Billing User Performance
-							</p>
-						</div>
-
-						<div class="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+			<section class="space-y-3">
+				<div class="rounded-[18px] p-4" style={cardStyle}>
+					<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<p class="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+							Billing User Performance
+						</p>
+						<div class="flex items-center gap-2">
 							<input
 								type="date"
 								bind:value={usersStartDate}
-								class="rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none"
-								style="background: rgba(255,255,255,0.96); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 2px rgba(15,23,42,0.04);"
+								class="rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none"
+								style="background: rgba(255,255,255,0.96); border: 1px solid rgba(148,163,184,0.28);"
 							/>
-							<p class="text-center text-sm font-black uppercase tracking-[0.14em] text-slate-400">to</p>
+							<span class="text-xs text-slate-400">–</span>
 							<input
 								type="date"
 								bind:value={usersEndDate}
-								class="rounded-2xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none"
-								style="background: rgba(255,255,255,0.96); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 2px rgba(15,23,42,0.04);"
+								class="rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none"
+								style="background: rgba(255,255,255,0.96); border: 1px solid rgba(148,163,184,0.28);"
 							/>
+							<button
+								class="cursor-pointer rounded-xl px-3 py-2 text-xs font-black text-white"
+								style="background: linear-gradient(to bottom, #2f80ff, #1565d8); border: 1px solid rgba(0,0,0,0.18);"
+								onclick={syncUserDateRangeToCollections}
+							>
+								Apply
+							</button>
 						</div>
 					</div>
 
-					<div class="mt-4 flex gap-3">
-						<div class="relative flex-1">
-							<Search class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-							<input
-								type="text"
-								placeholder="Search user..."
-								bind:value={userSearch}
-								class="w-full rounded-full py-3.5 pl-11 pr-4 text-sm font-medium text-slate-800 outline-none"
-								style="background: rgba(255,255,255,0.98); border: 1px solid rgba(148,163,184,0.28); box-shadow: inset 0 1px 2px rgba(15,23,42,0.04);"
-							/>
-						</div>
-						<button
-							class="cursor-pointer rounded-2xl px-4 py-3 text-sm font-black text-white"
-							style="background: linear-gradient(to bottom, #2f80ff, #1565d8); border: 1px solid rgba(0,0,0,0.18);"
-							onclick={syncUserDateRangeToCollections}
-						>
-							Apply
-						</button>
+					<div class="mt-3 relative">
+						<Search class="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+						<input
+							type="text"
+							placeholder="Search user..."
+							bind:value={userSearch}
+							class="w-full rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium text-slate-800 outline-none"
+							style="background: rgba(255,255,255,0.98); border: 1px solid rgba(148,163,184,0.28);"
+						/>
 					</div>
 				</div>
 
-				<div class="overflow-hidden rounded-[28px]" style={cardStyle}>
-					<div class="hidden grid-cols-[1.7fr_1fr_1fr_0.9fr] gap-4 border-b border-slate-200/80 px-6 py-4 md:grid">
-						<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">User</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-							Total Collection
-						</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-							Transactions
-						</p>
-						<p class="text-right text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
-							Status
-						</p>
+				<div class="overflow-hidden rounded-[18px]" style={cardStyle}>
+					<div class="grid grid-cols-[1.7fr_1fr_1fr_0.9fr] gap-4 border-b border-slate-200/80 px-4 py-3">
+						<p class="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">User</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Collection</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Txns</p>
+						<p class="text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Status</p>
 					</div>
 
 					<div class="divide-y divide-slate-200/75">
 						{#if filteredUsers.length > 0}
 							{#each filteredUsers as user (user.id)}
-								<div class="px-5 py-4">
-									<div class="grid gap-3 md:grid-cols-[1.7fr_1fr_1fr_0.9fr] md:items-center">
-										<div class="flex items-center gap-3">
-											<div
-												class="flex h-11 w-11 items-center justify-center rounded-full"
-												style="background: linear-gradient(to bottom, rgba(219,234,254,0.98), rgba(191,219,254,0.92)); border: 1px solid rgba(96,165,250,0.28);"
-											>
-												<UserRound class="h-5 w-5 text-blue-600" />
-											</div>
-											<p class="text-lg font-black text-slate-800 md:text-base">{user.name}</p>
+								<div class="grid grid-cols-[1.7fr_1fr_1fr_0.9fr] items-center gap-4 px-4 py-3">
+									<div class="flex items-center gap-2">
+										<div
+											class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+											style="background: linear-gradient(to bottom, rgba(219,234,254,0.98), rgba(191,219,254,0.92)); border: 1px solid rgba(96,165,250,0.28);"
+										>
+											<UserRound class="h-4 w-4 text-blue-600" />
 										</div>
-
-										<div class="flex items-center justify-between md:block md:text-right">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Total Collection
-											</p>
-											<p class="text-lg font-black text-slate-800 md:text-base">
-												{formatCurrency(user.total_collection)}
-											</p>
-										</div>
-
-										<div class="flex items-center justify-between md:block md:text-right">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Transactions
-											</p>
-											<p class="text-lg font-black text-slate-800 md:text-base">{user.transactions}</p>
-										</div>
-
-										<div class="flex items-center justify-between md:justify-end">
-											<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400 md:hidden">
-												Status
-											</p>
-											<span
-												class="inline-flex rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.14em]"
-												style={getStatusStyle(user.status_tone)}
-											>
-												{user.status}
-											</span>
-										</div>
+										<p class="text-sm font-black text-slate-800">{user.name}</p>
+									</div>
+									<p class="text-right text-sm font-black text-slate-800">{formatCurrency(user.total_collection)}</p>
+									<p class="text-right text-sm font-black text-slate-800">{user.transactions}</p>
+									<div class="flex justify-end">
+										<span
+											class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.14em]"
+											style={getStatusStyle(user.status_tone)}
+										>
+											{user.status}
+										</span>
 									</div>
 								</div>
 							{/each}
 						{:else}
-							<div class="px-6 py-12 text-center">
-								<Activity class="mx-auto h-10 w-10 text-slate-300" />
-								<p class="mt-3 text-sm font-medium text-slate-500">
-									No billing user performance data available.
-								</p>
+							<div class="px-6 py-8 text-center">
+								<Activity class="mx-auto h-8 w-8 text-slate-300" />
+								<p class="mt-2 text-xs font-medium text-slate-500">No user performance data.</p>
 							</div>
 						{/if}
 					</div>

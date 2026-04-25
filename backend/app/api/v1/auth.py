@@ -73,16 +73,17 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             detail="Public registration is available for patients only",
         )
 
-    # Check if username exists
-    result = await db.execute(
-        select(User).where(User.username == request.username)
-    )
-    if result.scalar_one_or_none():
+    if not request.patient_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Username already exists",
+            detail="Patient registration data is required",
         )
-    
+
+    # Generate patient ID first — it becomes the login username
+    patient_id = str(uuid.uuid4())
+    dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
+    display_patient_id = await generate_patient_id(db)
+
     # Check if email exists
     result = await db.execute(
         select(User).where(User.email == request.email)
@@ -92,28 +93,18 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already exists",
         )
-    
-    # Create user
+
+    # Create user — username is always the generated patient ID
     user_id = str(uuid.uuid4())
     user = User(
         id=user_id,
-        username=request.username,
+        username=display_patient_id,
         email=request.email,
         password_hash=get_password_hash(request.password),
         role=UserRole.PATIENT,
         is_active=True,
     )
     db.add(user)
-    
-    if not request.patient_data:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Patient registration data is required",
-        )
-
-    patient_id = str(uuid.uuid4())
-    dob = datetime.strptime(request.patient_data.date_of_birth, "%Y-%m-%d").date()
-    display_patient_id = await generate_patient_id(db)
 
     insurance_category = None
     if request.patient_data.insurance_category_id:
@@ -244,6 +235,7 @@ async def register(request: RegisterRequest, db: AsyncSession = Depends(get_db))
     return RegisterResponse(
         message="Registration successful",
         user_id=user_id,
+        patient_id=display_patient_id,
     )
 
 

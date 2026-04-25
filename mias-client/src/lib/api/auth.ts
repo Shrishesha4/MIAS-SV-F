@@ -2,7 +2,7 @@ import client from './client';
 import type { LoginResponse } from './types';
 
 export interface RegisterData {
-  username: string;
+  username?: string;
   password: string;
   email: string;
   role: 'PATIENT';
@@ -35,7 +35,7 @@ export const authApi = {
     return response.data;
   },
 
-  async signup(data: RegisterData): Promise<{ message: string; user_id: string }> {
+  async signup(data: RegisterData): Promise<{ message: string; user_id: string; patient_id: string }> {
     const response = await client.post('/auth/register', data);
     return response.data;
   },

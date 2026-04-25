@@ -16,6 +16,7 @@
 	let loadingPage = $state(true);
 	let submitting = $state(false);
 	let done = $state(false);
+	let createdPatientId = $state('');
 	let submitError = $state('');
 	let currentStep = $state(1); // 1=details, 2=insurance, 3=account
 
@@ -34,7 +35,6 @@
 	const availablePatientCategories = $derived(selectedInsurance?.patient_categories ?? []);
 
 	// Step 3 – account
-	let username = $state('');
 	let email = $state('');
 	let password = $state('');
 	let confirmPassword = $state('');
@@ -94,7 +94,6 @@
 			if (!phone.trim() || phone.replace(/\D/g, '').length < 10) return 'Valid phone number required';
 		}
 		if (n === 3) {
-			if (!username.trim()) return 'Username is required';
 			if (!email.trim() || !email.includes('@')) return 'Valid email required';
 			if (password.length < 6) return 'Password must be at least 6 characters';
 			if (password !== confirmPassword) return 'Passwords do not match';
@@ -223,8 +222,7 @@
 		submitting = true;
 		submitError = '';
 		try {
-			await authApi.signup({
-				username: username.trim(),
+			const result = await authApi.signup({
 				password,
 				email: email.trim(),
 				role: 'PATIENT',
@@ -242,6 +240,7 @@
 					patient_category_id: selectedPatientCategoryId || undefined,
 				},
 			});
+			createdPatientId = result.patient_id;
 			done = true;
 		} catch (e: any) {
 			submitError = e?.response?.data?.detail || 'Registration failed. Please try again.';
@@ -407,11 +406,8 @@
 				{:else if currentStep === 3}
 					<!-- Step 3: Account credentials -->
 					<p class="text-base font-bold text-slate-900 mb-4">Create Account</p>
+					<p class="text-xs text-slate-500 mb-3">Your patient ID will be assigned automatically and used as your login username.</p>
 					<div class="space-y-3">
-						<div>
-							<label for="reg-username" class="block text-xs font-semibold text-slate-600 mb-1">Username *</label>
-							<input id="reg-username" bind:value={username} placeholder="Choose a username" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
-						</div>
 						<div>
 							<label for="reg-email" class="block text-xs font-semibold text-slate-600 mb-1">Email *</label>
 							<input id="reg-email" type="email" bind:value={email} placeholder="your@email.com" class="w-full rounded-xl border px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-blue-400" style="border-color: rgba(0,0,0,0.12); background: #fafcff;" />
@@ -465,7 +461,14 @@
 			<p class="mt-2 text-sm text-slate-500 max-w-xs">
 				Registration complete. You've been added to <strong>{clinicInfo?.name}</strong>. Please wait to be called.
 			</p>
-			<a href="/login" class="mt-8 inline-block rounded-[999px] px-8 py-3 text-sm font-bold text-white" style="background: linear-gradient(to bottom, #3b82f6, #1d4ed8); box-shadow: 0 4px 14px rgba(29,78,216,0.3);">
+			{#if createdPatientId}
+			<div class="mt-5 w-full max-w-xs rounded-xl px-5 py-4 text-center" style="background: linear-gradient(to bottom, #eef4ff, #e0eaff); border: 1.5px solid #93b8f5;">
+				<p class="text-xs font-medium text-blue-600 mb-1.5">Your Patient ID (Login Username)</p>
+				<p class="text-2xl font-bold tracking-wide text-blue-800">{createdPatientId}</p>
+				<p class="text-xs text-blue-500 mt-1">Use this ID to sign in</p>
+			</div>
+			{/if}
+			<a href="/login" class="mt-6 inline-block rounded-[999px] px-8 py-3 text-sm font-bold text-white" style="background: linear-gradient(to bottom, #3b82f6, #1d4ed8); box-shadow: 0 4px 14px rgba(29,78,216,0.3);">
 				Sign In to Your Account
 			</a>
 		</div>
