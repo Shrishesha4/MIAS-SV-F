@@ -92,6 +92,8 @@
 	let targetValue = $state(0);
 	let targetSortOrder = $state(0);
 	let targetFormDefinitionId = $state('');
+	let togglingProgrammeId = $state('');
+	let togglingGroupId = $state('');
 
 	const degreeTypes = ['Undergraduate', 'Postgraduate', 'Diploma', 'Certificate', 'Doctoral'];
 	const targetCategories = ['ACADEMIC', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
@@ -314,6 +316,25 @@
 		}
 	}
 
+	async function toggleProgrammeActive(event: Event, programme: Programme) {
+		event.stopPropagation();
+		if (togglingProgrammeId) return;
+		togglingProgrammeId = programme.id;
+		try {
+			await adminApi.updateProgramme(programme.id, { is_active: !programme.is_active });
+			programmes = programmes.map((item) =>
+				item.id === programme.id ? { ...item, is_active: !item.is_active } : item
+			);
+		} catch (errorValue: unknown) {
+			toastStore.addToast(
+				(errorValue as ApiError)?.response?.data?.detail || 'Failed to update programme status',
+				'error'
+			);
+		} finally {
+			togglingProgrammeId = '';
+		}
+	}
+
 	function openCreateGroup(prefillProgrammeId = selectedProgrammeId) {
 		editingGroupId = '';
 		groupProgrammeId = prefillProgrammeId || programmes[0]?.id || '';
@@ -396,6 +417,31 @@
 				(errorValue as ApiError)?.response?.data?.detail || 'Failed to delete academic group',
 				'error'
 			);
+		}
+	}
+
+	async function toggleGroupActive(event: Event, group: AcademicGroup) {
+		event.stopPropagation();
+		if (togglingGroupId) return;
+		togglingGroupId = group.id;
+		try {
+			await adminApi.updateAcademicGroup(group.id, {
+				programme_id: group.programme_id,
+				name: group.name,
+				description: group.description ?? undefined,
+				is_active: !group.is_active,
+				student_ids: group.student_ids
+			});
+			groups = groups.map((item) =>
+				item.id === group.id ? { ...item, is_active: !item.is_active } : item
+			);
+		} catch (errorValue: unknown) {
+			toastStore.addToast(
+				(errorValue as ApiError)?.response?.data?.detail || 'Failed to update group status',
+				'error'
+			);
+		} finally {
+			togglingGroupId = '';
 		}
 	}
 
@@ -600,11 +646,18 @@
 					</div>
 				{:else}
 					{#each filteredProgrammes as programme (programme.id)}
-						<button
-							type="button"
+						<div
+							role="button"
+							tabindex="0"
 							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
 							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
 							onclick={() => openEditProgramme(programme)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									openEditProgramme(programme);
+								}
+							}}
 						>
 							<!-- Left: blue circle with graduation cap -->
 							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
@@ -616,17 +669,23 @@
 							<div class="min-w-0 flex-1">
 								<p class="truncate font-bold text-slate-900">{programme.name}</p>
 								<div class="mt-1 flex items-center gap-2">
-									{#if programme.is_active}
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
-											style="background: rgba(220,252,231,0.95); color: #15803d;">
-											Active
+									<button
+										type="button"
+										role="switch"
+										aria-checked={programme.is_active}
+										aria-label={`Toggle ${programme.name} active status`}
+										onclick={(event) => toggleProgrammeActive(event, programme)}
+										disabled={togglingProgrammeId === programme.id}
+										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+									>
+										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${programme.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${programme.is_active ? 'left-6' : 'left-1'}`}>
+												{#if togglingProgrammeId === programme.id}
+													<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
+												{/if}
+											</span>
 										</span>
-									{:else}
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
-											style="background: rgba(254,226,226,0.95); color: #b91c1c;">
-											Inactive
-										</span>
-									{/if}
+									</button>
 									<span class="text-xs text-slate-500">{programme.student_count} Students Enrolled</span>
 								</div>
 							</div>
@@ -639,7 +698,7 @@
 								</div>
 								<ChevronRight class="h-4 w-4 text-slate-300" />
 							</div>
-						</button>
+						</div>
 					{/each}
 				{/if}
 			</div>
@@ -653,11 +712,18 @@
 					</div>
 				{:else}
 					{#each filteredGroups as group (group.id)}
-						<button
-							type="button"
+						<div
+							role="button"
+							tabindex="0"
 							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
 							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
 							onclick={() => openEditGroup(group)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									openEditGroup(group);
+								}
+							}}
 						>
 							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
 								style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 4px 10px rgba(109,40,217,0.28);">
@@ -666,13 +732,23 @@
 							<div class="min-w-0 flex-1">
 								<p class="truncate font-bold text-slate-900">{group.name}</p>
 								<div class="mt-1 flex items-center gap-2">
-									{#if group.is_active}
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
-											style="background: rgba(220,252,231,0.95); color: #15803d;">Active</span>
-									{:else}
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
-											style="background: rgba(254,226,226,0.95); color: #b91c1c;">Inactive</span>
-									{/if}
+									<button
+										type="button"
+										role="switch"
+										aria-checked={group.is_active}
+										aria-label={`Toggle ${group.name} active status`}
+										onclick={(event) => toggleGroupActive(event, group)}
+										disabled={togglingGroupId === group.id}
+										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+									>
+										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${group.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${group.is_active ? 'left-6' : 'left-1'}`}>
+												{#if togglingGroupId === group.id}
+													<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
+												{/if}
+											</span>
+										</span>
+									</button>
 									<span class="text-xs text-slate-500">
 										{group.programme_name ?? getProgrammeName(group.programme_id)} • {group.student_count} students
 									</span>
@@ -685,7 +761,7 @@
 								</div>
 								<ChevronRight class="h-4 w-4 text-slate-300" />
 							</div>
-						</button>
+						</div>
 					{/each}
 				{/if}
 			</div>

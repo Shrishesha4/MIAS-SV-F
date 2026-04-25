@@ -6,7 +6,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { adminApi, type ICDCodeRecord } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { FileText, Loader2, PencilLine, Plus, Power, Search, Trash2 } from 'lucide-svelte';
+	import { FileText, Loader2, PencilLine, Plus, Search, Trash2 } from 'lucide-svelte';
 
 	type ICDFormState = {
 		id: string | null;
@@ -233,20 +233,28 @@
 								</td>
 								<td class="px-4 py-4 text-slate-600">{item.category}</td>
 								<td class="px-4 py-4">
-									<span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {item.is_active ? 'text-emerald-700' : 'text-slate-500'}"
-										style={item.is_active
-											? 'background: rgba(16,185,129,0.14); border: 1px solid rgba(16,185,129,0.18);'
-											: 'background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.14);'}>
-										{item.is_active ? 'Active' : 'Inactive'}
-									</span>
+									<button
+										type="button"
+										role="switch"
+										aria-checked={item.is_active}
+										aria-label={`Toggle ${item.code} active status`}
+										onclick={() => toggleCodeActive(item)}
+										disabled={togglingId === item.id}
+										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+									>
+										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${item.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${item.is_active ? 'left-6' : 'left-1'}`}>
+												{#if togglingId === item.id}
+													<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
+												{/if}
+											</span>
+										</span>
+									</button>
 								</td>
 								<td class="px-4 py-4">
 									<div class="flex flex-wrap gap-2">
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 cursor-pointer" style="background: rgba(148,163,184,0.12);" onclick={() => openEdit(item)}>
 											<PencilLine class="mr-1 inline h-3.5 w-3.5" /> Edit
-										</button>
-										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-60 {item.is_active ? 'text-amber-700' : 'text-emerald-700'}" style={item.is_active ? 'background: rgba(251,191,36,0.16);' : 'background: rgba(16,185,129,0.14);'} onclick={() => toggleCodeActive(item)} disabled={togglingId === item.id}>
-											<Power class="mr-1 inline h-3.5 w-3.5" /> {togglingId === item.id ? 'Saving...' : item.is_active ? 'Disable' : 'Enable'}
 										</button>
 										<!-- Delete ICD code action hidden until admin disable flow replaces hard delete UI. -->
 										<!--

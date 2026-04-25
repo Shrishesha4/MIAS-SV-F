@@ -5,7 +5,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { otApi, type OTTheater } from '$lib/api/ot';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { Loader2, PencilLine, Plus, Power, Stethoscope, Trash2, Download, Upload } from 'lucide-svelte';
+	import { Loader2, PencilLine, Plus, Stethoscope, Trash2, Download, Upload } from 'lucide-svelte';
 
 	const auth = get(authStore);
 	let fileInput: HTMLInputElement;
@@ -323,8 +323,24 @@
 								{#if t.name}
 									<span class="text-sm text-slate-500">— {t.name}</span>
 								{/if}
-								<span class="ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold {t.is_active ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}">
-									{t.is_active ? 'Active' : 'Inactive'}
+								<span class="ml-auto shrink-0">
+									<button
+										type="button"
+										role="switch"
+										aria-checked={t.is_active}
+										aria-label={`Toggle ${t.ot_id} active status`}
+										onclick={() => toggleActive(t)}
+										disabled={togglingId === t.id}
+										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+									>
+										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${t.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${t.is_active ? 'left-6' : 'left-1'}`}>
+												{#if togglingId === t.id}
+													<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
+												{/if}
+											</span>
+										</span>
+									</button>
 								</span>
 							</div>
 							{#if t.location}
@@ -335,18 +351,6 @@
 							{/if}
 						</div>
 						<div class="flex shrink-0 items-center gap-1">
-							<button
-								title={t.is_active ? 'Deactivate' : 'Activate'}
-								onclick={() => toggleActive(t)}
-								disabled={togglingId === t.id}
-								class="rounded-lg p-1.5 transition-colors hover:bg-slate-100 cursor-pointer disabled:opacity-50"
-							>
-								{#if togglingId === t.id}
-									<Loader2 class="h-3.5 w-3.5 animate-spin text-slate-500" />
-								{:else}
-									<Power class="h-3.5 w-3.5 {t.is_active ? 'text-green-600' : 'text-slate-400'}" />
-								{/if}
-							</button>
 							<button
 								title="Edit"
 								onclick={() => openEdit(t)}
