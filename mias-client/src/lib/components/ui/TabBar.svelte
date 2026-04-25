@@ -13,6 +13,7 @@
     onchange: (tabId: string) => unknown;
     variant?: 'default' | 'jiggle';
     stretch?: boolean;
+    size?: 'default' | 'compact';
     ariaLabel?: string;
   }
 
@@ -22,6 +23,7 @@
     onchange,
     variant = 'default',
     stretch = true,
+    size = 'default',
     ariaLabel = 'Tab navigation',
   }: Props = $props();
 
@@ -88,6 +90,9 @@
   class="tab-bar"
   class:tab-bar--default={variant === 'default'}
   class:tab-bar--jiggle={variant === 'jiggle'}
+  class:tab-bar--fill={stretch}
+  class:tab-bar--fit={!stretch}
+  class:tab-bar--compact={size === 'compact'}
   role="tablist"
   aria-label={ariaLabel}
 >
@@ -104,6 +109,7 @@
       class:tab-button--jiggle={variant === 'jiggle'}
       class:tab-button--stretch={stretch}
       class:tab-button--auto={!stretch}
+      class:tab-button--compact={size === 'compact'}
       class:is-active={activeTab === tab.id}
       class:is-inactive={activeTab !== tab.id}
       role="tab"
@@ -128,6 +134,15 @@
     position: relative;
     display: flex;
     gap: 0.35rem;
+    max-width: 100%;
+  }
+
+  .tab-bar--fill {
+    width: 100%;
+  }
+
+  .tab-bar--fit {
+    width: max-content;
   }
 
   .tab-bar--default {
@@ -139,8 +154,6 @@
   }
 
   .tab-bar--jiggle {
-    width: max-content;
-    min-width: 100%;
     padding: 0.28rem;
     border: 1px solid rgba(148, 163, 184, 0.2);
     border-radius: 1rem;
@@ -150,6 +163,10 @@
     /*box-shadow:
       0 8px 18px rgba(15, 23, 42, 0.06),
       inset 0 1px 0 rgba(255, 255, 255, 0.92);*/
+  }
+
+  .tab-bar--jiggle.tab-bar--fill {
+    min-width: 100%;
   }
 
   .tab-slider {
@@ -214,6 +231,22 @@
     color: #667085;
   }
 
+  .tab-bar--compact {
+    gap: 0.25rem;
+  }
+
+  .tab-bar--jiggle.tab-bar--compact {
+    padding: 0.2rem;
+    border-radius: 0.9rem;
+  }
+
+  .tab-button--jiggle.tab-button--compact {
+    min-height: 2.3rem;
+    padding: 0.48rem 0.7rem;
+    border-radius: 0.9rem;
+    font-size: 0.76rem;
+  }
+
   .tab-button--jiggle:hover {
     color: #475467;
     transform: translateY(-1px);
@@ -267,6 +300,12 @@
       min-height: 2.5rem;
       padding: 0.55rem 0.78rem;
       font-size: 0.79rem;
+    }
+
+    .tab-button--jiggle.tab-button--compact {
+      min-height: 2.15rem;
+      padding: 0.42rem 0.62rem;
+      font-size: 0.72rem;
     }
 
     .tab-slider {

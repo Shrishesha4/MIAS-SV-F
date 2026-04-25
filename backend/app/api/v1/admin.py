@@ -1,6 +1,7 @@
 """Admin panel API – dashboard, user management, departments, analytics."""
 
 import uuid
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import Literal, Optional
 
@@ -40,7 +41,12 @@ from app.models.programme import Programme
 from app.models.student import Clinic, Student
 from app.models.user import User, UserRole
 from app.models.vital import Vital, VitalParameter
-from app.services.academics import get_student_academic_progress
+from app.services.academics import (
+    get_student_academic_progress,
+    list_case_record_forms,
+    list_student_approved_case_records,
+    match_form_definition_for_record,
+)
 from app.services.charge_sync import sync_charge_price_categories
 from app.services.id_generator import generate_patient_id as _async_generate_patient_id
 from app.services.patient_categories import (
@@ -229,6 +235,166 @@ class AcademicTargetUpsert(BaseModel):
 
 class AcademicWeightageUpsert(BaseModel):
     points: int = 0
+
+
+def _safe_iso(value) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+async def _load_academic_manager_context(
+    db: AsyncSession,
+    *,
+    programme_id: Optional[str] = None,
+    group_id: Optional[str] = None,
+    student_id: Optional[str] = None,
+    year: Optional[int] = None,
+    semester: Optional[int] = None,
+    search: Optional[str] = None,
+    from_date: Optional[date] = None,
+    to_date: Optional[date] = None,
+):
+    students_query = select(Student).options(
+        selectinload(Student.academic_group),
+        selectinload(Student.attendance),
+    )
+
+    if student_id:
+        students_query = students_query.where(Student.id == student_id)
+    if group_id:
+        students_query = students_query.where(Student.academic_group_id == group_id)
+    if programme_id:
+        programme = (
+            await db.execute(select(Programme).where(Programme.id == programme_id))
+        ).scalar_one_or_none()
+        if not programme:
+            raise HTTPException(status_code=404, detail="Programme not found")
+        students_query = students_query.where(Student.program == programme.name)
+    if year is not None:
+        students_query = students_query.where(Student.year == year)
+    if semester is not None:
+        students_query = students_query.where(Student.semester == semester)
+    if search:
+        pattern = f"%{search.strip()}%"
+        students_query = students_query.where(
+            or_(
+                Student.name.ilike(pattern),
+                Student.student_id.ilike(pattern),
+                Student.program.ilike(pattern),
+            )
+        )
+
+    students_query = students_query.order_by(Student.name.asc())
+    students = list((await db.execute(students_query)).scalars().all())
+    student_ids = [student.id for student in students]
+
+    groups_query = (
+        select(AcademicGroup)
+        .options(
+            selectinload(AcademicGroup.programme),
+            selectinload(AcademicGroup.students),
+            selectinload(AcademicGroup.targets).selectinload(
+                AcademicTarget.form_definition
+            ),
+        )
+        .order_by(AcademicGroup.name.asc())
+    )
+    if group_id:
+        groups_query = groups_query.where(AcademicGroup.id == group_id)
+    elif programme_id:
+        groups_query = groups_query.where(AcademicGroup.programme_id == programme_id)
+
+    groups = list((await db.execute(groups_query)).scalars().all())
+    group_ids = [group.id for group in groups]
+
+    programmes_query = select(Programme).order_by(Programme.name.asc())
+    if programme_id:
+        programmes_query = programmes_query.where(Programme.id == programme_id)
+    programmes = list((await db.execute(programmes_query)).scalars().all())
+
+    targets_query = (
+        select(AcademicTarget)
+        .options(
+            selectinload(AcademicTarget.group).selectinload(AcademicGroup.programme),
+            selectinload(AcademicTarget.form_definition),
+        )
+        .order_by(AcademicTarget.sort_order.asc(), AcademicTarget.metric_name.asc())
+    )
+    if group_ids:
+        targets_query = targets_query.where(AcademicTarget.group_id.in_(group_ids))
+    elif group_id:
+        targets_query = targets_query.where(AcademicTarget.group_id == group_id)
+    elif programme_id:
+        targets_query = targets_query.join(
+            AcademicGroup, AcademicGroup.id == AcademicTarget.group_id
+        ).where(AcademicGroup.programme_id == programme_id)
+
+    targets = list((await db.execute(targets_query)).scalars().all())
+
+    forms = await list_case_record_forms(db)
+
+    weightages_result = await db.execute(
+        select(AcademicFormWeightage).options(
+            selectinload(AcademicFormWeightage.form_definition)
+        )
+    )
+    weightages = list(weightages_result.scalars().all())
+    weightages_by_form_id = {item.form_definition_id: item for item in weightages}
+
+    approvals: list[Approval] = []
+    case_records: list[CaseRecord] = []
+    approved_records_by_student: dict[str, list[CaseRecord]] = defaultdict(list)
+
+    if student_ids:
+        approvals_query = (
+            select(Approval)
+            .options(
+                selectinload(Approval.student).selectinload(Student.academic_group),
+                selectinload(Approval.faculty),
+                selectinload(Approval.case_record),
+            )
+            .where(Approval.student_id.in_(student_ids))
+            .order_by(Approval.created_at.desc())
+        )
+        approvals = list((await db.execute(approvals_query)).scalars().all())
+
+        case_records_query = (
+            select(CaseRecord)
+            .options(
+                selectinload(CaseRecord.student), selectinload(CaseRecord.approval)
+            )
+            .where(CaseRecord.student_id.in_(student_ids))
+            .order_by(CaseRecord.created_at.desc())
+        )
+        if from_date:
+            case_records_query = case_records_query.where(
+                CaseRecord.created_at
+                >= datetime.combine(from_date, datetime.min.time())
+            )
+        if to_date:
+            case_records_query = case_records_query.where(
+                CaseRecord.created_at
+                < datetime.combine(to_date + timedelta(days=1), datetime.min.time())
+            )
+        case_records = list((await db.execute(case_records_query)).scalars().all())
+
+        for student in students:
+            approved_records_by_student[
+                student.id
+            ] = await list_student_approved_case_records(db, student_id=student.id)
+
+    return {
+        "students": students,
+        "student_ids": student_ids,
+        "groups": groups,
+        "group_ids": group_ids,
+        "programmes": programmes,
+        "targets": targets,
+        "forms": forms,
+        "weightages_by_form_id": weightages_by_form_id,
+        "approvals": approvals,
+        "case_records": case_records,
+        "approved_records_by_student": approved_records_by_student,
+    }
 
 
 # ── Dashboard Overview ───────────────────────────────────────────────
@@ -540,7 +706,7 @@ class AdminCreateUserRequest(BaseModel):
     ward: Optional[str] = None
     shift: Optional[str] = None
 
-    # BILLING fields
+    # BILLING / ACCOUNTS fields
     counter_name: Optional[str] = None
 
 
@@ -811,7 +977,7 @@ async def admin_create_user(
             )
         )
     # ADMIN and RECEPTION roles: no extra profile record needed
-    elif role == UserRole.BILLING:
+    elif role in {UserRole.BILLING, UserRole.ACCOUNTS}:
         db.add(
             Billing(
                 id=str(uuid.uuid4()),
@@ -1393,7 +1559,7 @@ async def list_faculty(
 async def list_students(
     year: Optional[int] = None,
     program: Optional[str] = None,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     """List all students."""
@@ -1428,7 +1594,7 @@ async def list_students(
 
 @router.get("/programmes")
 async def list_programmes(
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     """List all programmes."""
@@ -1459,7 +1625,7 @@ async def list_programmes(
 @router.post("/programmes", status_code=201)
 async def create_programme(
     body: dict,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new programme."""
@@ -1503,7 +1669,7 @@ async def create_programme(
 async def update_programme(
     prog_id: str,
     body: dict,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     """Update a programme."""
@@ -1540,7 +1706,7 @@ async def update_programme(
 @router.delete("/programmes/{prog_id}")
 async def delete_programme(
     prog_id: str,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     """Soft-delete (deactivate) a programme."""
@@ -1556,7 +1722,7 @@ async def delete_programme(
 
 @router.get("/programmes/academics/overview")
 async def get_academics_overview(
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     programmes_result = await db.execute(
@@ -1664,7 +1830,7 @@ async def get_academics_overview(
 @router.get("/programmes/academic-groups")
 async def list_academic_groups(
     programme_id: Optional[str] = None,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     query = (
@@ -1686,7 +1852,7 @@ async def list_academic_groups(
 @router.post("/programmes/academic-groups", status_code=201)
 async def create_academic_group(
     payload: AcademicGroupUpsert,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     programme = (
@@ -1755,7 +1921,7 @@ async def create_academic_group(
 async def update_academic_group(
     group_id: str,
     payload: AcademicGroupUpsert,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -1838,7 +2004,7 @@ async def update_academic_group(
 @router.delete("/programmes/academic-groups/{group_id}")
 async def delete_academic_group(
     group_id: str,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
@@ -1861,7 +2027,7 @@ async def delete_academic_group(
 @router.get("/programmes/academic-targets")
 async def list_academic_targets(
     group_id: Optional[str] = None,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     query = (
@@ -1882,7 +2048,7 @@ async def list_academic_targets(
 @router.post("/programmes/academic-targets", status_code=201)
 async def create_academic_target(
     payload: AcademicTargetUpsert,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     group = (
@@ -1936,7 +2102,7 @@ async def create_academic_target(
 async def update_academic_target(
     target_id: str,
     payload: AcademicTargetUpsert,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     target = (
@@ -1991,7 +2157,7 @@ async def update_academic_target(
 @router.delete("/programmes/academic-targets/{target_id}")
 async def delete_academic_target(
     target_id: str,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     target = (
@@ -2007,7 +2173,7 @@ async def delete_academic_target(
 
 @router.get("/programmes/academic-weightages")
 async def list_academic_weightages(
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     forms_result = await db.execute(
@@ -2042,7 +2208,7 @@ async def list_academic_weightages(
 async def upsert_academic_weightage(
     form_definition_id: str,
     payload: AcademicWeightageUpsert,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     form_definition = (
@@ -2084,15 +2250,656 @@ async def upsert_academic_weightage(
 
 
 @router.get("/programmes/students/{student_id}/academic-progress")
-async def get_programme_student_academic_progress(
+async def get_student_academic_progress_endpoint(
     student_id: str,
-    user: User = Depends(require_role(UserRole.ADMIN)),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
     db: AsyncSession = Depends(get_db),
 ):
     progress = await get_student_academic_progress(db, student_id=student_id)
     if not progress:
         raise HTTPException(status_code=404, detail="Student not found")
     return progress
+
+
+@router.get("/programmes/academic-groups/{group_id}/summary")
+async def get_academic_group_summary(
+    group_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    context = await _load_academic_manager_context(db, group_id=group_id)
+    groups = context["groups"]
+    if not groups:
+        raise HTTPException(status_code=404, detail="Academic group not found")
+
+    group = groups[0]
+    students = [
+        student
+        for student in context["students"]
+        if student.academic_group_id == group.id
+    ]
+    student_ids = {student.id for student in students}
+    approvals = [
+        approval
+        for approval in context["approvals"]
+        if approval.student_id in student_ids
+    ]
+
+    standing_breakdown: dict[str, int] = defaultdict(int)
+    approved_case_records = 0
+    pending_approvals = 0
+    attendance_values: list[float] = []
+
+    for student in students:
+        standing_breakdown[student.academic_standing or "Unknown"] += 1
+        approved_case_records += len(
+            context["approved_records_by_student"].get(student.id, [])
+        )
+        if student.attendance and student.attendance.overall is not None:
+            attendance_values.append(float(student.attendance.overall))
+
+    for approval in approvals:
+        if approval.status == ApprovalStatus.PENDING:
+            pending_approvals += 1
+
+    avg_gpa = (
+        round(sum(float(student.gpa or 0) for student in students) / len(students), 2)
+        if students
+        else 0.0
+    )
+    avg_attendance = (
+        round(sum(attendance_values) / len(attendance_values), 2)
+        if attendance_values
+        else 0.0
+    )
+
+    return {
+        "group": _serialize_academic_group(group),
+        "students": [
+            {
+                "id": student.id,
+                "student_id": student.student_id,
+                "name": student.name,
+                "year": student.year,
+                "semester": student.semester,
+                "program": student.program,
+                "gpa": student.gpa,
+                "academic_standing": student.academic_standing,
+                "attendance_overall": float(student.attendance.overall)
+                if student.attendance and student.attendance.overall is not None
+                else None,
+            }
+            for student in students
+        ],
+        "targets": [
+            _serialize_academic_target(target)
+            for target in sorted(
+                group.targets or [],
+                key=lambda item: (item.sort_order, item.metric_name),
+            )
+        ],
+        "summary": {
+            "student_count": len(students),
+            "target_count": len(list(group.targets or [])),
+            "avg_gpa": avg_gpa,
+            "standing_breakdown": dict(standing_breakdown),
+            "approved_case_records": approved_case_records,
+            "pending_approvals": pending_approvals,
+            "avg_attendance_overall": avg_attendance,
+        },
+    }
+
+
+@router.get("/programmes/academic-performance")
+async def get_academic_performance(
+    programme_id: Optional[str] = Query(None),
+    group_id: Optional[str] = Query(None),
+    year: Optional[int] = Query(None),
+    semester: Optional[int] = Query(None),
+    search: Optional[str] = Query(None),
+    sort_by: str = Query("progress"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    context = await _load_academic_manager_context(
+        db,
+        programme_id=programme_id,
+        group_id=group_id,
+        year=year,
+        semester=semester,
+        search=search,
+    )
+
+    items = []
+    for student in context["students"]:
+        progress = await get_student_academic_progress(db, student_id=student.id)
+        summary = progress["summary"] if progress else {}
+        approvals = [
+            approval
+            for approval in context["approvals"]
+            if approval.student_id == student.id
+        ]
+        approved_scores = [
+            int(approval.score)
+            for approval in approvals
+            if approval.status == ApprovalStatus.APPROVED and approval.score is not None
+        ]
+        pending_case_records = sum(
+            1 for approval in approvals if approval.status == ApprovalStatus.PENDING
+        )
+
+        items.append(
+            {
+                "student_id": student.id,
+                "student_name": student.name,
+                "student_code": student.student_id,
+                "programme": student.program,
+                "group_id": student.academic_group_id,
+                "group_name": student.academic_group.name
+                if student.academic_group
+                else None,
+                "year": student.year,
+                "semester": student.semester,
+                "gpa": float(student.gpa or 0),
+                "attendance_overall": float(student.attendance.overall)
+                if student.attendance and student.attendance.overall is not None
+                else 0.0,
+                "approved_case_records": int(summary.get("approved_case_records", 0)),
+                "pending_case_records": pending_case_records,
+                "completed_targets": int(summary.get("completed_targets", 0)),
+                "total_targets": int(summary.get("total_targets", 0)),
+                "overall_percent": float(summary.get("overall_percent", 0)),
+                "total_earned_points": int(summary.get("total_earned_points", 0)),
+                "avg_approval_score": round(
+                    sum(approved_scores) / len(approved_scores), 2
+                )
+                if approved_scores
+                else 0.0,
+                "academic_standing": student.academic_standing,
+            }
+        )
+
+    sort_map = {
+        "progress": lambda item: item["overall_percent"],
+        "points": lambda item: item["total_earned_points"],
+        "approved_records": lambda item: item["approved_case_records"],
+        "gpa": lambda item: item["gpa"],
+        "attendance": lambda item: item["attendance_overall"],
+    }
+    items.sort(key=sort_map.get(sort_by, sort_map["progress"]), reverse=True)
+
+    total = len(items)
+    start = (page - 1) * limit
+    paged_items = items[start : start + limit]
+
+    return {
+        "items": paged_items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "summary": {
+            "student_count": total,
+            "avg_overall_percent": round(
+                sum(item["overall_percent"] for item in items) / total, 2
+            )
+            if total
+            else 0.0,
+            "avg_gpa": round(sum(item["gpa"] for item in items) / total, 2)
+            if total
+            else 0.0,
+            "avg_attendance_overall": round(
+                sum(item["attendance_overall"] for item in items) / total, 2
+            )
+            if total
+            else 0.0,
+            "total_approved_case_records": sum(
+                item["approved_case_records"] for item in items
+            ),
+        },
+    }
+
+
+@router.get("/programmes/academic-feedback")
+async def get_academic_feedback(
+    programme_id: Optional[str] = Query(None),
+    group_id: Optional[str] = Query(None),
+    student_id: Optional[str] = Query(None),
+    status_filter: Optional[str] = Query(None, alias="status"),
+    department: Optional[str] = Query(None),
+    has_comments: bool = Query(True),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    context = await _load_academic_manager_context(
+        db,
+        programme_id=programme_id,
+        group_id=group_id,
+        student_id=student_id,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+    items = []
+    department_breakdown: dict[str, int] = defaultdict(int)
+    score_values: list[int] = []
+
+    for approval in context["approvals"]:
+        if status_filter:
+            try:
+                expected_status = ApprovalStatus(status_filter.upper())
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid approval status")
+            if approval.status != expected_status:
+                continue
+
+        case_record = approval.case_record
+        if not case_record:
+            continue
+        if department and (case_record.department or "") != department:
+            continue
+        if has_comments and not (approval.comments or "").strip():
+            continue
+        if from_date and approval.created_at and approval.created_at.date() < from_date:
+            continue
+        if to_date and approval.created_at and approval.created_at.date() > to_date:
+            continue
+
+        student = approval.student
+        group = student.academic_group if student else None
+        faculty = approval.faculty
+
+        items.append(
+            {
+                "approval_id": approval.id,
+                "student_id": student.id if student else None,
+                "student_name": student.name if student else None,
+                "group_id": group.id if group else None,
+                "group_name": group.name if group else None,
+                "case_record_id": case_record.id,
+                "form_name": case_record.form_name,
+                "department": case_record.department,
+                "procedure_name": case_record.procedure_name,
+                "status": approval.status.value,
+                "score": approval.score,
+                "grade": case_record.grade,
+                "comments": approval.comments,
+                "faculty_id": faculty.id if faculty else None,
+                "faculty_name": faculty.name if faculty else None,
+                "created_at": _safe_iso(approval.created_at),
+                "processed_at": _safe_iso(approval.processed_at),
+            }
+        )
+
+        department_breakdown[case_record.department or "General"] += 1
+        if approval.score is not None:
+            score_values.append(int(approval.score))
+
+    items.sort(
+        key=lambda item: item["processed_at"] or item["created_at"] or "",
+        reverse=True,
+    )
+
+    total = len(items)
+    start = (page - 1) * limit
+    paged_items = items[start : start + limit]
+
+    return {
+        "items": paged_items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "summary": {
+            "total_feedback_items": total,
+            "approved_with_comments": sum(
+                1 for item in items if item["status"] == ApprovalStatus.APPROVED.value
+            ),
+            "rejected_with_comments": sum(
+                1 for item in items if item["status"] == ApprovalStatus.REJECTED.value
+            ),
+            "avg_score": round(sum(score_values) / len(score_values), 2)
+            if score_values
+            else 0.0,
+            "department_breakdown": dict(department_breakdown),
+        },
+    }
+
+
+@router.get("/programmes/academic-activity")
+async def get_academic_activity(
+    programme_id: Optional[str] = Query(None),
+    group_id: Optional[str] = Query(None),
+    student_id: Optional[str] = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    granularity: str = Query("day"),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    context = await _load_academic_manager_context(
+        db,
+        programme_id=programme_id,
+        group_id=group_id,
+        student_id=student_id,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+    timeline: dict[str, dict] = {}
+    recent_activity: list[dict] = []
+
+    def bucket_for(dt: datetime) -> str:
+        if granularity == "month":
+            return dt.strftime("%Y-%m")
+        if granularity == "week":
+            iso_year, iso_week, _ = dt.isocalendar()
+            return f"{iso_year}-W{iso_week:02d}"
+        return dt.strftime("%Y-%m-%d")
+
+    for record in context["case_records"]:
+        if not record.created_at:
+            continue
+        bucket = bucket_for(record.created_at)
+        timeline.setdefault(
+            bucket,
+            {
+                "period": bucket,
+                "case_records_created": 0,
+                "approvals_processed": 0,
+                "approved_count": 0,
+                "rejected_count": 0,
+                "earned_points": 0,
+            },
+        )
+        timeline[bucket]["case_records_created"] += 1
+
+        student = record.student
+        group = student.academic_group if student else None
+        recent_activity.append(
+            {
+                "type": "CASE_RECORD_SUBMITTED",
+                "student_id": student.id if student else None,
+                "student_name": student.name if student else None,
+                "group_name": group.name if group else None,
+                "case_record_id": record.id,
+                "form_name": record.form_name,
+                "department": record.department,
+                "procedure_name": record.procedure_name,
+                "score": None,
+                "comments": None,
+                "timestamp": _safe_iso(record.created_at),
+            }
+        )
+
+    for approval in context["approvals"]:
+        if not approval.processed_at:
+            continue
+        bucket = bucket_for(approval.processed_at)
+        timeline.setdefault(
+            bucket,
+            {
+                "period": bucket,
+                "case_records_created": 0,
+                "approvals_processed": 0,
+                "approved_count": 0,
+                "rejected_count": 0,
+                "earned_points": 0,
+            },
+        )
+        timeline[bucket]["approvals_processed"] += 1
+
+        case_record = approval.case_record
+        student = approval.student
+        group = student.academic_group if student else None
+
+        if approval.status == ApprovalStatus.APPROVED:
+            timeline[bucket]["approved_count"] += 1
+            matched_form = (
+                match_form_definition_for_record(case_record, context["forms"])
+                if case_record
+                else None
+            )
+            if matched_form:
+                weightage = context["weightages_by_form_id"].get(matched_form.id)
+                if weightage:
+                    timeline[bucket]["earned_points"] += int(weightage.points or 0)
+        elif approval.status == ApprovalStatus.REJECTED:
+            timeline[bucket]["rejected_count"] += 1
+
+        recent_activity.append(
+            {
+                "type": (
+                    "CASE_RECORD_APPROVED"
+                    if approval.status == ApprovalStatus.APPROVED
+                    else "CASE_RECORD_REJECTED"
+                    if approval.status == ApprovalStatus.REJECTED
+                    else "CASE_RECORD_PENDING"
+                ),
+                "student_id": student.id if student else None,
+                "student_name": student.name if student else None,
+                "group_name": group.name if group else None,
+                "case_record_id": case_record.id if case_record else None,
+                "form_name": case_record.form_name if case_record else None,
+                "department": case_record.department if case_record else None,
+                "procedure_name": case_record.procedure_name if case_record else None,
+                "score": approval.score,
+                "comments": approval.comments,
+                "timestamp": _safe_iso(approval.processed_at),
+            }
+        )
+
+    timeline_items = sorted(timeline.values(), key=lambda item: item["period"])
+    recent_activity.sort(key=lambda item: item["timestamp"] or "", reverse=True)
+
+    return {
+        "timeline": timeline_items,
+        "recent_activity": recent_activity[:50],
+        "summary": {
+            "case_records_created": sum(
+                item["case_records_created"] for item in timeline_items
+            ),
+            "approvals_processed": sum(
+                item["approvals_processed"] for item in timeline_items
+            ),
+            "approved_count": sum(item["approved_count"] for item in timeline_items),
+            "rejected_count": sum(item["rejected_count"] for item in timeline_items),
+            "earned_points": sum(item["earned_points"] for item in timeline_items),
+        },
+    }
+
+
+@router.get("/programmes/academic-analytics")
+async def get_academic_analytics(
+    programme_id: Optional[str] = Query(None),
+    group_id: Optional[str] = Query(None),
+    year: Optional[int] = Query(None),
+    semester: Optional[int] = Query(None),
+    from_date: Optional[date] = Query(None),
+    to_date: Optional[date] = Query(None),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    context = await _load_academic_manager_context(
+        db,
+        programme_id=programme_id,
+        group_id=group_id,
+        year=year,
+        semester=semester,
+        from_date=from_date,
+        to_date=to_date,
+    )
+
+    student_count = len(context["students"])
+    group_count = len(context["groups"])
+    avg_gpa = (
+        round(
+            sum(float(student.gpa or 0) for student in context["students"])
+            / student_count,
+            2,
+        )
+        if student_count
+        else 0.0
+    )
+
+    attendance_values = [
+        float(student.attendance.overall)
+        for student in context["students"]
+        if student.attendance and student.attendance.overall is not None
+    ]
+    avg_attendance = (
+        round(sum(attendance_values) / len(attendance_values), 2)
+        if attendance_values
+        else 0.0
+    )
+
+    approved_case_records = 0
+    pending_approvals = 0
+    total_earned_points = 0
+    progress_values: list[float] = []
+    department_distribution: dict[str, int] = defaultdict(int)
+    form_distribution: dict[str, dict] = defaultdict(
+        lambda: {"approved_count": 0, "earned_points": 0}
+    )
+    score_distribution: dict[str, int] = defaultdict(int)
+    group_comparison: dict[str, dict] = {}
+    target_completion: list[dict] = []
+
+    for student in context["students"]:
+        progress = await get_student_academic_progress(db, student_id=student.id)
+        if progress:
+            summary = progress["summary"]
+            approved_case_records += int(summary.get("approved_case_records", 0))
+            total_earned_points += int(summary.get("total_earned_points", 0))
+            progress_values.append(float(summary.get("overall_percent", 0)))
+
+            group = student.academic_group
+            if group:
+                group_comparison.setdefault(
+                    group.id,
+                    {
+                        "group_id": group.id,
+                        "group_name": group.name,
+                        "student_count": 0,
+                        "avg_progress_percent_total": 0.0,
+                        "avg_gpa_total": 0.0,
+                        "approved_case_records": 0,
+                        "total_earned_points": 0,
+                    },
+                )
+                group_comparison[group.id]["student_count"] += 1
+                group_comparison[group.id]["avg_progress_percent_total"] += float(
+                    summary.get("overall_percent", 0)
+                )
+                group_comparison[group.id]["avg_gpa_total"] += float(student.gpa or 0)
+                group_comparison[group.id]["approved_case_records"] += int(
+                    summary.get("approved_case_records", 0)
+                )
+                group_comparison[group.id]["total_earned_points"] += int(
+                    summary.get("total_earned_points", 0)
+                )
+
+            for target in progress.get("targets", []):
+                target_completion.append(
+                    {
+                        "target_id": target.get("id"),
+                        "metric_name": target.get("metric_name"),
+                        "group_id": group.id if group else None,
+                        "group_name": group.name if group else None,
+                        "target_value_total": target.get("target_value", 0),
+                        "completed_value_total": target.get("completed_value", 0),
+                        "completion_percent": target.get("percent", 0),
+                    }
+                )
+
+    for approval in context["approvals"]:
+        if approval.status == ApprovalStatus.PENDING:
+            pending_approvals += 1
+        if approval.score is not None:
+            score = int(approval.score)
+            if score <= 2:
+                score_distribution["0-2"] += 1
+            elif score <= 4:
+                score_distribution["3-4"] += 1
+            elif score <= 6:
+                score_distribution["5-6"] += 1
+            elif score <= 8:
+                score_distribution["7-8"] += 1
+            else:
+                score_distribution["9-10"] += 1
+
+    for record in context["case_records"]:
+        if not record.approval or record.approval.status != ApprovalStatus.APPROVED:
+            continue
+        department_distribution[record.department or "General"] += 1
+        matched_form = match_form_definition_for_record(record, context["forms"])
+        form_key = (
+            matched_form.name if matched_form else (record.form_name or "Unknown Form")
+        )
+        form_distribution[form_key]["approved_count"] += 1
+        if matched_form:
+            weightage = context["weightages_by_form_id"].get(matched_form.id)
+            if weightage:
+                form_distribution[form_key]["earned_points"] += int(
+                    weightage.points or 0
+                )
+
+    group_comparison_items = []
+    for item in group_comparison.values():
+        count = item["student_count"] or 1
+        group_comparison_items.append(
+            {
+                "group_id": item["group_id"],
+                "group_name": item["group_name"],
+                "student_count": item["student_count"],
+                "avg_progress_percent": round(
+                    item["avg_progress_percent_total"] / count, 2
+                ),
+                "avg_gpa": round(item["avg_gpa_total"] / count, 2),
+                "approved_case_records": item["approved_case_records"],
+                "total_earned_points": item["total_earned_points"],
+            }
+        )
+
+    return {
+        "overview": {
+            "student_count": student_count,
+            "group_count": group_count,
+            "approved_case_records": approved_case_records,
+            "pending_approvals": pending_approvals,
+            "avg_gpa": avg_gpa,
+            "avg_attendance_overall": avg_attendance,
+            "avg_overall_progress_percent": round(
+                sum(progress_values) / len(progress_values), 2
+            )
+            if progress_values
+            else 0.0,
+            "total_earned_points": total_earned_points,
+        },
+        "target_completion": target_completion,
+        "department_distribution": [
+            {"department": key, "approved_count": value}
+            for key, value in sorted(department_distribution.items())
+        ],
+        "form_distribution": [
+            {
+                "form_name": key,
+                "approved_count": value["approved_count"],
+                "earned_points": value["earned_points"],
+            }
+            for key, value in sorted(form_distribution.items())
+        ],
+        "score_distribution": dict(score_distribution),
+        "group_comparison": sorted(
+            group_comparison_items,
+            key=lambda item: item["avg_progress_percent"],
+            reverse=True,
+        ),
+    }
 
 
 # ── System info ──────────────────────────────────────────────────────

@@ -23,10 +23,16 @@
 			authStore.setTokens(result.access_token, result.user_id, result.role);
 			if (result.role === 'STUDENT') {
 				goto('/patients');
+			} else if (result.role === 'ACADEMIC_MANAGER') {
+				goto('/academic-manager');
 			} else if (result.role === 'NUTRITIONIST') {
 				goto('/nutritionist');
 			} else if (result.role === 'PHARMACY') {
 				goto('/pharmacy');
+			} else if (result.role === 'BILLING') {
+				goto('/billing/cashier');
+			} else if (result.role === 'ACCOUNTS') {
+				goto('/billing/accounts');
 			} else {
 				goto('/dashboard');
 			}
@@ -216,7 +222,7 @@
 		</div>
 
 		<p class="text-center text-slate-600 text-[11px] mt-4">
-			Need help? Contact hospital support at 
+			Need help? Contact hospital support at
 		</p>
 		<p class="text-center text-slate-600 text-[11px] pb-2">
 			<a href="mailto:support@saveethamedical.com" class="text-blue-600 hover:underline">support@saveethamedical.com</a>

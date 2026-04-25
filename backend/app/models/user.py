@@ -1,7 +1,9 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Enum as SQLEnum, ForeignKey
-from sqlalchemy.orm import relationship
-from datetime import datetime
 import enum
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.orm import relationship
 
 from app.database import Base
 
@@ -10,6 +12,7 @@ class UserRole(str, enum.Enum):
     PATIENT = "PATIENT"
     STUDENT = "STUDENT"
     FACULTY = "FACULTY"
+    ACADEMIC_MANAGER = "ACADEMIC_MANAGER"
     NUTRITIONIST = "NUTRITIONIST"
     LAB_TECHNICIAN = "LAB_TECHNICIAN"
     ADMIN = "ADMIN"
@@ -17,6 +20,7 @@ class UserRole(str, enum.Enum):
     NURSE = "NURSE"
     NURSE_SUPERINTENDENT = "NURSE_SUPERINTENDENT"
     BILLING = "BILLING"
+    ACCOUNTS = "ACCOUNTS"
     OT_MANAGER = "OT_MANAGER"
     MRD = "MRD"
     PHARMACY = "PHARMACY"
@@ -48,7 +52,9 @@ class User(Base):
     nurse = relationship("Nurse", back_populates="user", uselist=False)
     billing = relationship("Billing", back_populates="user", uselist=False)
     ot_manager = relationship("OTManager", back_populates="user", uselist=False)
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class RefreshToken(Base):

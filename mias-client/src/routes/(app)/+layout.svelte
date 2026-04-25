@@ -61,6 +61,7 @@
 	const currentPath = $derived(page.url.pathname);
 	const pageTransitionKey = $derived.by(() => {
 		if (currentPath.startsWith('/admin')) return '/admin';
+		if (currentPath.startsWith('/academic-manager')) return '/academic-manager';
 		if (currentPath.startsWith('/billing')) return '/billing';
 		if (currentPath.startsWith('/ot-manager')) return '/ot-manager';
 		if (/^\/patients\/[^/]+\/radiology\/[^/]+$/.test(currentPath)) {
@@ -143,7 +144,7 @@
 	}
 
 	async function loadAttendanceStatus() {
-		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'NUTRITIONIST' || authState.role === 'LAB_TECHNICIAN' || authState.role === 'PHARMACY') {
+		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'ACADEMIC_MANAGER' || authState.role === 'NUTRITIONIST' || authState.role === 'LAB_TECHNICIAN' || authState.role === 'PHARMACY') {
 			attendanceStatus = null;
 			attendanceClinicId = null;
 			return;
@@ -260,6 +261,13 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/admin/clinics');
 				}
+			} else if (a.role === 'ACADEMIC_MANAGER') {
+				userName = 'Academic Manager';
+				userIdDisplay = 'ACADEMIC_MANAGER';
+				notificationCountStore.set(0);
+				if (window.location.pathname === '/dashboard') {
+					goto('/academic-manager');
+				}
 			} else if (a.role === 'RECEPTION') {
 				userName = 'Reception';
 				userIdDisplay = 'RECEPTION';
@@ -267,18 +275,21 @@
 				if (window.location.pathname === '/dashboard') {
 					goto('/reception');
 				}
-			} else if (a.role === 'BILLING') {
+			} else if (a.role === 'BILLING' || a.role === 'ACCOUNTS') {
 				try {
 					const billing = await billingApi.getMe();
 					userName = billing.name;
-					userIdDisplay = billing.counter_name || billing.billing_id;
+					userIdDisplay =
+						a.role === 'ACCOUNTS'
+							? billing.counter_name || billing.billing_id || 'ACCOUNTS'
+							: billing.counter_name || billing.billing_id;
 				} catch {
-					userName = 'Billing';
-					userIdDisplay = 'BILLING';
+					userName = a.role === 'ACCOUNTS' ? 'Accounts' : 'Billing';
+					userIdDisplay = a.role === 'ACCOUNTS' ? 'ACCOUNTS' : 'BILLING';
 				}
 				notificationCountStore.set(0);
 				if (window.location.pathname === '/dashboard') {
-					goto('/billing');
+					goto(a.role === 'ACCOUNTS' ? '/billing/accounts' : '/billing/cashier');
 				}
 			} else if (a.role === 'PHARMACY') {
 				userName = 'Pharmacy';
@@ -417,7 +428,7 @@
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
 	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
-			showBack={!(['/dashboard', '/admin', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs', '/nutritionist', '/nurse-superintendent'] as string[]).includes(currentPath as string)}
+			showBack={!(['/dashboard', '/admin', '/academic-manager', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs', '/nutritionist', '/nurse-superintendent'] as string[]).includes(currentPath as string)}
 			notificationCount={unreadNotifications}
 			academicBadge={authState.role === 'STUDENT' ? studentAcademicBadge : null}
 			onmenuclick={() => sideMenuOpen = true}

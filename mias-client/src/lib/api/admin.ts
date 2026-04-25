@@ -222,6 +222,206 @@ export interface StudentAcademicProgress {
   weightages: StudentAcademicProgressWeightages;
 }
 
+export interface AcademicManagerGroupStudent {
+  id: string;
+  student_id: string;
+  name: string;
+  year: number;
+  semester: number;
+  program: string;
+  gpa: number;
+  academic_standing: string;
+  attendance_overall: number | null;
+  approved_case_records: number;
+  pending_approvals: number;
+  overall_percent: number;
+  total_earned_points: number;
+  total_possible_points: number;
+}
+
+export interface AcademicManagerGroupSummary {
+  student_count: number;
+  target_count: number;
+  avg_gpa: number;
+  avg_attendance_overall: number;
+  approved_case_records: number;
+  pending_approvals: number;
+  standing_breakdown: Record<string, number>;
+}
+
+export interface AcademicManagerGroupDetail {
+  group: AcademicGroup;
+  students: AcademicManagerGroupStudent[];
+  targets: AcademicTarget[];
+  summary: AcademicManagerGroupSummary;
+}
+
+export interface AcademicManagerPerformanceItem {
+  student_id: string;
+  student_name: string;
+  programme: string;
+  group_id: string | null;
+  group_name: string | null;
+  year: number;
+  semester: number;
+  gpa: number;
+  attendance_overall: number | null;
+  approved_case_records: number;
+  pending_case_records: number;
+  completed_targets: number;
+  total_targets: number;
+  overall_percent: number;
+  total_earned_points: number;
+  avg_approval_score: number | null;
+}
+
+export interface AcademicManagerPerformanceSummary {
+  student_count: number;
+  avg_overall_percent: number;
+  avg_gpa: number;
+  avg_attendance_overall: number;
+  total_approved_case_records: number;
+}
+
+export interface AcademicManagerPerformanceResponse {
+  items: AcademicManagerPerformanceItem[];
+  total: number;
+  page: number;
+  limit: number;
+  summary: AcademicManagerPerformanceSummary;
+}
+
+export interface AcademicManagerFeedbackItem {
+  approval_id: string;
+  student_id: string | null;
+  student_name: string | null;
+  group_id: string | null;
+  group_name: string | null;
+  case_record_id: string | null;
+  form_name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  status: string;
+  score: number | null;
+  grade: string | null;
+  comments: string | null;
+  faculty_id: string | null;
+  faculty_name: string | null;
+  created_at: string | null;
+  processed_at: string | null;
+}
+
+export interface AcademicManagerFeedbackSummary {
+  total_feedback_items: number;
+  approved_with_comments: number;
+  rejected_with_comments: number;
+  avg_score: number | null;
+  department_breakdown: Record<string, number>;
+}
+
+export interface AcademicManagerFeedbackResponse {
+  items: AcademicManagerFeedbackItem[];
+  total: number;
+  page: number;
+  limit: number;
+  summary: AcademicManagerFeedbackSummary;
+}
+
+export interface AcademicManagerActivityTimelineItem {
+  period: string;
+  case_records_created: number;
+  approvals_processed: number;
+  approved_count: number;
+  rejected_count: number;
+  earned_points: number;
+}
+
+export interface AcademicManagerRecentActivityItem {
+  type: 'CASE_RECORD_SUBMITTED' | 'CASE_RECORD_APPROVED' | 'CASE_RECORD_REJECTED';
+  student_id: string | null;
+  student_name: string | null;
+  group_name: string | null;
+  case_record_id: string;
+  form_name: string | null;
+  department: string | null;
+  procedure_name: string | null;
+  score: number | null;
+  comments: string | null;
+  timestamp: string | null;
+}
+
+export interface AcademicManagerActivitySummary {
+  total_case_records_created: number;
+  total_approvals_processed: number;
+  total_approved: number;
+  total_rejected: number;
+  total_earned_points: number;
+}
+
+export interface AcademicManagerActivityResponse {
+  timeline: AcademicManagerActivityTimelineItem[];
+  recent_activity: AcademicManagerRecentActivityItem[];
+  summary: AcademicManagerActivitySummary;
+}
+
+export interface AcademicManagerTargetCompletionItem {
+  target_id: string | null;
+  metric_name: string;
+  group_id: string | null;
+  group_name: string | null;
+  target_value_total: number;
+  completed_value_total: number;
+  completion_percent: number;
+}
+
+export interface AcademicManagerDepartmentDistributionItem {
+  department: string;
+  approved_count: number;
+  earned_points: number;
+}
+
+export interface AcademicManagerFormDistributionItem {
+  form_definition_id: string | null;
+  form_name: string;
+  approved_count: number;
+  earned_points: number;
+}
+
+export interface AcademicManagerScoreDistributionItem {
+  bucket: string;
+  count: number;
+}
+
+export interface AcademicManagerGroupComparisonItem {
+  group_id: string | null;
+  group_name: string | null;
+  student_count: number;
+  avg_progress_percent: number;
+  avg_gpa: number;
+  approved_case_records: number;
+  total_earned_points: number;
+}
+
+export interface AcademicManagerAnalyticsOverview {
+  student_count: number;
+  group_count: number;
+  approved_case_records: number;
+  pending_approvals: number;
+  avg_gpa: number;
+  avg_attendance_overall: number;
+  avg_overall_progress_percent: number;
+  total_earned_points: number;
+}
+
+export interface AcademicManagerAnalyticsResponse {
+  overview: AcademicManagerAnalyticsOverview;
+  target_completion: AcademicManagerTargetCompletionItem[];
+  department_distribution: AcademicManagerDepartmentDistributionItem[];
+  form_distribution: AcademicManagerFormDistributionItem[];
+  score_distribution: AcademicManagerScoreDistributionItem[];
+  group_comparison: AcademicManagerGroupComparisonItem[];
+}
+
 export type AIProviderType = 'OPENAI' | 'ANTHROPIC' | 'GEMINI' | 'OPENAI_COMPATIBLE';
 
 export interface PatientCategoryConfig {
@@ -317,7 +517,22 @@ export interface AdminCreateUserPayload {
   username: string;
   email: string;
   password: string;
-  role: string;
+  role:
+    | 'PATIENT'
+    | 'STUDENT'
+    | 'FACULTY'
+    | 'ACADEMIC_MANAGER'
+    | 'ADMIN'
+    | 'RECEPTION'
+    | 'NURSE'
+    | 'NURSE_SUPERINTENDENT'
+    | 'NUTRITIONIST'
+    | 'LAB_TECHNICIAN'
+    | 'BILLING'
+    | 'ACCOUNTS'
+    | 'PHARMACY'
+    | 'OT_MANAGER'
+    | 'MRD';
   name?: string;
   photo?: string;
   date_of_birth?: string;
@@ -572,6 +787,65 @@ export const adminApi = {
 
   async getStudentAcademicProgress(studentId: string): Promise<StudentAcademicProgress> {
     const r = await client.get(`/admin/programmes/students/${studentId}/academic-progress`);
+    return r.data;
+  },
+
+  async getAcademicManagerGroupSummary(groupId: string): Promise<AcademicManagerGroupDetail> {
+    const r = await client.get(`/admin/programmes/academic-groups/${groupId}/summary`);
+    return r.data;
+  },
+
+  async getAcademicManagerPerformance(params?: {
+    programme_id?: string;
+    group_id?: string;
+    year?: number;
+    semester?: number;
+    search?: string;
+    sort_by?: 'progress' | 'points' | 'approved_records' | 'gpa' | 'attendance';
+    page?: number;
+    limit?: number;
+  }): Promise<AcademicManagerPerformanceResponse> {
+    const r = await client.get('/admin/programmes/academic-performance', { params });
+    return r.data;
+  },
+
+  async getAcademicManagerFeedback(params?: {
+    programme_id?: string;
+    group_id?: string;
+    student_id?: string;
+    status?: 'APPROVED' | 'REJECTED';
+    department?: string;
+    has_comments?: boolean;
+    from_date?: string;
+    to_date?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<AcademicManagerFeedbackResponse> {
+    const r = await client.get('/admin/programmes/academic-feedback', { params });
+    return r.data;
+  },
+
+  async getAcademicManagerActivity(params?: {
+    programme_id?: string;
+    group_id?: string;
+    student_id?: string;
+    from_date?: string;
+    to_date?: string;
+    granularity?: 'day' | 'week' | 'month';
+  }): Promise<AcademicManagerActivityResponse> {
+    const r = await client.get('/admin/programmes/academic-activity', { params });
+    return r.data;
+  },
+
+  async getAcademicManagerAnalytics(params?: {
+    programme_id?: string;
+    group_id?: string;
+    year?: number;
+    semester?: number;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<AcademicManagerAnalyticsResponse> {
+    const r = await client.get('/admin/programmes/academic-analytics', { params });
     return r.data;
   },
 

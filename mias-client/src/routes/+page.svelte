@@ -9,6 +9,8 @@
 		if (auth.isAuthenticated) {
 			if (auth.role === 'STUDENT') {
 				goto('/patients');
+			} else if (auth.role === 'ACADEMIC_MANAGER') {
+				goto('/academic-manager');
 			} else {
 				goto('/dashboard');
 			}

@@ -105,11 +105,6 @@
          border-bottom: 1px solid rgba(0,0,0,0.15);"
 >
   <div class="flex items-center gap-2 shrink-0">
-    {#if showBack}
-      <button class="text-white/90 cursor-pointer hover:text-white transition-colors" onclick={goBack}>
-        <ArrowLeft class="w-5 h-5" />
-      </button>
-    {/if}
     <div
       role="button"
       tabindex="0"

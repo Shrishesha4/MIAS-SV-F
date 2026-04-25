@@ -22,7 +22,7 @@
 	import type { BulkImportResponse } from '$lib/api/admin';
 
 	const auth = get(authStore);
-	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'NURSE_SUPERINTENDENT' | 'NUTRITIONIST' | 'LAB_TECHNICIAN' | 'BILLING' | 'PHARMACY' | 'OT_MANAGER' | 'MRD';
+	type CreateUserRole = 'PATIENT' | 'STUDENT' | 'FACULTY' | 'ACADEMIC_MANAGER' | 'ADMIN' | 'RECEPTION' | 'NURSE' | 'NURSE_SUPERINTENDENT' | 'NUTRITIONIST' | 'LAB_TECHNICIAN' | 'BILLING' | 'ACCOUNTS' | 'PHARMACY' | 'OT_MANAGER' | 'MRD';
 
 	type CreateUserFormData = {
 		username: string;
@@ -195,6 +195,7 @@
 			['NURSE', 'Jane Smith', 'jsmith', 'jane@example.com', 'Pass@1234', '', '', '', '9876543210', '', '', '', '', '', '', '', '', '', '', '', '', 'Cardiology', '', '', 'Main Hospital', 'Ward A', 'Morning', ''],
 			['NUTRITIONIST', 'Asha Menon', 'asha_nutri', 'asha@example.com', 'Pass@1234', '', '', '', '9123456789', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 'CLINIC_UUID'],
 			['PHARMACY', 'Asha Menon', 'asha_pharm', 'asha.pharmacy@example.com', 'Pass@1234', '', '', '', '9876501234', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
+			['ACADEMIC_MANAGER', 'Dr. Meera Iyer', 'meera_acad', 'meera.academics@example.com', 'Pass@1234', '', '', '', '9876505678', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', ''],
 			// ['PATIENT', 'Ravi Kumar', 'ravi_k', 'ravi@example.com', 'Pass@1234', '1995-06-15', 'MALE', 'O+', '9123456789', '12 MG Road', 'STAFF', '123456789012', '', 'Hypertension', '', '', '', '', '', '', '', '', '', '', '', '', ''],
 			['STUDENT', 'Priya Nair', 'priya_n', 'priya@example.com', 'Pass@1234', '', '', '', '', '', '', '', '', '', '2', '3', 'MBBS', 'Bachelor of Medicine', '7.8', 'Good Standing', 'Dr. Mehta', '', '', '', '', '', '', ''],
 			['FACULTY', 'Dr. Arjun Rao', 'arjun_r', 'arjun@example.com', 'Pass@1234', '', '', '', '9988776655', '', '', '', '', '', '', '', '', '', '', '', '', 'Neurology', 'Neurologist', 'Mon-Fri 9-5', '', '', '', ''],
@@ -456,7 +457,7 @@
 			payload.shift = normalizeOptionalString(newUserData.shift);
 		}
 
-		if (newUserRole === 'BILLING') {
+		if (newUserRole === 'BILLING' || newUserRole === 'ACCOUNTS') {
 			payload.phone = normalizeOptionalString(newUserData.phone);
 			(payload as any).counter_name = normalizeOptionalString(newUserData.counter_name);
 		}
@@ -492,9 +493,11 @@
 		{ id: 'NURSE_SUPERINTENDENT', label: 'Superintendents' },
 		{ id: 'RECEPTION', label: 'Reception' },
 		{ id: 'BILLING', label: 'Billing' },
+		{ id: 'ACCOUNTS', label: 'Accounts' },
 		{ id: 'PHARMACY', label: 'Pharmacy' },
 		{ id: 'OT_MANAGER', label: 'OT Manager' },
 		{ id: 'MRD', label: 'MRD' },
+		{ id: 'ACADEMIC_MANAGER', label: 'Academic Managers' },
 		{ id: 'ADMIN', label: 'Admins' },
 	];
 
@@ -510,9 +513,11 @@
 			NURSE: '#14b8a6',
 			NURSE_SUPERINTENDENT: '#0f766e',
 			BILLING: '#f97316',
+			ACCOUNTS: '#2563eb',
 			PHARMACY: '#10b981',
 			OT_MANAGER: '#0891b2',
 			MRD: '#6366f1',
+			ACADEMIC_MANAGER: '#2563eb',
 		};
 		return map[role] || '#6b7280';
 	}
@@ -692,9 +697,11 @@
 					<option value="LAB_TECHNICIAN">Lab Technician</option>
 					<option value="RECEPTION">Reception</option>
 					<option value="BILLING">Billing & Cashier</option>
+					<option value="ACCOUNTS">Accounts</option>
 					<option value="PHARMACY">Pharmacy</option>
 					<option value="OT_MANAGER">OT Manager</option>
 					<option value="MRD">MRD (Medical Records)</option>
+					<option value="ACADEMIC_MANAGER">Academic Manager</option>
 					<option value="STUDENT">Student</option>
 					<option value="FACULTY">Faculty</option>
 					<option value="ADMIN">Admin</option>
@@ -968,17 +975,26 @@
 				</div>
 			{/if}
 
-			{#if newUserRole === 'BILLING'}
+			{#if newUserRole === 'BILLING' || newUserRole === 'ACCOUNTS'}
 				<div class="space-y-3 rounded-xl border border-orange-100 bg-orange-50/35 p-3">
-					<p class="text-xs font-bold uppercase tracking-wide text-orange-700">Billing & Cashier Profile</p>
+					<p class="text-xs font-bold uppercase tracking-wide text-orange-700">
+						{newUserRole === 'ACCOUNTS' ? 'Accounts Profile' : 'Billing & Cashier Profile'}
+					</p>
 					<div class="grid gap-3 md:grid-cols-2">
 						<div>
 							<label class="block text-xs font-semibold text-gray-700 mb-1">Phone</label>
 							<input type="tel" bind:value={newUserData.phone} placeholder="Enter phone number" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
 						</div>
 						<div>
-							<label class="block text-xs font-semibold text-gray-700 mb-1">Counter Name</label>
-							<input type="text" bind:value={newUserData.counter_name} placeholder="e.g. Counter 1, Main Cashier" class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+							<label class="block text-xs font-semibold text-gray-700 mb-1">
+								{newUserRole === 'ACCOUNTS' ? 'Dashboard Name' : 'Counter Name'}
+							</label>
+							<input
+								type="text"
+								bind:value={newUserData.counter_name}
+								placeholder={newUserRole === 'ACCOUNTS' ? 'e.g. Central Accounts, Accounts HQ' : 'e.g. Counter 1, Main Cashier'}
+								class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+							/>
 						</div>
 					</div>
 				</div>

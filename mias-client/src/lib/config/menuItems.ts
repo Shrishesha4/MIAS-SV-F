@@ -2,7 +2,7 @@ import {
 	Home, User, FileText, Clipboard, Pill, Activity,
 	TestTube, Wallet, Bell, GraduationCap,
 	Users, CheckCircle, Bed, Calendar, Building, BarChart3, Stethoscope, CreditCard, Cpu,
-	Archive, Search, Download, FlaskConical, ChefHat
+	Archive, Search, Download, FlaskConical, ChefHat, BookOpen, Landmark
 } from 'lucide-svelte';
 
 export interface MenuItem {
@@ -41,6 +41,10 @@ export const adminMenuItems: MenuItem[] = [
 	// { icon: BarChart3, label: 'Analytics', path: '/admin/analytics' },
 ];
 
+export const academicManagerMenuItems: MenuItem[] = [
+	{ icon: BookOpen, label: 'Academics', path: '/academic-manager' },
+];
+
 export const receptionMenuItems: MenuItem[] = [
 	{ icon: Home, label: 'Dashboard', path: '/reception' },
 	{ icon: Users, label: 'Patient Queue', path: '/reception' },
@@ -66,7 +70,12 @@ export const labTechnicianMenuItems: MenuItem[] = [
 ];
 
 export const billingMenuItems: MenuItem[] = [
-	{ icon: CreditCard, label: 'Cashier', path: '/billing' },
+	{ icon: CreditCard, label: 'Cashier', path: '/billing/cashier' },
+];
+
+export const accountsMenuItems: MenuItem[] = [
+	{ icon: Landmark, label: 'Accounts', path: '/billing/accounts' },
+	{ icon: CreditCard, label: 'Billing Users', path: '/billing/cashier' },
 ];
 
 export const pharmacyMenuItems: MenuItem[] = [
@@ -91,12 +100,14 @@ export function getMenuItems(role: string): MenuItem[] {
 		case 'STUDENT': return studentMenuItems;
 		case 'FACULTY': return facultyMenuItems;
 		case 'ADMIN': return adminMenuItems;
+		case 'ACADEMIC_MANAGER': return academicManagerMenuItems;
 		case 'RECEPTION': return receptionMenuItems;
 		case 'NURSE': return nurseMenuItems;
 		case 'NURSE_SUPERINTENDENT': return nurseSuperintendentMenuItems;
 		case 'NUTRITIONIST': return nutritionistMenuItems;
 		case 'LAB_TECHNICIAN': return labTechnicianMenuItems;
 		case 'BILLING': return billingMenuItems;
+		case 'ACCOUNTS': return accountsMenuItems;
 		case 'PHARMACY': return pharmacyMenuItems;
 		case 'OT_MANAGER': return otManagerMenuItems;
 		case 'MRD': return mrdMenuItems;
