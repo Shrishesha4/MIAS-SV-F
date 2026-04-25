@@ -98,7 +98,7 @@ async def get_pending_patients(
     limit: int = 50
 ):
     """Get recently registered patients without appointments or admissions (for reception/nurse assignment)"""
-    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.ADMIN]:
+    if user.role not in [UserRole.RECEPTION, UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT, UserRole.ADMIN]:
         raise HTTPException(status_code=403, detail="Not authorized")
     
     # Get patients registered in last 7 days

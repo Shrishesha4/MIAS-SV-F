@@ -83,8 +83,28 @@ async def invalidate_user_cache(user_id: str) -> None:
 
 
 def require_role(*roles: UserRole):
-    async def role_checker(user: User = Depends(get_current_user)):
-        if user.role not in roles:
+    async def role_checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ):
+        allowed_roles = {role.value for role in roles}
+        current_role = user.role.value if isinstance(user.role, UserRole) else str(user.role)
+
+        if current_role not in allowed_roles:
+            # Cached role can be stale after role updates; re-check DB once before denying.
+            result = await db.execute(select(User).where(User.id == user.id))
+            fresh_user = result.scalar_one_or_none()
+
+            if fresh_user and fresh_user.is_active:
+                fresh_role = (
+                    fresh_user.role.value
+                    if isinstance(fresh_user.role, UserRole)
+                    else str(fresh_user.role)
+                )
+                if fresh_role in allowed_roles:
+                    await invalidate_user_cache(user.id)
+                    return fresh_user
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",

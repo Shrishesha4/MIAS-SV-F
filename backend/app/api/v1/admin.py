@@ -3494,8 +3494,14 @@ async def create_feedback_form(
     )
     db.add(form)
     await db.commit()
-    await db.refresh(form)
-    return _serialize_feedback_form(form)
+    created_form = (
+        await db.execute(
+            select(FeedbackForm)
+            .options(selectinload(FeedbackForm.responses))
+            .where(FeedbackForm.id == form.id)
+        )
+    ).scalar_one()
+    return _serialize_feedback_form(created_form)
 
 
 @router.get("/feedback-forms")
