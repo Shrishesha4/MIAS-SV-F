@@ -101,10 +101,10 @@ async def list_all_admissions(
 @router.get("/patients/search")
 async def search_patients_for_admission(
     q: str = Query("", description="Search by name or patient ID"),
-    user: User = Depends(require_role(UserRole.FACULTY, UserRole.ADMIN, UserRole.STUDENT)),
+    user: User = Depends(require_role(UserRole.FACULTY, UserRole.ADMIN, UserRole.STUDENT, UserRole.NURSE, UserRole.NURSE_SUPERINTENDENT)),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search patients by name or ID for admission form (faculty/admin/student)."""
+    """Search patients by name or ID for admission form (faculty/admin/student/nurse)."""
     query = select(Patient).order_by(Patient.name)
     if q:
         query = query.where(
