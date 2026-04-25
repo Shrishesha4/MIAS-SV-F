@@ -147,9 +147,15 @@
 				<h2 class="text-xl font-bold text-gray-800">Manage Vital Parameters</h2>
 				<p class="text-sm text-gray-500">Configure which vitals appear in patient monitoring forms</p>
 			</div>
-			<AquaButton variant="primary" onclick={openCreateModal}>
-				<Plus class="w-4 h-4" />
-			</AquaButton>
+			<button
+				type="button"
+				onclick={openCreateModal}
+				class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+			>
+				<Plus class="h-4 w-4" />
+				Add Parameter
+			</button>
 		</div>
 
 		{#if loading}
@@ -224,9 +230,15 @@
 						<Heart class="w-12 h-12 text-gray-300 mx-auto mb-3" />
 						<p class="text-gray-500">No vital parameters configured</p>
 						<p class="text-sm text-gray-400 mb-4">Add parameters to configure the vitals form</p>
-						<AquaButton variant="primary" onclick={openCreateModal}>
-							<Plus class="w-4 h-4 mr-1" /> Add First Parameter
-						</AquaButton>
+						<button
+							type="button"
+							onclick={openCreateModal}
+							class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+							style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+						>
+							<Plus class="h-4 w-4" />
+							Add First Parameter
+						</button>
 					</div>
 				</AquaCard>
 			{/if}

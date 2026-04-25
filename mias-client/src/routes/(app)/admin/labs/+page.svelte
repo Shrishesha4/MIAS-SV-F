@@ -439,10 +439,10 @@ Technician Batches
 </button>
 <button
 onclick={openCreateModal}
-class="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white rounded-xl cursor-pointer transition-all hover:scale-105 active:scale-95"
-style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.35);"
+class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 >
-<Plus class="w-4 h-4" />
+<Plus class="h-4 w-4" />
 Add Lab
 </button>
 </div>
@@ -783,10 +783,10 @@ style="{configTab === 'groups' ? 'background: #ede9fe; color: #5b21b6;' : 'backg
 </div>
 <button
 onclick={openTestModal}
-class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white rounded-xl cursor-pointer transition-all hover:scale-105 active:scale-95"
-style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 >
-<Plus class="w-3.5 h-3.5" />Add Test
+<Plus class="h-4 w-4" />Add Test
 </button>
 </div>
 

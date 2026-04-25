@@ -602,32 +602,32 @@
 			{#if activeTab === 'programmes'}
 				<button
 					type="button"
-					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
-					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 					onclick={openCreateProgramme}
 				>
-					<span class="text-sm font-semibold leading-none opacity-80">+</span>
-					<span class="mt-1 text-base font-black leading-none">Add Program</span>
+					<Plus class="h-4 w-4" />
+					<span>Add Program</span>
 				</button>
 			{:else if activeTab === 'groups'}
 				<button
 					type="button"
-					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
-					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 					onclick={() => openCreateGroup()}
 				>
-					<span class="text-sm font-semibold leading-none opacity-80">+</span>
-					<span class="mt-1 text-base font-black leading-none">Add Group</span>
+					<Plus class="h-4 w-4" />
+					<span>Add Group</span>
 				</button>
 			{:else if activeTab === 'targets'}
 				<button
 					type="button"
-					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
-					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 					onclick={() => openCreateTarget()}
 				>
-					<span class="text-sm font-semibold leading-none opacity-80">+</span>
-					<span class="mt-1 text-base font-black leading-none">Add Target</span>
+					<Plus class="h-4 w-4" />
+					<span>Add Target</span>
 				</button>
 			{/if}
 		</div>

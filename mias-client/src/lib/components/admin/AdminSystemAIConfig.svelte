@@ -215,8 +215,8 @@
 		<div class="flex flex-wrap items-center justify-between gap-3">
 			<button
 				type="button"
-				class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb);"
+				class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5 disabled:opacity-60"
+				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 				onclick={addRow}
 				disabled={adding}
 			>

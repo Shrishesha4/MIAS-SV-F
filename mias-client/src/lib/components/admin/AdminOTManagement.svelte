@@ -281,10 +281,10 @@
 				/>
 				<button
 					onclick={openNew}
-					class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-white"
-					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.25);"
+					class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 				>
-					<Plus class="h-3.5 w-3.5" />
+					<Plus class="h-4 w-4" />
 					Add OT
 				</button>
 			</div>

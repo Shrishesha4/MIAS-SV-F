@@ -1264,12 +1264,13 @@
 		<button
 			type="button"
 			onclick={openCategoryEditor}
-			class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white cursor-pointer"
-			style="background: linear-gradient(to bottom, #3b82f6, #1453c4); box-shadow: 0 8px 18px rgba(37,99,235,0.22), inset 0 1px 0 rgba(255,255,255,0.24);"
+			class="inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+			style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
 			aria-label="Add form category"
 			title="Add form category"
 		>
 			<Plus class="h-4 w-4" />
+			<span>Add Category</span>
 		</button>
 	</div>
 
