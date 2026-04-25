@@ -863,101 +863,8 @@
 
 <div class="min-h-screen px-3 py-3 sm:px-4 sm:py-4 lg:px-6" style={shellStyle}>
 	<div class="mx-auto flex w-full max-w-7xl flex-col gap-4">
-		<div class="rounded-[28px] p-4 sm:p-5" style={cardStyle}>
-			<div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-				<div>
-					<p class="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500">
-						Academic Manager
-					</p>
-					<h1 class="mt-1 text-xl font-black text-slate-800 sm:text-2xl">
-						Academic Manager Workspace
-					</h1>
-					<p class="mt-1 text-sm text-slate-500">
-						Real academic operations dashboard powered by live programme, group, target, and student progress data.
-					</p>
-				</div>
-
-				<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-					<div class="rounded-2xl px-3 py-3"
-						style="background: rgba(239,246,255,0.9); border: 1px solid rgba(96,165,250,0.28);">
-						<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Programmes</p>
-						<p class="mt-1 text-xl font-black text-slate-900">{totalProgrammeCount}</p>
-					</div>
-					<div class="rounded-2xl px-3 py-3"
-						style="background: rgba(240,253,244,0.9); border: 1px solid rgba(74,222,128,0.28);">
-						<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Active Groups</p>
-						<p class="mt-1 text-xl font-black text-emerald-700">{activeGroupCount}</p>
-					</div>
-					<div class="rounded-2xl px-3 py-3"
-						style="background: rgba(250,245,255,0.9); border: 1px solid rgba(192,132,252,0.28);">
-						<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Students</p>
-						<p class="mt-1 text-xl font-black text-violet-700">{students.length}</p>
-					</div>
-					<div class="rounded-2xl px-3 py-3"
-						style="background: rgba(255,247,237,0.9); border: 1px solid rgba(251,146,60,0.28);">
-						<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Weighted Forms</p>
-						<p class="mt-1 text-xl font-black text-orange-600">{configuredWeightageCount}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-				<div class="min-w-0">
-					<TabBar tabs={tabs} activeTab={activeTab} onchange={switchTab} variant="jiggle" stretch={false} />
-				</div>
-
-				<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-					<div class="relative min-w-0 sm:w-[280px]">
-						<Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-						<input
-							type="text"
-							bind:value={searchQuery}
-							placeholder="Search workspace..."
-							class="w-full rounded-2xl border px-10 py-2.5 text-sm font-medium text-slate-700 outline-none"
-							style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24); box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);"
-						/>
-					</div>
-
-					<div class="flex items-center gap-2">
-						<div class="flex items-center gap-2 rounded-2xl border px-3 py-2"
-							style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);">
-							<Filter class="h-4 w-4 text-slate-400" />
-							<select
-								bind:value={selectedProgrammeId}
-								class="bg-transparent text-sm font-semibold text-slate-700 outline-none"
-							>
-								<option value="">All programmes</option>
-								{#each programmes as programme (programme.id)}
-									<option value={programme.id}>{programme.name}</option>
-								{/each}
-							</select>
-						</div>
-
-						<div class="flex items-center gap-2 rounded-2xl border px-3 py-2"
-							style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);">
-							<Users class="h-4 w-4 text-slate-400" />
-							<select
-								bind:value={selectedGroupId}
-								class="bg-transparent text-sm font-semibold text-slate-700 outline-none"
-							>
-								<option value="">All groups</option>
-								{#each selectableGroups as group (group.id)}
-									<option value={group.id}>{group.name}</option>
-								{/each}
-							</select>
-						</div>
-
-						<button
-							class="flex items-center gap-1 rounded-2xl px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-slate-600 cursor-pointer"
-							style="background: rgba(255,255,255,0.96); border: 1px solid rgba(148,163,184,0.24);"
-							onclick={clearFilters}
-						>
-							<X class="h-3.5 w-3.5" />
-							Clear
-						</button>
-					</div>
-				</div>
-			</div>
+		<div class="flex justify-center">
+			<TabBar tabs={tabs} activeTab={activeTab} onchange={switchTab} variant="jiggle" stretch={false} />
 		</div>
 
 		{#if loading}
@@ -1782,6 +1689,7 @@
 		title={editingProgrammeId ? 'Edit Programme' : 'Create Programme'}
 		onclose={() => (showProgrammeModal = false)}
 	>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-4 p-4">
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
@@ -1858,6 +1766,7 @@
 		panelClass="max-w-[min(920px,94vw)]"
 		onclose={() => (showGroupModal = false)}
 	>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-4 p-4">
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
@@ -1960,6 +1869,7 @@
 		panelClass="max-w-[min(920px,94vw)]"
 		onclose={() => (showTargetModal = false)}
 	>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-4 p-4">
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
