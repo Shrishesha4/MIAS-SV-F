@@ -5,14 +5,16 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { otApi, type OTTheater } from '$lib/api/ot';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { Loader2, PencilLine, Plus, Power, Stethoscope, Trash2 } from 'lucide-svelte';
+	import { Loader2, PencilLine, Plus, Power, Stethoscope, Trash2, Download, Upload } from 'lucide-svelte';
 
 	const auth = get(authStore);
+	let fileInput: HTMLInputElement;
 
 	let loading = $state(true);
 	let saving = $state(false);
 	let deletingId = $state<string | null>(null);
 	let togglingId = $state<string | null>(null);
+	let importing = $state(false);
 	let theaters = $state<OTTheater[]>([]);
 	let search = $state('');
 	let editorOpen = $state(false);
@@ -20,6 +22,97 @@
 
 	function sortTheatersByOtId(items: OTTheater[]) {
 		return [...items].sort((a, b) => otIdCollator.compare(a.ot_id, b.ot_id));
+	}
+
+	function downloadSample() {
+		const headers = ['ot_id', 'name', 'location', 'description'];
+		const sampleData = [
+			['OT-01', 'Main Surgical OT', 'Block A - Floor 3', 'Primary operating theater'],
+			['OT-02', 'Emergency OT', 'Block B - Floor 2', 'Emergency surgery suite'],
+			['OT-03', 'Cardiac OT', 'Block A - Floor 4', 'Specialized cardiac theatre'],
+		];
+		const csv = [
+			headers.join(','),
+			...sampleData.map(row => row.map(cell => `"${cell}"`).join(','))
+		].join('\n');
+		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		link.href = URL.createObjectURL(blob);
+		link.download = 'ot-sample.csv';
+		link.click();
+	}
+
+	async function handleFileImport(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		importing = true;
+		try {
+			const text = await file.text();
+			const lines = text.split('\n').filter(line => line.trim());
+			if (lines.length < 2) {
+				toastStore.addToast('CSV must have header row and at least one data row', 'error');
+				importing = false;
+				return;
+			}
+
+			const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+			const otIdIdx = headers.indexOf('ot_id');
+			const nameIdx = headers.indexOf('name');
+			const locationIdx = headers.indexOf('location');
+			const descIdx = headers.indexOf('description');
+
+			if (otIdIdx === -1) {
+				toastStore.addToast('CSV must contain "ot_id" column', 'error');
+				importing = false;
+				return;
+			}
+
+			const toImport: any[] = [];
+			for (let i = 1; i < lines.length; i++) {
+				const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+				if (!values[otIdIdx]) continue;
+				toImport.push({
+					ot_id: values[otIdIdx].trim().toUpperCase(),
+					name: nameIdx !== -1 ? values[nameIdx] || undefined : undefined,
+					location: locationIdx !== -1 ? values[locationIdx] || undefined : undefined,
+					description: descIdx !== -1 ? values[descIdx] || undefined : undefined,
+				});
+			}
+
+			if (toImport.length === 0) {
+				toastStore.addToast('No valid rows to import', 'error');
+				importing = false;
+				return;
+			}
+
+			// Bulk import
+			let imported = 0;
+			let failed = 0;
+			for (const data of toImport) {
+				try {
+					const existing = theaters.find(t => t.ot_id === data.ot_id);
+					if (existing) {
+						await otApi.updateTheater(existing.id, data);
+					} else {
+						await otApi.createTheater(data);
+					}
+					imported++;
+				} catch {
+					failed++;
+				}
+			}
+
+			// Reload list
+			theaters = sortTheatersByOtId(await otApi.listTheaters());
+			toastStore.addToast(`Imported ${imported} OT(s)${failed > 0 ? `, ${failed} failed` : ''}`, imported > 0 ? 'success' : 'error');
+		} catch (err: any) {
+			toastStore.addToast(err?.message || 'Failed to import file', 'error');
+		} finally {
+			importing = false;
+			input.value = '';
+		}
 	}
 
 	type OTFormState = {
@@ -155,14 +248,46 @@
 				<Stethoscope class="h-4 w-4 text-blue-600" />
 				<span class="text-sm font-bold text-slate-800">Operation Theater Rooms</span>
 			</div>
-			<button
-				onclick={openNew}
-				class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-white"
-				style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.25);"
-			>
-				<Plus class="h-3.5 w-3.5" />
-				Add OT
-			</button>
+			<div class="flex items-center gap-2">
+				<button
+					title="Download sample CSV"
+					onclick={downloadSample}
+					class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100"
+					style="background: linear-gradient(to bottom, #f3f4f6, #e5e7eb); border: 1px solid rgba(0,0,0,0.05);"
+				>
+					<Download class="h-3.5 w-3.5" />
+					Sample
+				</button>
+				<button
+					title="Import from CSV"
+					onclick={() => fileInput?.click()}
+					disabled={importing}
+					class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
+					style="background: linear-gradient(to bottom, #f3f4f6, #e5e7eb); border: 1px solid rgba(0,0,0,0.05);"
+				>
+					{#if importing}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<Upload class="h-3.5 w-3.5" />
+					{/if}
+					Import
+				</button>
+				<input
+					bind:this={fileInput}
+					type="file"
+					accept=".csv"
+					onchange={handleFileImport}
+					class="hidden"
+				/>
+				<button
+					onclick={openNew}
+					class="flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold text-white"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 8px rgba(37,99,235,0.25);"
+				>
+					<Plus class="h-3.5 w-3.5" />
+					Add OT
+				</button>
+			</div>
 		</div>
 
 		<!-- Search -->
