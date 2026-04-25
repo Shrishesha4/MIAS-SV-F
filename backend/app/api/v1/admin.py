@@ -41,6 +41,7 @@ from app.models.programme import Programme
 from app.models.student import Clinic, Student
 from app.models.user import User, UserRole
 from app.models.vital import Vital, VitalParameter
+from app.models.feedback_form import FeedbackForm, FeedbackFormResponse
 from app.services.academics import (
     get_student_academic_progress,
     list_case_record_forms,
@@ -3443,3 +3444,228 @@ async def delete_vital_parameter(
     param.is_active = False
     await db.commit()
     return {"message": f"Vital parameter '{param.display_name}' deactivated"}
+
+
+# ── Feedback Forms ────────────────────────────────────────────────────────────
+
+
+class FeedbackFormCreate(BaseModel):
+    target_type: Literal["STUDENT", "GROUP"]
+    target_id: str
+    target_name: Optional[str] = None
+    recipient_type: Literal["PATIENTS", "STUDENTS", "FACULTY"] = "PATIENTS"
+    questions: list[str]
+
+
+def _serialize_feedback_form(form: FeedbackForm) -> dict:
+    return {
+        "id": form.id,
+        "target_type": form.target_type,
+        "target_id": form.target_id,
+        "target_name": form.target_name,
+        "recipient_type": form.recipient_type,
+        "questions": form.questions or [],
+        "is_deployed": form.is_deployed,
+        "created_by": form.created_by,
+        "response_count": len(form.responses) if form.responses is not None else 0,
+        "created_at": _safe_iso(form.created_at),
+        "updated_at": _safe_iso(form.updated_at),
+    }
+
+
+@router.post("/feedback-forms")
+async def create_feedback_form(
+    data: FeedbackFormCreate,
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    if not data.questions:
+        raise HTTPException(status_code=400, detail="At least one question is required")
+
+    form = FeedbackForm(
+        id=str(uuid.uuid4()),
+        target_type=data.target_type,
+        target_id=data.target_id,
+        target_name=data.target_name,
+        recipient_type=data.recipient_type,
+        questions=data.questions,
+        is_deployed=False,
+        created_by=user.id,
+    )
+    db.add(form)
+    await db.commit()
+    await db.refresh(form)
+    return _serialize_feedback_form(form)
+
+
+@router.get("/feedback-forms")
+async def list_feedback_forms(
+    target_type: Optional[str] = Query(None),
+    target_id: Optional[str] = Query(None),
+    is_deployed: Optional[bool] = Query(None),
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(FeedbackForm).options(selectinload(FeedbackForm.responses))
+    if target_type:
+        query = query.where(FeedbackForm.target_type == target_type)
+    if target_id:
+        query = query.where(FeedbackForm.target_id == target_id)
+    if is_deployed is not None:
+        query = query.where(FeedbackForm.is_deployed == is_deployed)
+    query = query.order_by(FeedbackForm.created_at.desc())
+    forms = (await db.execute(query)).scalars().all()
+    return [_serialize_feedback_form(f) for f in forms]
+
+
+@router.post("/feedback-forms/{form_id}/deploy")
+async def deploy_feedback_form(
+    form_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    form = (
+        await db.execute(
+            select(FeedbackForm)
+            .options(selectinload(FeedbackForm.responses))
+            .where(FeedbackForm.id == form_id)
+        )
+    ).scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Feedback form not found")
+    if form.is_deployed:
+        raise HTTPException(status_code=400, detail="Form is already deployed")
+    if not form.questions:
+        raise HTTPException(status_code=400, detail="Cannot deploy a form with no questions")
+
+    form.is_deployed = True
+    await db.commit()
+    return {"message": "Feedback form deployed successfully", "form": _serialize_feedback_form(form)}
+
+
+@router.delete("/feedback-forms/{form_id}")
+async def delete_feedback_form(
+    form_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    form = (
+        await db.execute(select(FeedbackForm).where(FeedbackForm.id == form_id))
+    ).scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Feedback form not found")
+    await db.delete(form)
+    await db.commit()
+    return {"message": "Feedback form deleted"}
+
+
+class FeedbackResponseSubmit(BaseModel):
+    ratings: dict[str, int]  # {question_index_str: 1-5}
+    overall_satisfaction: Optional[Literal[
+        "VERY_SATISFIED", "SATISFIED", "NEUTRAL", "UNSATISFIED", "VERY_UNSATISFIED"
+    ]] = None
+    respondent_id: Optional[str] = None
+
+
+@router.post("/feedback-forms/{form_id}/respond")
+async def submit_feedback_response(
+    form_id: str,
+    data: FeedbackResponseSubmit,
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit a response to a deployed feedback form (public endpoint for recipients)."""
+    form = (
+        await db.execute(
+            select(FeedbackForm).where(FeedbackForm.id == form_id, FeedbackForm.is_deployed == True)  # noqa: E712
+        )
+    ).scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Feedback form not found or not deployed")
+
+    # Validate scores
+    for score in data.ratings.values():
+        if not 1 <= int(score) <= 5:
+            raise HTTPException(status_code=400, detail="Ratings must be between 1 and 5")
+
+    response = FeedbackFormResponse(
+        id=str(uuid.uuid4()),
+        form_id=form_id,
+        respondent_id=data.respondent_id,
+        ratings=data.ratings,
+        overall_satisfaction=data.overall_satisfaction,
+    )
+    db.add(response)
+    await db.commit()
+    return {"message": "Response submitted successfully"}
+
+
+@router.get("/feedback-forms/{form_id}/analytics")
+async def get_feedback_form_analytics(
+    form_id: str,
+    user: User = Depends(require_role(UserRole.ADMIN, UserRole.ACADEMIC_MANAGER)),
+    db: AsyncSession = Depends(get_db),
+):
+    form = (
+        await db.execute(
+            select(FeedbackForm)
+            .options(selectinload(FeedbackForm.responses))
+            .where(FeedbackForm.id == form_id)
+        )
+    ).scalar_one_or_none()
+    if not form:
+        raise HTTPException(status_code=404, detail="Feedback form not found")
+
+    responses = form.responses or []
+    total = len(responses)
+
+    satisfaction_counts: dict[str, int] = {
+        "VERY_SATISFIED": 0,
+        "SATISFIED": 0,
+        "NEUTRAL": 0,
+        "UNSATISFIED": 0,
+        "VERY_UNSATISFIED": 0,
+    }
+    completed = 0
+    all_scores: list[float] = []
+    # Per-question score accumulation: index -> [scores]
+    question_scores: dict[int, list[int]] = {i: [] for i in range(len(form.questions or []))}
+
+    for resp in responses:
+        if resp.overall_satisfaction and resp.overall_satisfaction in satisfaction_counts:
+            satisfaction_counts[resp.overall_satisfaction] += 1
+
+        ratings = resp.ratings or {}
+        if ratings:
+            completed += 1
+            for key, score in ratings.items():
+                try:
+                    idx = int(key)
+                    question_scores.setdefault(idx, []).append(int(score))
+                    all_scores.append(int(score))
+                except (ValueError, TypeError):
+                    pass
+
+    avg_rating = round(sum(all_scores) / len(all_scores), 1) if all_scores else 0.0
+    completion_rate = round((completed / total) * 100) if total > 0 else 0
+
+    questions_list = form.questions or []
+    category_breakdown = []
+    for i, question_text in enumerate(questions_list):
+        scores = question_scores.get(i, [])
+        avg = round(sum(scores) / len(scores), 1) if scores else 0.0
+        category_breakdown.append({"question": question_text, "avg_score": avg, "count": len(scores)})
+
+    return {
+        "form_id": form.id,
+        "target_type": form.target_type,
+        "target_id": form.target_id,
+        "target_name": form.target_name,
+        "recipient_type": form.recipient_type,
+        "is_deployed": form.is_deployed,
+        "total_responses": total,
+        "completion_rate": completion_rate,
+        "avg_rating": avg_rating,
+        "satisfaction_distribution": satisfaction_counts,
+        "category_breakdown": category_breakdown,
+    }
+

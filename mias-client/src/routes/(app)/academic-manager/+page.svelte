@@ -12,8 +12,13 @@
 		type AcademicTarget,
 		type AcademicWeightageItem,
 		type Programme,
-		type StudentAcademicProgress
+		type StudentAcademicProgress,
+		type FeedbackFormItem,
+		type FeedbackFormAnalytics
 	} from '$lib/api/admin';
+	import { Chart, registerables } from 'chart.js';
+
+	Chart.register(...registerables);
 	import { toastStore } from '$lib/stores/toast';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -38,7 +43,10 @@
 		Award,
 		Clock3,
 		Filter,
-		X
+		X,
+		Send,
+		Settings,
+		LineChart
 	} from 'lucide-svelte';
 
 	type TabId = 'groups' | 'performance' | 'feedback' | 'activity' | 'analytics';
@@ -105,6 +113,21 @@
 	let showStudentProgressModal = $state(false);
 	let progressStudentId = $state('');
 	let progressStudentName = $state('');
+
+	// ── Feedback Form State ───────────────────────────────────────────
+	let feedbackSubTab = $state<'configure' | 'analyze'>('configure');
+	let feedbackTargetType = $state<'STUDENT' | 'GROUP'>('GROUP');
+	let feedbackTargetId = $state('');
+	let feedbackRecipientType = $state<'PATIENTS' | 'STUDENTS' | 'FACULTY'>('PATIENTS');
+	let feedbackQuestions = $state<string[]>([]);
+	let feedbackNewQuestion = $state('');
+	let feedbackDeploying = $state(false);
+	let feedbackDeployedForms = $state<FeedbackFormItem[]>([]);
+	let feedbackSelectedFormId = $state('');
+	let feedbackAnalytics = $state<FeedbackFormAnalytics | null>(null);
+	let feedbackAnalyticsLoading = $state(false);
+	let donutChartCanvas = $state<HTMLCanvasElement | null>(null);
+	let donutChartInstance: Chart | null = null;
 
 	const shellStyle =
 		'background: linear-gradient(180deg, #dbe3ee 0%, #d5dee9 52%, #d2dae5 100%);';
@@ -449,6 +472,9 @@
 		if (tabId !== 'groups' && tabId !== 'performance' && tabId !== 'feedback' && tabId !== 'activity' && tabId !== 'analytics') {
 			selectedGroupId = '';
 		}
+		if (tabId === 'feedback') {
+			void loadFeedbackForms();
+		}
 	}
 
 	function clearFilters() {
@@ -711,6 +737,124 @@
 			}
 		}
 	}
+
+	// ── Feedback Form Functions ───────────────────────────────────────
+
+	async function loadFeedbackForms() {
+		try {
+			feedbackDeployedForms = await adminApi.listFeedbackForms({ is_deployed: true });
+			if (feedbackDeployedForms.length > 0 && !feedbackSelectedFormId) {
+				feedbackSelectedFormId = feedbackDeployedForms[0].id;
+				await loadFeedbackAnalytics();
+			}
+		} catch {
+			// non-blocking
+		}
+	}
+
+	async function loadFeedbackAnalytics() {
+		if (!feedbackSelectedFormId) return;
+		feedbackAnalyticsLoading = true;
+		try {
+			feedbackAnalytics = await adminApi.getFeedbackFormAnalytics(feedbackSelectedFormId);
+		} catch {
+			feedbackAnalytics = null;
+		} finally {
+			feedbackAnalyticsLoading = false;
+		}
+	}
+
+	function addFeedbackQuestion() {
+		const text = feedbackNewQuestion.trim();
+		if (!text) return;
+		feedbackQuestions = [...feedbackQuestions, text];
+		feedbackNewQuestion = '';
+	}
+
+	function removeFeedbackQuestion(index: number) {
+		feedbackQuestions = feedbackQuestions.filter((_, i) => i !== index);
+	}
+
+	async function deployFeedbackForm() {
+		if (!feedbackTargetId) {
+			toastStore.addToast('Please select a target group or student', 'error');
+			return;
+		}
+		if (feedbackQuestions.length === 0) {
+			toastStore.addToast('Please add at least one question', 'error');
+			return;
+		}
+		feedbackDeploying = true;
+		try {
+			const targetName =
+				feedbackTargetType === 'GROUP'
+					? getGroupName(feedbackTargetId)
+					: (students.find((s) => s.id === feedbackTargetId)?.name ?? '');
+			const form = await adminApi.createFeedbackForm({
+				target_type: feedbackTargetType,
+				target_id: feedbackTargetId,
+				target_name: targetName,
+				recipient_type: feedbackRecipientType,
+				questions: feedbackQuestions
+			});
+			await adminApi.deployFeedbackForm(form.id);
+			toastStore.addToast('Feedback form deployed successfully', 'success');
+			feedbackQuestions = [];
+			feedbackTargetId = '';
+			feedbackNewQuestion = '';
+			await loadFeedbackForms();
+		} catch (errorValue: unknown) {
+			toastStore.addToast(
+				(errorValue as ApiError)?.response?.data?.detail ?? 'Failed to deploy form',
+				'error'
+			);
+		} finally {
+			feedbackDeploying = false;
+		}
+	}
+
+	function buildDonutChart() {
+		if (!donutChartCanvas || !feedbackAnalytics) return;
+		if (donutChartInstance) {
+			donutChartInstance.destroy();
+			donutChartInstance = null;
+		}
+		const dist = feedbackAnalytics.satisfaction_distribution;
+		donutChartInstance = new Chart(donutChartCanvas, {
+			type: 'doughnut',
+			data: {
+				labels: ['Very Satisfied', 'Satisfied', 'Neutral', 'Unsatisfied', 'Very Unsatisfied'],
+				datasets: [
+					{
+						data: [
+							dist.VERY_SATISFIED,
+							dist.SATISFIED,
+							dist.NEUTRAL,
+							dist.UNSATISFIED,
+							dist.VERY_UNSATISFIED
+						],
+						backgroundColor: ['#22c55e', '#3b82f6', '#f97316', '#ef4444', '#94a3b8'],
+						borderWidth: 0
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				cutout: '65%',
+				plugins: {
+					legend: { display: false },
+					tooltip: { enabled: true }
+				}
+			}
+		});
+	}
+
+	$effect(() => {
+		if (feedbackSubTab === 'analyze' && feedbackAnalytics && donutChartCanvas) {
+			setTimeout(buildDonutChart, 60);
+		}
+	});
 </script>
 
 <svelte:head>
@@ -1163,74 +1307,297 @@
 				</div>
 			</div>
 		{:else if activeTab === 'feedback'}
-			<div class="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
-				<div class="rounded-[28px] p-5" style={cardStyle}>
-					<div class="mb-4 flex items-center gap-2">
-						<MessageSquareText class="h-4 w-4 text-slate-500" />
-						<p class="text-sm font-black uppercase tracking-[0.2em] text-slate-600">Feedback Stream</p>
-					</div>
-
-					<div class="space-y-3">
-						{#if feedbackRows.length === 0}
-							<div class="rounded-[22px] border border-dashed border-slate-300/90 px-5 py-10 text-center">
-								<MessageSquareText class="mx-auto h-10 w-10 text-slate-300" />
-								<p class="mt-4 text-base font-black text-slate-700">No feedback items available</p>
-								<p class="mt-2 text-sm text-slate-500">
-									Feedback is derived from real academic progress and unmatched record activity already in the app.
-								</p>
-							</div>
-						{:else}
-							{#each feedbackRows as row (row.id)}
-								<div class="rounded-[22px] p-4"
-									style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(248,250,252,0.96)); border: 1px solid rgba(148,163,184,0.18);">
-									<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-										<div class="min-w-0">
-											<p class="text-base font-black text-slate-900">{row.studentName}</p>
-											<p class="mt-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
-												{row.studentId} • {row.groupName}
-											</p>
-											<p class="mt-2 text-sm font-semibold text-slate-700">{row.formName}</p>
-											<p class="mt-1 text-xs text-slate-500">{row.department}</p>
-											<p class="mt-3 text-sm text-slate-600">{row.comments}</p>
-										</div>
-
-										<div class="flex flex-col items-end gap-2">
-											<span class="rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(239,246,255,0.95); color: #1d4ed8;">
-												{row.status}
-											</span>
-											<span class="rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(255,247,237,0.95); color: #c2410c;">
-												Score {row.score}
-											</span>
-										</div>
-									</div>
-								</div>
-							{/each}
-						{/if}
-					</div>
-				</div>
-
-				<div class="rounded-[28px] p-5" style={cardStyle}>
-					<div class="mb-4 flex items-center gap-2">
-						<TrendingUp class="h-4 w-4 text-slate-500" />
-						<p class="text-sm font-black uppercase tracking-[0.2em] text-slate-600">Feedback Summary</p>
-					</div>
-
-					<div class="grid grid-cols-2 gap-2">
-						<div class="rounded-2xl px-3 py-3"
-							style="background: rgba(239,246,255,0.9); border: 1px solid rgba(96,165,250,0.22);">
-							<p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Items</p>
-							<p class="mt-1 text-xl font-black text-blue-600">{feedbackRows.length}</p>
-						</div>
-						<div class="rounded-2xl px-3 py-3"
-							style="background: rgba(240,253,244,0.9); border: 1px solid rgba(74,222,128,0.22);">
-							<p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Students</p>
-							<p class="mt-1 text-xl font-black text-emerald-700">{new Set(feedbackRows.map((row) => row.studentId)).size}</p>
-						</div>
-					</div>
+			<!-- Feedback sub-tab toggle -->
+			<div class="flex justify-center">
+				<div class="flex rounded-full p-1"
+					style="background: rgba(255,255,255,0.85); border: 1px solid rgba(148,163,184,0.22); box-shadow: 0 1px 4px rgba(73,93,124,0.08);">
+					<button
+						class="flex cursor-pointer items-center gap-2 rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.14em] transition-all"
+						style={feedbackSubTab === 'configure'
+							? 'background: linear-gradient(to bottom, #3b82f6, #2563eb); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.28);'
+							: 'color: #64748b;'}
+						onclick={() => (feedbackSubTab = 'configure')}
+					>
+						<Settings class="h-3.5 w-3.5" />
+						Configure &amp; Deploy
+					</button>
+					<button
+						class="flex cursor-pointer items-center gap-2 rounded-full px-5 py-2 text-xs font-black uppercase tracking-[0.14em] transition-all"
+						style={feedbackSubTab === 'analyze'
+							? 'background: linear-gradient(to bottom, #3b82f6, #2563eb); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.28);'
+							: 'color: #64748b;'}
+						onclick={() => { feedbackSubTab = 'analyze'; void loadFeedbackForms(); }}
+					>
+						<LineChart class="h-3.5 w-3.5" />
+						Analyze Responses
+					</button>
 				</div>
 			</div>
+
+			{#if feedbackSubTab === 'configure'}
+				<!-- Configure & Deploy -->
+				<div class="mx-auto w-full max-w-2xl">
+					<div class="rounded-[28px] p-6" style={cardStyle}>
+						<div class="grid gap-5 sm:grid-cols-2">
+							<!-- Target Group -->
+							<div>
+								<p class="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Target Group</p>
+								<div class="relative">
+									<select
+										bind:value={feedbackTargetType}
+										class="w-full appearance-none rounded-xl px-4 py-3 pr-8 text-sm font-semibold text-slate-700 outline-none"
+										style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.28);"
+										onchange={() => (feedbackTargetId = '')}
+									>
+										<option value="GROUP">Group</option>
+										<option value="STUDENT">Individual Student</option>
+									</select>
+									<div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+										<svg class="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" /></svg>
+									</div>
+								</div>
+								<div class="relative mt-2">
+									<select
+										bind:value={feedbackTargetId}
+										class="w-full appearance-none rounded-xl px-4 py-3 pr-8 text-sm font-semibold text-slate-700 outline-none"
+										style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.28);"
+									>
+										<option value="">Select {feedbackTargetType === 'GROUP' ? 'Student or Group' : 'Student'}…</option>
+										{#if feedbackTargetType === 'GROUP'}
+											{#each groups.filter((g) => g.is_active) as group (group.id)}
+												<option value={group.id}>{group.name}</option>
+											{/each}
+										{:else}
+											{#each students as student (student.id)}
+												<option value={student.id}>{student.name} ({student.student_id})</option>
+											{/each}
+										{/if}
+									</select>
+									<div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+										<svg class="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" /></svg>
+									</div>
+								</div>
+							</div>
+
+							<!-- Recipient Type -->
+							<div>
+								<p class="mb-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Recipient Type</p>
+								<div class="relative">
+									<select
+										bind:value={feedbackRecipientType}
+										class="w-full appearance-none rounded-xl px-4 py-3 pr-8 text-sm font-semibold text-slate-700 outline-none"
+										style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.28);"
+									>
+										<option value="PATIENTS">Patients</option>
+										<option value="STUDENTS">Students</option>
+										<option value="FACULTY">Faculty</option>
+									</select>
+									<div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+										<svg class="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" /></svg>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- Form Questions -->
+						<div class="mt-6">
+							<p class="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Form Questions</p>
+
+							<div class="space-y-2">
+								{#each feedbackQuestions as question, i (i)}
+									<div class="flex items-center gap-3 rounded-xl px-4 py-3"
+										style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.22);">
+										<span class="min-w-[22px] text-sm font-black text-slate-400">{i + 1}.</span>
+										<p class="flex-1 text-sm text-slate-700">{question}</p>
+										<button
+											onclick={() => removeFeedbackQuestion(i)}
+											class="cursor-pointer rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
+										>
+											<Trash2 class="h-3.5 w-3.5" />
+										</button>
+									</div>
+								{/each}
+							</div>
+
+							<!-- Add question input -->
+							<div class="mt-3 flex gap-2">
+								<input
+									bind:value={feedbackNewQuestion}
+									placeholder="Add a new question..."
+									class="flex-1 rounded-xl px-4 py-3 text-sm text-slate-700 outline-none placeholder:text-slate-400"
+									style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.28);"
+									onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFeedbackQuestion(); } }}
+								/>
+								<button
+									onclick={addFeedbackQuestion}
+									class="flex h-[46px] w-[46px] cursor-pointer items-center justify-center rounded-xl text-white transition-all"
+									style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 6px rgba(37,99,235,0.3);"
+								>
+									<Plus class="h-4 w-4" />
+								</button>
+							</div>
+						</div>
+
+						<!-- Deploy button -->
+						<div class="mt-6">
+							<button
+								onclick={deployFeedbackForm}
+								disabled={feedbackDeploying || !feedbackTargetId || feedbackQuestions.length === 0}
+								class="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl py-4 text-sm font-black text-white transition-all disabled:cursor-not-allowed disabled:opacity-50"
+								style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 3px 12px rgba(22,163,74,0.35);"
+							>
+								<Send class="h-4 w-4" />
+								{feedbackDeploying ? 'Deploying…' : 'Deploy Feedback Form'}
+							</button>
+						</div>
+					</div>
+
+					<!-- Deployed forms list -->
+					{#if feedbackDeployedForms.length > 0}
+						<div class="mt-4 rounded-[28px] p-5" style={cardStyle}>
+							<p class="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Deployed Forms</p>
+							<div class="space-y-2">
+								{#each feedbackDeployedForms as form (form.id)}
+									<div class="flex items-center justify-between rounded-xl px-4 py-3"
+										style="background: rgba(240,253,244,0.9); border: 1px solid rgba(74,222,128,0.22);">
+										<div>
+											<p class="text-sm font-black text-slate-800">{form.target_name ?? form.target_id}</p>
+											<p class="mt-0.5 text-[11px] text-slate-500">{form.recipient_type} · {form.questions.length} questions · {form.response_count} responses</p>
+										</div>
+										<CheckCircle2 class="h-4 w-4 text-emerald-600" />
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+				</div>
+
+			{:else}
+				<!-- Analyze Responses -->
+				{#if feedbackDeployedForms.length === 0 && !feedbackAnalyticsLoading}
+					<div class="mx-auto w-full max-w-2xl">
+						<div class="rounded-[28px] p-10 text-center" style={cardStyle}>
+							<LineChart class="mx-auto h-10 w-10 text-slate-300" />
+							<p class="mt-4 text-base font-black text-slate-700">No deployed forms yet</p>
+							<p class="mt-2 text-sm text-slate-500">Deploy a feedback form first to see responses here.</p>
+						</div>
+					</div>
+				{:else}
+					<!-- Form selector if multiple forms -->
+					{#if feedbackDeployedForms.length > 1}
+						<div class="flex justify-center">
+							<div class="relative">
+								<select
+									bind:value={feedbackSelectedFormId}
+									onchange={() => void loadFeedbackAnalytics()}
+									class="appearance-none rounded-xl px-4 py-2.5 pr-8 text-sm font-semibold text-slate-700 outline-none"
+									style="background: rgba(255,255,255,0.9); border: 1px solid rgba(148,163,184,0.28);"
+								>
+									{#each feedbackDeployedForms as form (form.id)}
+										<option value={form.id}>{form.target_name ?? form.target_id} — {form.recipient_type}</option>
+									{/each}
+								</select>
+								<div class="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+									<svg class="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" /></svg>
+								</div>
+							</div>
+						</div>
+					{/if}
+
+					{#if feedbackAnalyticsLoading}
+						<div class="flex justify-center py-12">
+							<div class="h-8 w-8 animate-spin rounded-full border-[3px] border-blue-500 border-t-transparent"></div>
+						</div>
+					{:else if feedbackAnalytics}
+						<!-- Stats row -->
+						<div class="grid gap-4 sm:grid-cols-3">
+							<div class="flex items-center gap-4 rounded-[22px] p-5" style={cardStyle}>
+								<div class="flex h-11 w-11 items-center justify-center rounded-2xl"
+									style="background: rgba(239,246,255,0.9); border: 1px solid rgba(96,165,250,0.22);">
+									<Users class="h-5 w-5 text-blue-500" />
+								</div>
+								<div>
+									<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Total Responses</p>
+									<p class="mt-0.5 text-2xl font-black text-slate-800">{feedbackAnalytics.total_responses}</p>
+								</div>
+							</div>
+
+							<div class="flex items-center gap-4 rounded-[22px] p-5" style={cardStyle}>
+								<div class="flex h-11 w-11 items-center justify-center rounded-2xl"
+									style="background: rgba(240,253,244,0.9); border: 1px solid rgba(74,222,128,0.22);">
+									<CheckCircle2 class="h-5 w-5 text-emerald-500" />
+								</div>
+								<div>
+									<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Completion Rate</p>
+									<p class="mt-0.5 text-2xl font-black text-slate-800">{feedbackAnalytics.completion_rate}%</p>
+								</div>
+							</div>
+
+							<div class="flex items-center gap-4 rounded-[22px] p-5" style={cardStyle}>
+								<div class="flex h-11 w-11 items-center justify-center rounded-2xl"
+									style="background: rgba(255,247,237,0.9); border: 1px solid rgba(251,146,60,0.22);">
+									<MessageSquareText class="h-5 w-5 text-orange-500" />
+								</div>
+								<div>
+									<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Avg. Rating</p>
+									<p class="mt-0.5 text-2xl font-black text-slate-800">{feedbackAnalytics.avg_rating}/5</p>
+								</div>
+							</div>
+						</div>
+
+						<!-- Charts row -->
+						<div class="grid gap-4 lg:grid-cols-2">
+							<!-- Overall Satisfaction donut -->
+							<div class="rounded-[28px] p-6" style={cardStyle}>
+								<p class="mb-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Overall Satisfaction</p>
+								<div class="relative mx-auto h-52 w-52">
+									<canvas bind:this={donutChartCanvas}></canvas>
+								</div>
+								<!-- Legend -->
+								<div class="mt-5 flex flex-wrap justify-center gap-x-4 gap-y-2">
+									{#each [
+										{ label: 'Very Satisfied', color: '#22c55e' },
+										{ label: 'Satisfied', color: '#3b82f6' },
+										{ label: 'Neutral', color: '#f97316' },
+										{ label: 'Unsatisfied', color: '#ef4444' },
+										{ label: 'Very Unsatisfied', color: '#94a3b8' }
+									] as item (item.label)}
+										<div class="flex items-center gap-1.5">
+											<div class="h-2.5 w-2.5 rounded-sm" style="background: {item.color};"></div>
+											<span class="text-xs font-semibold text-slate-600">{item.label}</span>
+										</div>
+									{/each}
+								</div>
+							</div>
+
+							<!-- Category Breakdown -->
+							<div class="rounded-[28px] p-6" style={cardStyle}>
+								<p class="mb-5 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Category Breakdown</p>
+								{#if feedbackAnalytics.category_breakdown.length === 0}
+									<p class="text-sm text-slate-500">No responses recorded yet.</p>
+								{:else}
+									<div class="space-y-4">
+										{#each feedbackAnalytics.category_breakdown as item (item.question)}
+											<div>
+												<div class="mb-1.5 flex items-center justify-between">
+													<p class="max-w-[65%] truncate text-sm font-semibold text-slate-700">{item.question}</p>
+													<p class="text-sm font-black text-slate-600">{item.avg_score}/5</p>
+												</div>
+												<div class="h-2 w-full overflow-hidden rounded-full bg-slate-200">
+													<div
+														class="h-full rounded-full transition-all"
+														style="width: {Math.round((item.avg_score / 5) * 100)}%; background: linear-gradient(to right, #3b82f6, #2563eb);"
+													></div>
+												</div>
+											</div>
+										{/each}
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/if}
+				{/if}
+			{/if}
 		{:else if activeTab === 'activity'}
 			<div class="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
 				<div class="rounded-[28px] p-5" style={cardStyle}>

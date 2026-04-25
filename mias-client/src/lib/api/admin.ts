@@ -982,4 +982,82 @@ export const adminApi = {
     const r = await client.delete(`/admin/vital-parameters/${paramId}`);
     return r.data;
   },
+
+  // Feedback Forms
+  async createFeedbackForm(data: {
+    target_type: 'STUDENT' | 'GROUP';
+    target_id: string;
+    target_name?: string;
+    recipient_type?: 'PATIENTS' | 'STUDENTS' | 'FACULTY';
+    questions: string[];
+  }): Promise<FeedbackFormItem> {
+    const r = await client.post('/admin/feedback-forms', data);
+    return r.data;
+  },
+
+  async listFeedbackForms(params?: {
+    target_type?: string;
+    target_id?: string;
+    is_deployed?: boolean;
+  }): Promise<FeedbackFormItem[]> {
+    const r = await client.get('/admin/feedback-forms', { params });
+    return r.data;
+  },
+
+  async deployFeedbackForm(formId: string): Promise<{ message: string; form: FeedbackFormItem }> {
+    const r = await client.post(`/admin/feedback-forms/${formId}/deploy`);
+    return r.data;
+  },
+
+  async deleteFeedbackForm(formId: string): Promise<{ message: string }> {
+    const r = await client.delete(`/admin/feedback-forms/${formId}`);
+    return r.data;
+  },
+
+  async getFeedbackFormAnalytics(formId: string): Promise<FeedbackFormAnalytics> {
+    const r = await client.get(`/admin/feedback-forms/${formId}/analytics`);
+    return r.data;
+  },
 };
+
+// ── Feedback Form Types ──────────────────────────────────────────────────────
+
+export interface FeedbackFormItem {
+  id: string;
+  target_type: 'STUDENT' | 'GROUP';
+  target_id: string;
+  target_name: string | null;
+  recipient_type: 'PATIENTS' | 'STUDENTS' | 'FACULTY';
+  questions: string[];
+  is_deployed: boolean;
+  created_by: string | null;
+  response_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface FeedbackFormCategoryBreakdown {
+  question: string;
+  avg_score: number;
+  count: number;
+}
+
+export interface FeedbackFormAnalytics {
+  form_id: string;
+  target_type: string;
+  target_id: string;
+  target_name: string | null;
+  recipient_type: string;
+  is_deployed: boolean;
+  total_responses: number;
+  completion_rate: number;
+  avg_rating: number;
+  satisfaction_distribution: {
+    VERY_SATISFIED: number;
+    SATISFIED: number;
+    NEUTRAL: number;
+    UNSATISFIED: number;
+    VERY_UNSATISFIED: number;
+  };
+  category_breakdown: FeedbackFormCategoryBreakdown[];
+}

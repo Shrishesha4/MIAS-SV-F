@@ -23,9 +23,11 @@
 		Edit3,
 		Trash2,
 		Search,
+		Check,
 		CheckCircle2,
 		ShieldCheck,
 		ArrowRight,
+		ChevronRight,
 		Settings2,
 		BookOpen
 	} from 'lucide-svelte';
@@ -44,7 +46,7 @@
 	} = $props();
 
 	const tabItems: { id: TabId; label: string; icon: typeof GraduationCap }[] = [
-		{ id: 'programmes', label: 'Programmes', icon: GraduationCap },
+		{ id: 'programmes', label: 'Programs', icon: GraduationCap },
 		{ id: 'groups', label: 'Groups', icon: Users },
 		{ id: 'targets', label: 'Targets', icon: Target },
 		{ id: 'weightages', label: 'Weightage', icon: Scale }
@@ -93,17 +95,6 @@
 
 	const degreeTypes = ['Undergraduate', 'Postgraduate', 'Diploma', 'Certificate', 'Doctoral'];
 	const targetCategories = ['ACADEMIC', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
-
-	const pageTitle = $derived(
-		title ?? (mode === 'academic-manager' ? 'Academic Manager Workspace' : 'Academics Workspace')
-	);
-	const pageSubtitle = $derived(
-		subtitle ?? (
-			mode === 'academic-manager'
-				? 'Manage programmes, student groups, targets, and academic weightage.'
-				: 'Configure programmes, academic groups, targets, and case-record weightage.'
-		)
-	);
 
 	const filteredProgrammes = $derived.by(() => {
 		const query = searchQuery.trim().toLowerCase();
@@ -518,90 +509,20 @@
 	}
 </script>
 
-<div class="space-y-4 lg:space-y-5">
-	<div class="rounded-[26px] border px-4 py-4 md:px-5 md:py-5"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(247,250,253,0.96)); border-color: rgba(148,163,184,0.22); box-shadow: 0 10px 24px rgba(15,23,42,0.08), inset 0 1px 0 rgba(255,255,255,0.92);">
-		<div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-			<div class="min-w-0">
-				<div class="flex items-center gap-2">
-					<div class="flex h-11 w-11 items-center justify-center rounded-2xl"
-						style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 6px 14px rgba(37,99,235,0.28), inset 0 1px 0 rgba(255,255,255,0.35);">
-						<BookOpen class="h-5 w-5 text-white" />
-					</div>
-					<div class="min-w-0">
-						<h1 class="truncate text-base font-black uppercase tracking-[0.18em] text-slate-700">
-							{pageTitle}
-						</h1>
-						<p class="mt-1 text-xs text-slate-500">{pageSubtitle}</p>
-					</div>
-				</div>
-			</div>
-
-			<div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-				<div class="rounded-2xl px-3 py-3"
-					style="background: rgba(239,246,255,0.9); border: 1px solid rgba(96,165,250,0.28);">
-					<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Programmes</p>
-					<p class="mt-1 text-xl font-black text-slate-900">{totalProgrammeCount}</p>
-				</div>
-				<div class="rounded-2xl px-3 py-3"
-					style="background: rgba(240,253,244,0.9); border: 1px solid rgba(74,222,128,0.28);">
-					<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Active</p>
-					<p class="mt-1 text-xl font-black text-emerald-700">{activeProgrammeCount}</p>
-				</div>
-				<div class="rounded-2xl px-3 py-3"
-					style="background: rgba(250,245,255,0.9); border: 1px solid rgba(192,132,252,0.28);">
-					<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Groups</p>
-					<p class="mt-1 text-xl font-black text-violet-700">{activeGroupCount}</p>
-				</div>
-				<div class="rounded-2xl px-3 py-3"
-					style="background: rgba(255,247,237,0.9); border: 1px solid rgba(251,146,60,0.28);">
-					<p class="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Weighted</p>
-					<p class="mt-1 text-xl font-black text-orange-600">{configuredWeightageCount}</p>
-				</div>
-			</div>
-		</div>
+<div class="flex flex-col gap-3">
+	<!-- Header: section title left, tab bar right -->
+	<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+		<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Academic Programs</p>
+		<TabBar tabs={tabItems} activeTab={activeTab} onchange={switchTab} variant="jiggle" stretch={false} size="compact" />
 	</div>
 
-	<div class="rounded-[24px] border px-3 py-3 md:px-4"
-		style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(248,250,252,0.96)); border-color: rgba(148,163,184,0.2); box-shadow: 0 8px 20px rgba(15,23,42,0.06), inset 0 1px 0 rgba(255,255,255,0.92);">
-		<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-			<div class="min-w-0">
-				<TabBar tabs={tabItems} activeTab={activeTab} onchange={switchTab} variant="jiggle" stretch={false} />
-			</div>
-
-			<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-				<div class="relative min-w-0 sm:w-[260px]">
-					<Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-					<input
-						type="text"
-						bind:value={searchQuery}
-						placeholder="Search workspace..."
-						class="w-full rounded-2xl border px-10 py-2.5 text-sm font-medium text-slate-700 outline-none"
-						style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24); box-shadow: inset 0 1px 2px rgba(15,23,42,0.06);"
-					/>
-				</div>
-
-				{#if activeTab === 'programmes'}
-					<AquaButton onclick={openCreateProgramme}>
-						<Plus class="mr-1 h-4 w-4" /> Add Programme
-					</AquaButton>
-				{:else if activeTab === 'groups'}
-					<AquaButton onclick={() => openCreateGroup()}>
-						<Plus class="mr-1 h-4 w-4" /> Add Group
-					</AquaButton>
-				{:else if activeTab === 'targets'}
-					<AquaButton onclick={() => openCreateTarget()}>
-						<Plus class="mr-1 h-4 w-4" /> Add Target
-					</AquaButton>
-				{/if}
-			</div>
-		</div>
-
-		{#if activeTab === 'groups' || activeTab === 'targets'}
-			<div class="mt-3 flex flex-col gap-2 md:flex-row">
+	<!-- Action row: filter selects + add button -->
+	<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+		<div class="flex flex-col gap-2 sm:flex-row">
+			{#if activeTab === 'groups' || activeTab === 'targets'}
 				<select
 					bind:value={selectedProgrammeId}
-					class="w-full rounded-2xl border px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none md:max-w-[280px]"
+					class="w-full rounded-2xl border px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none sm:w-[220px]"
 					style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);"
 				>
 					<option value="">All programmes</option>
@@ -609,290 +530,260 @@
 						<option value={programme.id}>{programme.name}</option>
 					{/each}
 				</select>
+			{/if}
+			{#if activeTab === 'targets'}
+				<select
+					bind:value={selectedGroupId}
+					class="w-full rounded-2xl border px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none sm:w-[220px]"
+					style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);"
+				>
+					<option value="">All groups</option>
+					{#each selectableGroups as group (group.id)}
+						<option value={group.id}>{group.name}</option>
+					{/each}
+				</select>
+			{/if}
+		</div>
 
-				{#if activeTab === 'targets'}
-					<select
-						bind:value={selectedGroupId}
-						class="w-full rounded-2xl border px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none md:max-w-[280px]"
-						style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);"
-					>
-						<option value="">All groups</option>
-						{#each selectableGroups as group (group.id)}
-							<option value={group.id}>{group.name}</option>
-						{/each}
-					</select>
-				{/if}
-			</div>
-		{/if}
+		<div class="flex justify-end">
+			{#if activeTab === 'programmes'}
+				<button
+					type="button"
+					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					onclick={openCreateProgramme}
+				>
+					<span class="text-sm font-semibold leading-none opacity-80">+</span>
+					<span class="mt-1 text-base font-black leading-none">Add Program</span>
+				</button>
+			{:else if activeTab === 'groups'}
+				<button
+					type="button"
+					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					onclick={() => openCreateGroup()}
+				>
+					<span class="text-sm font-semibold leading-none opacity-80">+</span>
+					<span class="mt-1 text-base font-black leading-none">Add Group</span>
+				</button>
+			{:else if activeTab === 'targets'}
+				<button
+					type="button"
+					class="flex flex-col items-center justify-center rounded-2xl px-6 py-3 cursor-pointer transition-all active:translate-y-0.5 hover:-translate-y-[1px]"
+					style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.35), inset 0 1px 0 rgba(255,255,255,0.3);"
+					onclick={() => openCreateTarget()}
+				>
+					<span class="text-sm font-semibold leading-none opacity-80">+</span>
+					<span class="mt-1 text-base font-black leading-none">Add Target</span>
+				</button>
+			{/if}
+		</div>
 	</div>
 
+	<!-- Content -->
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
 			<div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
 		</div>
 	{:else if error}
-		<AquaCard>
-			<div class="py-8 text-center">
-				<p class="text-sm font-semibold text-red-600">{error}</p>
-			</div>
-		</AquaCard>
+		<div class="rounded-2xl border px-4 py-8 text-center"
+			style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+			<p class="text-sm font-semibold text-red-600">{error}</p>
+		</div>
 	{:else}
 		{#if activeTab === 'programmes'}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{#if filteredProgrammes.length === 0}
-					<AquaCard>
-						<div class="py-10 text-center">
-							<p class="text-sm font-semibold text-slate-500">No programmes found.</p>
-						</div>
-					</AquaCard>
+					<div class="rounded-2xl border px-4 py-10 text-center"
+						style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+						<p class="text-sm font-semibold text-slate-500">No programmes found.</p>
+					</div>
 				{:else}
 					{#each filteredProgrammes as programme (programme.id)}
-						<AquaCard>
-							<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<h3 class="truncate text-base font-black text-slate-900">{programme.name}</h3>
-										{#if programme.is_active}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(220,252,231,0.95); color: #15803d;">
-												Active
-											</span>
-										{:else}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(254,226,226,0.95); color: #b91c1c;">
-												Inactive
-											</span>
-										{/if}
-									</div>
-									<p class="mt-1 text-xs font-black uppercase tracking-[0.18em] text-blue-600">
-										{programme.code}
-										{#if programme.degree_type} • {programme.degree_type}{/if}
-										{#if programme.duration_years} • {programme.duration_years}{/if}
-									</p>
-									{#if programme.description}
-										<p class="mt-2 text-sm text-slate-600">{programme.description}</p>
-									{/if}
-									<div class="mt-3 flex flex-wrap gap-2">
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(239,246,255,0.95); color: #1d4ed8;">
-											{programme.student_count} students
-										</span>
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(245,243,255,0.95); color: #6d28d9;">
-											{programme.group_count ?? 0} groups
-										</span>
-									</div>
-								</div>
+						<button
+							type="button"
+							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
+							onclick={() => openEditProgramme(programme)}
+						>
+							<!-- Left: blue circle with graduation cap -->
+							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+								style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 4px 10px rgba(37,99,235,0.28);">
+								<GraduationCap class="h-5 w-5 text-white" />
+							</div>
 
-								<div class="flex flex-wrap gap-2 md:justify-end">
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #64748b, #475569); box-shadow: 0 2px 6px rgba(71,85,105,0.25);"
-										onclick={() => openEditProgramme(programme)}
-									>
-										<Edit3 class="h-3.5 w-3.5" /> Edit
-									</button>
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #ef4444, #dc2626); box-shadow: 0 2px 6px rgba(220,38,38,0.25);"
-										onclick={() => deactivateProgramme(programme)}
-									>
-										<Trash2 class="h-3.5 w-3.5" /> Deactivate
-									</button>
+							<!-- Center: name + status row -->
+							<div class="min-w-0 flex-1">
+								<p class="truncate font-bold text-slate-900">{programme.name}</p>
+								<div class="mt-1 flex items-center gap-2">
+									{#if programme.is_active}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(220,252,231,0.95); color: #15803d;">
+											Active
+										</span>
+									{:else}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(254,226,226,0.95); color: #b91c1c;">
+											Inactive
+										</span>
+									{/if}
+									<span class="text-xs text-slate-500">{programme.student_count} Students Enrolled</span>
 								</div>
 							</div>
-						</AquaCard>
+
+							<!-- Right: green checkmark circle + chevron -->
+							<div class="flex shrink-0 items-center gap-2">
+								<div class="flex h-8 w-8 items-center justify-center rounded-full"
+									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
+									<Check class="h-4 w-4 text-white" />
+								</div>
+								<ChevronRight class="h-4 w-4 text-slate-300" />
+							</div>
+						</button>
 					{/each}
 				{/if}
 			</div>
+
 		{:else if activeTab === 'groups'}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{#if filteredGroups.length === 0}
-					<AquaCard>
-						<div class="py-10 text-center">
-							<p class="text-sm font-semibold text-slate-500">No academic groups found.</p>
-						</div>
-					</AquaCard>
+					<div class="rounded-2xl border px-4 py-10 text-center"
+						style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+						<p class="text-sm font-semibold text-slate-500">No academic groups found.</p>
+					</div>
 				{:else}
 					{#each filteredGroups as group (group.id)}
-						<AquaCard>
-							<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<h3 class="truncate text-base font-black text-slate-900">{group.name}</h3>
-										{#if group.is_active}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(220,252,231,0.95); color: #15803d;">
-												Active
-											</span>
-										{:else}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(254,226,226,0.95); color: #b91c1c;">
-												Inactive
-											</span>
-										{/if}
-									</div>
-									<p class="mt-1 text-xs font-black uppercase tracking-[0.18em] text-violet-600">
-										{group.programme_name ?? getProgrammeName(group.programme_id)}
-									</p>
-									{#if group.description}
-										<p class="mt-2 text-sm text-slate-600">{group.description}</p>
+						<button
+							type="button"
+							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
+							onclick={() => openEditGroup(group)}
+						>
+							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+								style="background: linear-gradient(to bottom, #8b5cf6, #6d28d9); box-shadow: 0 4px 10px rgba(109,40,217,0.28);">
+								<Users class="h-5 w-5 text-white" />
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="truncate font-bold text-slate-900">{group.name}</p>
+								<div class="mt-1 flex items-center gap-2">
+									{#if group.is_active}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(220,252,231,0.95); color: #15803d;">Active</span>
+									{:else}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(254,226,226,0.95); color: #b91c1c;">Inactive</span>
 									{/if}
-									<div class="mt-3 flex flex-wrap gap-2">
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(239,246,255,0.95); color: #1d4ed8;">
-											{group.student_count} students
-										</span>
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(255,247,237,0.95); color: #c2410c;">
-											{group.target_count} targets
-										</span>
-									</div>
-								</div>
-
-								<div class="flex flex-wrap gap-2 md:justify-end">
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #64748b, #475569); box-shadow: 0 2px 6px rgba(71,85,105,0.25);"
-										onclick={() => openEditGroup(group)}
-									>
-										<Edit3 class="h-3.5 w-3.5" /> Edit
-									</button>
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #ef4444, #dc2626); box-shadow: 0 2px 6px rgba(220,38,38,0.25);"
-										onclick={() => deleteGroup(group)}
-									>
-										<Trash2 class="h-3.5 w-3.5" /> Delete
-									</button>
+									<span class="text-xs text-slate-500">
+										{group.programme_name ?? getProgrammeName(group.programme_id)} • {group.student_count} students
+									</span>
 								</div>
 							</div>
-						</AquaCard>
+							<div class="flex shrink-0 items-center gap-2">
+								<div class="flex h-8 w-8 items-center justify-center rounded-full"
+									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
+									<Check class="h-4 w-4 text-white" />
+								</div>
+								<ChevronRight class="h-4 w-4 text-slate-300" />
+							</div>
+						</button>
 					{/each}
 				{/if}
 			</div>
+
 		{:else if activeTab === 'targets'}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{#if filteredTargets.length === 0}
-					<AquaCard>
-						<div class="py-10 text-center">
-							<p class="text-sm font-semibold text-slate-500">No academic targets found.</p>
-						</div>
-					</AquaCard>
+					<div class="rounded-2xl border px-4 py-10 text-center"
+						style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+						<p class="text-sm font-semibold text-slate-500">No academic targets found.</p>
+					</div>
 				{:else}
 					{#each filteredTargets as target (target.id)}
-						<AquaCard>
-							<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<h3 class="truncate text-base font-black text-slate-900">{target.metric_name}</h3>
-										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-											style="background: rgba(239,246,255,0.95); color: #1d4ed8;">
-											{target.category}
-										</span>
-									</div>
-									<p class="mt-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-										{target.programme_name ?? 'Programme'} • {target.group_name ?? getGroupName(target.group_id)}
-									</p>
-									<div class="mt-3 flex flex-wrap gap-2">
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(240,253,244,0.95); color: #15803d;">
-											Target {target.target_value}
-										</span>
-										<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-											style="background: rgba(248,250,252,0.95); color: #475569;">
-											Sort {target.sort_order}
-										</span>
-										{#if target.form_name}
-											<span class="rounded-full px-2.5 py-1 text-[11px] font-bold"
-												style="background: rgba(245,243,255,0.95); color: #6d28d9;">
-												{target.form_name}
-											</span>
-										{/if}
-									</div>
-								</div>
-
-								<div class="flex flex-wrap gap-2 md:justify-end">
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #64748b, #475569); box-shadow: 0 2px 6px rgba(71,85,105,0.25);"
-										onclick={() => openEditTarget(target)}
-									>
-										<Edit3 class="h-3.5 w-3.5" /> Edit
-									</button>
-									<button
-										class="flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-										style="background: linear-gradient(to bottom, #ef4444, #dc2626); box-shadow: 0 2px 6px rgba(220,38,38,0.25);"
-										onclick={() => deleteTarget(target)}
-									>
-										<Trash2 class="h-3.5 w-3.5" /> Delete
-									</button>
+						<button
+							type="button"
+							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
+							onclick={() => openEditTarget(target)}
+						>
+							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+								style="background: linear-gradient(to bottom, #f97316, #ea580c); box-shadow: 0 4px 10px rgba(234,88,12,0.28);">
+								<Target class="h-5 w-5 text-white" />
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="truncate font-bold text-slate-900">{target.metric_name}</p>
+								<div class="mt-1 flex items-center gap-2">
+									<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+										style="background: rgba(239,246,255,0.95); color: #1d4ed8;">{target.category}</span>
+									<span class="text-xs text-slate-500">
+										Target {target.target_value} • {target.group_name ?? getGroupName(target.group_id)}
+									</span>
 								</div>
 							</div>
-						</AquaCard>
+							<div class="flex shrink-0 items-center gap-2">
+								<div class="flex h-8 w-8 items-center justify-center rounded-full"
+									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
+									<Check class="h-4 w-4 text-white" />
+								</div>
+								<ChevronRight class="h-4 w-4 text-slate-300" />
+							</div>
+						</button>
 					{/each}
 				{/if}
 			</div>
+
 		{:else if activeTab === 'weightages'}
-			<div class="space-y-3">
+			<div class="space-y-2">
 				{#if filteredWeightages.length === 0}
-					<AquaCard>
-						<div class="py-10 text-center">
-							<p class="text-sm font-semibold text-slate-500">No case-record forms found.</p>
-						</div>
-					</AquaCard>
+					<div class="rounded-2xl border px-4 py-10 text-center"
+						style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+						<p class="text-sm font-semibold text-slate-500">No case-record forms found.</p>
+					</div>
 				{:else}
 					{#each filteredWeightages as item (item.form_definition_id)}
-						<AquaCard>
-							<div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-								<div class="min-w-0">
-									<div class="flex items-center gap-2">
-										<h3 class="truncate text-base font-black text-slate-900">{item.name ?? 'Unnamed Form'}</h3>
-										{#if item.has_weightage}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(220,252,231,0.95); color: #15803d;">
-												Configured
-											</span>
-										{:else}
-											<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.16em]"
-												style="background: rgba(254,249,195,0.95); color: #a16207;">
-												Unset
-											</span>
-										{/if}
-									</div>
-									<p class="mt-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-										{item.department ?? 'General'}
-										{#if item.procedure_name} • {item.procedure_name}{/if}
-										{#if item.section} • {item.section}{/if}
-									</p>
-								</div>
-
-								<div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-									<div class="rounded-2xl px-3 py-2"
-										style="background: rgba(248,250,252,0.95); border: 1px solid rgba(148,163,184,0.22);">
-										<p class="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Points</p>
-										<p class="mt-0.5 text-lg font-black text-slate-900">{item.points}</p>
-									</div>
-									<div class="flex items-center gap-2">
-										<input
-											type="number"
-											min="0"
-											value={item.points}
-											onchange={(event) => updateWeightage(item, Number((event.currentTarget as HTMLInputElement).value))}
-											class="w-24 rounded-xl border px-3 py-2 text-sm font-bold text-slate-700 outline-none"
-											style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);"
-										/>
-										<button
-											class="rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
-											style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 6px rgba(37,99,235,0.25);"
-											onclick={() => updateWeightage(item, item.points)}
-										>
-											<Settings2 class="mr-1 inline h-3.5 w-3.5" /> Save
-										</button>
-									</div>
+						<div class="flex items-center gap-3 rounded-2xl border px-4 py-3"
+							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);">
+							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+								style="background: linear-gradient(to bottom, #f59e0b, #d97706); box-shadow: 0 4px 10px rgba(217,119,6,0.28);">
+								<Scale class="h-5 w-5 text-white" />
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="truncate font-bold text-slate-900">{item.name ?? 'Unnamed Form'}</p>
+								<div class="mt-1 flex items-center gap-2">
+									{#if item.has_weightage}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(220,252,231,0.95); color: #15803d;">Configured</span>
+									{:else}
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.14em]"
+											style="background: rgba(254,249,195,0.95); color: #a16207;">Unset</span>
+									{/if}
+									<span class="text-xs text-slate-500">
+										{item.department ?? 'General'}{#if item.procedure_name} • {item.procedure_name}{/if}
+									</span>
 								</div>
 							</div>
-						</AquaCard>
+							<div class="flex shrink-0 items-center gap-3">
+								<div class="rounded-xl border px-3 py-1.5 text-center"
+									style="background: rgba(248,250,252,0.95); border-color: rgba(148,163,184,0.22);">
+									<p class="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">pts</p>
+									<p class="text-sm font-black text-slate-900">{item.points}</p>
+								</div>
+								<input
+									type="number"
+									min="0"
+									value={item.points}
+									onchange={(event) => updateWeightage(item, Number((event.currentTarget as HTMLInputElement).value))}
+									class="w-20 rounded-xl border px-2 py-2 text-xs font-bold text-slate-700 outline-none"
+									style="background: rgba(255,255,255,0.96); border-color: rgba(148,163,184,0.24);"
+								/>
+								<button
+									class="rounded-xl px-3 py-2 text-xs font-black text-white cursor-pointer"
+									style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 2px 6px rgba(37,99,235,0.25);"
+									onclick={() => updateWeightage(item, item.points)}
+								>
+									Save
+								</button>
+							</div>
+						</div>
 					{/each}
 				{/if}
 			</div>
@@ -905,6 +796,7 @@
 		title={editingProgrammeId ? 'Edit Programme' : 'Create Programme'}
 		onclose={() => (showProgrammeModal = false)}
 	>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-4 p-4">
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
@@ -982,6 +874,7 @@
 		onclose={() => (showGroupModal = false)}
 	>
 		<div class="space-y-4 p-4">
+			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
 					<label class="mb-1 block text-xs font-semibold text-gray-700">Programme *</label>
@@ -1083,6 +976,7 @@
 		panelClass="max-w-[min(920px,94vw)]"
 		onclose={() => (showTargetModal = false)}
 	>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
 		<div class="space-y-4 p-4">
 			<div class="grid gap-3 md:grid-cols-2">
 				<div>
