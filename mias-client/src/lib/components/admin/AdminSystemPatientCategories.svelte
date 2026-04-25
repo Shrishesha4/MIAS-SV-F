@@ -6,7 +6,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
-	import { Loader2, PencilLine, Plus, Power, ShieldCheck, Star, Trash2, UsersRound } from 'lucide-svelte';
+	import { Loader2, PencilLine, Plus, ShieldCheck, Star, Trash2, UsersRound } from 'lucide-svelte';
 
 	type CategoryFormState = {
 		id: string | null;
@@ -255,20 +255,28 @@
 									<span class="text-base font-semibold text-slate-900">{category.patient_count}</span>
 								</td>
 								<td class="px-4 py-4">
-									<span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold {category.is_active ? 'text-emerald-700' : 'text-slate-500'}"
-										style={category.is_active
-											? 'background: rgba(16,185,129,0.14); border: 1px solid rgba(16,185,129,0.18);'
-											: 'background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.14);'}>
-										{category.is_active ? 'Active' : 'Inactive'}
-									</span>
+									<button
+										type="button"
+										role="switch"
+										aria-checked={category.is_active}
+										aria-label={`Toggle ${category.name} active status`}
+										onclick={() => toggleCategoryActive(category)}
+										disabled={togglingId === category.id}
+										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+									>
+										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${category.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${category.is_active ? 'left-6' : 'left-1'}`}>
+												{#if togglingId === category.id}
+													<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
+												{/if}
+											</span>
+										</span>
+									</button>
 								</td>
 								<td class="px-4 py-4">
 									<div class="flex flex-wrap gap-2">
 										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 cursor-pointer" style="background: rgba(148,163,184,0.12);" onclick={() => openEdit(category)}>
 											<PencilLine class="mr-1 inline h-3.5 w-3.5" /> Edit
-										</button>
-										<button type="button" class="rounded-full px-3 py-1.5 text-xs font-semibold cursor-pointer disabled:opacity-60 {category.is_active ? 'text-amber-700' : 'text-emerald-700'}" style={category.is_active ? 'background: rgba(251,191,36,0.16);' : 'background: rgba(16,185,129,0.14);'} onclick={() => toggleCategoryActive(category)} disabled={togglingId === category.id}>
-											<Power class="mr-1 inline h-3.5 w-3.5" /> {togglingId === category.id ? 'Saving...' : category.is_active ? 'Disable' : 'Enable'}
 										</button>
 										<!-- Delete patient category action hidden until admin disable flow replaces hard delete UI. -->
 										<!--

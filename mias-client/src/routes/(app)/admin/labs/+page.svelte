@@ -10,7 +10,7 @@
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { slide, fade } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
-	import { FlaskConical, Trash2, X, Plus, Pencil, Power, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, CheckCircle2, XCircle, Users } from 'lucide-svelte';
+	import { FlaskConical, Trash2, X, Plus, Pencil, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, Users, Loader2 } from 'lucide-svelte';
 
 	const DEFAULT_LAB_TYPE = 'General';
 	const COMMON_LAB_TYPES = [
@@ -523,17 +523,18 @@ style="background: rgba(99,102,241,0.1); color: #4338ca; max-width: 110px;">
 type="button"
 onclick={() => toggleLabActive(lab)}
 disabled={togglingLabId === lab.id}
-class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 disabled:opacity-50"
-style="{lab.is_active
-? 'background: rgba(251,191,36,0.15); color: #b45309; border: 1px solid rgba(251,191,36,0.3);'
-: 'background: rgba(34,197,94,0.12); color: #166534; border: 1px solid rgba(34,197,94,0.25);'}"
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={lab.is_active}
+aria-label={`Toggle ${lab.name} active status`}
 >
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${lab.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${lab.is_active ? 'left-6' : 'left-1'}`}>
 {#if togglingLabId === lab.id}
-<div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3 h-3" />
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
-{lab.is_active ? 'Disable' : 'Enable'}
+</span>
+</span>
 </button>
 <button
 onclick={() => openEditLabModal(lab)}
@@ -601,17 +602,23 @@ style="background: {lab.is_active ? '#22c55e' : '#94a3b8'};"></span>
 <p class="text-xs text-slate-500">{lab.lab_type || DEFAULT_LAB_TYPE} · {lab.department || '—'}</p>
 </div>
 </div>
-<!-- Active badge -->
-<span class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold"
-style="{lab.is_active
-? 'background: rgba(34,197,94,0.12); color: #166534;'
-: 'background: rgba(148,163,184,0.15); color: #64748b;'}">
-{#if lab.is_active}
-<CheckCircle2 class="w-3 h-3" />Active
-{:else}
-<XCircle class="w-3 h-3" />Inactive
+<button
+type="button"
+onclick={() => toggleLabActive(lab)}
+disabled={togglingLabId === lab.id}
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={lab.is_active}
+aria-label={`Toggle ${lab.name} active status`}
+>
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${lab.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${lab.is_active ? 'left-6' : 'left-1'}`}>
+{#if togglingLabId === lab.id}
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
 </span>
+</span>
+</button>
 </div>
 
 <!-- Stats row -->
@@ -630,22 +637,6 @@ style="background: linear-gradient(to bottom, #faf5ff, #ede9fe); border: 1px sol
 
 <!-- Action row -->
 <div class="flex gap-2">
-<button
-type="button"
-onclick={() => toggleLabActive(lab)}
-disabled={togglingLabId === lab.id}
-class="flex items-center justify-center gap-1.5 flex-1 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all disabled:opacity-50"
-style="{lab.is_active
-? 'background: rgba(251,191,36,0.15); color: #b45309; border: 1px solid rgba(251,191,36,0.25);'
-: 'background: rgba(34,197,94,0.12); color: #166534; border: 1px solid rgba(34,197,94,0.2);'}"
->
-{#if togglingLabId === lab.id}
-<div class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3.5 h-3.5" />
-{/if}
-{lab.is_active ? 'Disable' : 'Enable'}
-</button>
 <button
 onclick={() => openEditLabModal(lab)}
 class="flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-blue-600 cursor-pointer"
@@ -840,17 +831,18 @@ style="background: rgba(99,102,241,0.08); color: #4338ca;">
 type="button"
 onclick={() => toggleTestActive(test)}
 disabled={togglingTestId === test.id}
-class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:scale-105 disabled:opacity-50"
-style="{test.is_active
-? 'background: rgba(251,191,36,0.12); color: #b45309; border: 1px solid rgba(251,191,36,0.2);'
-: 'background: rgba(34,197,94,0.1); color: #166534; border: 1px solid rgba(34,197,94,0.2);'}"
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={test.is_active}
+aria-label={`Toggle ${test.name} active status`}
 >
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${test.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${test.is_active ? 'left-6' : 'left-1'}`}>
 {#if togglingTestId === test.id}
-<div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3 h-3" />
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
-{test.is_active ? 'Disable' : 'Enable'}
+</span>
+</span>
 </button>
 <button
 onclick={() => openEditTestModal(test)}
@@ -890,14 +882,18 @@ style="background: {test.is_active ? '#22c55e' : '#94a3b8'};"></span>
 type="button"
 onclick={() => toggleTestActive(test)}
 disabled={togglingTestId === test.id}
-class="p-1.5 rounded-lg cursor-pointer transition-all disabled:opacity-50"
-style="{test.is_active ? 'color: #b45309;' : 'color: #166534;'}"
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={test.is_active}
+aria-label={`Toggle ${test.name} active status`}
 >
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${test.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${test.is_active ? 'left-6' : 'left-1'}`}>
 {#if togglingTestId === test.id}
-<div class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3.5 h-3.5" />
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
+</span>
+</span>
 </button>
 <button onclick={() => openEditTestModal(test)} class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 cursor-pointer transition-all">
 <Pencil class="w-3.5 h-3.5" />
@@ -958,17 +954,18 @@ style="background: {group.is_active ? '#8b5cf6' : '#94a3b8'};"></span>
 type="button"
 onclick={() => toggleGroupActive(group)}
 disabled={togglingGroupId === group.id}
-class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-all hover:scale-105 disabled:opacity-50"
-style="{group.is_active
-? 'background: rgba(251,191,36,0.12); color: #b45309; border: 1px solid rgba(251,191,36,0.2);'
-: 'background: rgba(34,197,94,0.1); color: #166534; border: 1px solid rgba(34,197,94,0.2);'}"
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={group.is_active}
+aria-label={`Toggle ${group.name} active status`}
 >
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${group.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${group.is_active ? 'left-6' : 'left-1'}`}>
 {#if togglingGroupId === group.id}
-<div class="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3 h-3" />
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
-{group.is_active ? 'Disable' : 'Enable'}
+</span>
+</span>
 </button>
 <button onclick={() => openEditGroupModal(group)} class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-all">
 <Pencil class="w-3.5 h-3.5" />
@@ -1017,14 +1014,18 @@ style="background: {group.is_active ? '#8b5cf6' : '#94a3b8'};"></span>
 type="button"
 onclick={() => toggleGroupActive(group)}
 disabled={togglingGroupId === group.id}
-class="p-1.5 rounded-lg cursor-pointer transition-all disabled:opacity-50"
-style="{group.is_active ? 'color: #b45309;' : 'color: #166634;'}"
+class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+role="switch"
+aria-checked={group.is_active}
+aria-label={`Toggle ${group.name} active status`}
 >
+<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${group.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${group.is_active ? 'left-6' : 'left-1'}`}>
 {#if togglingGroupId === group.id}
-<div class="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-{:else}
-<Power class="w-3.5 h-3.5" />
+<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
 {/if}
+</span>
+</span>
 </button>
 <button onclick={() => openEditGroupModal(group)} class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 cursor-pointer transition-all">
 <Pencil class="w-3.5 h-3.5" />

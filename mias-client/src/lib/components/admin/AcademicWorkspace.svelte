@@ -27,7 +27,6 @@
 		CheckCircle2,
 		ShieldCheck,
 		ArrowRight,
-		ChevronRight,
 		Settings2,
 		BookOpen
 	} from 'lucide-svelte';
@@ -92,6 +91,7 @@
 	let targetValue = $state(0);
 	let targetSortOrder = $state(0);
 	let targetFormDefinitionId = $state('');
+	let deletingTargetId = $state('');
 	let togglingProgrammeId = $state('');
 	let togglingGroupId = $state('');
 
@@ -518,16 +518,23 @@
 
 	async function deleteTarget(target: AcademicTarget) {
 		if (!window.confirm(`Delete target "${target.metric_name}"?`)) return;
+		deletingTargetId = target.id;
 
 		try {
 			await adminApi.deleteAcademicTarget(target.id);
 			toastStore.addToast('Academic target deleted successfully', 'success');
+			if (editingTargetId === target.id) {
+				showTargetModal = false;
+				editingTargetId = '';
+			}
 			await loadWorkspace();
 		} catch (errorValue: unknown) {
 			toastStore.addToast(
 				(errorValue as ApiError)?.response?.data?.detail || 'Failed to delete academic target',
 				'error'
 			);
+		} finally {
+			deletingTargetId = '';
 		}
 	}
 
@@ -669,34 +676,29 @@
 							<div class="min-w-0 flex-1">
 								<p class="truncate font-bold text-slate-900">{programme.name}</p>
 								<div class="mt-1 flex items-center gap-2">
-									<button
-										type="button"
-										role="switch"
-										aria-checked={programme.is_active}
-										aria-label={`Toggle ${programme.name} active status`}
-										onclick={(event) => toggleProgrammeActive(event, programme)}
-										disabled={togglingProgrammeId === programme.id}
-										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
-									>
-										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${programme.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
-											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${programme.is_active ? 'left-6' : 'left-1'}`}>
-												{#if togglingProgrammeId === programme.id}
-													<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
-												{/if}
-											</span>
-										</span>
-									</button>
 									<span class="text-xs text-slate-500">{programme.student_count} Students Enrolled</span>
 								</div>
 							</div>
 
-							<!-- Right: green checkmark circle + chevron -->
-							<div class="flex shrink-0 items-center gap-2">
-								<div class="flex h-8 w-8 items-center justify-center rounded-full"
-									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
-									<Check class="h-4 w-4 text-white" />
-								</div>
-								<ChevronRight class="h-4 w-4 text-slate-300" />
+							<!-- Right: iOS-style status switch only -->
+							<div class="flex shrink-0 items-center">
+								<button
+									type="button"
+									role="switch"
+									aria-checked={programme.is_active}
+									aria-label={`Toggle ${programme.name} active status`}
+									onclick={(event) => toggleProgrammeActive(event, programme)}
+									disabled={togglingProgrammeId === programme.id}
+									class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+								>
+									<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${programme.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+										<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${programme.is_active ? 'left-6' : 'left-1'}`}>
+											{#if togglingProgrammeId === programme.id}
+												<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
+											{/if}
+										</span>
+									</span>
+								</button>
 							</div>
 						</div>
 					{/each}
@@ -732,34 +734,29 @@
 							<div class="min-w-0 flex-1">
 								<p class="truncate font-bold text-slate-900">{group.name}</p>
 								<div class="mt-1 flex items-center gap-2">
-									<button
-										type="button"
-										role="switch"
-										aria-checked={group.is_active}
-										aria-label={`Toggle ${group.name} active status`}
-										onclick={(event) => toggleGroupActive(event, group)}
-										disabled={togglingGroupId === group.id}
-										class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
-									>
-										<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${group.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
-											<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${group.is_active ? 'left-6' : 'left-1'}`}>
-												{#if togglingGroupId === group.id}
-													<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
-												{/if}
-											</span>
-										</span>
-									</button>
 									<span class="text-xs text-slate-500">
 										{group.programme_name ?? getProgrammeName(group.programme_id)} • {group.student_count} students
 									</span>
 								</div>
 							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								<div class="flex h-8 w-8 items-center justify-center rounded-full"
-									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
-									<Check class="h-4 w-4 text-white" />
-								</div>
-								<ChevronRight class="h-4 w-4 text-slate-300" />
+							<div class="flex shrink-0 items-center">
+								<button
+									type="button"
+									role="switch"
+									aria-checked={group.is_active}
+									aria-label={`Toggle ${group.name} active status`}
+									onclick={(event) => toggleGroupActive(event, group)}
+									disabled={togglingGroupId === group.id}
+									class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+								>
+									<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${group.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+										<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${group.is_active ? 'left-6' : 'left-1'}`}>
+											{#if togglingGroupId === group.id}
+												<Check class="m-auto h-3 w-3 animate-pulse text-slate-300" />
+											{/if}
+										</span>
+									</span>
+								</button>
 							</div>
 						</div>
 					{/each}
@@ -775,11 +772,18 @@
 					</div>
 				{:else}
 					{#each filteredTargets as target (target.id)}
-						<button
-							type="button"
+						<div
+							role="button"
+							tabindex="0"
 							class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
 							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
 							onclick={() => openEditTarget(target)}
+							onkeydown={(event) => {
+								if (event.key === 'Enter' || event.key === ' ') {
+									event.preventDefault();
+									openEditTarget(target);
+								}
+							}}
 						>
 							<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
 								style="background: linear-gradient(to bottom, #f97316, #ea580c); box-shadow: 0 4px 10px rgba(234,88,12,0.28);">
@@ -795,14 +799,25 @@
 									</span>
 								</div>
 							</div>
-							<div class="flex shrink-0 items-center gap-2">
-								<div class="flex h-8 w-8 items-center justify-center rounded-full"
-									style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 6px rgba(22,163,74,0.28);">
-									<Check class="h-4 w-4 text-white" />
-								</div>
-								<ChevronRight class="h-4 w-4 text-slate-300" />
+							<div class="flex shrink-0 items-center">
+								<button
+									type="button"
+									onclick={(event) => {
+										event.stopPropagation();
+										void deleteTarget(target);
+									}}
+									disabled={deletingTargetId === target.id}
+									class="inline-flex h-8 w-8 items-center justify-center rounded-full text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60"
+									title="Delete target"
+								>
+									{#if deletingTargetId === target.id}
+										<Check class="h-3.5 w-3.5 animate-pulse text-slate-300" />
+									{:else}
+										<Trash2 class="h-4 w-4" />
+									{/if}
+								</button>
 							</div>
-						</button>
+						</div>
 					{/each}
 				{/if}
 			</div>
@@ -1140,6 +1155,21 @@
 			</div>
 
 			<div class="flex gap-2 pt-2">
+				{#if editingTargetId}
+					<AquaButton
+						variant="danger"
+						fullWidth
+						disabled={deletingTargetId === editingTargetId}
+						onclick={() => {
+							const target = targets.find((item) => item.id === editingTargetId);
+							if (target) {
+								void deleteTarget(target);
+							}
+						}}
+					>
+						{deletingTargetId === editingTargetId ? 'Deleting...' : 'Delete Target'}
+					</AquaButton>
+				{/if}
 				<AquaButton variant="secondary" fullWidth onclick={() => (showTargetModal = false)}>
 					Cancel
 				</AquaButton>
