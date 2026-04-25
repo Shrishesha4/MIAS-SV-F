@@ -7,13 +7,17 @@
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import {
-		ChevronRight, Plus, Stethoscope, Trash2
+		ChevronRight, Download, Loader2, PencilLine, Plus, Stethoscope, Trash2, Upload
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
 	let loading = $state(true);
 	let error = $state('');
 	let departments: Department[] = $state([]);
+	let importing = $state(false);
+	let importFeedback = $state('');
+	let togglingId = $state('');
+	let fileInput: HTMLInputElement;
 
 	// Form state
 	let showForm = $state(false);
@@ -36,6 +40,7 @@
 
 	async function loadData() {
 		loading = true;
+		error = '';
 		try {
 			const d = await adminApi.getDepartments();
 			departments = d;
@@ -109,6 +114,139 @@
 			deleteLoading = false;
 		}
 	}
+
+	async function toggleDepartmentActive(dept: Department) {
+		if (togglingId) return;
+		togglingId = dept.id;
+		importFeedback = '';
+		try {
+			await adminApi.updateDepartment(dept.id, { is_active: !dept.is_active });
+			departments = departments.map((item) =>
+				item.id === dept.id ? { ...item, is_active: !item.is_active } : item
+			);
+		} catch (e: any) {
+			importFeedback = e.response?.data?.detail || 'Failed to update department status';
+		} finally {
+			togglingId = '';
+		}
+	}
+
+	function normalizeRowKeys(row: Record<string, unknown>): Record<string, string> {
+		const normalized: Record<string, string> = {};
+		for (const [key, value] of Object.entries(row)) {
+			const cleanKey = key.toLowerCase().trim().replace(/\s+/g, '_');
+			normalized[cleanKey] = String(value ?? '').trim();
+		}
+		return normalized;
+	}
+
+	async function downloadSample() {
+		const rows = [
+			{ name: 'Cardiology', code: 'CARD', description: 'Heart and vascular medicine' },
+			{ name: 'General Surgery', code: 'GSUR', description: 'General and laparoscopic surgery' },
+			{ name: 'Orthopedics', code: 'ORTHO', description: 'Bone and joint care' },
+		];
+
+		try {
+			const XLSX = await import('xlsx/xlsx.mjs');
+			const worksheet = XLSX.utils.json_to_sheet(rows);
+			const workbook = XLSX.utils.book_new();
+			XLSX.utils.book_append_sheet(workbook, worksheet, 'Departments');
+			XLSX.writeFile(workbook, 'departments-sample.xlsx');
+		} catch {
+			const csv = [
+				'name,code,description',
+				...rows.map((row) => `"${row.name}","${row.code}","${row.description}"`)
+			].join('\n');
+			const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+			const link = document.createElement('a');
+			link.href = URL.createObjectURL(blob);
+			link.download = 'departments-sample.csv';
+			link.click();
+			URL.revokeObjectURL(link.href);
+		}
+	}
+
+	async function handleImport(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		importing = true;
+		importFeedback = '';
+
+		try {
+			const XLSX = await import('xlsx/xlsx.mjs');
+			const buffer = await file.arrayBuffer();
+			const workbook = XLSX.read(buffer, { type: 'array' });
+			const firstSheet = workbook.SheetNames[0];
+			if (!firstSheet) {
+				importFeedback = 'No sheet found in import file';
+				return;
+			}
+
+			const rawRows = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], {
+				defval: ''
+			}) as Record<string, unknown>[];
+
+			if (rawRows.length === 0) {
+				importFeedback = 'Import file is empty';
+				return;
+			}
+
+			const normalizedRows: Record<string, string>[] = rawRows.map(normalizeRowKeys);
+			const parsedRows: Array<{ name: string; code: string; description: string }> = normalizedRows
+				.map((row) => ({
+					name: row.name ?? row.department_name ?? '',
+					code: row.code ?? row.department_code ?? '',
+					description: row.description ?? ''
+				}))
+				.filter((row) => row.name.trim() && row.code.trim());
+
+			if (parsedRows.length === 0) {
+				importFeedback = 'No valid rows found. Required columns: name, code';
+				return;
+			}
+
+			const existingByCode = new Map(
+				departments.map((dept) => [dept.code.trim().toUpperCase(), dept])
+			);
+
+			let success = 0;
+			let failed = 0;
+
+			for (const row of parsedRows) {
+				const payload = {
+					name: row.name.trim(),
+					code: row.code.trim().toUpperCase(),
+					description: row.description.trim() || undefined,
+				};
+				const existing = existingByCode.get(payload.code);
+				try {
+					if (existing) {
+						await adminApi.updateDepartment(existing.id, payload);
+					} else {
+						await adminApi.createDepartment(payload as any);
+					}
+					success += 1;
+				} catch {
+					failed += 1;
+				}
+			}
+
+			await loadData();
+			if (failed > 0) {
+				importFeedback = `Imported ${success} row(s), ${failed} failed`;
+			} else {
+				importFeedback = `Imported ${success} row(s)`;
+			}
+		} catch {
+			importFeedback = 'Failed to parse file. Use CSV/XLS/XLSX with name and code columns';
+		} finally {
+			importing = false;
+			input.value = '';
+		}
+	}
 </script>
 
 	<div class="space-y-4 lg:space-y-5">
@@ -117,15 +255,49 @@
 				<h2 class="text-xs font-bold uppercase tracking-[0.18em] text-slate-500 lg:text-[13px]">Medical Departments</h2>
 				<p class="mt-1 text-xs text-slate-500 lg:hidden">{departments.length} departments configured</p>
 			</div>
-			<button
-				onclick={openCreate}
-				class="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white cursor-pointer lg:px-4"
-				style="background: linear-gradient(to bottom, #3c8af4, #1667d8); box-shadow: 0 3px 8px rgba(22,103,216,0.24), inset 0 1px 0 rgba(255,255,255,0.22);"
-			>
-				<Plus class="h-3.5 w-3.5" />
-				<span>Add New</span>
-			</button>
+			<div class="flex shrink-0 items-center gap-2">
+				<button
+					onclick={downloadSample}
+					class="hidden items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-slate-700 cursor-pointer lg:flex"
+					style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); box-shadow: 0 2px 6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.6);"
+				>
+					<Download class="h-3.5 w-3.5" />
+					<span>Sample</span>
+				</button>
+				<button
+					onclick={() => fileInput?.click()}
+					disabled={importing}
+					class="hidden items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-slate-700 cursor-pointer disabled:opacity-60 lg:flex"
+					style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); box-shadow: 0 2px 6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.6);"
+				>
+					{#if importing}
+						<Loader2 class="h-3.5 w-3.5 animate-spin" />
+					{:else}
+						<Upload class="h-3.5 w-3.5" />
+					{/if}
+					<span>Import</span>
+				</button>
+				<input
+					bind:this={fileInput}
+					type="file"
+					accept=".csv,.xls,.xlsx"
+					onchange={handleImport}
+					class="hidden"
+				/>
+				<button
+					onclick={openCreate}
+					class="flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white cursor-pointer lg:px-4"
+					style="background: linear-gradient(to bottom, #3c8af4, #1667d8); box-shadow: 0 3px 8px rgba(22,103,216,0.24), inset 0 1px 0 rgba(255,255,255,0.22);"
+				>
+					<Plus class="h-3.5 w-3.5" />
+					<span>Add New</span>
+				</button>
+			</div>
 		</div>
+
+		{#if importFeedback}
+			<p class="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">{importFeedback}</p>
+		{/if}
 
 	{#if loading}
 		<div class="flex items-center justify-center py-16">
@@ -136,7 +308,7 @@
 			<p class="text-red-500 text-center py-4">{error}</p>
 		</AquaCard>
 	{:else}
-		<div class="space-y-3">
+		<div class="space-y-3 lg:hidden">
 			{#each departments as dept (dept.id)}
 				<div
 					class="group flex items-center gap-4 rounded-[18px] border px-4 py-4 cursor-pointer transition-transform hover:-translate-y-[1px]"
@@ -185,16 +357,108 @@
 					</div>
 				</div>
 			{/each}
+		</div>
 
-			{#if departments.length === 0}
-				<div class="rounded-[18px] border px-6 py-12 text-center" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);">
-					<Stethoscope class="mx-auto mb-3 h-12 w-12 text-violet-300" />
-					<p class="text-sm font-semibold text-slate-500">No departments yet</p>
-					<AquaButton size="sm" onclick={openCreate}>
-						<span>Create First Department</span>
-					</AquaButton>
-				</div>
-			{/if}
+		<div class="hidden overflow-hidden rounded-[18px] border lg:block" style="background: linear-gradient(to bottom, rgba(255,255,255,0.98), rgba(249,251,253,0.96)); border-color: rgba(158,173,193,0.26); box-shadow: 0 3px 8px rgba(97,112,134,0.12), inset 0 1px 0 rgba(255,255,255,0.94);">
+			<div class="overflow-x-auto">
+				<table class="min-w-full border-collapse">
+					<thead>
+						<tr class="border-b border-slate-200/80 bg-slate-50/80 text-left">
+							<th class="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Code</th>
+							<th class="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Department</th>
+							<!-- <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Description</th> -->
+							<th class="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Status</th>
+							<th class="px-4 py-3 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#if departments.length === 0}
+							<tr>
+								<td colspan="5" class="px-6 py-12 text-center">
+									<Stethoscope class="mx-auto mb-3 h-12 w-12 text-violet-300" />
+									<p class="text-sm font-semibold text-slate-500">No departments yet</p>
+									<div class="mt-3">
+										<AquaButton size="sm" onclick={openCreate}>
+											<span>Create First Department</span>
+										</AquaButton>
+									</div>
+								</td>
+							</tr>
+						{:else}
+							{#each departments as dept (dept.id)}
+								<tr class="border-b border-slate-100 last:border-b-0 hover:bg-blue-50/30">
+									<td class="px-4 py-3 text-sm font-bold text-violet-700">{dept.code}</td>
+									<td class="px-4 py-3 text-sm font-semibold text-slate-800">{dept.name}</td>
+									<!-- <td class="max-w-[28rem] px-4 py-3 text-sm text-slate-500">
+										<div class="truncate">{dept.description || '—'}</div>
+									</td> -->
+									<td class="px-4 py-3">
+										<button
+											type="button"
+											role="switch"
+											aria-checked={dept.is_active}
+											aria-label={`Toggle ${dept.name} active status`}
+											onclick={() => toggleDepartmentActive(dept)}
+											disabled={togglingId === dept.id}
+											class="inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-70"
+										>
+											<span
+												class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${dept.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}
+											>
+												<span
+													class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${dept.is_active ? 'left-6' : 'left-1'}`}
+												>
+													{#if togglingId === dept.id}
+														<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
+													{/if}
+												</span>
+											</span>
+											<!-- <span class={`text-[10px] font-bold uppercase tracking-[0.12em] ${dept.is_active ? 'text-emerald-700' : 'text-rose-600'}`}>
+												{dept.is_active ? 'Active' : 'Inactive'}
+											</span> -->
+										</button>
+									</td>
+									<td class="px-4 py-3">
+										<div class="flex items-center gap-2">
+											<button
+												onclick={() => openEdit(dept)}
+												class="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+											>
+												<PencilLine class="h-3.5 w-3.5" />
+												Edit
+											</button>
+										</div>
+									</td>
+								</tr>
+							{/each}
+						{/if}
+					</tbody>
+				</table>
+			</div>
+		</div>
+
+		<div class="flex gap-2 lg:hidden">
+			<button
+				onclick={downloadSample}
+				class="flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-slate-700 cursor-pointer"
+				style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); box-shadow: 0 2px 6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.6);"
+			>
+				<Download class="h-3.5 w-3.5" />
+				<span>Sample</span>
+			</button>
+			<button
+				onclick={() => fileInput?.click()}
+				disabled={importing}
+				class="flex flex-1 items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-slate-700 cursor-pointer disabled:opacity-60"
+				style="background: linear-gradient(to bottom, #f8fafc, #e2e8f0); box-shadow: 0 2px 6px rgba(15,23,42,0.12), inset 0 1px 0 rgba(255,255,255,0.6);"
+			>
+				{#if importing}
+					<Loader2 class="h-3.5 w-3.5 animate-spin" />
+				{:else}
+					<Upload class="h-3.5 w-3.5" />
+				{/if}
+				<span>Import</span>
+			</button>
 		</div>
 	{/if}
 	</div>

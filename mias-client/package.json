@@ -24,6 +24,7 @@
 		"@tailwindcss/typography": "^0.5.19",
 		"@tailwindcss/vite": "^4.1.18",
 		"@types/node": "^24",
+		"@types/xlsx": "^0.0.35",
 		"eslint": "^9.39.2",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.14.0",
@@ -43,6 +44,7 @@
 		"axios": "^1.13.5",
 		"chart.js": "^4.5.1",
 		"lucide-svelte": "^0.575.0",
-		"qrcode": "^1.5.4"
+		"qrcode": "^1.5.4",
+		"xlsx": "^0.18.5"
 	}
 }
