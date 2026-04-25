@@ -16,6 +16,11 @@
 	let theaters = $state<OTTheater[]>([]);
 	let search = $state('');
 	let editorOpen = $state(false);
+	const otIdCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+
+	function sortTheatersByOtId(items: OTTheater[]) {
+		return [...items].sort((a, b) => otIdCollator.compare(a.ot_id, b.ot_id));
+	}
 
 	type OTFormState = {
 		id: string | null;
@@ -43,7 +48,7 @@
 	onMount(async () => {
 		if (auth.role !== 'ADMIN') return;
 		try {
-			theaters = await otApi.listTheaters();
+			theaters = sortTheatersByOtId(await otApi.listTheaters());
 		} catch {
 			toastStore.addToast('Failed to load OT rooms', 'error');
 		} finally {
@@ -75,7 +80,7 @@
 					description: form.description || undefined,
 					is_active: form.is_active,
 				});
-				theaters = theaters.map(t => t.id === updated.id ? updated : t);
+				theaters = sortTheatersByOtId(theaters.map(t => t.id === updated.id ? updated : t));
 				toastStore.addToast('OT updated', 'success');
 			} else {
 				const created = await otApi.createTheater({
@@ -84,7 +89,7 @@
 					location: form.location || undefined,
 					description: form.description || undefined,
 				});
-				theaters = [...theaters, created].sort((a, b) => a.ot_id.localeCompare(b.ot_id));
+				theaters = sortTheatersByOtId([...theaters, created]);
 				toastStore.addToast('OT created', 'success');
 			}
 			editorOpen = false;
@@ -99,7 +104,7 @@
 		togglingId = t.id;
 		try {
 			const updated = await otApi.updateTheater(t.id, { is_active: !t.is_active });
-			theaters = theaters.map(x => x.id === updated.id ? updated : x);
+			theaters = sortTheatersByOtId(theaters.map(x => x.id === updated.id ? updated : x));
 		} catch {
 			toastStore.addToast('Failed to update', 'error');
 		} finally {
