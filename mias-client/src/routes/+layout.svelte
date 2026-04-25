@@ -1,7 +1,27 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { goto } from '$app/navigation';
+	import { get } from 'svelte/store';
+	import { browser } from '$app/environment';
+	import { authStore } from '$lib/stores/auth';
+	import { authApi } from '$lib/api/auth';
 	import './layout.css';
 
 	let { children } = $props();
+
+	onMount(async () => {
+		if (!browser) return;
+		const auth = get(authStore);
+		// If not authenticated, try to restore session from httpOnly cookie
+		if (!auth.isAuthenticated && auth.userId) {
+			try {
+				const result = await authApi.refresh();
+				authStore.setTokens(result.access_token, result.user_id, result.role);
+			} catch {
+				// Refresh failed, will be caught by (app) layout on next navigation
+			}
+		}
+	});
 </script>
 
 <svelte:head>
