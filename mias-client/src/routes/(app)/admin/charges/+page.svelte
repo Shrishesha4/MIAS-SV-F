@@ -7,6 +7,11 @@ import client from '$lib/api/client';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import { insuranceCategoriesApi, type InsuranceCategory } from '$lib/api/insuranceCategories';
 	import { chargesApi, type ChargeItem, type ChargeCategory, type ChargeTier, type CreateChargeItemRequest } from '$lib/api/labs';
+	import {
+		buildMappedChargeTierKey,
+		findCanonicalChargeTierEntry,
+		normalizeChargeTierKey
+	} from '$lib/utils/charge-tier';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
@@ -128,7 +133,14 @@ import client from '$lib/api/client';
 	}
 
 	function normalizePricingKey(value: string): string {
-		return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+		return normalizeChargeTierKey(value);
+	}
+
+	function getCanonicalPriceEntry(
+		prices: Record<string, number | null>,
+		tier: string
+	): { key: string; value: number | null } | null {
+		return findCanonicalChargeTierEntry(prices, tier);
 	}
 
 	function withAlpha(color: string, alpha: number): string {
@@ -168,11 +180,46 @@ import client from '$lib/api/client';
 
 	function buildPricingColumns(
 		chargeItems: ChargeItem[],
-		categoryItems: PatientCategoryConfig[]
+		categoryItems: PatientCategoryConfig[],
+		insuranceItems: InsuranceCategory[]
 	): PricingTierOption[] {
 		const tiers: PricingTierOption[] = [];
 		const sortedCategories = sortPatientCategories(categoryItems);
+		const sortedInsurance = sortInsuranceCategories(insuranceItems).filter((insurance) => insurance.is_active);
 		const seenTierKeys = new Set<string>();
+
+		for (const insurance of sortedInsurance) {
+			const mappedCategoryIds = new Set((insurance.patient_categories ?? []).map((category) => category.id));
+
+			for (const category of sortedCategories) {
+				if (!mappedCategoryIds.has(category.id)) {
+					continue;
+				}
+
+				const mappedTierKey = buildMappedChargeTierKey(insurance.name, category.name);
+				const normalizedMappedKey = normalizePricingKey(mappedTierKey);
+				if (!normalizedMappedKey || seenTierKeys.has(normalizedMappedKey)) {
+					continue;
+				}
+
+				tiers.push({
+					key: mappedTierKey,
+					insuranceId: insurance.id,
+					insuranceName: insurance.name,
+					insuranceIconKey: insurance.icon_key,
+					insuranceBadgeSymbol: insurance.custom_badge_symbol ?? null,
+					insuranceColorPrimary: insurance.color_primary,
+					insuranceColorSecondary: insurance.color_secondary,
+					patientCategoryId: category.id,
+					patientCategoryName: category.name,
+					patientColorPrimary: category.color_primary,
+					patientColorSecondary: category.color_secondary,
+					isBase: false
+				});
+
+				seenTierKeys.add(normalizedMappedKey);
+			}
+		}
 
 		for (const category of sortedCategories) {
 			const normalizedTierKey = normalizePricingKey(category.name);
@@ -281,7 +328,7 @@ import client from '$lib/api/client';
 		}
 	}
 
-	const availablePricingTiers = $derived.by(() => buildPricingColumns(charges, priceCategories));
+	const availablePricingTiers = $derived.by(() => buildPricingColumns(charges, priceCategories, insuranceCategories));
 	const pricingColumns = $derived.by(() => availablePricingTiers.map((tier) => tier.key));
 	const orderedPricingTiers = $derived.by(() => {
 		const byKey = new Map(availablePricingTiers.map((tier) => [tier.key, tier]));
@@ -310,8 +357,18 @@ import client from '$lib/api/client';
 
 	function mergeChargePrices(charge: ChargeItem, categoryNames: string[]): ChargeItem {
 		const mergedPrices = buildEmptyPrices(categoryNames);
+
+		for (const categoryName of categoryNames) {
+			const existingEntry = getCanonicalPriceEntry(charge.prices || {}, categoryName);
+			if (existingEntry) {
+				mergedPrices[categoryName] = existingEntry.value;
+			}
+		}
+
 		for (const [categoryName, price] of Object.entries(charge.prices || {})) {
-			mergedPrices[categoryName] = price;
+			if (!(categoryName in mergedPrices)) {
+				mergedPrices[categoryName] = price;
+			}
 		}
 
 		return {
@@ -331,13 +388,14 @@ import client from '$lib/api/client';
 	function getPriceInputValue(charge: ChargeItem, tier: ChargeTier): string {
 		const draft = priceDrafts[priceDraftKey(charge.id, tier)];
 		if (draft !== undefined) return draft;
-		const price = charge.prices[tier];
+		const price = getCanonicalPriceEntry(charge.prices, tier)?.value;
 		if (price === null || price === undefined) return '';
 		return String(price);
 	}
 
 	function isPriceSet(charge: ChargeItem, tier: ChargeTier): boolean {
-		return charge.prices[tier] !== null && charge.prices[tier] !== undefined;
+		const price = getCanonicalPriceEntry(charge.prices, tier)?.value;
+		return price !== null && price !== undefined;
 	}
 
 	function priceCellId(chargeId: string, tier: ChargeTier): string {
@@ -346,6 +404,10 @@ import client from '$lib/api/client';
 
 	function regFeeCellId(insuranceId: string, categoryId: string): string {
 		return `reg-fee-cell-${insuranceId}-${categoryId}`;
+	}
+
+	function walkInTypeForCategory(categoryName: string): string {
+		return `WALKIN_${categoryName.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
 	}
 
 	function resetPriceDraft(chargeId: string, tier: ChargeTier) {
@@ -674,23 +736,51 @@ import client from '$lib/api/client';
 			const fees: Record<string, number> = {};
 			const clinicMap: Record<string, { clinicId: string; walkInType: string }> = {};
 			for (const insurance of insuranceItems) {
-				for (const patientCat of insurance.patient_categories) {
-					const walkInType = `WALKIN_${patientCat.name.toUpperCase().replace(/\s+/g, '_').replace(/-/g, '_')}`;
-					// Prefer configs from clinics that explicitly serve this walk-in type
-					const configsForType = insurance.clinic_configs.filter(c => c.walk_in_type === walkInType);
-					const config = configsForType.find(c => c.clinic_walk_in_types?.includes(walkInType)) || configsForType[0];
-					const key = `${insurance.id}::${patientCat.id}`;
-					if (config) {
-						fees[key] = config.registration_fee;
-						clinicMap[key] = { clinicId: config.clinic_id, walkInType };
+				const eligibleCategoryIds = new Set((insurance.patient_categories ?? []).map((patientCat) => patientCat.id));
+
+				for (const patientCat of categoryItems) {
+					if (!eligibleCategoryIds.has(patientCat.id)) {
+						continue;
 					}
+
+					const walkInType = walkInTypeForCategory(patientCat.name);
+					const configsForType = insurance.clinic_configs.filter((config) => config.walk_in_type === walkInType);
+					const clinicCapableConfig = insurance.clinic_configs.find((config) =>
+						config.clinic_walk_in_types?.includes(walkInType)
+					);
+					const config =
+						configsForType.find((candidate) => candidate.clinic_walk_in_types?.includes(walkInType)) ||
+						configsForType[0] ||
+						clinicCapableConfig ||
+						insurance.clinic_configs[0];
+
+					if (!config) {
+						continue;
+					}
+
+					const key = `${insurance.id}::${patientCat.id}`;
+					fees[key] = (configsForType[0]?.registration_fee ?? clinicCapableConfig?.registration_fee ?? config.registration_fee ?? patientCat.registration_fee ?? 0);
+					clinicMap[key] = { clinicId: config.clinic_id, walkInType };
 				}
 			}
 			registrationFees = fees;
 			regFeeClinicMap = clinicMap;
 
-			const nextPricingColumns = buildPricingColumns(chargeItems, categoryItems).map((tier) => tier.key);
-			syncColumnOrder(nextPricingColumns);
+			const nextPricingTiers = buildPricingColumns(chargeItems, categoryItems, insuranceItems);
+			const nextPricingColumns = nextPricingTiers.map((tier) => tier.key);
+			const mappedTierKeys = new Set(
+				nextPricingTiers
+					.filter((tier) => !tier.isBase && !tier.isLegacy)
+					.map((tier) => tier.key)
+			);
+			const hasMappedTiers = mappedTierKeys.size > 0;
+			const currentLayoutHasMappedTiers = columnOrder.some((key) => mappedTierKeys.has(key));
+
+			if (hasMappedTiers && !currentLayoutHasMappedTiers) {
+				columnOrder = nextPricingColumns;
+			} else {
+				syncColumnOrder(nextPricingColumns);
+			}
 			charges = chargeItems.map((charge) => mergeChargePrices(charge, nextPricingColumns));
 		} catch (e: any) {
 			error = e.response?.data?.detail || 'Failed to load charges';
@@ -819,7 +909,7 @@ import client from '$lib/api/client';
 			return;
 		}
 
-		const currentPrice = charge.prices[tier];
+		const currentPrice = getCanonicalPriceEntry(charge.prices, tier)?.value;
 		if (nextPrice === (currentPrice ?? null) || (currentPrice !== null && nextPrice === currentPrice)) {
 			resetPriceDraft(charge.id, tier);
 			return;
@@ -1116,7 +1206,7 @@ import client from '$lib/api/client';
 									{#each orderedRegistrationCategories as category (category.id)}
 										{@const isEligible = insurance.patient_categories?.some(pc => pc.id === category.id)}
 										{@const comboKey = `${insurance.id}::${category.id}`}
-										{@const hasConfig = comboKey in registrationFees}
+										{@const hasConfig = comboKey in regFeeClinicMap}
 										<div class="border-r border-slate-300 bg-white">
 											{#if !isEligible || !hasConfig}
 												<div class="flex h-[33px] items-center justify-center px-1 text-[10pt] text-slate-400">N/A</div>

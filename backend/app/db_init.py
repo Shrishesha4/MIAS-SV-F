@@ -8,6 +8,7 @@ from sqlalchemy.engine import Connection
 
 from app.core.security import get_password_hash
 from app.database import AsyncSessionLocal, engine
+from app.services.charge_sync import sync_charge_price_categories
 from app.models.user import User, UserRole
 
 
@@ -58,6 +59,12 @@ async def ensure_default_admin_user() -> None:
         await session.commit()
 
 
+async def repair_charge_tiers() -> None:
+    async with AsyncSessionLocal() as session:
+        await sync_charge_price_categories(session)
+        await session.commit()
+
+
 async def run_startup_migrations() -> None:
     async with engine.connect() as connection:
         await connection.execute(text('SELECT pg_advisory_lock(:lock_id)'), {'lock_id': ALEMBIC_LOCK_ID})
@@ -71,6 +78,7 @@ async def run_startup_migrations() -> None:
             # Run post-migration bootstrap while still holding the same advisory
             # lock, but after Alembic has committed its own transaction.
             await ensure_default_admin_user()
+            await repair_charge_tiers()
         except Exception:
             await connection.rollback()
             raise

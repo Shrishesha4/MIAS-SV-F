@@ -26,7 +26,8 @@
 			}
 		};
 	}
-	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
+	const hiddenSections: FormSection[] = ['LABORATORY'];
+	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'ADMINISTRATIVE'];
 	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis', 'department_select', 'faculty_select', 'clinic_select'];
 
 	const fieldTypeLabels: Record<string, string> = {
@@ -145,6 +146,7 @@
 	const sectionTabs = $derived.by(() => {
 		const activeCategories = [...formCategories]
 			.filter((category) => category.is_active)
+			.filter((category) => !hiddenSections.includes(category.name.toUpperCase()))
 			.sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name));
 		return activeCategories.length > 0 ? activeCategories.map((category) => category.name) : defaultSections;
 	});
@@ -219,7 +221,9 @@
 	}
 
 	function syncActiveSection(categories: FormCategory[]) {
-		const activeCategories = sortFormCategories(categories).filter((category) => category.is_active);
+		const activeCategories = sortFormCategories(categories)
+			.filter((category) => category.is_active)
+			.filter((category) => !hiddenSections.includes(category.name.toUpperCase()));
 		if (activeCategories.length === 0) {
 			activeSection = defaultSections[0];
 			return;

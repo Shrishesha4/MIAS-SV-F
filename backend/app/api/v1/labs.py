@@ -16,10 +16,11 @@ from app.models.wallet import WalletTransaction, WalletType, TransactionType, Pa
 from app.core.exceptions import NotFoundException
 from app.services.charge_sync import (
     get_charge_price_categories,
+    repair_charge_price_tiers,
     sync_charge_price_categories,
     sync_charge_sources,
 )
-from app.services.patient_categories import normalize_patient_category_name
+from app.services.charge_tiers import normalize_charge_tier_key, normalize_charge_tier_name
 
 router = APIRouter(prefix="/labs", tags=["Labs"])
 
@@ -584,13 +585,13 @@ class UpdateChargeItemRequest(BaseModel):
 
 
 def _price_category_key(name: str | None) -> str:
-    return normalize_patient_category_name(name or '').casefold()
+    return normalize_charge_tier_key(name)
 
 
 def _normalize_price_payload(prices: Optional[dict[str, float]]) -> dict[str, float]:
     normalized_prices: dict[str, float] = {}
     for raw_name, price in (prices or {}).items():
-        normalized_name = normalize_patient_category_name(raw_name or '')
+        normalized_name = normalize_charge_tier_name(raw_name)
         if not normalized_name:
             continue
         normalized_prices[normalized_name] = price
@@ -601,7 +602,7 @@ def _resolve_price_categories(configured_categories: list[str], payload_prices: 
     resolved: list[str] = []
     seen: set[str] = set()
     for raw_name in [*configured_categories, *payload_prices.keys()]:
-        normalized_name = normalize_patient_category_name(raw_name or '')
+        normalized_name = normalize_charge_tier_name(raw_name)
         category_key = normalized_name.casefold()
         if not normalized_name or category_key in seen:
             continue
@@ -613,7 +614,7 @@ def _resolve_price_categories(configured_categories: list[str], payload_prices: 
 def _serialize_charge_item(item: ChargeItem) -> dict:
     prices: dict[str, float] = {}
     for price in item.prices:
-        normalized_name = normalize_patient_category_name(price.tier or '') or price.tier
+        normalized_name = normalize_charge_tier_name(price.tier) or price.tier
         if not normalized_name:
             continue
         prices[normalized_name] = float(price.price)
@@ -671,6 +672,8 @@ async def create_charge_item(
         is_active=data.is_active,
     )
     db.add(item)
+
+    await repair_charge_price_tiers(db, items=[item])
 
     normalized_prices = _normalize_price_payload(data.prices)
     configured_categories = await get_charge_price_categories(db)
@@ -730,6 +733,8 @@ async def update_charge_item(
         item.source_id = data.source_id
     if data.is_active is not None:
         item.is_active = data.is_active
+
+    await repair_charge_price_tiers(db, items=[item])
 
     configured_categories = await get_charge_price_categories(db)
     normalized_prices = _normalize_price_payload(data.prices)

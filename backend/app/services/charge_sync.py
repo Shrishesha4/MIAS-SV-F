@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.form_definition import FormDefinition
+from app.models.insurance_category import InsuranceCategory
 from app.models.lab import ChargeCategory, ChargeItem, ChargePrice, LabTest, LabTestGroup
+from app.services.charge_tiers import (
+    build_all_mapped_charge_tiers,
+    normalize_charge_tier_key,
+    normalize_charge_tier_name,
+)
 from app.services.patient_categories import ensure_patient_categories, normalize_patient_category_name
 
 
@@ -61,7 +67,7 @@ def _group_item_code(group: LabTestGroup) -> str:
 def _base_prices(item: ChargeItem) -> dict[str, ChargePrice]:
     prices: dict[str, ChargePrice] = {}
     for price in item.prices:
-        normalized_name = normalize_patient_category_name(price.tier or '')
+        normalized_name = normalize_charge_tier_name(price.tier or '')
         price_key = normalized_name.casefold()
         if not normalized_name or price_key in prices:
             continue
@@ -85,7 +91,61 @@ async def get_charge_price_categories(db: AsyncSession) -> list[str]:
         category_names.append(normalized_name)
         seen.add(category_key)
 
+    insurance_result = await db.execute(
+        select(InsuranceCategory)
+        .options(selectinload(InsuranceCategory.patient_categories))
+        .order_by(InsuranceCategory.sort_order.asc(), InsuranceCategory.name.asc())
+    )
+    mapped_tiers = build_all_mapped_charge_tiers(
+        (
+            insurance.name,
+            [category.name for category in insurance.patient_categories if category.is_active]
+        )
+        for insurance in insurance_result.scalars().all()
+        if insurance.is_active
+    )
+    for tier_name in mapped_tiers:
+        tier_key = tier_name.casefold()
+        if tier_key in seen:
+            continue
+        category_names.append(tier_name)
+        seen.add(tier_key)
+
     return category_names
+
+
+async def repair_charge_price_tiers(
+    db: AsyncSession,
+    items: list[ChargeItem] | None = None,
+) -> None:
+    if items is None:
+        result = await db.execute(select(ChargeItem).options(selectinload(ChargeItem.prices)))
+        items = list(result.scalars().all())
+
+    configured_tiers = await get_charge_price_categories(db)
+    configured_tier_map = {normalize_charge_tier_key(name): name for name in configured_tiers}
+
+    for item in items:
+        canonical_by_key: dict[str, ChargePrice] = {}
+        for price in list(item.prices):
+            normalized_key = normalize_charge_tier_key(price.tier)
+            if not normalized_key:
+                item.prices.remove(price)
+                continue
+
+            canonical_name = configured_tier_map.get(normalized_key) or normalize_charge_tier_name(price.tier)
+            if price.tier != canonical_name:
+                price.tier = canonical_name
+
+            existing = canonical_by_key.get(normalized_key)
+            if existing is None:
+                canonical_by_key[normalized_key] = price
+                continue
+
+            existing.price = price.price
+            item.prices.remove(price)
+
+    await db.flush()
 
 
 def _ensure_price_tiers(item: ChargeItem, db: AsyncSession, category_names: list[str]) -> None:
@@ -97,7 +157,7 @@ def _ensure_price_tiers(item: ChargeItem, db: AsyncSession, category_names: list
     canonical_ids = {p.id for p in existing.values()}
     for price in list(item.prices):
         is_canonical = price.id in canonical_ids
-        is_valid_tier = normalize_patient_category_name(price.tier or '').casefold() in valid_keys
+        is_valid_tier = normalize_charge_tier_key(price.tier or '') in valid_keys
         if not is_canonical or not is_valid_tier:
             item.prices.remove(price)
 
@@ -129,6 +189,8 @@ async def sync_charge_price_categories(
     if items is None:
         result = await db.execute(select(ChargeItem).options(selectinload(ChargeItem.prices)))
         items = list(result.scalars().all())
+
+    await repair_charge_price_tiers(db, items)
 
     for item in items:
         _ensure_price_tiers(item, db, category_names)

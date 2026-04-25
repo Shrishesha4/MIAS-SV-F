@@ -10,6 +10,7 @@ from app.database import engine, dispose_analytics_engine
 from app.api.v1.router import api_router
 from app.core.middleware import limiter, SecurityHeadersMiddleware
 from app.core.redis_client import close_redis
+from app.db_init import run_startup_migrations
 
 # Import all models so they are registered with metadata
 import app.models  # noqa: F401
@@ -23,6 +24,7 @@ os.makedirs(os.path.join(UPLOADS_DIR, "forms"), exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await run_startup_migrations()
     yield
     await close_redis()
     await dispose_analytics_engine()
