@@ -677,6 +677,20 @@ export const adminApi = {
     return r.data;
   },
 
+  async downloadSystemBackup(): Promise<Blob> {
+    const r = await client.get('/admin/system-backup/export', { responseType: 'blob' });
+    return r.data;
+  },
+
+  async importSystemBackup(file: File): Promise<{ message: string; summary: { total_rows: number; tables: Record<string, number> } }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await client.post('/admin/system-backup/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return r.data;
+  },
+
   // Programmes
   async getProgrammes(): Promise<Programme[]> {
     const r = await client.get('/admin/programmes');

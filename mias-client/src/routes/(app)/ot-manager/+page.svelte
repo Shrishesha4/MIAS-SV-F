@@ -37,13 +37,19 @@
 		(schedule?.theaters ?? []).filter(t => selectedTheaterIds.size === 0 || selectedTheaterIds.has(t.id))
 	);
 
+	function bookingCoversDate(booking: OTBooking, targetDate: string): boolean {
+		const start = booking.from_date || booking.date;
+		const end = booking.to_date || start;
+		return start <= targetDate && end >= targetDate;
+	}
+
 	const totalSurgeries = $derived(
-		(schedule?.bookings ?? []).filter(b => b.date === anchorDate && b.status !== 'CANCELLED').length
+		(schedule?.bookings ?? []).filter(b => bookingCoversDate(b, anchorDate) && b.status !== 'CANCELLED').length
 	);
 
 	// ── Helpers ──────────────────────────────────────────────────────────────
-	const OP_START = 8 * 60;
-	const OP_END   = 20 * 60;
+	const OP_START = 0;
+	const OP_END   = 24 * 60;
 
 	function toMins(t: string) {
 		const [h, m] = t.split(':').map(Number);
@@ -57,7 +63,7 @@
 
 	function bookingsForTheaterDay(theaterId: string): OTBooking[] {
 		return (schedule?.bookings ?? [])
-			.filter(b => b.theater_id === theaterId && b.date === anchorDate && b.status !== 'CANCELLED')
+			.filter(b => b.theater_id === theaterId && bookingCoversDate(b, anchorDate) && b.status !== 'CANCELLED')
 			.sort((a, b) => a.start_time.localeCompare(b.start_time));
 	}
 
@@ -118,9 +124,9 @@
 	function gridText(i: number)  { return GRID_TEXT[i % GRID_TEXT.length]; }
 
 	const gridHours = $derived.by(() => {
-		const step = Math.max(1, Math.round(12 / Math.max(1, density)));
+		const step = Math.max(1, Math.round(24 / Math.max(1, density)));
 		const hrs: string[] = [];
-		for (let h = 8; h <= 20; h += step) hrs.push(`${h}:00`);
+		for (let h = 0; h <= 23; h += step) hrs.push(`${String(h).padStart(2, '0')}:00`);
 		return hrs;
 	});
 
@@ -419,9 +425,9 @@
 			<div class="flex sticky top-0 z-10 rounded-t-xl overflow-hidden" style="background:#eef1f6;">
 				<div class="w-24 shrink-0 py-3 pr-2 text-[9px] font-black uppercase tracking-widest text-slate-400 text-center border-r border-slate-200 bg-white">ROOM</div>
 				<div class="relative flex-1 flex bg-white border-b border-slate-200">
-					{#each Array.from({length: 12}, (_, i) => i + 8) as h}
+					{#each Array.from({length: 24}, (_, i) => i) as h}
 						<div class="flex-1 py-3 text-center text-[10px] font-bold text-slate-500 border-r border-slate-200">
-							{h}:00
+							{String(h).padStart(2, '0')}:00
 						</div>
 					{/each}
 				</div>
@@ -434,8 +440,8 @@
 						{theater.ot_id}
 					</div>
 					<div class="relative flex-1 h-16 bg-white">
-						{#each Array.from({length: 13}, (_, i) => i) as i}
-							<div class="absolute top-0 bottom-0 border-r border-slate-100" style="left:{(i/12*100).toFixed(2)}%;"></div>
+						{#each Array.from({length: 25}, (_, i) => i) as i}
+							<div class="absolute top-0 bottom-0 border-r border-slate-100" style="left:{(i/24*100).toFixed(2)}%;"></div>
 						{/each}
 						{#each bks as b, bi}
 							{@const isPending = b.status === 'SCHEDULED'}

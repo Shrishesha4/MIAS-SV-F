@@ -1,5 +1,6 @@
 """Admin panel API – dashboard, user management, departments, analytics."""
 
+import json
 import uuid
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -49,6 +50,7 @@ from app.services.academics import (
     match_form_definition_for_record,
 )
 from app.services.charge_sync import sync_charge_price_categories
+from app.services.charge_sync import sync_charge_sources
 from app.services.id_generator import generate_patient_id as _async_generate_patient_id
 from app.services.patient_categories import (
     ensure_patient_categories,
@@ -56,6 +58,7 @@ from app.services.patient_categories import (
     normalize_patient_category_name,
     patient_category_usage_counts,
 )
+from app.services.system_backup import export_system_backup, import_system_backup
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -2917,6 +2920,44 @@ async def system_info(
         "api": "MIAS-MP API",
         "database": "PostgreSQL 15",
         "status": "operational",
+    }
+
+
+@router.get("/system-backup/export")
+async def export_backup(
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Export full system data backup for migration/restoration."""
+    return await export_system_backup(db)
+
+
+@router.post("/system-backup/import")
+async def import_backup(
+    file: UploadFile = File(...),
+    user: User = Depends(require_role(UserRole.ADMIN)),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import a previously exported full system backup."""
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Backup file is empty")
+
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid backup JSON file") from exc
+
+    try:
+        summary = await import_system_backup(db, payload)
+        await sync_charge_sources(db)
+        await sync_charge_price_categories(db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "message": "System backup imported successfully",
+        "summary": summary,
     }
 
 

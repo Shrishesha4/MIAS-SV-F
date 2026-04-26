@@ -29,7 +29,8 @@
 
 	let form = $state({
 		theater_id: '',
-		date: todayISO(),
+		from_date: todayISO(),
+		to_date: todayISO(),
 		start_time: '',
 		end_time: '',
 		procedure: '',
@@ -49,16 +50,17 @@
 		'Laparoscopy', 'Hysterectomy', 'Prostatectomy', 'Spinal Fusion',
 	].sort();
 
-	const TIME_SLOTS: string[] = [];
-	for (let h = 8; h <= 20; h++) {
-		TIME_SLOTS.push(`${String(h).padStart(2, '0')}:00`);
-		if (h < 20) TIME_SLOTS.push(`${String(h).padStart(2, '0')}:30`);
+	function bookingCoversDate(booking: OTBooking, targetDate: string): boolean {
+		const start = booking.from_date || booking.date;
+		const end = booking.to_date || start;
+		return start <= targetDate && end >= targetDate;
 	}
 
 	const visibleTheaters = $derived(
 		schedule?.theaters.filter(t => selectedTheaterIds.size === 0 || selectedTheaterIds.has(t.id)) ?? []
 	);
 	const weekDates = $derived(schedule?.week_dates ?? []);
+	const GRID_HOURS = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, '0')}:00`);
 
 	function shortDay(iso: string) {
 		const d = new Date(iso + 'T00:00:00');
@@ -72,7 +74,7 @@
 
 	function getBookingsForTheaterDate(theaterId: string, date: string): OTBooking[] {
 		return (schedule?.bookings ?? [])
-			.filter(b => b.theater_id === theaterId && b.date === date && b.status !== 'CANCELLED')
+			.filter(b => b.theater_id === theaterId && bookingCoversDate(b, date) && b.status !== 'CANCELLED')
 			.sort((a, b) => a.start_time.localeCompare(b.start_time));
 	}
 
@@ -80,8 +82,8 @@
 		{ type: 'booking'; data: OTBooking } | { type: 'slot'; start: string; end: string }
 	> {
 		const result: Array<{ type: 'booking'; data: OTBooking } | { type: 'slot'; start: string; end: string }> = [];
-		let cursor = '08:00';
-		const DAY_END = '20:00';
+		let cursor = '00:00';
+		const DAY_END = '23:59';
 		for (const b of bookings) {
 			if (b.start_time > cursor) result.push({ type: 'slot', start: cursor, end: b.start_time });
 			result.push({ type: 'booking', data: b });
@@ -121,15 +123,20 @@
 
 	function prefillFromSlot(theater: OTTheater, start: string, end: string) {
 		form.theater_id = theater.id;
-		form.date = anchorDate;
+		form.from_date = anchorDate;
+		form.to_date = anchorDate;
 		form.start_time = start;
 		form.end_time = end;
 		view = 'form';
 	}
 
 	async function submit() {
-		if (!form.theater_id || !form.date || !form.start_time || !form.end_time || !form.procedure || !form.doctor_name) {
+		if (!form.theater_id || !form.from_date || !form.to_date || !form.start_time || !form.end_time || !form.procedure || !form.doctor_name) {
 			toastStore.addToast('Fill all required fields', 'error');
+			return;
+		}
+		if (form.to_date < form.from_date) {
+			toastStore.addToast('To date cannot be before from date', 'error');
 			return;
 		}
 		if (form.start_time >= form.end_time) {
@@ -141,7 +148,8 @@
 			const booking = await otApi.createBooking({
 				theater_id: form.theater_id,
 				patient_id: patientId,
-				date: form.date,
+				from_date: form.from_date,
+				to_date: form.to_date,
 				start_time: form.start_time,
 				end_time: form.end_time,
 				procedure: form.procedure,
@@ -150,7 +158,7 @@
 			});
 			toastStore.addToast('OT booking submitted', 'success');
 			onbooked?.(booking);
-			form = { theater_id: '', date: todayISO(), start_time: '', end_time: '', procedure: '', doctor_name: '', notes: '' };
+			form = { theater_id: '', from_date: todayISO(), to_date: todayISO(), start_time: '', end_time: '', procedure: '', doctor_name: '', notes: '' };
 		} catch (err: any) {
 			toastStore.addToast(err?.response?.data?.detail || 'Failed to submit booking', 'error');
 		} finally {
@@ -195,8 +203,16 @@
 
 	<div>
 		<!-- svelte-ignore a11y_label_has_associated_control -->
-		<label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">OT Date *</label>
-		<input type="date" bind:value={form.date}
+		<label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">From Date *</label>
+		<input type="date" bind:value={form.from_date}
+			class="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
+			style="background: #fafcff;" />
+	</div>
+
+	<div>
+		<!-- svelte-ignore a11y_label_has_associated_control -->
+		<label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">To Date *</label>
+		<input type="date" bind:value={form.to_date}
 			class="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
 			style="background: #fafcff;" />
 	</div>
@@ -205,32 +221,24 @@
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">From Time *</label>
-			<div class="relative">
-				<select bind:value={form.start_time}
-					class="block w-full appearance-none rounded-xl border border-slate-200 px-3 py-2.5 pr-8 text-sm text-slate-800 cursor-pointer"
-					style="background: #fafcff;">
-					<option value="">Select Time</option>
-					{#each TIME_SLOTS as t}
-						<option value={t}>{t}</option>
-					{/each}
-				</select>
-				<ChevronRight class="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-slate-400" />
-			</div>
+			<input
+				type="time"
+				bind:value={form.start_time}
+				step="1800"
+				class="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
+				style="background: #fafcff;"
+			/>
 		</div>
 		<div>
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label class="block text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">To Time *</label>
-			<div class="relative">
-				<select bind:value={form.end_time}
-					class="block w-full appearance-none rounded-xl border border-slate-200 px-3 py-2.5 pr-8 text-sm text-slate-800 cursor-pointer"
-					style="background: #fafcff;">
-					<option value="">Select Time</option>
-					{#each TIME_SLOTS as t}
-						<option value={t}>{t}</option>
-					{/each}
-				</select>
-				<ChevronRight class="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 rotate-90 text-slate-400" />
-			</div>
+			<input
+				type="time"
+				bind:value={form.end_time}
+				step="1800"
+				class="block w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-800"
+				style="background: #fafcff;"
+			/>
 		</div>
 	</div>
 
@@ -293,7 +301,7 @@
 		BACK TO BOOKING
 	</button>
 	<button
-		onclick={() => { form.theater_id = ''; form.start_time = ''; form.end_time = ''; view = 'form'; }}
+		onclick={() => { form.theater_id = ''; form.from_date = anchorDate; form.to_date = anchorDate; form.start_time = ''; form.end_time = ''; view = 'form'; }}
 		class="rounded-xl px-3 py-1.5 text-xs font-bold text-white cursor-pointer"
 		style="background: linear-gradient(to bottom, #4d90fe, #0066cc);">
 		NEW BOOKING
@@ -305,7 +313,7 @@
 		<p class="text-xs font-bold text-slate-700">OT SCHEDULE — {schedule?.theaters.length ?? 0} OPERATORIES</p>
 		{#if schedule}
 			<p class="text-xs font-bold text-blue-600">
-				Showing {schedule.bookings.filter(b => b.date === anchorDate).length} surgeries for {anchorDate}
+				Showing {schedule.bookings.filter(b => bookingCoversDate(b, anchorDate)).length} surgeries for {anchorDate}
 			</p>
 		{/if}
 	</div>
@@ -451,7 +459,7 @@
 		<thead>
 			<tr class="sticky top-0 bg-slate-100">
 				<th class="sticky left-0 bg-slate-100 px-3 py-2 text-left text-[10px] font-bold uppercase text-slate-500 w-14">ROOM</th>
-				{#each ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'] as hr}
+				{#each GRID_HOURS as hr}
 					<th class="min-w-[72px] border-l border-slate-200 px-2 py-2 text-center text-[10px] font-bold text-slate-500">{hr}</th>
 				{/each}
 			</tr>
@@ -461,7 +469,7 @@
 				{@const dayBookings = getBookingsForTheaterDate(theater.id, anchorDate)}
 				<tr class="border-t border-slate-100">
 					<td class="sticky left-0 border-r border-slate-100 bg-white px-3 py-2 font-bold text-slate-700">{theater.ot_id}</td>
-					{#each ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00'] as hr}
+					{#each GRID_HOURS as hr}
 						{@const booking = dayBookings.find(b => b.start_time <= hr && b.end_time > hr)}
 						<td class="min-w-[72px] border-l border-slate-100 p-1">
 							{#if booking && booking.start_time === hr}
@@ -506,7 +514,8 @@
 	onclose={() => showFullscreenSchedule = false}
 	onbook={(prefill) => {
 		form.theater_id = prefill.theater_id;
-		form.date = prefill.date;
+		form.from_date = prefill.date;
+		form.to_date = prefill.date;
 		form.start_time = prefill.start_time;
 		form.end_time = prefill.end_time;
 		showFullscreenSchedule = false;

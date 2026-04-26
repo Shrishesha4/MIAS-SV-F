@@ -22,7 +22,22 @@ _dispensing_status_enum = sa.Enum(
 )
 
 
+def _column_exists(inspector: sa.Inspector, table_name: str, column_name: str) -> bool:
+    return any(col["name"] == column_name for col in inspector.get_columns(table_name))
+
+
+def _fk_exists(inspector: sa.Inspector, table_name: str, fk_name: str) -> bool:
+    return any(fk.get("name") == fk_name for fk in inspector.get_foreign_keys(table_name))
+
+
+def _index_exists(inspector: sa.Inspector, table_name: str, index_name: str) -> bool:
+    return any(idx.get("name") == index_name for idx in inspector.get_indexes(table_name))
+
+
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     op.execute("ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'PHARMACY'")
     op.execute(
         """
@@ -39,29 +54,37 @@ def upgrade() -> None:
         """
     )
 
-    op.add_column(
-        "prescriptions",
-        sa.Column("dispensing_status", _dispensing_status_enum, nullable=True),
-    )
-    op.add_column("prescriptions", sa.Column("prepared_at", sa.DateTime(), nullable=True))
-    op.add_column("prescriptions", sa.Column("prepared_by", sa.String(), nullable=True))
-    op.add_column("prescriptions", sa.Column("issued_at", sa.DateTime(), nullable=True))
-    op.add_column("prescriptions", sa.Column("issued_by", sa.String(), nullable=True))
+    if not _column_exists(inspector, "prescriptions", "dispensing_status"):
+        op.add_column(
+            "prescriptions",
+            sa.Column("dispensing_status", _dispensing_status_enum, nullable=True),
+        )
+    if not _column_exists(inspector, "prescriptions", "prepared_at"):
+        op.add_column("prescriptions", sa.Column("prepared_at", sa.DateTime(), nullable=True))
+    if not _column_exists(inspector, "prescriptions", "prepared_by"):
+        op.add_column("prescriptions", sa.Column("prepared_by", sa.String(), nullable=True))
+    if not _column_exists(inspector, "prescriptions", "issued_at"):
+        op.add_column("prescriptions", sa.Column("issued_at", sa.DateTime(), nullable=True))
+    if not _column_exists(inspector, "prescriptions", "issued_by"):
+        op.add_column("prescriptions", sa.Column("issued_by", sa.String(), nullable=True))
 
-    op.create_foreign_key(
-        "fk_prescriptions_prepared_by_users",
-        "prescriptions",
-        "users",
-        ["prepared_by"],
-        ["id"],
-    )
-    op.create_foreign_key(
-        "fk_prescriptions_issued_by_users",
-        "prescriptions",
-        "users",
-        ["issued_by"],
-        ["id"],
-    )
+    inspector = sa.inspect(bind)
+    if not _fk_exists(inspector, "prescriptions", "fk_prescriptions_prepared_by_users"):
+        op.create_foreign_key(
+            "fk_prescriptions_prepared_by_users",
+            "prescriptions",
+            "users",
+            ["prepared_by"],
+            ["id"],
+        )
+    if not _fk_exists(inspector, "prescriptions", "fk_prescriptions_issued_by_users"):
+        op.create_foreign_key(
+            "fk_prescriptions_issued_by_users",
+            "prescriptions",
+            "users",
+            ["issued_by"],
+            ["id"],
+        )
 
     op.execute(
         """
@@ -76,13 +99,17 @@ def upgrade() -> None:
     )
 
     op.alter_column("prescriptions", "dispensing_status", nullable=False)
-    op.create_index(
-        "idx_prescription_dispensing_status_date",
-        "prescriptions",
-        ["dispensing_status", "date"],
-        unique=False,
-    )
-    op.create_index("ix_prescriptions_issued_at", "prescriptions", ["issued_at"], unique=False)
+
+    inspector = sa.inspect(bind)
+    if not _index_exists(inspector, "prescriptions", "idx_prescription_dispensing_status_date"):
+        op.create_index(
+            "idx_prescription_dispensing_status_date",
+            "prescriptions",
+            ["dispensing_status", "date"],
+            unique=False,
+        )
+    if not _index_exists(inspector, "prescriptions", "ix_prescriptions_issued_at"):
+        op.create_index("ix_prescriptions_issued_at", "prescriptions", ["issued_at"], unique=False)
 
 
 def downgrade() -> None:

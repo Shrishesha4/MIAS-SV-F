@@ -26,13 +26,19 @@
 	}
 	let anchorDate = $state(todayISO());
 
+	function bookingCoversDate(booking: OTBooking, targetDate: string): boolean {
+		const start = booking.from_date || booking.date;
+		const end = booking.to_date || start;
+		return start <= targetDate && end >= targetDate;
+	}
+
 	const visibleTheaters = $derived(
 		schedule?.theaters.filter(t => selectedTheaterIds.size === 0 || selectedTheaterIds.has(t.id)) ?? []
 	);
 	const weekDates = $derived(schedule?.week_dates ?? []);
 
 	const totalSurgeries = $derived(
-		(schedule?.bookings ?? []).filter(b => b.date === anchorDate && b.status !== 'CANCELLED').length
+		(schedule?.bookings ?? []).filter(b => bookingCoversDate(b, anchorDate) && b.status !== 'CANCELLED').length
 	);
 
 	async function loadSchedule(date?: string) {
@@ -71,12 +77,12 @@
 
 	function bookingsForTheaterDay(theaterId: string) {
 		return (schedule?.bookings ?? [])
-			.filter(b => b.theater_id === theaterId && b.date === anchorDate && b.status !== 'CANCELLED')
+			.filter(b => b.theater_id === theaterId && bookingCoversDate(b, anchorDate) && b.status !== 'CANCELLED')
 			.sort((a, b) => a.start_time.localeCompare(b.start_time));
 	}
 
-	const OP_START = 8 * 60;  // 08:00
-	const OP_END   = 20 * 60; // 20:00
+	const OP_START = 0;
+	const OP_END   = 24 * 60;
 
 	function toMins(t: string) {
 		const [h, m] = t.split(':').map(Number);
@@ -115,15 +121,15 @@
 		CANCELLED:   '#ef4444',
 	};
 
-	// Grid view hour columns (08:00 – 20:00 based on density)
+	// Grid view hour columns (00:00 – 24:00 based on density)
 	const GRID_HOURS = $derived.by(() => {
-		const step = Math.max(1, Math.round(10 / density));
+		const step = Math.max(1, Math.round(24 / density));
 		const hrs: string[] = [];
-		for (let h = 8; h <= 19; h += step) hrs.push(`${h}:00`);
+		for (let h = 0; h <= 23; h += step) hrs.push(`${h}:00`);
 		return hrs;
 	});
 
-	const TOTAL_MINS = OP_END - OP_START; // 720
+	const TOTAL_MINS = OP_END - OP_START;
 
 	function gridBookingStyle(b: OTBooking) {
 		const start = toMins(b.start_time);
@@ -307,9 +313,9 @@
 			<div class="flex sticky top-0 z-10" style="background:#f1f5f9;">
 				<div class="w-20 shrink-0 py-2 pr-2 text-[10px] font-black uppercase tracking-widest text-slate-400 text-center">ROOM</div>
 				<div class="relative flex-1 flex border-l border-slate-200">
-					{#each Array.from({length: 12}, (_, i) => i + 8) as h}
+					{#each Array.from({length: 24}, (_, i) => i) as h}
 						<div class="flex-1 py-2 text-center text-[10px] font-bold text-slate-500 border-r border-slate-200">
-							{h}:00
+							{String(h).padStart(2, '0')}:00
 						</div>
 					{/each}
 				</div>
@@ -323,8 +329,8 @@
 					<!-- Timeline -->
 					<div class="relative flex-1 h-16 border-l border-slate-200">
 						<!-- Hour grid lines -->
-						{#each Array.from({length: 13}, (_, i) => i) as i}
-							<div class="absolute top-0 bottom-0 border-r border-slate-100" style="left:{(i / 12 * 100).toFixed(2)}%;"></div>
+						{#each Array.from({length: 25}, (_, i) => i) as i}
+							<div class="absolute top-0 bottom-0 border-r border-slate-100" style="left:{(i / 24 * 100).toFixed(2)}%;"></div>
 						{/each}
 						<!-- Booking cells -->
 						{#each bks as b, bi}

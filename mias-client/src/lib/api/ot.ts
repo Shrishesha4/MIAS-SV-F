@@ -20,6 +20,8 @@ export interface OTBooking {
   patient_display_id: string | null;
   student_id: string | null;
   date: string;
+  from_date: string;
+  to_date: string;
   start_time: string;
   end_time: string;
   procedure: string;
@@ -67,7 +69,8 @@ export const otApi = {
   async createBooking(data: {
     theater_id: string;
     patient_id: string;
-    date: string;
+    from_date: string;
+    to_date: string;
     start_time: string;
     end_time: string;
     procedure: string;

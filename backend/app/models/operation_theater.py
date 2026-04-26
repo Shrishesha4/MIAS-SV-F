@@ -32,6 +32,7 @@ class OTBooking(Base):
     __tablename__ = "ot_bookings"
     __table_args__ = (
         Index("idx_ot_booking_date_theater", "date", "theater_id"),
+        Index("idx_ot_booking_range_theater", "from_date", "to_date", "theater_id"),
         Index("idx_ot_booking_patient", "patient_id"),
     )
 
@@ -41,6 +42,8 @@ class OTBooking(Base):
     student_id = Column(String, ForeignKey("students.id"), nullable=True, index=True)
 
     date = Column(String, nullable=False)        # YYYY-MM-DD
+    from_date = Column(String, nullable=True)    # YYYY-MM-DD
+    to_date = Column(String, nullable=True)      # YYYY-MM-DD
     start_time = Column(String, nullable=False)  # HH:MM
     end_time = Column(String, nullable=False)    # HH:MM
 

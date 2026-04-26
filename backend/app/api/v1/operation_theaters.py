@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -40,6 +40,8 @@ def _ot_out(t: OperationTheater) -> dict:
 
 
 def _booking_out(b: OTBooking) -> dict:
+    from_date = b.from_date or b.date
+    to_date = b.to_date or from_date
     return {
         "id": b.id,
         "theater_id": b.theater_id,
@@ -50,6 +52,8 @@ def _booking_out(b: OTBooking) -> dict:
         "patient_display_id": b.patient.patient_id if b.patient else None,
         "student_id": b.student_id,
         "date": b.date,
+        "from_date": from_date,
+        "to_date": to_date,
         "start_time": b.start_time,
         "end_time": b.end_time,
         "procedure": b.procedure,
@@ -65,6 +69,13 @@ def _week_dates(anchor: date) -> list[str]:
     """Return the 7 dates of the week containing anchor (Mon-Sun)."""
     monday = anchor - timedelta(days=anchor.weekday())
     return [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+
+
+def _parse_iso_date(value: str, field_name: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid {field_name} format (expected YYYY-MM-DD)") from exc
 
 
 # ─── Admin: OT CRUD ─────────────────────────────────────────────────────────
@@ -170,14 +181,23 @@ async def get_schedule(
         raise HTTPException(400, "Invalid date format")
 
     week = _week_dates(anchor)
+    week_start = week[0]
+    week_end = week[-1]
+
+    booking_start_expr = func.coalesce(OTBooking.from_date, OTBooking.date)
+    booking_end_expr = func.coalesce(OTBooking.to_date, OTBooking.from_date, OTBooking.date)
+
     result = await db.execute(
         select(OTBooking)
         .options(
             selectinload(OTBooking.theater),
             selectinload(OTBooking.patient),
         )
-        .where(OTBooking.date.in_(week))
-        .order_by(OTBooking.date, OTBooking.start_time)
+        .where(
+            booking_start_expr <= week_end,
+            booking_end_expr >= week_start,
+        )
+        .order_by(booking_start_expr, OTBooking.start_time)
     )
     bookings = result.scalars().all()
 
@@ -203,10 +223,27 @@ async def create_booking(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    required = ("theater_id", "patient_id", "date", "start_time", "end_time", "procedure", "doctor_name")
+    required = ("theater_id", "patient_id", "start_time", "end_time", "procedure", "doctor_name")
     for field in required:
         if not body.get(field):
             raise HTTPException(400, f"{field} required")
+
+    from_date_raw = (body.get("from_date") or body.get("date") or "").strip()
+    to_date_raw = (body.get("to_date") or from_date_raw).strip()
+    if not from_date_raw:
+        raise HTTPException(400, "from_date required")
+
+    from_dt = _parse_iso_date(from_date_raw, "from_date")
+    to_dt = _parse_iso_date(to_date_raw, "to_date")
+    if to_dt < from_dt:
+        raise HTTPException(400, "to_date cannot be before from_date")
+
+    start_time = str(body.get("start_time") or "").strip()
+    end_time = str(body.get("end_time") or "").strip()
+    if len(start_time) != 5 or len(end_time) != 5:
+        raise HTTPException(400, "Invalid time format (expected HH:MM)")
+    if start_time >= end_time:
+        raise HTTPException(400, "end_time must be after start_time")
 
     # Verify theater exists and is active
     theater_result = await db.execute(
@@ -223,14 +260,18 @@ async def create_booking(
     if not patient_result.scalar_one_or_none():
         raise HTTPException(404, "Patient not found")
 
-    # Check for time conflict on same theater+date
+    booking_start_expr = func.coalesce(OTBooking.from_date, OTBooking.date)
+    booking_end_expr = func.coalesce(OTBooking.to_date, OTBooking.from_date, OTBooking.date)
+
+    # Check for conflict on same theater where date ranges and time windows overlap
     conflict = await db.execute(
         select(OTBooking).where(
             OTBooking.theater_id == body["theater_id"],
-            OTBooking.date == body["date"],
+            booking_start_expr <= to_date_raw,
+            booking_end_expr >= from_date_raw,
             OTBooking.status != OTStatus.CANCELLED,
-            OTBooking.start_time < body["end_time"],
-            OTBooking.end_time > body["start_time"],
+            OTBooking.start_time < end_time,
+            OTBooking.end_time > start_time,
         )
     )
     if conflict.scalar_one_or_none():
@@ -251,9 +292,11 @@ async def create_booking(
         theater_id=body["theater_id"],
         patient_id=body["patient_id"],
         student_id=student_id,
-        date=body["date"],
-        start_time=body["start_time"],
-        end_time=body["end_time"],
+        date=from_date_raw,
+        from_date=from_date_raw,
+        to_date=to_date_raw,
+        start_time=start_time,
+        end_time=end_time,
         procedure=body["procedure"],
         doctor_name=body["doctor_name"],
         notes=body.get("notes"),
@@ -285,7 +328,7 @@ async def get_my_bookings(
         select(OTBooking)
         .options(selectinload(OTBooking.theater), selectinload(OTBooking.patient))
         .where(OTBooking.student_id == student.id)
-        .order_by(OTBooking.date.desc(), OTBooking.start_time)
+        .order_by(func.coalesce(OTBooking.from_date, OTBooking.date).desc(), OTBooking.start_time)
     )
     return [_booking_out(b) for b in result.scalars().all()]
 
@@ -328,13 +371,23 @@ async def manager_get_all_bookings(
         .where(OTBooking.status != OTStatus.CANCELLED)
     )
     if date_filter:
-        q = q.where(OTBooking.date == date_filter)
+        try:
+            _parse_iso_date(date_filter, "date")
+        except HTTPException:
+            date_filter = None
+        if date_filter:
+            booking_start_expr = func.coalesce(OTBooking.from_date, OTBooking.date)
+            booking_end_expr = func.coalesce(OTBooking.to_date, OTBooking.from_date, OTBooking.date)
+            q = q.where(
+                booking_start_expr <= date_filter,
+                booking_end_expr >= date_filter,
+            )
     if status_filter:
         try:
             q = q.where(OTBooking.status == OTStatus(status_filter))
         except ValueError:
             pass
-    q = q.order_by(OTBooking.date, OTBooking.theater_id, OTBooking.start_time)
+    q = q.order_by(func.coalesce(OTBooking.from_date, OTBooking.date), OTBooking.theater_id, OTBooking.start_time)
     result = await db.execute(q)
     return [_booking_out(b) for b in result.scalars().all()]
 

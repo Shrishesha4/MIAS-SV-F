@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
-	import { BrainCircuit, UsersRound, CreditCard, FileText, Stethoscope } from 'lucide-svelte';
+	import { BrainCircuit, UsersRound, CreditCard, FileText, DatabaseBackup } from 'lucide-svelte';
 
 	interface Props {
-		activeTab: 'patients' | 'icd' | 'ai' | 'insurance' | 'ot';
+		activeTab: 'patients' | 'icd' | 'ai' | 'insurance' | 'backup';
 	}
 
 	let { activeTab }: Props = $props();
@@ -14,6 +14,7 @@
 		{ id: 'icd', label: 'ICD Codes', icon: FileText },
 		{ id: 'insurance', label: 'Insurance', icon: CreditCard },
 		{ id: 'ai', label: 'AI', icon: BrainCircuit },
+		{ id: 'backup', label: 'Backup & Restore', icon: DatabaseBackup },
 	];
 </script>
 
