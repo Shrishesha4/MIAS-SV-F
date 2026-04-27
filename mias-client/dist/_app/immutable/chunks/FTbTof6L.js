@@ -1,0 +1,1 @@
+import{c as n}from"./DffLFeIZ.js";const a={async getMe(){return(await n.get("/billing/me")).data},async getAccountsAnalytics(t){return(await n.get("/billing/accounts/analytics",{params:t})).data}};export{a as b};
