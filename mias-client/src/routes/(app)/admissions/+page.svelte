@@ -33,7 +33,7 @@
 		Bed, Calendar, User, Building, ChevronDown, ChevronUp, ChevronLeft,
 		Clock, Link, FileText, CheckCircle, Circle, ArrowRightCircle, X,
 		Plus, Search, LogOut, ArrowRight, Filter, Send, AlertTriangle,
-		Phone, Mail, Printer, Download, Hospital
+		Phone, Mail, Printer, Download, Hospital, RotateCcw, MessageCircle
 	} from 'lucide-svelte';
 
 	const auth = get(authStore);
@@ -123,6 +123,7 @@
 	let studentId = $state('');
 	let admissionRequests: any[] = $state([]);
 	let showRequestModal = $state(false);
+	let showAdmissionCommentTooltip = $state<string | null>(null);
 	let assignedPatients: any[] = $state([]);
 	let facultyApprovers: any[] = $state([]);
 	let reqPatient = $state<any>(null);
@@ -434,6 +435,23 @@
 		showRequestModal = true;
 	}
 
+	function openRedoAdmissionRequest(req: any) {
+		openRequestModal();
+		// Pre-fill with the rejected request's data
+		if (req.patient?.id) {
+			reqPatient = assignedPatients.find((p: any) => p.id === req.patient.id) || { id: req.patient.id, name: req.patient.name };
+		}
+		if (req.faculty_id) reqFaculty = req.faculty_id;
+		if (req.admission) {
+			requestFormData = {
+				department: req.admission.department || '',
+				ward: req.admission.ward || '',
+				reason: req.admission.reason || '',
+				diagnosis: req.admission.diagnosis || '',
+			};
+		}
+	}
+
 	async function submitAdmissionRequest() {
 		if (!reqPatient) { reqError = 'Please select a patient'; return; }
 		if (!reqFaculty) { reqError = 'Please select approving faculty'; return; }
@@ -598,8 +616,36 @@
 							{#if isApproved && req.score}
 								<p class="text-xs text-green-600 mt-2 font-medium">Score: {req.score}/5</p>
 							{/if}
-							{#if isRejected && req.comments}
-								<p class="text-xs text-red-500 mt-2">{req.comments}</p>
+							{#if isRejected}
+								<div class="flex items-center gap-2 mt-2">
+									{#if req.comments}
+										<div class="relative inline-flex items-center gap-1"
+											onmouseenter={() => showAdmissionCommentTooltip = req.id}
+											onmouseleave={() => showAdmissionCommentTooltip = null}
+											role="button"
+											tabindex="0"
+											onfocus={() => showAdmissionCommentTooltip = req.id}
+											onblur={() => showAdmissionCommentTooltip = null}
+											aria-label="Faculty comment">
+											<MessageCircle class="w-3.5 h-3.5 text-red-400 cursor-pointer" />
+											<span class="text-xs text-red-400 cursor-pointer">Feedback</span>
+											{#if showAdmissionCommentTooltip === req.id}
+												<div class="absolute bottom-full left-0 mb-1.5 z-50 w-56 px-2.5 py-2 text-[11px] text-white rounded-lg shadow-xl pointer-events-none"
+													style="background: rgba(30,30,30,0.93);">
+													<p class="font-semibold mb-0.5 text-red-300">Faculty Feedback</p>
+													{req.comments}
+												</div>
+											{/if}
+										</div>
+									{/if}
+									<button
+										onclick={() => openRedoAdmissionRequest(req)}
+										class="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer"
+										style="background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.2);">
+										<RotateCcw class="w-3 h-3" />
+										Redo
+									</button>
+								</div>
 							{/if}
 							<p class="text-[10px] text-gray-400 mt-2">
 								Submitted {formatDate(req.created_at)}

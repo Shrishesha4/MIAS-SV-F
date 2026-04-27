@@ -557,7 +557,10 @@ async def get_patient_prescriptions(
 ):
     result = await db.execute(
         select(Prescription)
-        .options(selectinload(Prescription.medications))
+        .options(
+            selectinload(Prescription.medications),
+            selectinload(Prescription.approval),
+        )
         .where(Prescription.patient_id == patient_id)
         .order_by(Prescription.date.desc())
     )
@@ -597,6 +600,10 @@ async def get_patient_prescriptions(
             "doctor_signature": p.doctor_signature or signature_map.get(p.doctor),
             "status": p.status.value if p.status else None,
             "notes": p.notes,
+            "approval_status": p.approval.status.value if p.approval else None,
+            "approval_comments": p.approval.comments if p.approval else None,
+            "submitted_by_student_id": p.approval.student_id if p.approval else None,
+            "approving_faculty_id": p.approval.faculty_id if p.approval else None,
             "patient": {
                 "name": patient.name if patient else None,
                 "patient_id": patient.patient_id if patient else None,

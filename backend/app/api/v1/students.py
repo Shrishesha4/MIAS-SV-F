@@ -540,6 +540,9 @@ async def get_student_case_records(
             "approver_name": r.approval.faculty.name
             if r.approval and r.approval.faculty
             else None,
+            "approver_faculty_id": r.approval.faculty_id if r.approval else None,
+            "approval_status": r.approval.status.value if r.approval else None,
+            "faculty_comments": r.approval.comments if r.approval else None,
             "approved_at": r.approved_at,
             "created_by_name": r.created_by_name,
             "created_by_role": r.created_by_role,
@@ -1525,6 +1528,7 @@ async def get_student_admission_requests(
             "score": a.score,
             "comments": a.comments,
             "created_at": a.created_at.isoformat() if a.created_at else None,
+            "faculty_id": a.faculty_id,
             "processed_at": a.processed_at.isoformat() if a.processed_at else None,
             "patient": {
                 "id": a.patient.id,

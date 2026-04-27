@@ -14,7 +14,7 @@
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DynamicFormRenderer from '$lib/components/forms/DynamicFormRenderer.svelte';
 	import ReadonlySubmittedForm from '$lib/components/forms/ReadonlySubmittedForm.svelte';
-	import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Filter } from 'lucide-svelte';
+     import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Filter, RotateCcw, MessageCircle } from 'lucide-svelte';
 	import OTBookingPanel from '$lib/components/case-records/OTBookingPanel.svelte';
 
 	let expandedId = $state<string | null>(null);
@@ -22,6 +22,7 @@
 	let loading = $state(true);
 	let student: any = $state(null);
 	let assignedPatients: any[] = $state([]);
+	let showCommentTooltip = $state<string | null>(null);
 
 	// Modal state
 	let showCreateModal = $state(false);
@@ -276,6 +277,21 @@
 		showCreateModal = true;
 	}
 
+	async function openRedoCaseRecord(cr: any) {
+		await openCreateModal();
+		// Pre-fill with rejected record's data
+		if (cr.patient_id) selectedPatientId = cr.patient_id;
+		if (cr.department) selectedDepartment = cr.department;
+		if (cr.procedure_name) selectedProcedure = cr.procedure_name;
+		if (cr.approver_faculty_id) selectedFacultyId = cr.approver_faculty_id;
+		if (cr.form_values) formData = { ...cr.form_values };
+		if (cr.icd_code) icdCode = cr.icd_code;
+		if (cr.icd_description) icdDescription = cr.icd_description;
+		// Set patient search label
+		const pat = assignedPatients.find((p: any) => p.id === cr.patient_id);
+		if (pat) patientSearch = `${pat.name} (${pat.patient_id || ''})`;
+	}
+
 	async function handleSubmit() {
 		if (!selectedPatientId || !selectedDepartment || !selectedProcedure || !selectedFacultyId) {
 			toastStore.addToast('Select a patient, case record form, and faculty approver before submitting', 'error');
@@ -390,6 +406,27 @@
 				</div>
 				<div class="flex items-center gap-2">
 					<StatusBadge variant={statusVariant[cr.status] ?? 'pending'}>{cr.status}</StatusBadge>
+					{#if cr.status === 'Rejected' || cr.status === 'REJECTED'}
+						{#if cr.faculty_comments}
+							<div class="relative inline-block"
+								onmouseenter={() => showCommentTooltip = cr.id}
+								onmouseleave={() => showCommentTooltip = null}
+								role="button"
+								tabindex="0"
+								onfocus={() => showCommentTooltip = cr.id}
+								onblur={() => showCommentTooltip = null}
+								aria-label="Faculty comment">
+								<MessageCircle class="w-3.5 h-3.5 text-red-400 cursor-pointer" />
+								{#if showCommentTooltip === cr.id}
+									<div class="absolute bottom-full right-0 mb-1.5 z-50 w-52 px-2.5 py-2 text-[11px] text-white rounded-lg shadow-xl pointer-events-none"
+										style="background: rgba(30,30,30,0.93);">
+										<p class="font-semibold mb-0.5 text-red-300">Faculty Feedback</p>
+										{cr.faculty_comments}
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{/if}
 					{#if expandedId === cr.id}
 						<ChevronUp class="w-4 h-4 text-gray-400" />
 					{:else}
@@ -484,6 +521,20 @@
 								{#if cr.last_modified_at}
 									· {new Date(cr.last_modified_at).toLocaleDateString('en-IN', {day: 'numeric', month: 'short'})} {new Date(cr.last_modified_at).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit'})}
 								{/if}
+							</div>
+						{/if}
+						{#if cr.status === 'Rejected' || cr.status === 'REJECTED'}
+							<div class="pt-2 border-t border-red-100">
+								{#if cr.faculty_comments}
+									<p class="text-[10px] text-red-500 mb-2 italic">"{cr.faculty_comments}"</p>
+								{/if}
+								<button
+									onclick={() => openRedoCaseRecord(cr)}
+									class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
+									style="background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.2);">
+									<RotateCcw class="w-3 h-3" />
+									Redo Submission
+								</button>
 							</div>
 						{/if}
 					</div>

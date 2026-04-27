@@ -29,6 +29,7 @@
 
 	let { children } = $props();
 	let sideMenuOpen = $state(false);
+	let authReady = $state(false);
 
 	let 	authState = $state(get(authStore));
 	authStore.subscribe(v => authState = v);
@@ -187,6 +188,7 @@
 				return;
 			}
 		}
+		authReady = true;
 		try {
 			studentAcademicBadge = null;
 			if (a.role === 'PATIENT') {
@@ -438,15 +440,17 @@
 
 		<main class="flex-1 min-h-0 {currentPath.startsWith('/admin') ? 'overflow-hidden' : 'pb-4 lg:pb-0 lg:overflow-y-auto'}">
 			<div class="content-container">
-				{#key pageTransitionKey}
-					<div
-						class="page-transition-shell"
-						in:fade={{ duration: 180 }}
-						out:fade={{ duration: 140 }}
-					>
-						{@render children()}
-					</div>
-				{/key}
+				{#if authReady}
+					{#key pageTransitionKey}
+						<div
+							class="page-transition-shell"
+							in:fade={{ duration: 180 }}
+							out:fade={{ duration: 140 }}
+						>
+							{@render children()}
+						</div>
+					{/key}
+				{/if}
 			</div>
 		</main>
 	</div>

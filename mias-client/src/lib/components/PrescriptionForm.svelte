@@ -24,6 +24,12 @@
 		department: string;
 	}
 
+	interface InitialData {
+		diagnosis?: string;
+		faculty_id?: string;
+		medications?: Partial<Medication>[];
+	}
+
 	interface Props {
 		patient: Patient;
 		facultyApprovers: Faculty[];
@@ -33,13 +39,25 @@
 			medications: Medication[];
 			faculty_id: string;
 		}) => Promise<void>;
+		initialData?: InitialData;
 	}
 
-	let { patient, facultyApprovers, onClose, onSubmit }: Props = $props();
+	let { patient, facultyApprovers, onClose, onSubmit, initialData }: Props = $props();
 
-	let diagnosis = $state('');
-	let medications: Medication[] = $state([]);
-	let selectedFacultyId = $state('');
+	let diagnosis = $state(initialData?.diagnosis ?? '');
+	let medications: Medication[] = $state(
+		initialData?.medications?.length
+			? initialData.medications.map((m) => ({
+					name: m.name ?? '',
+					dosage: m.dosage ?? '',
+					duration: m.duration ?? '',
+					frequency: m.frequency ?? '1-0-1 (M/N)',
+					timing: m.timing ?? 'AFTER',
+					instructions: m.instructions ?? '',
+			  }))
+			: []
+	);
+	let selectedFacultyId = $state(initialData?.faculty_id ?? '');
 	let submitting = $state(false);
 
 	const frequencyOptions = [

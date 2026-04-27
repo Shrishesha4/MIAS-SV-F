@@ -57,7 +57,8 @@
 		Phone, Mail, MapPin, Shield, Edit, X,
 		Trash2, CheckCircle, Send, History, ClipboardList, TestTube,
 		Image as ImageIcon, Stethoscope, FlaskConical, Microscope,
-		Brain, Bone, Eye, Ear, Heart, Baby, Syringe, BandageIcon
+		Brain, Bone, Eye, Ear, Heart, Baby, Syringe, BandageIcon,
+		RotateCcw, MessageCircle
 	} from 'lucide-svelte';
 	import type { ComponentType } from 'svelte';
 
@@ -117,6 +118,10 @@
 	let reports: Report[] = $state([]);
 	let admissions: any[] = $state([]);
 	let alertHistory: any[] = $state([]);
+
+	// ── Tooltip state ─────────────────────────────────────────────
+	let showCRCommentTooltip = $state<string | null>(null);
+	let showRxCommentTooltip = $state<string | null>(null);
 	let loading = $state(true);
 	let showLabOrderModal = $state(false);
 
@@ -457,6 +462,9 @@
 	let editRxStatus = $state('ACTIVE');
 	let editRxMedId = $state('');
 	let editRxSubmitting = $state(false);
+
+	// ── Redo Prescription ─────────────────────────────────────────
+	let redoPrescriptionData = $state<{ diagnosis?: string; faculty_id?: string; medications?: any[] } | undefined>(undefined);
 
 	// ── Vitals Chart ──────────────────────────────────────────────
 	let selectedParameter = $state('bp');
@@ -1001,6 +1009,20 @@
 		} finally {
 			loadingCrForms = false;
 		}
+	}
+
+	async function openRedoCaseRecordProfile(record: any) {
+		await openAddCaseRecordModal();
+		// Pre-fill with the rejected record's data
+		if (record.form_values) crFormData = { ...record.form_values };
+		if (record.approver_faculty_id) crFacultyId = record.approver_faculty_id;
+		if (record.icd_code) crIcdCode = record.icd_code;
+		if (record.icd_description) crIcdDescription = record.icd_description;
+		// Try to select the matching form by name
+		const matchingForm = caseRecordForms.find(
+			(f: any) => f.procedure_name === record.procedure_name || f.name === record.form_name
+		);
+		if (matchingForm) selectedCrFormId = matchingForm.id;
 	}
 
 	async function submitCaseRecord() {
@@ -2263,6 +2285,42 @@
                     {/if}
                   </div>
 
+                  <!-- REJECTION FEEDBACK + REDO (student only) -->
+                  {#if role === 'STUDENT' && (record.status === 'Rejected' || record.approval_status === 'REJECTED')}
+                    <div class="px-4 py-2.5 flex items-center gap-2 border-t"
+                      style="background: rgba(254,242,242,0.8); border-color: rgba(254,202,202,0.5);">
+                      {#if record.faculty_comments}
+                        <div class="relative inline-flex items-center gap-1 flex-1"
+                          onmouseenter={() => showCRCommentTooltip = record.id}
+                          onmouseleave={() => showCRCommentTooltip = null}
+                          role="button"
+                          tabindex="0"
+                          onfocus={() => showCRCommentTooltip = record.id}
+                          onblur={() => showCRCommentTooltip = null}
+                          aria-label="Faculty feedback">
+                          <MessageCircle class="w-3.5 h-3.5 text-red-400 cursor-pointer shrink-0" />
+                          <span class="text-xs text-red-400 truncate cursor-pointer">{record.faculty_comments}</span>
+                          {#if showCRCommentTooltip === record.id}
+                            <div class="absolute bottom-full left-0 mb-1.5 z-50 w-56 px-2.5 py-2 text-[11px] text-white rounded-lg shadow-xl pointer-events-none"
+                              style="background: rgba(30,30,30,0.93);">
+                              <p class="font-semibold mb-0.5 text-red-300">Faculty Feedback</p>
+                              {record.faculty_comments}
+                            </div>
+                          {/if}
+                        </div>
+                      {:else}
+                        <span class="text-xs text-red-400 flex-1">Rejected — no comment provided</span>
+                      {/if}
+                      <button
+                        onclick={() => openRedoCaseRecordProfile(record)}
+                        class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer shrink-0"
+                        style="background: rgba(239,68,68,0.1); color: #dc2626; border: 1px solid rgba(239,68,68,0.25);">
+                        <RotateCcw class="w-3 h-3" />
+                        Redo
+                      </button>
+                    </div>
+                  {/if}
+
                 </div>
               {/each}
 				</div>
@@ -2444,12 +2502,21 @@
 									<span class="font-semibold text-gray-800">{rx.medications?.[0]?.name || 'Unnamed'}</span>
 								</div>
 								<div class="flex items-center gap-2">
-									<span class="text-xs font-bold px-2 py-0.5 rounded"
-										style="background: {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.1)'};
-										       color: {rx.status === 'ACTIVE' ? '#16a34a' : '#6b7280'};
-										       border: 1px solid {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.2)' : 'rgba(107,114,128,0.2)'};">
-										{rx.status || 'Active'}
-									</span>
+									{#if role === 'STUDENT' && rx.approval_status}
+										<span class="text-xs font-bold px-2 py-0.5 rounded"
+											style="background: {rx.approval_status === 'APPROVED' ? 'rgba(34,197,94,0.1)' : rx.approval_status === 'REJECTED' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)'};
+											       color: {rx.approval_status === 'APPROVED' ? '#16a34a' : rx.approval_status === 'REJECTED' ? '#dc2626' : '#d97706'};
+											       border: 1px solid {rx.approval_status === 'APPROVED' ? 'rgba(34,197,94,0.2)' : rx.approval_status === 'REJECTED' ? 'rgba(239,68,68,0.2)' : 'rgba(245,158,11,0.2)'};">
+											{rx.approval_status}
+										</span>
+									{:else}
+										<span class="text-xs font-bold px-2 py-0.5 rounded"
+											style="background: {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.1)' : 'rgba(107,114,128,0.1)'};
+											       color: {rx.status === 'ACTIVE' ? '#16a34a' : '#6b7280'};
+											       border: 1px solid {rx.status === 'ACTIVE' ? 'rgba(34,197,94,0.2)' : 'rgba(107,114,128,0.2)'};">
+											{rx.status || 'Active'}
+										</span>
+									{/if}
 									{#if rx.status === 'COMPLETED' && patient}
 										<button class="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium cursor-pointer"
 											style="background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white;
@@ -2499,6 +2566,52 @@
 							{/each}
 							{#if rx.doctor}
 								<p class="text-xs text-gray-400 mt-2 ml-6">Prescribed by {rx.doctor} · {rx.date || ''}</p>
+							{/if}
+							{#if role === 'STUDENT' && rx.submitted_by_student_id && rx.approval_status === 'REJECTED'}
+								<div class="flex items-center gap-2 mt-3 pt-2 border-t border-red-100">
+									{#if rx.approval_comments}
+										<div class="relative inline-flex items-center gap-1 flex-1"
+											onmouseenter={() => showRxCommentTooltip = rx.id}
+											onmouseleave={() => showRxCommentTooltip = null}
+											role="button"
+											tabindex="0"
+											onfocus={() => showRxCommentTooltip = rx.id}
+											onblur={() => showRxCommentTooltip = null}
+											aria-label="Faculty comment">
+											<MessageCircle class="w-3.5 h-3.5 text-red-400 cursor-pointer shrink-0" />
+											<span class="text-xs text-red-400 truncate cursor-pointer">{rx.approval_comments}</span>
+											{#if showRxCommentTooltip === rx.id}
+												<div class="absolute bottom-full left-0 mb-1.5 z-50 w-56 px-2.5 py-2 text-[11px] text-white rounded-lg shadow-xl pointer-events-none"
+													style="background: rgba(30,30,30,0.93);">
+													<p class="font-semibold mb-0.5 text-red-300">Faculty Feedback</p>
+													{rx.approval_comments}
+												</div>
+											{/if}
+										</div>
+									{:else}
+										<span class="text-xs text-red-400 flex-1">Rejected — no comment provided</span>
+									{/if}
+									<button
+										onclick={() => {
+											redoPrescriptionData = {
+												faculty_id: rx.approving_faculty_id,
+												medications: (rx.medications || []).map((m: any) => ({
+													name: m.name,
+													dosage: m.dosage,
+													duration: m.duration,
+													frequency: m.frequency,
+													timing: 'AFTER',
+													instructions: m.instructions,
+												})),
+											};
+											showAddPrescriptionModal = true;
+										}}
+										class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer shrink-0"
+										style="background: rgba(239,68,68,0.1); color: #dc2626; border: 1px solid rgba(239,68,68,0.25);">
+										<RotateCcw class="w-3 h-3" />
+										Redo
+									</button>
+								</div>
 							{/if}
 						</div>
 					{/each}
@@ -3044,7 +3157,8 @@
 		<PrescriptionForm
 			patient={{ id: patient.id, patient_id: patient.patient_id, name: patient.name }}
 			facultyApprovers={facultyApprovers}
-			onClose={() => { showAddPrescriptionModal = false; }}
+			initialData={redoPrescriptionData}
+			onClose={() => { showAddPrescriptionModal = false; redoPrescriptionData = undefined; }}
 			onSubmit={submitStudentPrescription}
 		/>
 	{:else}
