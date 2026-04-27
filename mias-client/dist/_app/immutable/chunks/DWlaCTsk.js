@@ -1,1 +1,0 @@
-import{g as t}from"./Db1Ob_ng.js";import{g as e}from"./D4LuGSB6.js";import{a}from"./TZW3mX5I.js";function n(o){const{role:r}=e(a);return!!r&&o.includes(r)}function u(o,r="/dashboard"){return n(o)?!0:(t(r),!1)}export{u as r};

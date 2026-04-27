@@ -1,0 +1,1 @@
+import"../chunks/DsnmJJEf.js";import{i as t}from"../chunks/11Sg03rk.js";import{o as a}from"../chunks/B88S3Yrf.js";import{p,a as r}from"../chunks/eyEfZ-GA.js";import{g as i}from"../chunks/Dfd4c0pC.js";function u(m,o){p(o,!1),a(()=>{i("/admin/system/patients",{replaceState:!0})}),t(),r()}export{u as component};
