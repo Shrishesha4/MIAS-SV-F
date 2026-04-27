@@ -21,7 +21,7 @@ node_modules/
 npm-debug.log
 
 # Ignore build artifacts
-dist/
+# dist/
 build/
 *.egg-info/
 .svelte-kit/
