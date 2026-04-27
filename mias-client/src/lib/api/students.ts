@@ -252,8 +252,11 @@ export const studentApi = {
     return response.data;
   },
 
-  async checkInToClinic(studentId: string, clinicId: string) {
-    const response = await client.post(`/students/${studentId}/clinic-sessions/check-in`, { clinic_id: clinicId });
+  async checkInToClinic(studentId: string, clinicId: string, coords?: { lat: number; lng: number; accuracy: number }) {
+    const response = await client.post(`/students/${studentId}/clinic-sessions/check-in`, {
+      clinic_id: clinicId,
+      ...(coords ?? {}),
+    });
     return response.data;
   },
 

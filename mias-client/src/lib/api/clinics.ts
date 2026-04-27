@@ -98,7 +98,7 @@ export const clinicsApi = {
     return response.data;
   },
 
-  async checkInPatient(clinicId: string, data: { patient_id: string; provider_name?: string }) {
+  async checkInPatient(clinicId: string, data: { patient_id: string; provider_name?: string; geofence_proof_id: string }) {
     const response = await client.post(`/clinics/${clinicId}/check-in`, data);
     return response.data;
   },

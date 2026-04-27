@@ -7,6 +7,7 @@
 	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { getCurrentPosition } from '$lib/utils/geolocation';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
 	import { autocompleteApi } from '$lib/api/autocomplete';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -363,7 +364,8 @@
 		if (!student || !selectedClinic) return;
 		checkingIn = true;
 		try {
-			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id);
+			const coords = await getCurrentPosition();
+			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id, coords);
 			await refreshStudentClinicState(selectedClinic.id);
 			if (result?.switched_from_clinic_name) {
 				toastStore.addToast(`Switched from ${result.switched_from_clinic_name} to ${selectedClinic.name}`, 'success');
@@ -373,7 +375,7 @@
 				toastStore.addToast(`Checked in to ${selectedClinic.name}`, 'success');
 			}
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail ?? 'Check-in failed', 'error');
+			toastStore.addToast(err?.response?.data?.detail ?? err?.message ?? 'Check-in failed', 'error');
 		} finally {
 			checkingIn = false;
 		}
@@ -397,7 +399,8 @@
 		if (!faculty || !selectedFacultyClinic) return;
 		facultyCheckingIn = true;
 		try {
-			const result = await facultyApi.checkInToClinic(faculty.id, selectedFacultyClinic.id);
+			const coords = await getCurrentPosition();
+			const result = await facultyApi.checkInToClinic(faculty.id, selectedFacultyClinic.id, coords);
 			await refreshFacultyClinicState(selectedFacultyClinic.id);
 			if (result?.switched_from_clinic_name) {
 				toastStore.addToast(`Switched from ${result.switched_from_clinic_name} to ${selectedFacultyClinic.name}`, 'success');
@@ -407,7 +410,7 @@
 				toastStore.addToast(`Checked in to ${selectedFacultyClinic.name}`, 'success');
 			}
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail ?? 'Faculty check-in failed', 'error');
+			toastStore.addToast(err?.response?.data?.detail ?? err?.message ?? 'Faculty check-in failed', 'error');
 		} finally {
 			facultyCheckingIn = false;
 		}

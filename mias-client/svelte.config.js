@@ -12,10 +12,10 @@ export default {
       directives: {
         'default-src': ['self'],
         'script-src':  ['self'],
-        'style-src':   ['self', 'unsafe-inline'],
-        'img-src':     ['self', 'data:', 'blob:'],
+        'style-src':   ['self', 'unsafe-inline', 'https://unpkg.com'],
+        'img-src':     ['self', 'data:', 'blob:', 'https://*.tile.openstreetmap.org', 'https://cdnjs.cloudflare.com', 'https://server.arcgisonline.com', 'https://*.basemaps.cartocdn.com'],
         'font-src':    ['self'],
-        'connect-src': ['self', 'http://localhost:8001', 'https://localhost:8001', 'https://vhealth.saveetha.com'],
+        'connect-src': ['self', 'http://localhost:8001', 'https://localhost:8001', 'https://vhealth.saveetha.com', 'https://health.vianasoft.com'],
         'object-src':  ['none'],
         'base-uri':    ['self'],
         'frame-ancestors': ['none'],

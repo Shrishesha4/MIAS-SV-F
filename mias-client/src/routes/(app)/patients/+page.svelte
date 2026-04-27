@@ -7,6 +7,7 @@
 	import { patientApi, type PatientDashboard } from '$lib/api/patients';
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { getCurrentPosition } from '$lib/utils/geolocation';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -207,11 +208,12 @@
 		if (!student || !selectedClinic) return;
 		checkingIn = true;
 		try {
-			await studentApi.checkInToClinic(student.id, selectedClinic.id);
+			const coords = await getCurrentPosition();
+			await studentApi.checkInToClinic(student.id, selectedClinic.id, coords);
 			clinicSessions = await studentApi.getClinicSessions(student.id);
 			toastStore.addToast(`Checked in to ${selectedClinic.name}`, 'success');
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail ?? 'Check-in failed', 'error');
+			toastStore.addToast(err?.response?.data?.detail ?? err?.message ?? 'Check-in failed', 'error');
 		} finally {
 			checkingIn = false;
 		}

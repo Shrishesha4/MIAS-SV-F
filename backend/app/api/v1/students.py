@@ -40,6 +40,7 @@ from app.models.user import User, UserRole
 from app.services.academics import get_student_academic_progress
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
 from app.services.daily_checkins import ensure_daily_checkin
+from app.services.geofencing import validate_location
 from app.services.patient_insurance import sync_patient_insurance_category
 
 router = APIRouter(prefix="/students", tags=["Students"])
@@ -47,6 +48,9 @@ router = APIRouter(prefix="/students", tags=["Students"])
 
 class ClinicCheckInRequest(BaseModel):
     clinic_id: str
+    lat: float | None = None
+    lng: float | None = None
+    accuracy: float | None = None
 
 
 async def _create_student_checkin_log(
@@ -863,6 +867,10 @@ async def check_in_to_clinic(
         .order_by(ClinicSession.checked_in_at.desc())
     )
     active_session = active_session_result.scalars().first()
+
+    # Geofence: validate location if coordinates provided
+    if body.lat is not None and body.lng is not None:
+        await validate_location(body.lat, body.lng, db)
 
     clinic_result = await db.execute(select(Clinic).where(Clinic.id == body.clinic_id))
     clinic = clinic_result.scalar_one_or_none()

@@ -19,6 +19,7 @@ from app.models.patient import Patient
 from app.models.faculty import Faculty
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 from app.services.clinic_intake import ensure_clinic_checkin
+from app.services.geofencing import consume_proof
 
 router = APIRouter(prefix="/clinics", tags=["Clinics"])
 
@@ -439,6 +440,14 @@ async def check_in_patient(
     if not patient_id:
         raise HTTPException(status_code=400, detail="patient_id is required")
 
+    # Geofence: consume patient's location proof
+    proof_id = body.get("geofence_proof_id")
+    if not proof_id:
+        raise HTTPException(
+            status_code=400,
+            detail="geofence_proof_id is required. The patient must verify their location first.",
+        )
+
     # Look up patient — accept either the internal UUID or the display patient_id
     result = await db.execute(
         select(Patient).where(
@@ -448,6 +457,9 @@ async def check_in_patient(
     patient = result.scalar_one_or_none()
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
+
+    # Validate + consume proof (raises 400/403 on failure)
+    await consume_proof(proof_id, db)
 
     # Check clinic exists
     clinic_result = await db.execute(

@@ -19,6 +19,7 @@ from app.models.prescription import Prescription
 from app.models.student import Clinic, Student
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 from app.services.daily_checkins import ensure_daily_checkin
+from app.services.geofencing import validate_location
 
 UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "uploads")
 
@@ -27,6 +28,9 @@ router = APIRouter(prefix="/faculty", tags=["Faculty"])
 
 class FacultyClinicCheckInRequest(BaseModel):
     clinic_id: str
+    lat: float | None = None
+    lng: float | None = None
+    accuracy: float | None = None
 
 CASE_RECORD_SCORE_TO_GRADE = {
     0: "F",
@@ -114,6 +118,10 @@ async def check_in_faculty_to_clinic(
     user: User = Depends(require_role(UserRole.FACULTY)),
     db: AsyncSession = Depends(get_db),
 ):
+    # Geofence: validate location if coordinates provided
+    if body.lat is not None and body.lng is not None:
+        await validate_location(body.lat, body.lng, db)
+
     active_session_result = await db.execute(
         select(FacultyClinicSession).where(
             and_(

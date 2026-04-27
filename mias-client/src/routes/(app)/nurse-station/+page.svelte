@@ -8,6 +8,7 @@
 	import { nurseApi, type WardPatient, type NurseOrder, type NewlyRegisteredPatient } from '$lib/api/nurse';
 	import { staffApi, type ActiveClinicStudent, type PendingPatient } from '$lib/api/staff';
 	import { toastStore } from '$lib/stores/toast';
+	import PatientGeofenceModal from '$lib/components/geofence/PatientGeofenceModal.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
@@ -34,6 +35,34 @@
 	let loadingAssignStudents = $state(false);
 	let isAssigning = $state(false);
 	let busyPatientId = $state<string | null>(null);
+
+	// Geofence modal state
+	let showGeofenceModal = $state(false);
+	let gfPatientId = $state('');
+	let gfPatientName = $state('');
+	let gfClinicId = $state('');
+	let pendingGeofenceCallback = $state<((proofId: string) => Promise<void>) | null>(null);
+
+	function openGeofenceGate(
+		patientId: string,
+		patientName: string,
+		clinicId: string,
+		callback: (proofId: string) => Promise<void>
+	) {
+		gfPatientId = patientId;
+		gfPatientName = patientName;
+		gfClinicId = clinicId;
+		pendingGeofenceCallback = callback;
+		showGeofenceModal = true;
+	}
+
+	async function handleGeofenceVerified(proofId: string) {
+		showGeofenceModal = false;
+		if (pendingGeofenceCallback) {
+			await pendingGeofenceCallback(proofId);
+			pendingGeofenceCallback = null;
+		}
+	}
 
 	const intakePatients = $derived(
 		pendingPatients.filter((patient) => patient.workflow_status === 'unchecked' || patient.workflow_status === 'unassigned')
@@ -114,18 +143,22 @@
 
 	async function handleAssignClinicOnly() {
 		if (!assignTarget || !assignClinicId) return;
-		isAssigning = true;
-		try {
-			const result = await clinicsApi.checkInPatient(assignClinicId, { patient_id: assignTarget.id });
-			toastStore.addToast(result.message || `${assignTarget.name} checked in to clinic`, 'success');
-			showAssignModal = false;
-			assignTarget = null;
-			await loadWardData();
-		} catch (error: any) {
-			toastStore.addToast(error.response?.data?.detail || 'Clinic check-in failed', 'error');
-		} finally {
-			isAssigning = false;
-		}
+		const target = assignTarget;
+		const clinicId = assignClinicId;
+		openGeofenceGate(target.id, target.name, clinicId, async (proofId) => {
+			isAssigning = true;
+			try {
+				const result = await clinicsApi.checkInPatient(clinicId, { patient_id: target.id, geofence_proof_id: proofId });
+				toastStore.addToast(result.message || `${target.name} checked in to clinic`, 'success');
+				showAssignModal = false;
+				assignTarget = null;
+				await loadWardData();
+			} catch (error: any) {
+				toastStore.addToast(error.response?.data?.detail || 'Clinic check-in failed', 'error');
+			} finally {
+				isAssigning = false;
+			}
+		});
 	}
 
 	async function handleQueueCheckIn(patient: PendingPatient, autoAssignAfterCheckIn = false) {
@@ -134,24 +167,26 @@
 			await openAssignModal(patient);
 			return;
 		}
-		busyPatientId = patient.id;
-		try {
-			const result = await clinicsApi.checkInPatient(patient.clinic_id, { patient_id: patient.id });
-			toastStore.addToast(result.message || `${patient.name} checked in successfully`, 'success');
-			if (autoAssignAfterCheckIn) {
-				const assignResult = await staffApi.autoAssignPatient(patient.id, patient.clinic_id);
-				if (assignResult.clinic_only) {
-					toastStore.addToast(assignResult.message || `${patient.name} is waiting in clinic for assignment`, 'warning');
-				} else {
-					toastStore.addToast(`${patient.name} assigned to ${assignResult.student_name}`, 'success');
+		openGeofenceGate(patient.id, patient.name, patient.clinic_id, async (proofId) => {
+			busyPatientId = patient.id;
+			try {
+				const result = await clinicsApi.checkInPatient(patient.clinic_id!, { patient_id: patient.id, geofence_proof_id: proofId });
+				toastStore.addToast(result.message || `${patient.name} checked in successfully`, 'success');
+				if (autoAssignAfterCheckIn) {
+					const assignResult = await staffApi.autoAssignPatient(patient.id, patient.clinic_id!);
+					if (assignResult.clinic_only) {
+						toastStore.addToast(assignResult.message || `${patient.name} is waiting in clinic for assignment`, 'warning');
+					} else {
+						toastStore.addToast(`${patient.name} assigned to ${assignResult.student_name}`, 'success');
+					}
 				}
+				await loadWardData();
+			} catch (error: any) {
+				toastStore.addToast(error.response?.data?.detail || 'Failed to check in patient', 'error');
+			} finally {
+				busyPatientId = null;
 			}
-			await loadWardData();
-		} catch (error: any) {
-			toastStore.addToast(error.response?.data?.detail || 'Failed to check in patient', 'error');
-		} finally {
-			busyPatientId = null;
-		}
+		});
 	}
 
 	async function handleAutoAssign(patient: PendingPatient) {
@@ -770,3 +805,11 @@
 		</div>
 	</AquaModal>
 {/if}
+
+<PatientGeofenceModal
+	open={showGeofenceModal}
+	patientId={gfPatientId}
+	patientName={gfPatientName}
+	onclose={() => { showGeofenceModal = false; pendingGeofenceCallback = null; }}
+	onverified={handleGeofenceVerified}
+/>

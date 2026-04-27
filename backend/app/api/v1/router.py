@@ -30,6 +30,7 @@ from app.api.v1 import (
     operation_theaters,
     mrd,
     diagnosis,
+    geofencing,
 )
 
 api_router = APIRouter()
@@ -64,3 +65,4 @@ api_router.include_router(billing.router)
 api_router.include_router(operation_theaters.router)
 api_router.include_router(mrd.router)
 api_router.include_router(diagnosis.router)
+api_router.include_router(geofencing.router)

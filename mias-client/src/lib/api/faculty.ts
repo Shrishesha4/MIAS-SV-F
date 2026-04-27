@@ -145,8 +145,11 @@ export const facultyApi = {
     return response.data;
   },
 
-  async checkInToClinic(facultyId: string, clinicId: string) {
-    const response = await client.post(`/faculty/${facultyId}/clinic-sessions/check-in`, { clinic_id: clinicId });
+  async checkInToClinic(facultyId: string, clinicId: string, coords?: { lat: number; lng: number; accuracy: number }) {
+    const response = await client.post(`/faculty/${facultyId}/clinic-sessions/check-in`, {
+      clinic_id: clinicId,
+      ...(coords ?? {}),
+    });
     return response.data;
   },
 

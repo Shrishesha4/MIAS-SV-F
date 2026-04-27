@@ -8,6 +8,7 @@
 	import { patientApi } from '$lib/api/patients';
 	import { studentApi } from '$lib/api/students';
 	import { facultyApi } from '$lib/api/faculty';
+	import { getCurrentPosition } from '$lib/utils/geolocation';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
@@ -93,12 +94,13 @@
 		if (!student?.id || !selectedClinic) return;
 		checkingIn = true;
 		try {
-			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id);
+			const coords = await getCurrentPosition();
+			const result = await studentApi.checkInToClinic(student.id, selectedClinic.id, coords);
 			toastStore.addToast(`Checked in to ${result.clinic_name}`, 'success');
 			await loadStudentSessions();
 			await selectClinic(selectedClinic);
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail || 'Failed to check in', 'error');
+			toastStore.addToast(err?.response?.data?.detail || err?.message || 'Failed to check in', 'error');
 		} finally {
 			checkingIn = false;
 		}
@@ -127,12 +129,13 @@
 		if (!faculty?.id || !selectedClinic) return;
 		facultyCheckingIn = true;
 		try {
-			const result = await facultyApi.checkInToClinic(faculty.id, selectedClinic.id);
+			const coords = await getCurrentPosition();
+			const result = await facultyApi.checkInToClinic(faculty.id, selectedClinic.id, coords);
 			toastStore.addToast(`Checked in to ${result.clinic_name}`, 'success');
 			await loadFacultySessions();
 			await selectClinic(selectedClinic);
 		} catch (err: any) {
-			toastStore.addToast(err?.response?.data?.detail || 'Failed to check in', 'error');
+			toastStore.addToast(err?.response?.data?.detail || err?.message || 'Failed to check in', 'error');
 		} finally {
 			facultyCheckingIn = false;
 		}
