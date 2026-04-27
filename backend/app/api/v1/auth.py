@@ -29,7 +29,7 @@ from app.core.security import (
 from app.config import settings
 
 _REFRESH_COOKIE = "refresh_token"
-_REFRESH_COOKIE_PATH = "/api/v1/auth"
+_REFRESH_COOKIE_PATH = "/"
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -296,6 +296,7 @@ async def refresh_token(
     db: AsyncSession = Depends(get_db),
     refresh_token_cookie: str | None = Cookie(default=None, alias=_REFRESH_COOKIE),
 ):
+    print("Refresh token cookie:", refresh_token_cookie)  # Debug log
     if not refresh_token_cookie:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
