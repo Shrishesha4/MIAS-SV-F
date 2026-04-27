@@ -122,6 +122,20 @@
 	// ── Tooltip state ─────────────────────────────────────────────
 	let showCRCommentTooltip = $state<string | null>(null);
 	let showRxCommentTooltip = $state<string | null>(null);
+
+	const latestRejectedCrId = $derived(
+		[...caseRecords]
+			.filter(r => r.status === 'Rejected' || r.approval_status === 'REJECTED')
+			.sort((a, b) => new Date(b.last_modified_at || b.date).getTime() - new Date(a.last_modified_at || a.date).getTime())
+			[0]?.id ?? null
+	);
+
+	const latestRejectedRxId = $derived(
+		[...prescriptions]
+			.filter(rx => rx.approval_status === 'REJECTED')
+			.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+			[0]?.id ?? null
+	);
 	let loading = $state(true);
 	let showLabOrderModal = $state(false);
 
@@ -2286,7 +2300,7 @@
                   </div>
 
                   <!-- REJECTION FEEDBACK + REDO (student only) -->
-                  {#if role === 'STUDENT' && (record.status === 'Rejected' || record.approval_status === 'REJECTED')}
+                  {#if role === 'STUDENT' && (record.status === 'Rejected' || record.approval_status === 'REJECTED') && record.id === latestRejectedCrId}
                     <div class="px-4 py-2.5 flex items-center gap-2 border-t"
                       style="background: rgba(254,242,242,0.8); border-color: rgba(254,202,202,0.5);">
                       {#if record.faculty_comments}
@@ -2567,7 +2581,7 @@
 							{#if rx.doctor}
 								<p class="text-xs text-gray-400 mt-2 ml-6">Prescribed by {rx.doctor} · {rx.date || ''}</p>
 							{/if}
-							{#if role === 'STUDENT' && rx.submitted_by_student_id && rx.approval_status === 'REJECTED'}
+							{#if role === 'STUDENT' && rx.submitted_by_student_id && rx.approval_status === 'REJECTED' && rx.id === latestRejectedRxId}
 								<div class="flex items-center gap-2 mt-3 pt-2 border-t border-red-100">
 									{#if rx.approval_comments}
 										<div class="relative inline-flex items-center gap-1 flex-1"

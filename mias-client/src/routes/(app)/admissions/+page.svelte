@@ -161,6 +161,13 @@
 			: admissions
 	);
 
+	const latestRejectedAdmReqId = $derived(
+		[...admissionRequests]
+			.filter(req => req.status === 'REJECTED' || req.status === 'Rejected')
+			.sort((a, b) => new Date(b.processed_at || b.created_at).getTime() - new Date(a.processed_at || a.created_at).getTime())
+			[0]?.id ?? null
+	);
+
 	function getStatusIcon(status: string) {
 		if (status === 'Discharged') return { color: '#22c55e', icon: CheckCircle };
 		if (status === 'Transferred') return { color: '#3b82f6', icon: ArrowRightCircle };

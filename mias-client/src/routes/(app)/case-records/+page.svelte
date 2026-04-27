@@ -66,6 +66,13 @@
 		selectedForm ? selectedForm.fields : null
 	);
 
+	const latestRejectedCrId = $derived(
+		[...caseRecords]
+			.filter(cr => cr.status === 'Rejected' || cr.status === 'REJECTED')
+			.sort((a, b) => new Date(b.last_modified_at || b.date).getTime() - new Date(a.last_modified_at || a.date).getTime())
+			[0]?.id ?? null
+	);
+
 	function getCaseRecordDisplayFields(record: any): FormFieldDefinition[] {
 		if (Array.isArray(record?.form_fields) && record.form_fields.length > 0) {
 			return record.form_fields;
