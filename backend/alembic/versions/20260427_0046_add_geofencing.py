@@ -1,7 +1,7 @@
 """add geofencing tables
 
 Revision ID: 20260427_0046
-Revises: 20260426_0045
+Revises: b63732ae85ef
 Create Date: 2026-04-27
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "20260427_0046"
-down_revision = "20260426_0045"
+down_revision = "b63732ae85ef"
 branch_labels = None
 depends_on = None
 

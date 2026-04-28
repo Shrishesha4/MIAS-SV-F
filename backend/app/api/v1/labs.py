@@ -9,7 +9,7 @@ import uuid
 
 from app.api.deps import get_db, get_current_user, require_role
 from app.models.user import User, UserRole
-from app.models.lab import Lab, LabTest, LabTestGroup, ChargeItem, ChargePrice, ChargeCategory
+from app.models.lab import Lab, LabTest, LabTestGroup, LabTestParameter, ChargeItem, ChargePrice, ChargeCategory
 from app.models.patient import Patient
 from app.models.report import Report, ReportStatus
 from app.models.wallet import WalletTransaction, WalletType, TransactionType, PatientWallet
@@ -560,6 +560,175 @@ async def delete_lab_test_group(
     return {"message": "Test group deleted successfully"}
 
 
+# ============ Lab Test Parameters ============
+
+class CreateLabTestParameterRequest(BaseModel):
+    name: str
+    unit: Optional[str] = None
+    reference_required: bool = True
+    normal_range: Optional[str] = None
+    low: Optional[float] = None
+    critically_low: Optional[float] = None
+    high: Optional[float] = None
+    critically_high: Optional[float] = None
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class UpdateLabTestParameterRequest(BaseModel):
+    name: Optional[str] = None
+    unit: Optional[str] = None
+    reference_required: Optional[bool] = None
+    normal_range: Optional[str] = None
+    low: Optional[float] = None
+    critically_low: Optional[float] = None
+    high: Optional[float] = None
+    critically_high: Optional[float] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+def _serialize_parameter(p: LabTestParameter) -> dict:
+    return {
+        "id": p.id,
+        "test_id": p.test_id,
+        "name": p.name,
+        "unit": p.unit,
+        "reference_required": p.reference_required,
+        "normal_range": p.normal_range,
+        "low": float(p.low) if p.low is not None else None,
+        "critically_low": float(p.critically_low) if p.critically_low is not None else None,
+        "high": float(p.high) if p.high is not None else None,
+        "critically_high": float(p.critically_high) if p.critically_high is not None else None,
+        "sort_order": p.sort_order,
+        "is_active": p.is_active,
+    }
+
+
+@router.get("/{lab_id}/tests/{test_id}/parameters")
+async def list_test_parameters(
+    lab_id: str,
+    test_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all parameters for a lab test"""
+    result = await db.execute(
+        select(LabTest).where(LabTest.id == test_id, LabTest.lab_id == lab_id)
+    )
+    if not result.scalar_one_or_none():
+        raise NotFoundException("Lab test not found")
+    result = await db.execute(
+        select(LabTestParameter)
+        .where(LabTestParameter.test_id == test_id)
+        .order_by(LabTestParameter.sort_order, LabTestParameter.name)
+    )
+    params = result.scalars().all()
+    return [_serialize_parameter(p) for p in params]
+
+
+@router.post("/{lab_id}/tests/{test_id}/parameters")
+async def create_test_parameter(
+    lab_id: str,
+    test_id: str,
+    data: CreateLabTestParameterRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+):
+    """Create a new parameter for a lab test (admin only)"""
+    result = await db.execute(
+        select(LabTest).where(LabTest.id == test_id, LabTest.lab_id == lab_id)
+    )
+    if not result.scalar_one_or_none():
+        raise NotFoundException("Lab test not found")
+    param = LabTestParameter(
+        id=str(uuid.uuid4()),
+        test_id=test_id,
+        name=data.name,
+        unit=data.unit,
+        reference_required=data.reference_required,
+        normal_range=data.normal_range,
+        low=data.low,
+        critically_low=data.critically_low,
+        high=data.high,
+        critically_high=data.critically_high,
+        sort_order=data.sort_order,
+        is_active=data.is_active,
+    )
+    db.add(param)
+    await db.commit()
+    await db.refresh(param)
+    return _serialize_parameter(param)
+
+
+@router.put("/{lab_id}/tests/{test_id}/parameters/{param_id}")
+async def update_test_parameter(
+    lab_id: str,
+    test_id: str,
+    param_id: str,
+    data: UpdateLabTestParameterRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+):
+    """Update a test parameter (admin only)"""
+    result = await db.execute(
+        select(LabTestParameter).where(
+            LabTestParameter.id == param_id, LabTestParameter.test_id == test_id
+        )
+    )
+    param = result.scalar_one_or_none()
+    if not param:
+        raise NotFoundException("Parameter not found")
+
+    if data.name is not None:
+        param.name = data.name
+    if data.unit is not None:
+        param.unit = data.unit
+    if data.reference_required is not None:
+        param.reference_required = data.reference_required
+    if data.normal_range is not None:
+        param.normal_range = data.normal_range
+    if data.low is not None:
+        param.low = data.low
+    if data.critically_low is not None:
+        param.critically_low = data.critically_low
+    if data.high is not None:
+        param.high = data.high
+    if data.critically_high is not None:
+        param.critically_high = data.critically_high
+    if data.sort_order is not None:
+        param.sort_order = data.sort_order
+    if data.is_active is not None:
+        param.is_active = data.is_active
+
+    await db.commit()
+    await db.refresh(param)
+    return _serialize_parameter(param)
+
+
+@router.delete("/{lab_id}/tests/{test_id}/parameters/{param_id}")
+async def delete_test_parameter(
+    lab_id: str,
+    test_id: str,
+    param_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(UserRole.ADMIN)),
+):
+    """Delete a test parameter (admin only)"""
+    result = await db.execute(
+        select(LabTestParameter).where(
+            LabTestParameter.id == param_id, LabTestParameter.test_id == test_id
+        )
+    )
+    param = result.scalar_one_or_none()
+    if not param:
+        raise NotFoundException("Parameter not found")
+
+    await db.delete(param)
+    await db.commit()
+    return {"message": "Parameter deleted successfully"}
+
+
 # ============ Charge Master ============
 
 class CreateChargeItemRequest(BaseModel):
@@ -875,6 +1044,7 @@ async def place_lab_order(
                 id=str(uuid.uuid4()),
                 patient_id=data.patient_id,
                 lab_id=data.lab_id,
+                lab_test_id=test.id,
                 date=now,
                 time=now.strftime("%H:%M"),
                 title=test.name,

@@ -44,10 +44,9 @@
 
 	let { patient, facultyApprovers, onClose, onSubmit, initialData }: Props = $props();
 
-	let diagnosis = $state(initialData?.diagnosis ?? '');
-	let medications: Medication[] = $state(
-		initialData?.medications?.length
-			? initialData.medications.map((m) => ({
+	function buildMedications(data: InitialData | undefined): Medication[] {
+		return data?.medications?.length
+			? data.medications.map((m) => ({
 					name: m.name ?? '',
 					dosage: m.dosage ?? '',
 					duration: m.duration ?? '',
@@ -55,10 +54,19 @@
 					timing: m.timing ?? 'AFTER',
 					instructions: m.instructions ?? '',
 			  }))
-			: []
-	);
-	let selectedFacultyId = $state(initialData?.faculty_id ?? '');
+			: [];
+	}
+
+	let diagnosis = $state('');
+	let medications: Medication[] = $state([]);
+	let selectedFacultyId = $state('');
 	let submitting = $state(false);
+
+	$effect(() => {
+		diagnosis = initialData?.diagnosis ?? '';
+		medications = buildMedications(initialData);
+		selectedFacultyId = initialData?.faculty_id ?? '';
+	});
 
 	const frequencyOptions = [
 		'1-0-1 (M/N)',

@@ -23,6 +23,7 @@ class Report(Base):
     id = Column(String, primary_key=True)
     patient_id = Column(String, ForeignKey("patients.id"), nullable=False, index=True)
     lab_id = Column(String, ForeignKey("labs.id"), nullable=True, index=True)
+    lab_test_id = Column(String, ForeignKey("lab_tests.id"), nullable=True, index=True)
     date = Column(DateTime, nullable=False)
     time = Column(String, nullable=True)
     title = Column(String, nullable=False)

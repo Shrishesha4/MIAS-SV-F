@@ -61,6 +61,7 @@
 	let configModal = $state(false);
 	let configClinic: ClinicInfo | null = $state(null);
 	let configInsuranceCategoryId = $state('');
+	let configInsuranceCategoryActive = $state(true);
 	let configContextLabel = $state('');
 	let configRegistrationFee = $state(100);
 	let configIsEnabled = $state(true);
@@ -215,7 +216,7 @@
 		}
 	}
 
-	type ClinicConfigEntry = { insuranceCategoryId: string; insuranceCategoryName: string; patientTypeName: string; walkInType: string; };
+	type ClinicConfigEntry = { insuranceCategoryId: string; insuranceCategoryName: string; patientTypeName: string; walkInType: string; isInsuranceCategoryActive: boolean; };
 
 	// Map clinic_id → list of insurance configs that reference it.
 	const clinicConfigMap = $derived.by<Record<string, ClinicConfigEntry[]>>(() => {
@@ -231,6 +232,7 @@
 					insuranceCategoryName: category.name,
 					patientTypeName,
 					walkInType: config.walk_in_type,
+					isInsuranceCategoryActive: category.is_active,
 				});
 			}
 		}
@@ -256,6 +258,17 @@
 		configPickerEntries = entries;
 		configPickerModal = true;
 	}
+
+	// Set of walk-in type values that have at least one active patient category behind them.
+	const activeWalkInTypes = $derived.by<Set<string>>(() => {
+		const s = new Set<string>();
+		for (const category of insuranceCategories) {
+			for (const pc of category.patient_categories) {
+				if (pc.is_active) s.add(patientTypeToWalkInType(pc.name));
+			}
+		}
+		return s;
+	});
 
 	const clinicCards = $derived.by(() =>
 		clinics.map((clinic) => ({
@@ -489,6 +502,7 @@
 			configRegistrationFee = config.registration_fee;
 			configIsEnabled = config.is_enabled;
 			configWalkInType = walkInType || config.walk_in_type;
+			configInsuranceCategoryActive = insuranceCategories.find(c => c.id === insuranceCategoryId)?.is_active ?? true;
 			configModal = true;
 		} catch (e: any) {
 			toastStore.addToast(e?.response?.data?.detail || 'Failed to load clinic configuration', 'error');
@@ -620,13 +634,15 @@
 							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
 								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{item.accessModeLabel}</span>
-								{#if item.clinic.clinic_type !== 'IP' && item.clinic.walk_in_types?.length}
-									{#each item.clinic.walk_in_types as wt}
-										<span class="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-semibold text-orange-600">{walkInTypeToLabel(wt)}</span>
-									{/each}
-								{/if}
-								{#if !item.clinic.is_active}
-									<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
+							{#if item.clinic.clinic_type !== 'IP' && item.clinic.walk_in_types?.length}
+								{#each item.clinic.walk_in_types as wt}
+									{#if activeWalkInTypes.has(wt)}
+										<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{walkInTypeToLabel(wt)}</span>
+									{/if}
+								{/each}
+							{/if}
+							{#if !item.clinic.is_active}
+								<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
 								{/if}
 							</div>
 							<!-- Description below badges on mobile only -->
@@ -876,6 +892,11 @@
 {#if configModal && configClinic}
 	<AquaModal title={`Edit Config • ${configClinic.name}`} onclose={() => { configModal = false; configClinic = null; configInsuranceCategoryId = ''; configContextLabel = ''; configWalkInType = 'NO_WALK_IN'; }}>
 		<div class="space-y-4">
+			{#if !configInsuranceCategoryActive}
+				<div class="rounded-xl px-4 py-3 text-sm font-medium text-amber-700" style="background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.35);">
+					Insurance category is inactive — this config is paused. Re-enable the category first to activate it.
+				</div>
+			{/if}
 			<div>
 				<p class="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Mapping Context</p>
 				<p class="mt-1 text-sm font-medium text-slate-700">{configContextLabel}</p>
@@ -932,7 +953,7 @@
 			{#each configPickerEntries as entry}
 				<button
 					type="button"
-					class="w-full rounded-xl border px-4 py-3 text-left hover:bg-blue-50 cursor-pointer transition-colors"
+					class={`w-full rounded-xl border px-4 py-3 text-left hover:bg-blue-50 cursor-pointer transition-colors ${!entry.isInsuranceCategoryActive ? 'opacity-60' : ''}`}
 					style="border-color: rgba(158,173,193,0.3);"
 					onclick={() => {
 						configPickerModal = false;
@@ -943,6 +964,9 @@
 				>
 					<p class="text-sm font-semibold text-slate-800">{entry.insuranceCategoryName}</p>
 					<p class="text-xs text-slate-500">{entry.patientTypeName}</p>
+					{#if !entry.isInsuranceCategoryActive}
+						<p class="mt-0.5 text-[11px] font-medium text-amber-600">Insurance category inactive — config paused</p>
+					{/if}
 				</button>
 			{/each}
 		</div>

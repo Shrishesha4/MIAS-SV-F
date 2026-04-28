@@ -42,9 +42,22 @@ export interface LabTechnicianGroupSummary {
 	labs: TechnicianLab[];
 }
 
+export interface LabTestParameterTemplate {
+	id: string;
+	name: string;
+	unit?: string | null;
+	reference_required: boolean;
+	normal_range?: string | null;
+	low?: number | null;
+	critically_low?: number | null;
+	high?: number | null;
+	critically_high?: number | null;
+}
+
 export interface LabQueueReport {
 	id: string;
 	lab_id?: string | null;
+	lab_test_id?: string | null;
 	patient_id: string;
 	patient_name: string;
 	patient_code?: string | null;
@@ -71,6 +84,7 @@ export interface LabQueueReport {
 		reference?: string | null;
 		status: string;
 	}>;
+	test_parameters?: LabTestParameterTemplate[] | null;
 }
 
 export interface LabDashboardResponse {

@@ -405,7 +405,7 @@
 										<th class="px-3 py-2 text-left font-medium text-gray-600">Parameter</th>
 										<th class="px-3 py-2 text-left font-medium text-gray-600">Value</th>
 										<th class="px-3 py-2 text-left font-medium text-gray-600">Reference</th>
-										<th class="px-3 py-2 text-right font-medium text-gray-600"></th>
+										<th class="px-3 py-2 text-right font-medium text-gray-600">Status</th>
 									</tr>
 								</thead>
 								<tbody>
@@ -416,13 +416,21 @@
 											<td class="px-3 py-2.5 text-gray-500 text-xs">{finding.reference || '-'}</td>
 											<td class="px-3 py-2.5 text-right">
 												{#if finding.status === 'Normal'}
-													<span class="w-3 h-3 rounded-full bg-green-500 inline-block"></span>
-												{:else if finding.status === 'High' || finding.status === 'Low'}
-													<span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-emerald-700" style="background: #dcfce7;">Normal</span>
+												{:else if finding.status === 'High'}
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-amber-700" style="background: #fef3c7;">High ↑</span>
+												{:else if finding.status === 'Low'}
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-amber-700" style="background: #fef3c7;">Low ↓</span>
+												{:else if finding.status === 'Critically High'}
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-red-700" style="background: #fee2e2;">Critically High ↑↑</span>
+												{:else if finding.status === 'Critically Low'}
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-red-700" style="background: #fee2e2;">Critically Low ↓↓</span>
+												{:else if finding.status === 'Abnormal'}
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-amber-700" style="background: #fef3c7;">Abnormal</span>
 												{:else if finding.status === 'Critical'}
-													<span class="w-3 h-3 rounded-full bg-red-500 inline-block"></span>
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-red-700" style="background: #fee2e2;">Critical</span>
 												{:else}
-													<span class="w-3 h-3 rounded-full bg-gray-300 inline-block"></span>
+													<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold text-gray-500" style="background: #f1f5f9;">{finding.status || '—'}</span>
 												{/if}
 											</td>
 										</tr>

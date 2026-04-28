@@ -132,6 +132,35 @@ export interface UpdateChargeItemRequest {
 	is_active?: boolean;
 }
 
+// Lab Test Parameters
+export interface LabTestParameter {
+	id: string;
+	test_id: string;
+	name: string;
+	unit?: string;
+	reference_required: boolean;
+	normal_range?: string;
+	low?: number | null;
+	critically_low?: number | null;
+	high?: number | null;
+	critically_high?: number | null;
+	sort_order: number;
+	is_active: boolean;
+}
+
+export interface CreateLabTestParameterRequest {
+	name: string;
+	unit?: string;
+	reference_required?: boolean;
+	normal_range?: string;
+	low?: number | null;
+	critically_low?: number | null;
+	high?: number | null;
+	critically_high?: number | null;
+	sort_order?: number;
+	is_active?: boolean;
+}
+
 export const labsApi = {
 	// Labs
 	async getAll(): Promise<LabInfo[]> {
@@ -196,6 +225,26 @@ export const labsApi = {
 
 	async deleteGroup(labId: string, groupId: string): Promise<void> {
 		await client.delete(`/labs/${labId}/groups/${groupId}`);
+	},
+
+	// Lab Test Parameters
+	async getParameters(labId: string, testId: string): Promise<LabTestParameter[]> {
+		const response = await client.get(`/labs/${labId}/tests/${testId}/parameters`);
+		return response.data;
+	},
+
+	async createParameter(labId: string, testId: string, data: CreateLabTestParameterRequest): Promise<LabTestParameter> {
+		const response = await client.post(`/labs/${labId}/tests/${testId}/parameters`, data);
+		return response.data;
+	},
+
+	async updateParameter(labId: string, testId: string, paramId: string, data: Partial<CreateLabTestParameterRequest>): Promise<LabTestParameter> {
+		const response = await client.put(`/labs/${labId}/tests/${testId}/parameters/${paramId}`, data);
+		return response.data;
+	},
+
+	async deleteParameter(labId: string, testId: string, paramId: string): Promise<void> {
+		await client.delete(`/labs/${labId}/tests/${testId}/parameters/${paramId}`);
 	},
 
 	async placeOrder(data: {

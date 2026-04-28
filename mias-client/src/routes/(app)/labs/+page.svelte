@@ -4,6 +4,7 @@
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
 	import { labTechnicianApi, type LabDashboardResponse, type LabQueueReport } from '$lib/api/lab-technicians';
+	import { facultyApi, type FacultySearchResult } from '$lib/api/faculty';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import { RefreshCw, Loader2, FlaskConical, ShieldCheck, ClipboardList, CheckCircle2, CircleAlert, Search, FileText, Microscope, Clock3, ChevronRight, Plus, Trash2, TestTube2 } from 'lucide-svelte';
@@ -14,11 +15,17 @@
 		value: string;
 		reference: string;
 		status: string;
+		unit?: string;
+		isTemplate?: boolean;
+		paramTemplate?: {
+			low?: number | null;
+			critically_low?: number | null;
+			high?: number | null;
+			critically_high?: number | null;
+			reference_required?: boolean;
+		};
 	};
 	type ResultForm = {
-		status: 'NORMAL' | 'ABNORMAL' | 'CRITICAL';
-		result_summary: string;
-		notes: string;
 		supervised_by: string;
 		findings: FindingRow[];
 	};
@@ -34,19 +41,21 @@
 
 	function createEmptyResultForm(): ResultForm {
 		return {
-			status: 'NORMAL',
-			result_summary: '',
-			notes: '',
 			supervised_by: '',
 			findings: [createEmptyFindingRow()],
 		};
 	}
 
-	function normalizeReportStatus(status: string | null | undefined): ResultForm['status'] {
-		if (status === 'ABNORMAL' || status === 'CRITICAL') {
-			return status;
-		}
-		return 'NORMAL';
+	function computeStatusPreview(value: string, row: FindingRow): string {
+		if (!row.paramTemplate || !row.paramTemplate.reference_required) return '';
+		const v = parseFloat(value);
+		if (isNaN(v)) return '';
+		const { critically_low, critically_high, low, high } = row.paramTemplate;
+		if (critically_low != null && v <= critically_low) return 'Critically Low';
+		if (critically_high != null && v >= critically_high) return 'Critically High';
+		if (low != null && v < low) return 'Low';
+		if (high != null && v > high) return 'High';
+		return 'Normal';
 	}
 
 	function formatTimestamp(value: string | null | undefined, time: string | null | undefined = null): string {
@@ -83,8 +92,19 @@
 	let selectedReportId = $state<string | null>(null);
 	let reportDetail = $state<LabQueueReport | null>(null);
 	let resultForm = $state<ResultForm>(createEmptyResultForm());
+	let supervisors = $state<FacultySearchResult[]>([]);
+
+	const computedOverallStatus = $derived.by(() => {
+		const activeStatuses = resultForm.findings
+			.filter((f) => f.value.trim())
+			.map((f) => f.status);
+		if (activeStatuses.some((s) => s === 'Critically Low' || s === 'Critically High')) return 'CRITICAL' as const;
+		if (activeStatuses.some((s) => s === 'Low' || s === 'High')) return 'ABNORMAL' as const;
+		return 'NORMAL' as const;
+	});
 
 	const technician = $derived(dashboard?.technician ?? null);
+	const hasTemplateParams = $derived((reportDetail?.test_parameters?.length ?? 0) > 0);
 	const queueCounts = $derived.by(() => ({
 		new: dashboard?.new_orders.length ?? 0,
 		progress: dashboard?.in_progress_orders.length ?? 0,
@@ -157,19 +177,44 @@
 	}
 
 	function populateResultForm(report: LabQueueReport) {
-		resultForm = {
-			status: normalizeReportStatus(report.status),
-			result_summary: report.result_summary ?? '',
-			notes: report.notes ?? '',
-			supervised_by: report.supervised_by ?? '',
-			findings: report.findings.length > 0
-				? report.findings.map((finding) => ({
+		const params = report.test_parameters;
+		const paramsByName = new Map(params?.map((p) => [p.name, p]) ?? []);
+		let findings: FindingRow[];
+
+		if (report.findings.length > 0) {
+			// Re-editing existing results — restore with template metadata if available
+			findings = report.findings.map((finding) => {
+				const p = paramsByName.get(finding.parameter);
+				return {
 					parameter: finding.parameter,
 					value: finding.value,
 					reference: finding.reference ?? '',
 					status: finding.status || 'Normal',
-				}))
-				: [createEmptyFindingRow()],
+					unit: p?.unit ?? undefined,
+					isTemplate: !!p,
+					paramTemplate: p
+						? { low: p.low, critically_low: p.critically_low, high: p.high, critically_high: p.critically_high, reference_required: p.reference_required }
+						: undefined,
+				};
+			});
+		} else if (params && params.length > 0) {
+			// First-time entry — pre-populate rows from template
+			findings = params.map((p) => ({
+				parameter: p.name,
+				value: '',
+				reference: p.normal_range ?? '',
+				status: 'Normal',
+				unit: p.unit ?? undefined,
+				isTemplate: true,
+				paramTemplate: { low: p.low, critically_low: p.critically_low, high: p.high, critically_high: p.critically_high, reference_required: p.reference_required },
+			}));
+		} else {
+			findings = [createEmptyFindingRow()];
+		}
+
+		resultForm = {
+			supervised_by: report.supervised_by ?? '',
+			findings,
 		};
 	}
 
@@ -179,6 +224,14 @@
 		detailLoading = true;
 		showDetailModal = mode === 'view';
 		showResultsModal = mode === 'results';
+
+		if (mode === 'results' && supervisors.length === 0) {
+			try {
+				supervisors = await facultyApi.searchFaculty('');
+			} catch {
+				// non-blocking — supervisor dropdown will be empty
+			}
+		}
 
 		try {
 			const detail = await labTechnicianApi.getReport(reportId);
@@ -253,14 +306,13 @@
 
 	function updateFindingRow(index: number, field: keyof FindingRow, value: string) {
 		const nextRows = resultForm.findings.slice();
-		nextRows[index] = {
-			...nextRows[index],
-			[field]: value,
-		};
-		resultForm = {
-			...resultForm,
-			findings: nextRows,
-		};
+		const updated = { ...nextRows[index], [field]: value };
+		// Auto-compute status preview when value changes on a template row
+		if (field === 'value' && updated.isTemplate) {
+			updated.status = computeStatusPreview(value, updated) || 'Normal';
+		}
+		nextRows[index] = updated;
+		resultForm = { ...resultForm, findings: nextRows };
 	}
 
 	async function saveResults() {
@@ -277,17 +329,15 @@
 			}))
 			.filter((finding) => finding.parameter && finding.value);
 
-		if (!resultForm.result_summary.trim() && findings.length === 0) {
-			toastStore.addToast('Add a summary or at least one result row', 'error');
+		if (findings.length === 0) {
+			toastStore.addToast('Add at least one result row with a value', 'error');
 			return;
 		}
 
 		savingResults = true;
 		try {
 			await labTechnicianApi.saveResults(selectedReportId, {
-				status: resultForm.status,
-				result_summary: resultForm.result_summary.trim() || undefined,
-				notes: resultForm.notes.trim() || undefined,
+				status: computedOverallStatus,
 				supervised_by: resultForm.supervised_by.trim() || undefined,
 				findings,
 			});
@@ -720,136 +770,177 @@
 				<p class="mt-1 text-xs text-slate-500">{reportDetail.patient_name}{#if reportDetail.patient_code} · {reportDetail.patient_code}{/if}</p>
 			</div>
 
-			<div class="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+			<div class="grid gap-4 sm:grid-cols-2">
 				<div>
-					<label for="lab-result-status" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Final status</label>
-					<select
-						id="lab-result-status"
-						bind:value={resultForm.status}
-						class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-						style="background: white; border: 1px solid rgba(148,163,184,0.35);"
-					>
-						<option value="NORMAL">Normal</option>
-						<option value="ABNORMAL">Abnormal</option>
-						<option value="CRITICAL">Critical</option>
-					</select>
+					<p class="mb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Overall Status</p>
+					<div class="flex h-[46px] items-center rounded-2xl px-4"
+						style="background: white; border: 1px solid rgba(148,163,184,0.35);">
+						{#if computedOverallStatus === 'CRITICAL'}
+							<span class="rounded-full px-3 py-1 text-xs font-semibold text-red-700" style="background: #fee2e2;">Critical</span>
+						{:else if computedOverallStatus === 'ABNORMAL'}
+							<span class="rounded-full px-3 py-1 text-xs font-semibold text-amber-700" style="background: #fef3c7;">Abnormal</span>
+						{:else}
+							<span class="rounded-full px-3 py-1 text-xs font-semibold text-emerald-700" style="background: #dcfce7;">Normal</span>
+						{/if}
+						<span class="ml-2 text-xs text-slate-400">Auto-computed from results</span>
+					</div>
 				</div>
 
 				<div>
 					<label for="lab-result-supervisor" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Supervised by</label>
-					<input
+					<select
 						id="lab-result-supervisor"
-						type="text"
 						bind:value={resultForm.supervised_by}
-						placeholder="Consultant or faculty name"
 						class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
 						style="background: white; border: 1px solid rgba(148,163,184,0.35);"
-					/>
+					>
+						<option value="">— Select supervisor —</option>
+						{#each supervisors as sup}
+							<option value={sup.name}>{sup.name}{sup.department ? ` · ${sup.department}` : ''}</option>
+						{/each}
+					</select>
 				</div>
-			</div>
-
-			<div>
-				<label for="lab-result-summary" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Summary</label>
-				<textarea
-					id="lab-result-summary"
-					bind:value={resultForm.result_summary}
-					rows="3"
-					placeholder="Write the key interpretation or conclusion"
-					class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-					style="background: white; border: 1px solid rgba(148,163,184,0.35);"
-				></textarea>
-			</div>
-
-			<div>
-				<label for="lab-result-notes" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Notes</label>
-				<textarea
-					id="lab-result-notes"
-					bind:value={resultForm.notes}
-					rows="3"
-					placeholder="Handling notes, remarks, caveats, or repeat instructions"
-					class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-					style="background: white; border: 1px solid rgba(148,163,184,0.35);"
-				></textarea>
 			</div>
 
 			<div class="rounded-[22px] px-4 py-4" style="background: white; border: 1px solid rgba(148,163,184,0.28);">
 				<div class="flex items-center justify-between gap-3">
 					<div>
-						<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Structured result rows</p>
-						<p class="mt-1 text-sm text-slate-500">Add parameter-wise readings if this test needs individual values.</p>
+						<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+							{hasTemplateParams ? 'Test parameters' : 'Structured result rows'}
+						</p>
+						<p class="mt-1 text-sm text-slate-500">
+							{hasTemplateParams
+								? 'Enter values for each parameter. Status is auto-computed from reference ranges.'
+								: 'Add parameter-wise readings if this test needs individual values.'}
+						</p>
 					</div>
-					<button
-						onclick={addFindingRow}
-						class="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-blue-700 cursor-pointer"
-						style="background: #dbeafe;"
-					>
-						<Plus class="h-3.5 w-3.5" />
-						Add row
-					</button>
+					{#if !hasTemplateParams}
+						<button
+							onclick={addFindingRow}
+							class="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold text-blue-700 cursor-pointer"
+							style="background: #dbeafe;"
+						>
+							<Plus class="h-3.5 w-3.5" />
+							Add row
+						</button>
+					{/if}
 				</div>
 
 				<div class="mt-4 space-y-3">
 					{#each resultForm.findings as finding, index}
-						<div class="grid gap-3 rounded-[20px] px-3 py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_160px_44px]"
-							style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.2);">
-							<div>
-								<label for={`finding-parameter-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Parameter</label>
-								<input
-									id={`finding-parameter-${index}`}
-									type="text"
-									value={finding.parameter}
-									oninput={(event) => updateFindingRow(index, 'parameter', (event.currentTarget as HTMLInputElement).value)}
-									placeholder="Hemoglobin"
-									class="w-full rounded-xl px-3 py-2 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.32);"
-								/>
+						{#if finding.isTemplate}
+							<div class="grid grid-cols-[minmax(0,1fr)_140px_84px_40px] gap-3 rounded-[20px] px-3 py-3"
+								style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.2);">
+								<!-- Parameter name (read-only) -->
+								<div>
+									<p class="mb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Parameter</p>
+									<div class="w-full rounded-xl px-3 py-2 text-sm text-slate-700"
+										style="background: #f1f5f9; border: 1px solid rgba(148,163,184,0.24);">
+										{finding.parameter}{#if finding.reference}<span class="ml-1.5 text-xs text-slate-400">({finding.reference})</span>{/if}
+									</div>
+								</div>
+								<!-- Value input with unit hint -->
+								<div>
+									<label for={`finding-value-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">
+										Value{finding.unit ? ` (${finding.unit})` : ''}
+									</label>
+									<input
+										id={`finding-value-${index}`}
+										type="text"
+										value={finding.value}
+										oninput={(event) => updateFindingRow(index, 'value', (event.currentTarget as HTMLInputElement).value)}
+										placeholder="0.0"
+										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
+										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
+									/>
+								</div>
+								<!-- Status badge (auto-computed preview) -->
+								<div class="flex items-end pb-1">
+									{#if !finding.value}
+										<span class="text-xs text-slate-400 px-1">—</span>
+									{:else if finding.status === 'Normal'}
+										<span class="rounded-full px-2.5 py-1 text-[11px] font-semibold text-emerald-700 whitespace-nowrap" style="background: #dcfce7;">Normal</span>
+									{:else if finding.status === 'Low' || finding.status === 'High'}
+										<span class="rounded-full px-2.5 py-1 text-[11px] font-semibold text-amber-700 whitespace-nowrap" style="background: #fef3c7;">{finding.status}</span>
+									{:else if finding.status === 'Critically Low' || finding.status === 'Critically High'}
+										<span class="rounded-full px-2.5 py-1 text-[11px] font-semibold text-red-700 whitespace-nowrap" style="background: #fee2e2;">{finding.status}</span>
+									{:else}
+										<span class="rounded-full px-2.5 py-1 text-[11px] font-semibold text-slate-600 whitespace-nowrap" style="background: #f1f5f9;">{finding.status || '—'}</span>
+									{/if}
+								</div>
+								<!-- Delete -->
+								<div class="flex items-end">
+									<button
+										onclick={() => removeFindingRow(index)}
+										class="inline-flex h-9 w-9 items-center justify-center rounded-xl text-red-600 cursor-pointer"
+										style="background: #fee2e2;"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</div>
 							</div>
-							<div>
-								<label for={`finding-value-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Value</label>
-								<input
-									id={`finding-value-${index}`}
-									type="text"
-									value={finding.value}
-									oninput={(event) => updateFindingRow(index, 'value', (event.currentTarget as HTMLInputElement).value)}
-									placeholder="13.4 g/dL"
-									class="w-full rounded-xl px-3 py-2 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.32);"
-								/>
+						{:else}
+							<div class="grid gap-3 rounded-[20px] px-3 py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_160px_44px]"
+								style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.2);">
+								<div>
+									<label for={`finding-parameter-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Parameter</label>
+									<input
+										id={`finding-parameter-${index}`}
+										type="text"
+										value={finding.parameter}
+										oninput={(event) => updateFindingRow(index, 'parameter', (event.currentTarget as HTMLInputElement).value)}
+										placeholder="Hemoglobin"
+										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
+										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
+									/>
+								</div>
+								<div>
+									<label for={`finding-value-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Value</label>
+									<input
+										id={`finding-value-${index}`}
+										type="text"
+										value={finding.value}
+										oninput={(event) => updateFindingRow(index, 'value', (event.currentTarget as HTMLInputElement).value)}
+										placeholder="13.4 g/dL"
+										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
+										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
+									/>
+								</div>
+								<div>
+									<label for={`finding-reference-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Reference</label>
+									<input
+										id={`finding-reference-${index}`}
+										type="text"
+										value={finding.reference}
+										oninput={(event) => updateFindingRow(index, 'reference', (event.currentTarget as HTMLInputElement).value)}
+										placeholder="12 - 16"
+										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
+										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
+									/>
+								</div>
+								<div>
+									<label for={`finding-status-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Row status</label>
+									<input
+										id={`finding-status-${index}`}
+										type="text"
+										value={finding.status}
+										oninput={(event) => updateFindingRow(index, 'status', (event.currentTarget as HTMLInputElement).value)}
+										placeholder="Normal"
+										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
+										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
+									/>
+								</div>
+								<div class="flex items-end">
+									<button
+										onclick={() => removeFindingRow(index)}
+										class="inline-flex h-11 w-11 items-center justify-center rounded-xl text-red-600 cursor-pointer"
+										style="background: #fee2e2;"
+									>
+										<Trash2 class="h-4 w-4" />
+									</button>
+								</div>
 							</div>
-							<div>
-								<label for={`finding-reference-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Reference</label>
-								<input
-									id={`finding-reference-${index}`}
-									type="text"
-									value={finding.reference}
-									oninput={(event) => updateFindingRow(index, 'reference', (event.currentTarget as HTMLInputElement).value)}
-									placeholder="12 - 16"
-									class="w-full rounded-xl px-3 py-2 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.32);"
-								/>
-							</div>
-							<div>
-								<label for={`finding-status-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Row status</label>
-								<input
-									id={`finding-status-${index}`}
-									type="text"
-									value={finding.status}
-									oninput={(event) => updateFindingRow(index, 'status', (event.currentTarget as HTMLInputElement).value)}
-									placeholder="Normal"
-									class="w-full rounded-xl px-3 py-2 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.32);"
-								/>
-							</div>
-							<div class="flex items-end">
-								<button
-									onclick={() => removeFindingRow(index)}
-									class="inline-flex h-11 w-11 items-center justify-center rounded-xl text-red-600 cursor-pointer"
-									style="background: #fee2e2;"
-								>
-									<Trash2 class="h-4 w-4" />
-								</button>
-							</div>
-						</div>
+						{/if}
 					{/each}
 				</div>
 			</div>

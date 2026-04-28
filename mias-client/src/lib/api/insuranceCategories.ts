@@ -9,6 +9,7 @@ export interface PatientCategory {
   id: string;
   name: string;
   description: string | null;
+  is_active: boolean;
   color_primary?: string;
   color_secondary?: string;
 }

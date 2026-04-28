@@ -281,6 +281,14 @@
 	}
 
 	async function loadUsers() {
+		// Patients tab with no search: don't fetch — too many records
+		if (roleFilter === 'PATIENT' && !searchQuery.trim()) {
+			users = [];
+			total = 0;
+			loading = false;
+			return;
+		}
+
 		loading = true;
 		error = '';
 		try {
@@ -288,6 +296,8 @@
 			if (roleFilter) params.role = roleFilter;
 			if (searchQuery) params.search = searchQuery;
 			if (statusFilter) params.status = statusFilter;
+			// Exclude patients only when browsing with no search (too many records)
+			if (!roleFilter && !searchQuery.trim()) params.exclude_patients = true;
 			const res = await adminApi.getUsers(params);
 			users = res.items;
 			total = res.total;
@@ -484,7 +494,6 @@
 
 	const roleTabs = [
 		{ id: '', label: 'All' },
-		{ id: 'PATIENT', label: 'Patients' },
 		{ id: 'STUDENT', label: 'Students' },
 		{ id: 'FACULTY', label: 'Faculty' },
 		{ id: 'NUTRITIONIST', label: 'Nutritionists' },
@@ -562,7 +571,7 @@
 		<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
 		<input
 			type="text"
-			placeholder="Search by username or email..."
+			placeholder={roleFilter === 'PATIENT' ? 'Search by Patient ID (PID)...' : 'Search by username or email...'}
 			bind:value={searchQuery}
 			onkeydown={(e) => e.key === 'Enter' && handleSearch()}
 			class="w-full pl-9 pr-3 py-2 rounded-2xl text-sm border border-gray-200 focus:outline-none focus:border-blue-400"
@@ -651,7 +660,14 @@
 				{/each}
 
 				{#if users.length === 0}
-					<div class="text-center py-12 text-gray-400 text-sm">No users found</div>
+					{#if roleFilter === 'PATIENT' && !searchQuery.trim()}
+						<div class="text-center py-12 text-gray-400 text-sm">
+							<p class="font-semibold text-gray-500">Patient records not loaded</p>
+							<p class="mt-1 text-xs">Search by Patient ID (PID) to find a specific patient</p>
+						</div>
+					{:else}
+						<div class="text-center py-12 text-gray-400 text-sm">No users found</div>
+					{/if}
 				{/if}
 			</div>
 

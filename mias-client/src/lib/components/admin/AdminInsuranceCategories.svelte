@@ -234,7 +234,7 @@
 					<tbody>
 						{#each categories as category (category.id)}
 							{@const CategoryIcon = insuranceIcons[category.icon_key]}
-							<tr class="border-t border-slate-200 align-top">
+							<tr class={`border-t border-slate-200 align-top ${!category.is_active ? 'opacity-60' : ''}`}>
 								<td class="px-4 py-4">
 									<div class="inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold"
 										style={`background: linear-gradient(135deg, ${category.color_primary}, ${category.color_secondary}); color: white; box-shadow: 0 10px 20px rgba(15,23,42,0.12);`}>
@@ -243,7 +243,7 @@
 										{:else}
 											<CategoryIcon class="h-3.5 w-3.5" />
 										{/if}
-										<span>Live</span>
+										<span>{category.is_active ? 'Live' : 'Off'}</span>
 									</div>
 								</td>
 								<td class="px-4 py-4">
@@ -252,6 +252,9 @@
 									</div>
 									{#if category.description}
 										<p class="text-xs text-slate-500 mt-1">{category.description}</p>
+									{/if}
+									{#if !category.is_active}
+										<p class="mt-1 text-[11px] font-medium text-amber-600">Inactive — all clinic configs paused</p>
 									{/if}
 								</td>
 								<td class="px-4 py-4">

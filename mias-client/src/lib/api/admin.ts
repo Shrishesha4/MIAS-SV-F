@@ -594,6 +594,7 @@ export const adminApi = {
     status?: string;
     page?: number;
     limit?: number;
+    exclude_patients?: boolean;
   }): Promise<UserListResponse> {
     const r = await client.get('/admin/users', { params });
     return r.data;

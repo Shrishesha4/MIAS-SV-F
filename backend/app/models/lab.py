@@ -69,6 +69,34 @@ class LabTest(Base):
     # Relationships
     lab = relationship("Lab", back_populates="tests")
     groups = relationship("LabTestGroup", secondary=lab_test_group_members, back_populates="tests")
+    parameters = relationship("LabTestParameter", back_populates="test", cascade="all, delete-orphan", order_by="LabTestParameter.sort_order")
+
+
+class LabTestParameter(Base):
+    """Configurable parameters / analytes for a lab test (e.g. Haemoglobin, Glucose)"""
+    __tablename__ = "lab_test_parameters"
+
+    id = Column(String, primary_key=True)
+    test_id = Column(String, ForeignKey("lab_tests.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)          # e.g. "Haemoglobin"
+    unit = Column(String, nullable=True)            # e.g. "g/dL"
+    reference_required = Column(Boolean, default=True)  # whether reference ranges apply
+    normal_range = Column(String, nullable=True)    # display string, e.g. "13.5–17.5"
+    low = Column(Numeric(12, 4), nullable=True)     # LRV  – low reference value
+    critically_low = Column(Numeric(12, 4), nullable=True)   # CRV  – critically low
+    high = Column(Numeric(12, 4), nullable=True)    # HRV  – high reference value
+    critically_high = Column(Numeric(12, 4), nullable=True)  # CHRV – critically high
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=lambda: datetime.utcnow())
+    updated_at = Column(
+        DateTime,
+        default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
+    )
+
+    # Relationships
+    test = relationship("LabTest", back_populates="parameters")
 
 
 class LabTestGroup(Base):

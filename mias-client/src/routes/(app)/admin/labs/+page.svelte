@@ -3,14 +3,14 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import { authStore } from '$lib/stores/auth';
-	import { labsApi, type LabInfo, type LabTest, type LabTestGroup } from '$lib/api/labs';
+	import { labsApi, type LabInfo, type LabTest, type LabTestGroup, type LabTestParameter } from '$lib/api/labs';
 	import { adminApi } from '$lib/api/admin';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { slide, fade } from 'svelte/transition';
 	import { flip } from 'svelte/animate';
-	import { FlaskConical, Trash2, X, Plus, Pencil, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, Users, Loader2 } from 'lucide-svelte';
+	import { FlaskConical, Trash2, X, Plus, Pencil, ChevronRight, Settings2, TestTube2, Layers, MapPin, Phone, Clock, Building2, Users, Loader2, ClipboardList, Trash } from 'lucide-svelte';
 
 	const DEFAULT_LAB_TYPE = 'General';
 	const COMMON_LAB_TYPES = [
@@ -93,6 +93,27 @@
 	let confirmAction: (() => Promise<void>) | null = $state(null);
 	let confirmMessage = $state('');
 	let actionLoading = $state(false);
+
+	// Parameter configurator
+	let paramModal = $state(false);
+	let paramTest: LabTest | null = $state(null);
+	let testParameters: LabTestParameter[] = $state([]);
+	let loadingParams = $state(false);
+	let editingParam: LabTestParameter | null = $state(null);
+	let paramData = $state({
+		name: '',
+		unit: '',
+		reference_required: true,
+		normal_range: '',
+		low: '' as string | number,
+		critically_low: '' as string | number,
+		high: '' as string | number,
+		critically_high: '' as string | number,
+		sort_order: 0,
+		is_active: true,
+	});
+	let savingParam = $state(false);
+	let showParamForm = $state(false);
 
 	const configTabs = [
 		{ id: 'tests', label: 'TESTS' },
@@ -408,6 +429,91 @@
 			toastStore.addToast(e.response?.data?.detail || 'Failed to update group status', 'error');
 		} finally {
 			togglingGroupId = null;
+		}
+	}
+
+	async function openParamModal(test: LabTest) {
+		paramTest = test;
+		paramModal = true;
+		showParamForm = false;
+		editingParam = null;
+		loadingParams = true;
+		try {
+			testParameters = await labsApi.getParameters(configLab!.id, test.id);
+		} catch (e: any) {
+			toastStore.addToast('Failed to load parameters', 'error');
+		} finally {
+			loadingParams = false;
+		}
+	}
+
+	function openAddParamForm() {
+		editingParam = null;
+		paramData = { name: '', unit: '', reference_required: true, normal_range: '', low: '', critically_low: '', high: '', critically_high: '', sort_order: testParameters.length, is_active: true };
+		showParamForm = true;
+	}
+
+	function openEditParamForm(p: LabTestParameter) {
+		editingParam = p;
+		paramData = {
+			name: p.name,
+			unit: p.unit ?? '',
+			reference_required: p.reference_required,
+			normal_range: p.normal_range ?? '',
+			low: p.low ?? '',
+			critically_low: p.critically_low ?? '',
+			high: p.high ?? '',
+			critically_high: p.critically_high ?? '',
+			sort_order: p.sort_order,
+			is_active: p.is_active,
+		};
+		showParamForm = true;
+	}
+
+	async function saveParam() {
+		if (!paramTest || !configLab || !paramData.name.trim()) {
+			toastStore.addToast('Parameter name is required', 'error');
+			return;
+		}
+		savingParam = true;
+		try {
+			const payload = {
+				name: paramData.name.trim(),
+				unit: paramData.unit.trim() || undefined,
+				reference_required: paramData.reference_required,
+				normal_range: paramData.normal_range.toString().trim() || undefined,
+				low: paramData.low !== '' ? Number(paramData.low) : null,
+				critically_low: paramData.critically_low !== '' ? Number(paramData.critically_low) : null,
+				high: paramData.high !== '' ? Number(paramData.high) : null,
+				critically_high: paramData.critically_high !== '' ? Number(paramData.critically_high) : null,
+				sort_order: paramData.sort_order,
+				is_active: paramData.is_active,
+			};
+			if (editingParam) {
+				await labsApi.updateParameter(configLab.id, paramTest.id, editingParam.id, payload);
+				toastStore.addToast('Parameter updated', 'success');
+			} else {
+				await labsApi.createParameter(configLab.id, paramTest.id, payload);
+				toastStore.addToast('Parameter added', 'success');
+			}
+			testParameters = await labsApi.getParameters(configLab.id, paramTest.id);
+			showParamForm = false;
+			editingParam = null;
+		} catch (e: any) {
+			toastStore.addToast(e.response?.data?.detail || 'Failed to save parameter', 'error');
+		} finally {
+			savingParam = false;
+		}
+	}
+
+	async function deleteParam(p: LabTestParameter) {
+		if (!paramTest || !configLab) return;
+		try {
+			await labsApi.deleteParameter(configLab.id, paramTest.id, p.id);
+			testParameters = await labsApi.getParameters(configLab.id, paramTest.id);
+			toastStore.addToast('Parameter deleted', 'success');
+		} catch (e: any) {
+			toastStore.addToast('Failed to delete parameter', 'error');
 		}
 	}
 </script>
@@ -797,64 +903,75 @@ style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px sol
 </div>
 {:else}
 <!-- Desktop test table -->
-<div class="hidden md:block rounded-xl overflow-hidden"
-style="border: 1px solid rgba(0,0,0,0.07);">
-<div class="grid grid-cols-[1fr_130px_100px_120px] gap-3 px-4 py-2"
-style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9); border-bottom: 1px solid rgba(0,0,0,0.06);">
-<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Test Name</span>
-<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Category</span>
-<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Code</span>
-<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</span>
-</div>
-{#each labTests as test (test.id)}
-<div
-animate:flip={{ duration: 200 }}
-class="grid grid-cols-[1fr_130px_100px_120px] gap-3 items-center px-4 py-3 border-b last:border-b-0 transition-all duration-200"
-style="
-background: {test.is_active ? 'white' : '#f8fafc'};
-border-bottom-color: rgba(0,0,0,0.05);
-{test.is_active ? '' : 'opacity: 0.65;'}
-"
->
-<div class="flex items-center gap-2 min-w-0">
-<span class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200"
-style="background: {test.is_active ? '#22c55e' : '#94a3b8'};"></span>
-<span class="font-semibold text-sm text-slate-900 truncate">{test.name}</span>
-</div>
-<span class="text-xs text-slate-500 truncate">{test.category}</span>
-<span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-medium"
-style="background: rgba(99,102,241,0.08); color: #4338ca;">
-{test.code}
-</span>
-<div class="flex items-center justify-end gap-1">
-<button
-type="button"
-onclick={() => toggleTestActive(test)}
-disabled={togglingTestId === test.id}
-class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
-role="switch"
-aria-checked={test.is_active}
-aria-label={`Toggle ${test.name} active status`}
->
-<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${test.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
-<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${test.is_active ? 'left-6' : 'left-1'}`}>
-{#if togglingTestId === test.id}
-<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
-{/if}
-</span>
-</span>
-</button>
-<button
-onclick={() => openEditTestModal(test)}
-class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-all"
->
-<Pencil class="w-3.5 h-3.5" />
-</button>
-</div>
-</div>
-{/each}
-</div>
-
+			<div class="hidden md:block rounded-xl overflow-hidden"
+				style="border: 1px solid rgba(0,0,0,0.07);">
+				<div class="grid grid-cols-[1fr_130px_100px_60px_120px] gap-3 px-4 py-2"
+					style="background: linear-gradient(to bottom, #f8fafc, #f1f5f9); border-bottom: 1px solid rgba(0,0,0,0.06);">
+					<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Test Name</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Category</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Code</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-center">Form</span>
+					<span class="text-[10px] font-bold text-slate-500 uppercase tracking-wider text-right">Actions</span>
+				</div>
+				{#each labTests as test (test.id)}
+				<div
+					animate:flip={{ duration: 200 }}
+					class="grid grid-cols-[1fr_130px_100px_60px_120px] gap-3 items-center px-4 py-3 border-b last:border-b-0 transition-all duration-200"
+					style="
+						background: {test.is_active ? 'white' : '#f8fafc'};
+						border-bottom-color: rgba(0,0,0,0.05);
+						{test.is_active ? '' : 'opacity: 0.65;'}
+					"
+				>
+					<div class="flex items-center gap-2 min-w-0">
+						<span class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors duration-200"
+							style="background: {test.is_active ? '#22c55e' : '#94a3b8'};"></span>
+						<span class="font-semibold text-sm text-slate-900 truncate">{test.name}</span>
+					</div>
+					<span class="text-xs text-slate-500 truncate">{test.category}</span>
+					<span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-mono font-medium"
+						style="background: rgba(99,102,241,0.08); color: #4338ca;">
+						{test.code}
+					</span>
+					<!-- Form icon -->
+					<div class="flex items-center justify-center">
+						<button
+							onclick={() => openParamModal(test)}
+							title="Configure parameters"
+							class="p-1.5 rounded-lg transition-all cursor-pointer hover:scale-110 active:scale-95"
+							style="background: rgba(14,165,233,0.1); color: #0284c7; border: 1px solid rgba(14,165,233,0.2);"
+						>
+							<ClipboardList class="w-3.5 h-3.5" />
+						</button>
+					</div>
+					<div class="flex items-center justify-end gap-1">
+						<button
+							type="button"
+							onclick={() => toggleTestActive(test)}
+							disabled={togglingTestId === test.id}
+							class="inline-flex items-center disabled:cursor-not-allowed disabled:opacity-70"
+							role="switch"
+							aria-checked={test.is_active}
+							aria-label={`Toggle ${test.name} active status`}
+						>
+							<span class={`relative inline-flex h-7 w-12 items-center rounded-full border transition-all duration-200 ${test.is_active ? 'border-emerald-400 bg-emerald-500' : 'border-slate-300 bg-slate-300'}`}>
+								<span class={`absolute h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200 ${test.is_active ? 'left-6' : 'left-1'}`}>
+									{#if togglingTestId === test.id}
+									<Loader2 class="m-auto h-3 w-3 animate-spin text-slate-400" />
+									{/if}
+								</span>
+							</span>
+						</button>
+						<button
+							onclick={() => openEditTestModal(test)}
+							class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-all"
+						>
+							<Pencil class="w-3.5 h-3.5" />
+						</button>
+					</div>
+				</div>
+				{/each}
+			</div>
 <!-- Mobile test cards -->
 <div class="md:hidden space-y-2">
 {#each labTests as test (test.id)}
@@ -878,6 +995,14 @@ style="background: {test.is_active ? '#22c55e' : '#94a3b8'};"></span>
 </div>
 </div>
 <div class="flex items-center gap-1 shrink-0 ml-2">
+<button
+onclick={() => openParamModal(test)}
+title="Configure parameters"
+class="p-1.5 rounded-lg transition-all cursor-pointer"
+style="background: rgba(14,165,233,0.1); color: #0284c7; border: 1px solid rgba(14,165,233,0.2);"
+>
+<ClipboardList class="w-3.5 h-3.5" />
+</button>
 <button
 type="button"
 onclick={() => toggleTestActive(test)}
@@ -1192,6 +1317,155 @@ style="background: {groupData.test_ids.includes(test.id) ? '#3b82f6' : 'rgba(0,0
 <div class="flex gap-2">
 <button onclick={() => { confirmModal = false; }} class="flex-1 px-4 py-2.5 text-sm font-semibold text-slate-600 rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={actionLoading}>Cancel</button>
 <button onclick={() => confirmAction?.()} class="flex-1 px-4 py-2.5 text-sm font-semibold text-white rounded-xl uppercase tracking-wide" style="background: linear-gradient(to bottom, #ef4444, #dc2626);" disabled={actionLoading}>{actionLoading ? 'Deleting...' : 'Delete'}</button>
+</div>
+</AquaModal>
+{/if}
+
+<!-- ── Parameter Configurator Modal ──────────────────── -->
+{#if paramModal && paramTest}
+<AquaModal title="Parameter Form — {paramTest.name}" onclose={() => { paramModal = false; showParamForm = false; }}>
+<div class="space-y-3 w-full">
+
+<!-- Header row -->
+<div class="flex items-center justify-between">
+<div>
+<p class="text-xs text-slate-500">{paramTest.category} · <span class="font-mono">{paramTest.code}</span></p>
+<p class="text-xs text-slate-400 mt-0.5">{testParameters.filter(p => p.is_active).length} active parameter{testParameters.filter(p => p.is_active).length !== 1 ? 's' : ''}</p>
+</div>
+{#if !showParamForm}
+<button
+onclick={openAddParamForm}
+class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white cursor-pointer transition-all hover:scale-105 active:scale-95"
+style="background: linear-gradient(to bottom, #0ea5e9, #0284c7); box-shadow: 0 2px 6px rgba(2,132,199,0.3);"
+>
+<Plus class="w-3.5 h-3.5" />Add Parameter
+</button>
+{/if}
+</div>
+
+{#if loadingParams}
+<div class="flex items-center justify-center py-8">
+<div class="w-6 h-6 border-3 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+</div>
+
+{:else if showParamForm}
+<!-- ── Inline parameter form ── -->
+<div class="rounded-xl p-4 space-y-3" style="background: linear-gradient(to bottom, #f0f9ff, #e0f2fe); border: 1px solid rgba(14,165,233,0.2);">
+<p class="text-xs font-bold text-sky-800 uppercase tracking-wider">{editingParam ? 'Edit Parameter' : 'New Parameter'}</p>
+
+<div class="grid grid-cols-2 gap-2">
+<div>
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-semibold text-slate-600 uppercase tracking-wide mb-1">Name *</label>
+<input type="text" placeholder="e.g. Haemoglobin" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" style="background: white;" bind:value={paramData.name} />
+</div>
+<div>
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-semibold text-slate-600 uppercase tracking-wide mb-1">Unit</label>
+<input type="text" placeholder="e.g. g/dL" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" style="background: white;" bind:value={paramData.unit} />
+</div>
+</div>
+
+<!-- Reference toggle -->
+<div class="flex items-center gap-3 py-1">
+<span class="text-xs font-semibold text-slate-600 uppercase tracking-wide">Reference Ranges</span>
+<div class="flex items-center gap-2">
+<button type="button"
+onclick={() => paramData.reference_required = true}
+class="px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all"
+style="{paramData.reference_required ? 'background: #0ea5e9; color: white;' : 'background: #e2e8f0; color: #64748b;'}"
+>Required</button>
+<button type="button"
+onclick={() => paramData.reference_required = false}
+class="px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all"
+style="{!paramData.reference_required ? 'background: #94a3b8; color: white;' : 'background: #e2e8f0; color: #64748b;'}"
+>N/A</button>
+</div>
+</div>
+
+{#if paramData.reference_required}
+<div>
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-semibold text-slate-600 uppercase tracking-wide mb-1">Normal Range (display)</label>
+<input type="text" placeholder="e.g. 13.5–17.5" class="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" style="background: white;" bind:value={paramData.normal_range} />
+</div>
+
+<!-- Reference values grid -->
+<div class="grid grid-cols-2 gap-2">
+<div class="rounded-lg p-2.5" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);">
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #dc2626;">Critically Low (CRV)</label>
+<input type="number" step="any" placeholder="e.g. 5.0" class="w-full px-2.5 py-1.5 text-sm border border-red-200 rounded-md" style="background: white;" bind:value={paramData.critically_low} />
+</div>
+<div class="rounded-lg p-2.5" style="background: rgba(249,115,22,0.06); border: 1px solid rgba(249,115,22,0.15);">
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #ea580c;">Low (LRV)</label>
+<input type="number" step="any" placeholder="e.g. 8.0" class="w-full px-2.5 py-1.5 text-sm border border-orange-200 rounded-md" style="background: white;" bind:value={paramData.low} />
+</div>
+<div class="rounded-lg p-2.5" style="background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.15);">
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #ca8a04;">High (HRV)</label>
+<input type="number" step="any" placeholder="e.g. 17.5" class="w-full px-2.5 py-1.5 text-sm border border-yellow-200 rounded-md" style="background: white;" bind:value={paramData.high} />
+</div>
+<div class="rounded-lg p-2.5" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);">
+<!-- svelte-ignore a11y_label_has_associated_control -->
+<label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #dc2626;">Critically High (CHRV)</label>
+<input type="number" step="any" placeholder="e.g. 20.0" class="w-full px-2.5 py-1.5 text-sm border border-red-200 rounded-md" style="background: white;" bind:value={paramData.critically_high} />
+</div>
+</div>
+{/if}
+
+<div class="flex gap-2 pt-1">
+<button onclick={() => { showParamForm = false; editingParam = null; }} class="flex-1 px-3 py-2 text-xs font-semibold text-slate-600 rounded-xl uppercase tracking-wide cursor-pointer" style="background: linear-gradient(to bottom, #f1f5f9, #e2e8f0);" disabled={savingParam}>Cancel</button>
+<button onclick={saveParam} class="flex-1 px-3 py-2 text-xs font-semibold text-white rounded-xl uppercase tracking-wide cursor-pointer" style="background: linear-gradient(to bottom, #0ea5e9, #0284c7);" disabled={savingParam}>{savingParam ? 'Saving...' : editingParam ? 'Update' : 'Add'}</button>
+</div>
+</div>
+
+{:else if testParameters.length === 0}
+<div class="py-8 text-center text-slate-400">
+<ClipboardList class="w-8 h-8 mx-auto mb-2 opacity-30" />
+<p class="text-sm">No parameters yet. Add the first one.</p>
+</div>
+
+{:else}
+<!-- Parameter list -->
+<div class="rounded-xl overflow-hidden" style="border: 1px solid rgba(0,0,0,0.07);">
+{#each testParameters as param (param.id)}
+<div class="px-3 py-2.5 border-b last:border-b-0 transition-all"
+  style="background: {param.is_active ? 'white' : '#f8fafc'}; border-bottom-color: rgba(0,0,0,0.05); {param.is_active ? '' : 'opacity: 0.6;'}">
+  <!-- Row 1: name + unit + actions -->
+  <div class="flex items-center justify-between gap-2">
+    <div class="flex items-center gap-1.5 min-w-0">
+      <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: {param.is_active ? '#0ea5e9' : '#94a3b8'};"></span>
+      <span class="text-sm font-semibold text-slate-900 truncate">{param.name}</span>
+      {#if param.unit}<span class="text-xs text-slate-400 font-mono shrink-0">{param.unit}</span>{/if}
+      {#if !param.reference_required}
+        <span class="text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0" style="background: #f1f5f9; color: #64748b;">N/A</span>
+      {/if}
+    </div>
+    <div class="flex items-center gap-0.5 shrink-0">
+      <button onclick={() => openEditParamForm(param)} class="p-1 rounded text-slate-400 hover:text-sky-600 cursor-pointer transition-all">
+        <Pencil class="w-3 h-3" />
+      </button>
+      <button onclick={() => deleteParam(param)} class="p-1 rounded text-slate-400 hover:text-red-500 cursor-pointer transition-all">
+        <Trash class="w-3 h-3" />
+      </button>
+    </div>
+  </div>
+  <!-- Row 2: reference range chips -->
+  {#if param.reference_required && (param.critically_low != null || param.low != null || param.high != null || param.critically_high != null)}
+    <div class="flex flex-wrap gap-1.5 mt-1.5 pl-3">
+      {#if param.critically_low != null}<span class="text-[9px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(239,68,68,0.08); color: #dc2626;">CRV {param.critically_low}</span>{/if}
+      {#if param.low != null}<span class="text-[9px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(249,115,22,0.08); color: #ea580c;">LRV {param.low}</span>{/if}
+      {#if param.high != null}<span class="text-[9px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(234,179,8,0.08); color: #ca8a04;">HRV {param.high}</span>{/if}
+      {#if param.critically_high != null}<span class="text-[9px] font-bold px-1.5 py-0.5 rounded" style="background: rgba(239,68,68,0.08); color: #dc2626;">CHRV {param.critically_high}</span>{/if}
+    </div>
+  {/if}
+</div>
+{/each}
+</div>
+{/if}
+
 </div>
 </AquaModal>
 {/if}

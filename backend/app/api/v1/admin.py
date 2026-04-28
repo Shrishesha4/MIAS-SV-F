@@ -8,7 +8,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, EmailStr
-from sqlalchemy import and_, case, distinct, extract, func, or_, select, text
+from sqlalchemy import and_, case, distinct, extract, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -486,6 +486,9 @@ async def list_users(
     status_filter: Optional[str] = Query(
         None, alias="status", description="active or blocked"
     ),
+    exclude_patients: bool = Query(
+        False, description="Exclude PATIENT role from results (for large deployments)"
+    ),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(require_role(UserRole.ADMIN)),
@@ -496,9 +499,17 @@ async def list_users(
 
     if role:
         query = query.where(User.role == UserRole(role))
+    elif exclude_patients:
+        query = query.where(User.role != UserRole.PATIENT)
     if search:
+        # Also match Patient.patient_id (display ID like 2604220001)
+        patient_id_match = select(Patient.user_id).where(
+            Patient.patient_id.ilike(f"%{search}%")
+        )
         query = query.where(
-            (User.username.ilike(f"%{search}%")) | (User.email.ilike(f"%{search}%"))
+            (User.username.ilike(f"%{search}%"))
+            | (User.email.ilike(f"%{search}%"))
+            | (User.id.in_(patient_id_match))
         )
     if status_filter == "active":
         query = query.where(User.is_active == True)
@@ -3134,6 +3145,17 @@ async def update_patient_category(
         )
     if data.is_active is not None:
         item.is_active = data.is_active
+        # When a patient category is deactivated, disable all clinic configs whose
+        # walk_in_type corresponds to this category so they stop being bookable.
+        if not data.is_active:
+            from app.models.insurance_category import InsuranceClinicConfig
+            from app.api.v1.insurance_categories import generate_walk_in_type_value
+            walk_in_value = generate_walk_in_type_value(item.name)
+            await db.execute(
+                update(InsuranceClinicConfig)
+                .where(InsuranceClinicConfig.walk_in_type == walk_in_value)
+                .values(is_enabled=False)
+            )
     if data.sort_order is not None:
         item.sort_order = data.sort_order
     if data.registration_fee is not None:

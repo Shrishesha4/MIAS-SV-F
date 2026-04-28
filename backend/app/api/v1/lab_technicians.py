@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import require_role
 from app.core.exceptions import NotFoundException
 from app.database import get_db
-from app.models.lab import Lab
+from app.models.lab import Lab, LabTestParameter
 from app.models.lab_technician import LabTechnician, LabTechnicianGroup
 from app.models.report import Report, ReportFinding, ReportStatus
 from app.models.user import User, UserRole
@@ -113,7 +113,34 @@ def _serialize_technician(technician: LabTechnician) -> dict:
     }
 
 
-def _serialize_report_item(report: Report, *, viewer_user_id: str) -> dict:
+def _compute_finding_status(
+    value_str: str,
+    low,
+    critically_low,
+    high,
+    critically_high,
+) -> str:
+    try:
+        v = float(value_str)
+    except (ValueError, TypeError):
+        return "Normal"
+    if critically_low is not None and v <= float(critically_low):
+        return "Critically Low"
+    if critically_high is not None and v >= float(critically_high):
+        return "Critically High"
+    if low is not None and v < float(low):
+        return "Low"
+    if high is not None and v > float(high):
+        return "High"
+    return "Normal"
+
+
+def _serialize_report_item(
+    report: Report,
+    *,
+    viewer_user_id: str,
+    test_parameters: list[dict] | None = None,
+) -> dict:
     workflow_status = "COMPLETED"
     if report.status == ReportStatus.PENDING and not report.accepted_by_user_id:
         workflow_status = "NEW"
@@ -152,6 +179,8 @@ def _serialize_report_item(report: Report, *, viewer_user_id: str) -> dict:
             }
             for finding in report.findings or []
         ],
+        "lab_test_id": report.lab_test_id,
+        "test_parameters": test_parameters,
     }
 
 
@@ -471,7 +500,30 @@ async def get_lab_report_detail(
 ):
     technician = await _get_technician_or_404(db, user_id=user.id)
     report = await _get_permitted_report(db, report_id=report_id, technician=technician)
-    return _serialize_report_item(report, viewer_user_id=user.id)
+    test_parameters = None
+    if report.lab_test_id:
+        params_result = await db.execute(
+            select(LabTestParameter)
+            .where(LabTestParameter.test_id == report.lab_test_id, LabTestParameter.is_active == True)
+            .order_by(LabTestParameter.sort_order, LabTestParameter.name)
+        )
+        params = params_result.scalars().all()
+        if params:
+            test_parameters = [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "unit": p.unit,
+                    "reference_required": p.reference_required,
+                    "normal_range": p.normal_range,
+                    "low": float(p.low) if p.low is not None else None,
+                    "critically_low": float(p.critically_low) if p.critically_low is not None else None,
+                    "high": float(p.high) if p.high is not None else None,
+                    "critically_high": float(p.critically_high) if p.critically_high is not None else None,
+                }
+                for p in params
+            ]
+    return _serialize_report_item(report, viewer_user_id=user.id, test_parameters=test_parameters)
 
 
 @router.post("/reports/{report_id}/accept")
@@ -527,13 +579,31 @@ async def save_lab_report_results(
     if data.notes is not None:
         report.notes = data.notes.strip() or None
     report.status = resolved_status
+
+    # Build a parameter lookup map for auto-computing status if test_parameters are defined
+    param_map: dict[str, LabTestParameter] = {}
+    if report.lab_test_id:
+        params_result = await db.execute(
+            select(LabTestParameter)
+            .where(LabTestParameter.test_id == report.lab_test_id, LabTestParameter.is_active == True)
+        )
+        for p in params_result.scalars().all():
+            param_map[p.name.strip().lower()] = p
+
     report.findings = [
         ReportFinding(
             id=str(uuid.uuid4()),
             parameter=finding.parameter.strip(),
             value=finding.value.strip(),
             reference=finding.reference.strip() if finding.reference else None,
-            status=finding.status.strip() or "Normal",
+            status=(
+                _compute_finding_status(
+                    finding.value.strip(),
+                    p.low, p.critically_low, p.high, p.critically_high,
+                )
+                if (p := param_map.get(finding.parameter.strip().lower())) and p.reference_required
+                else finding.status.strip() or "Normal"
+            ),
         )
         for finding in data.findings
         if finding.parameter.strip() and finding.value.strip()

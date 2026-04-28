@@ -143,6 +143,7 @@ class PatientCategoryResponse(BaseModel):
     id: str
     name: str
     description: Optional[str]
+    is_active: bool
 
 
 class InsuranceCategoryResponse(BaseModel):
@@ -274,7 +275,7 @@ async def list_insurance_categories(
             ))
         
         patient_categories = [
-            PatientCategoryResponse(id=pc.id, name=pc.name, description=pc.description)
+            PatientCategoryResponse(id=pc.id, name=pc.name, description=pc.description, is_active=pc.is_active)
             for pc in cat.patient_categories
         ]
         
@@ -401,6 +402,14 @@ async def update_insurance_category(
         category.color_secondary = _normalize_hex_color(data.color_secondary, DEFAULT_INSURANCE_COLOR_SECONDARY)
     if data.is_active is not None:
         category.is_active = data.is_active
+        # When an insurance category is deactivated, disable all its clinic configs
+        # so no walk-in slots are offered under this category.
+        if not data.is_active:
+            await db.execute(
+                update(InsuranceClinicConfig)
+                .where(InsuranceClinicConfig.insurance_category_id == category_id)
+                .values(is_enabled=False)
+            )
     if data.sort_order is not None:
         category.sort_order = data.sort_order
     
@@ -552,6 +561,7 @@ async def list_public_insurance_categories(
                     "id": pc.id,
                     "name": pc.name,
                     "description": pc.description,
+                    "is_active": pc.is_active,
                 }
                 for pc in cat.patient_categories
             ]
