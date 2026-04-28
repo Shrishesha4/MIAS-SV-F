@@ -17,6 +17,7 @@
         FileText, Eye, Calendar, Stethoscope, ChevronLeft, X,
         Building, Bed, User, Shield, Heart
     } from 'lucide-svelte';
+    import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 
     type ApprovalCaseRecordDraft = {
         type?: string;
@@ -1156,14 +1157,10 @@
                                                             placeholder="7 days"
                                                             class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400"
                                                         />
-                                                        <select
+                                                        <AquaSelect
                                                             bind:value={medication.frequency}
-                                                            class="px-2 py-1.5 rounded text-xs border border-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-400 cursor-pointer"
-                                                        >
-                                                            {#each frequencyOptions as opt}
-                                                                <option value={opt}>{opt}</option>
-                                                            {/each}
-                                                        </select>
+                                                            options={frequencyOptions}
+                                                        />
                                                         <div class="flex gap-1">
                                                             <button
                                                                 type="button"

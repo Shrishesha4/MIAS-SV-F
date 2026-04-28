@@ -7,6 +7,7 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { Search, FileText, ChevronRight, AlertTriangle, Download, Clock } from 'lucide-svelte';
 
 	let health = $state<MrdHealthResponse | null>(null);
@@ -148,14 +149,12 @@
 			<div class="grid grid-cols-2 gap-2">
 				<div>
 					<label for="mrd-records-type" class="block text-[11px] font-medium text-gray-500 mb-1">Type</label>
-					<select id="mrd-records-type" bind:value={filterType}
-						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
-						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;">
-						<option value="">All types</option>
-						{#each recordTypes as t}
-							<option value={t}>{t}</option>
-						{/each}
-					</select>
+				<AquaSelect
+					id="mrd-records-type"
+					bind:value={filterType}
+					options={recordTypes}
+					placeholder="All types"
+				/>
 				</div>
 				<div>
 					<label for="mrd-records-department" class="block text-[11px] font-medium text-gray-500 mb-1">Department</label>

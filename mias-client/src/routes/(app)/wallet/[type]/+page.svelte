@@ -7,6 +7,7 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import {
 		Wallet, ArrowUp, ArrowDown, CreditCard, ChevronDown, ChevronUp,
 		Plus, Building, FileText, Clock, X, ChevronLeft
@@ -419,16 +420,11 @@
 
 			<div>
 				<label for="wallet-method" class="block text-xs font-semibold text-gray-700 mb-1.5">Payment Method</label>
-				<select
+				<AquaSelect
 					id="wallet-method"
 					bind:value={topupMethod}
-					class="w-full px-4 py-3 rounded-xl text-sm outline-none"
-					style="background: white; border: 1px solid rgba(0,0,0,0.15); box-shadow: inset 0 1px 3px rgba(0,0,0,0.08);"
-				>
-					{#each paymentMethods as m}
-						<option value={m}>{m}</option>
-					{/each}
-				</select>
+					options={paymentMethods}
+				/>
 			</div>
 
 			<div>

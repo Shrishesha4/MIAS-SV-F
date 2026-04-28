@@ -16,6 +16,7 @@
 	import ReadonlySubmittedForm from '$lib/components/forms/ReadonlySubmittedForm.svelte';
      import { Clipboard, ChevronDown, ChevronUp, Award, User, Calendar, Stethoscope, Plus, Filter, RotateCcw, MessageCircle } from 'lucide-svelte';
 	import OTBookingPanel from '$lib/components/case-records/OTBookingPanel.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 
 	let expandedId = $state<string | null>(null);
 	let caseRecords: any[] = $state([]);
@@ -701,16 +702,12 @@
 					<label for="cr-faculty" class="block text-sm font-medium text-gray-700 mb-1">
 						Request Approval From <span class="text-red-500">*</span>
 					</label>
-					<select id="cr-faculty"
-						class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
-						style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
-						bind:value={selectedFacultyId}
-					>
-						<option value="">Select faculty</option>
-						{#each facultyApprovers as faculty}
-							<option value={faculty.id}>{faculty.name} ({faculty.department})</option>
-						{/each}
-					</select>
+				<AquaSelect
+					id="cr-faculty"
+					bind:value={selectedFacultyId}
+					options={facultyApprovers.map(f => ({value: f.id, label: f.name + ' (' + f.department + ')'}))}
+					placeholder="Select faculty"
+				/>
 				</div>
 
 				<!-- Procedure Price -->

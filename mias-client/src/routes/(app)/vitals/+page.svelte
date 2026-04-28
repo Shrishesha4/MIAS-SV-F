@@ -6,6 +6,7 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import {
 		Activity, HeartPulse, Thermometer, Droplet, Scale,
 		ChevronDown, Download, Wind, ChevronLeft

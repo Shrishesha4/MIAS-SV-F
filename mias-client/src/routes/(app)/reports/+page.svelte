@@ -6,6 +6,7 @@
 	import AquaInput from '$lib/components/ui/AquaInput.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { toastStore } from '$lib/stores/toast';
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import {
@@ -151,34 +152,20 @@
 
 				<div>
 					<label for="report-type-filter" class="text-xs text-gray-500 mb-1 block">Report Type</label>
-					<div class="relative">
-						<select 
-							id="report-type-filter"
-							bind:value={selectedType}
-							class="w-full px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 appearance-none cursor-pointer"
-						>
-							{#each reportTypes as type}
-								<option value={type.value}>{type.label}</option>
-							{/each}
-						</select>
-						<Filter class="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-					</div>
+					<AquaSelect
+						id="report-type-filter"
+						bind:value={selectedType}
+						options={reportTypes}
+					/>
 				</div>
 
 				<div>
 					<label for="time-period-filter" class="text-xs text-gray-500 mb-1 block">Time Period</label>
-					<div class="relative">
-						<select 
-							id="time-period-filter"
-							bind:value={selectedPeriod}
-							class="w-full px-4 py-2.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700 appearance-none cursor-pointer"
-						>
-							{#each timePeriods as period}
-								<option value={period.value}>{period.label}</option>
-							{/each}
-						</select>
-						<Clock class="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-					</div>
+					<AquaSelect
+						id="time-period-filter"
+						bind:value={selectedPeriod}
+						options={timePeriods}
+					/>
 				</div>
 			</div>
 		</AquaCard>

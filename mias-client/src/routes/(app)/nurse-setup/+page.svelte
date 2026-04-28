@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import { authStore } from '$lib/stores/auth';
 	import { nurseApi, type NurseClinic } from '$lib/api/nurse';
@@ -107,18 +108,12 @@
 					<!-- Clinic Selection -->
 					<div>
 						<label class="block text-sm font-semibold text-gray-700 mb-2">Clinic *</label>
-						<select
-							bind:value={clinicId}
-							disabled={clinicsLoading}
-							class="w-full px-4 py-3 rounded-xl border-2 border-gray-200 focus:border-blue-500 focus:outline-none transition-colors"
-							style="background: linear-gradient(to bottom, #ffffff, #f9fafb);"
-							required
-						>
-							<option value="">{clinicsLoading ? 'Loading clinics...' : (clinics.length === 0 ? 'No clinics available' : 'Select a clinic')}</option>
-							{#each clinics as c}
-								<option value={c.id}>{c.name}{c.location ? ` — ${c.location}` : ''}</option>
-							{/each}
-						</select>
+					<AquaSelect
+						bind:value={clinicId}
+						disabled={clinicsLoading}
+						options={clinics.map(c => ({value: c.id, label: c.name + (c.location ? ' — ' + c.location : '')}))}
+						placeholder={clinicsLoading ? 'Loading clinics...' : (clinics.length === 0 ? 'No clinics available' : 'Select a clinic')}
+					/>
 						{#if !clinicsLoading && clinics.length === 0}
 							<p class="mt-2 text-xs text-gray-500">No active clinics are available yet.</p>
 						{/if}

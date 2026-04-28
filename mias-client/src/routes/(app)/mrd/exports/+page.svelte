@@ -5,6 +5,7 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { Download, RefreshCw, Clock, AlertTriangle, FileText, Plus } from 'lucide-svelte';
 
 	let health = $state<MrdHealthResponse | null>(null);
@@ -139,13 +140,11 @@
 			<div class="space-y-3">
 				<div>
 					<label for="mrd-export-type" class="block text-[11px] font-medium text-gray-500 mb-1">Export Type</label>
-					<select id="mrd-export-type" bind:value={exportType}
-						class="w-full rounded-lg px-3 py-2 text-sm outline-none"
-						style="border: 1px solid rgba(0,0,0,0.15); background: #fff;">
-						{#each exportTypes as t}
-							<option value={t.value}>{t.label}</option>
-						{/each}
-					</select>
+				<AquaSelect
+					id="mrd-export-type"
+					bind:value={exportType}
+					options={exportTypes}
+				/>
 				</div>
 
 				<div class="grid grid-cols-2 gap-2">

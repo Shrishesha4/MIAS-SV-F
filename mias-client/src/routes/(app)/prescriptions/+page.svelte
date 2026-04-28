@@ -8,6 +8,7 @@
 	import AquaInput from '$lib/components/ui/AquaInput.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import {
 		Pill, Search, ChevronLeft, Eye, Download, Printer, Calendar,
 		User, Building, Phone, Mail, ExternalLink, RefreshCw, X,
@@ -154,14 +155,10 @@
 		<!-- Status Filter -->
 		<div class="flex items-center gap-2">
 			<span class="text-sm text-gray-600">Status:</span>
-			<select 
+			<AquaSelect
 				bind:value={selectedStatus}
-				class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-sm text-gray-700"
-			>
-				{#each statusFilters as filter}
-					<option value={filter.value}>{filter.label}</option>
-				{/each}
-			</select>
+				options={statusFilters}
+			/>
 		</div>
 
 		<!-- Results Header -->

@@ -16,6 +16,7 @@ import client from '$lib/api/client';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import TabBar from '$lib/components/ui/TabBar.svelte';
 	import { Pencil, Check, Power, X, ShieldCheck, Landmark, Briefcase, Building2, Wallet, HeartPulse, CircleOff, Maximize2, Minimize2 } from 'lucide-svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 
 	// UI-only tab discriminant. REGISTRATION is not a backend ChargeCategory value;
 	// it surfaces InsuranceClinicConfig fees, not ChargeItem rows.
@@ -1350,15 +1351,14 @@ import client from '$lib/api/client';
     											bind:value={metaDraft.item_code}
     											placeholder="Code"
     										/>
-    										<select
-    											class="soft-field w-full rounded-md px-2 py-1 text-[11px] text-slate-600"
-    											style="background: rgba(255,255,255,0.95);"
+    										<AquaSelect
     											bind:value={metaDraft.category}
-    										>
-    											<option value="CLINICAL">Clinical</option>
-    											<option value="LABS">Labs</option>
-    											<option value="ADMIN">Admin</option>
-    										</select>
+    											options={[
+    												{value: 'CLINICAL', label: 'Clinical'},
+    												{value: 'LABS', label: 'Labs'},
+    												{value: 'ADMIN', label: 'Admin'},
+    											]}
+    										/>
     									</div>
     									<input
     										type="text"
@@ -1468,11 +1468,15 @@ import client from '$lib/api/client';
 			</div>
 			<div>
 				<label for="charge-category" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Category</label>
-				<select id="charge-category" class="soft-field w-full px-3 py-2.5 text-sm rounded-xl" style="background: linear-gradient(to bottom, #ffffff, #fafafa);" bind:value={chargeData.category}>
-					<option value="CLINICAL">Clinical</option>
-					<option value="LABS">Labs</option>
-					<option value="ADMIN">Admin</option>
-				</select>
+				<AquaSelect
+					id="charge-category"
+					bind:value={chargeData.category}
+					options={[
+						{value: 'CLINICAL', label: 'Clinical'},
+						{value: 'LABS', label: 'Labs'},
+						{value: 'ADMIN', label: 'Admin'},
+					]}
+				/>
 			</div>
 			<div>
 				<label for="charge-desc" class="block text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">Description</label>

@@ -8,6 +8,7 @@
 	import { insuranceCategoriesApi, type InsuranceCategory, type WalkInType } from '$lib/api/insuranceCategories';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { Building2, PencilLine, Plus, Settings, QrCode, Download, Copy, ExternalLink } from 'lucide-svelte';
 
 	const auth = get(authStore);

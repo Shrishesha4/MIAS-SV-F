@@ -7,6 +7,7 @@
 	import { insuranceCategoriesApi, type InsuranceCategory } from '$lib/api/insuranceCategories';
 	import { adminApi, type PatientCategoryConfig } from '$lib/api/admin';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 
 	import { Briefcase, Building2, CircleOff, HeartPulse, Landmark, Loader2, PencilLine, Plus, ShieldCheck, Trash2, Wallet } from 'lucide-svelte';
 
@@ -351,11 +352,11 @@
 			<div class="grid gap-4 md:grid-cols-3">
 				<div>
 					<label for="insurance-category-icon" class="mb-1 block text-sm font-medium text-slate-700">Symbol</label>
-					<select id="insurance-category-icon" bind:value={formIconKey} class="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
-						{#each iconOptions as option}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
+				<AquaSelect
+					id="insurance-category-icon"
+					bind:value={formIconKey}
+					options={iconOptions}
+				/>
 				</div>
 				<div>
 					<label for="insurance-category-custom-symbol" class="mb-1 block text-sm font-medium text-slate-700">Custom Badge</label>

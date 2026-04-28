@@ -11,6 +11,7 @@
 	import PatientGeofenceModal from '$lib/components/geofence/PatientGeofenceModal.svelte';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';

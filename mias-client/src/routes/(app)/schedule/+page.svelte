@@ -5,6 +5,7 @@
 	import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { Calendar, Clock, MapPin, Users, Coffee, BookOpen, Plus, Trash2, Edit, ChevronLeft, ChevronRight } from 'lucide-svelte';
 
@@ -264,15 +265,11 @@
 		<!-- Type -->
 		<div>
 			<label for="sched-type" class="block text-xs font-semibold text-gray-600 mb-1">Type</label>
-			<select
+			<AquaSelect
 				id="sched-type"
 				bind:value={newType}
-				class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-300 bg-white"
-			>
-				{#each scheduleTypes as sType}
-					<option value={sType}>{sType}</option>
-				{/each}
-			</select>
+				options={scheduleTypes}
+			/>
 		</div>
 
 		<!-- Time Start / End -->

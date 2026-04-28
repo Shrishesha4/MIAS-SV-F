@@ -7,6 +7,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import { User, MapPin, Phone, Mail, Building2 } from 'lucide-svelte';
 

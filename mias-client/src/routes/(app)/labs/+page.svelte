@@ -7,6 +7,7 @@
 	import { facultyApi, type FacultySearchResult } from '$lib/api/faculty';
 	import { toastStore } from '$lib/stores/toast';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { RefreshCw, Loader2, FlaskConical, ShieldCheck, ClipboardList, CheckCircle2, CircleAlert, Search, FileText, Microscope, Clock3, ChevronRight, Plus, Trash2, TestTube2 } from 'lucide-svelte';
 
 	type QueueTab = 'new' | 'progress' | 'completed';
@@ -788,17 +789,12 @@
 
 				<div>
 					<label for="lab-result-supervisor" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Supervised by</label>
-					<select
-						id="lab-result-supervisor"
-						bind:value={resultForm.supervised_by}
-						class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-						style="background: white; border: 1px solid rgba(148,163,184,0.35);"
-					>
-						<option value="">— Select supervisor —</option>
-						{#each supervisors as sup}
-							<option value={sup.name}>{sup.name}{sup.department ? ` · ${sup.department}` : ''}</option>
-						{/each}
-					</select>
+				<AquaSelect
+					id="lab-result-supervisor"
+					bind:value={resultForm.supervised_by}
+					options={supervisors.map(sup => ({value: sup.name, label: sup.name + (sup.department ? ' · ' + sup.department : '')}))}
+					placeholder="— Select supervisor —"
+				/>
 				</div>
 			</div>
 

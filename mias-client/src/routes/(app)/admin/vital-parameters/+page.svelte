@@ -5,6 +5,7 @@
 	import AquaCard from '$lib/components/ui/AquaCard.svelte';
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
+	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import { Heart, Plus, Edit2, Trash2, Check, X } from 'lucide-svelte';
 
 	let parameters: VitalParameter[] = $state([]);
