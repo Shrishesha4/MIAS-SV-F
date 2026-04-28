@@ -26,14 +26,15 @@
 			}
 		};
 	}
-	const hiddenSections: FormSection[] = ['LABORATORY'];
-	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'ADMINISTRATIVE'];
-	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'diagnosis', 'department_select', 'faculty_select', 'clinic_select'];
+	const hiddenSections: FormSection[] = [];
+	const defaultSections: FormSection[] = ['ADMISSION', 'CLINICAL', 'LABORATORY', 'ADMINISTRATIVE'];
+	const fieldTypes: FormFieldType[] = ['textarea', 'text', 'number', 'select', 'date', 'file', 'email', 'password', 'tel', 'department_select', 'faculty_select', 'clinic_select', 'db_select'];
 
 	const fieldTypeLabels: Record<string, string> = {
 		department_select: 'DEPARTMENT (DB)',
 		faculty_select: 'FACULTY (DB)',
 		clinic_select: 'CLINIC (DB)',
+		db_select: 'CUSTOM (DB)',
 	};
 	const legacyTypeToSection: Record<string, FormSection> = {
 		CASE_RECORD: 'CLINICAL',
@@ -77,6 +78,7 @@
 	let formEditorFields: FormFieldDefinition[] = $state([]);
 	let formEditorRules: FormRule[] = $state([]);
 	let selectedFieldIndex = $state(0);
+	let dbFilterDepartments: { value: string; label: string }[] = $state([]);
 	let previewValues = $state<Record<string, any>>({});
 	let isEditingFormName = $state(false);
 	let formNameInput = $state<HTMLInputElement | null>(null);
@@ -628,6 +630,10 @@
 		if (nextField.type !== 'file') {
 			nextField.accept = undefined;
 			nextField.multiple = false;
+		}
+		if (nextField.type !== 'db_select') {
+			nextField.db_source = undefined;
+			nextField.db_filters = undefined;
 		}
 		patchField(index, nextField);
 	}
@@ -1836,6 +1842,76 @@
 												<span class={`toggle-switch ${selectedField.multiple ? 'is-on' : ''}`} aria-hidden="true"><span class="toggle-thumb"></span></span>
 											</button>
 										</div>
+									</div>
+								{/if}
+								{#if selectedField.type === 'db_select'}
+									<div class="studio-subcard p-3 space-y-3">
+										<p class="text-[11px] font-bold uppercase tracking-[0.14em] text-blue-700">Database Source</p>
+										<div>
+											<p class="mb-2 text-xs font-semibold text-slate-600">Table / Source</p>
+											<select class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none cursor-pointer" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
+												value={selectedField.db_source ?? ''}
+												onchange={(event) => {
+													const src = (event.currentTarget as HTMLSelectElement).value || undefined;
+													patchField(selectedFieldIndex, { ...selectedField, db_source: src, db_filters: undefined });
+													if ((src === 'faculty' || src === 'labs') && dbFilterDepartments.length === 0) {
+														formsApi.getLookupOptions('departments').then((d) => { dbFilterDepartments = d; }).catch(() => {});
+													}
+												}}
+											>
+												<option value="">— choose source —</option>
+												<option value="departments">Departments</option>
+												<option value="faculty">Faculty</option>
+												<option value="clinics">Clinics</option>
+												<option value="labs">Labs</option>
+												<option value="lab_batches">Lab Batches</option>
+												<option value="students">Students</option>
+												<option value="nurses">Nurses</option>
+												<option value="patient_categories">Patient Categories</option>
+											</select>
+										</div>
+										{#if selectedField.db_source === 'faculty' || selectedField.db_source === 'labs'}
+											<div>
+												<p class="mb-2 text-xs font-semibold text-slate-600">Filter by Department <span class="text-slate-400 font-normal">(optional)</span></p>
+												<select class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
+													value={selectedField.db_filters?.department ?? ''}
+													onchange={(event) => {
+														const val = (event.currentTarget as HTMLSelectElement).value;
+														const filters = { ...(selectedField.db_filters ?? {}) };
+														if (val) { filters.department = val; } else { delete filters.department; }
+														patchField(selectedFieldIndex, { ...selectedField, db_filters: Object.keys(filters).length ? filters : undefined });
+													}}
+												>
+													<option value="">— all departments —</option>
+													{#each dbFilterDepartments as dept}
+														<option value={dept.label}>{dept.label}</option>
+													{/each}
+												</select>
+											</div>
+										{/if}
+										{#if selectedField.db_source === 'labs'}
+											<div>
+												<p class="mb-2 text-xs font-semibold text-slate-600">Filter by Lab Type <span class="text-slate-400 font-normal">(optional)</span></p>
+												<select class="w-full rounded-[10px] border border-slate-300 px-3 py-2.5 text-sm text-slate-700 outline-none cursor-pointer" style="background: #ffffff; box-shadow: inset 0 1px 2px rgba(15,23,42,0.08);"
+													value={selectedField.db_filters?.lab_type ?? ''}
+													onchange={(event) => {
+														const val = (event.currentTarget as HTMLSelectElement).value;
+														const filters = { ...(selectedField.db_filters ?? {}) };
+														if (val) { filters.lab_type = val; } else { delete filters.lab_type; }
+														patchField(selectedFieldIndex, { ...selectedField, db_filters: Object.keys(filters).length ? filters : undefined });
+													}}
+												>
+													<option value="">— all types —</option>
+													<option value="General">General</option>
+													<option value="Pathology">Pathology</option>
+													<option value="Radiology">Radiology</option>
+													<option value="Microbiology">Microbiology</option>
+													<option value="Biochemistry">Biochemistry</option>
+													<option value="Haematology">Haematology</option>
+													<option value="Immunology">Immunology</option>
+												</select>
+											</div>
+										{/if}
 									</div>
 								{/if}
 								<div class="studio-subcard p-3">

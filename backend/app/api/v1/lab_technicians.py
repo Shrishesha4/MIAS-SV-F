@@ -12,7 +12,7 @@ from app.api.deps import require_role
 from app.core.exceptions import NotFoundException
 from app.database import get_db
 from app.models.lab import Lab, LabTestParameter
-from app.models.lab_technician import LabTechnician, LabTechnicianGroup
+from app.models.lab_technician import LabTechnician, LabTechnicianGroup, lab_technician_batch_members
 from app.models.report import Report, ReportFinding, ReportStatus
 from app.models.user import User, UserRole
 from app.services.daily_checkins import ensure_daily_checkin
@@ -60,13 +60,17 @@ def _serialize_lab(lab: Lab) -> dict:
 
 
 def _permitted_labs(technician: LabTechnician, *, active_only: bool) -> list[Lab]:
-    group = technician.group
-    if not group or not group.is_active:
-        return []
-    labs = list(group.labs or [])
-    if active_only:
-        return [lab for lab in labs if lab.is_active]
-    return labs
+    seen: set[str] = set()
+    result: list[Lab] = []
+    for batch in (technician.batches or []):
+        if not batch.is_active:
+            continue
+        for lab in (batch.labs or []):
+            if lab.id not in seen:
+                if not active_only or lab.is_active:
+                    seen.add(lab.id)
+                    result.append(lab)
+    return result
 
 
 def _serialize_group(group: LabTechnicianGroup) -> dict:
@@ -94,6 +98,7 @@ def _serialize_technician(technician: LabTechnician) -> dict:
     permitted_labs = _permitted_labs(technician, active_only=True)
     permitted_lab_map = {lab.id: lab for lab in permitted_labs}
     active_lab = permitted_lab_map.get(technician.active_lab_id or "")
+    batches = list(technician.batches or [])
 
     return {
         "id": technician.id,
@@ -104,8 +109,11 @@ def _serialize_technician(technician: LabTechnician) -> dict:
         "email": technician.email,
         "photo": technician.photo,
         "department": technician.department,
-        "group_id": technician.group_id,
-        "group_name": technician.group.name if technician.group else None,
+        # backward-compat single-batch fields
+        "group_id": batches[0].id if batches else None,
+        "group_name": batches[0].name if batches else None,
+        # multi-batch fields
+        "batches": [{"id": b.id, "name": b.name} for b in batches],
         "has_selected_lab": 1 if active_lab else 0,
         "active_lab": _serialize_lab(active_lab) if active_lab else None,
         "last_checked_in_at": technician.last_checked_in_at.isoformat() if technician.last_checked_in_at else None,
@@ -188,7 +196,7 @@ async def _get_technician_or_404(db: AsyncSession, *, user_id: str) -> LabTechni
     result = await db.execute(
         select(LabTechnician)
         .options(
-            selectinload(LabTechnician.group).selectinload(LabTechnicianGroup.labs),
+            selectinload(LabTechnician.batches).selectinload(LabTechnicianGroup.labs),
             selectinload(LabTechnician.active_lab),
         )
         .where(LabTechnician.user_id == user_id)
@@ -217,12 +225,6 @@ async def _get_permitted_report(
     if not report.lab_id or report.lab_id not in permitted_lab_ids:
         raise HTTPException(status_code=403, detail="You do not have access to this lab order")
     return report
-
-
-def _sync_technician_active_lab(technician: LabTechnician, allowed_lab_ids: set[str]) -> None:
-    if technician.active_lab_id and technician.active_lab_id not in allowed_lab_ids:
-        technician.active_lab_id = None
-        technician.has_selected_lab = 0
 
 
 async def _resolve_group_inputs(
@@ -256,7 +258,7 @@ async def list_lab_technicians(
     result = await db.execute(
         select(LabTechnician)
         .options(
-            selectinload(LabTechnician.group).selectinload(LabTechnicianGroup.labs),
+            selectinload(LabTechnician.batches).selectinload(LabTechnicianGroup.labs),
             selectinload(LabTechnician.active_lab),
         )
         .order_by(LabTechnician.name.asc())
@@ -307,13 +309,8 @@ async def create_lab_technician_group(
         is_active=data.is_active,
     )
     group.labs = labs
+    group.technicians = technicians
     db.add(group)
-    await db.flush()
-
-    allowed_lab_ids = {lab.id for lab in labs}
-    for technician in technicians:
-        technician.group_id = group.id
-        _sync_technician_active_lab(technician, allowed_lab_ids)
 
     await db.commit()
     result = await db.execute(
@@ -338,7 +335,9 @@ async def update_lab_technician_group(
         select(LabTechnicianGroup)
         .options(
             selectinload(LabTechnicianGroup.labs),
-            selectinload(LabTechnicianGroup.technicians),
+            selectinload(LabTechnicianGroup.technicians).selectinload(
+                LabTechnician.batches
+            ).selectinload(LabTechnicianGroup.labs),
         )
         .where(LabTechnicianGroup.id == group_id)
     )
@@ -368,17 +367,27 @@ async def update_lab_technician_group(
     group.is_active = data.is_active
     group.labs = labs
 
-    selected_ids = {technician.id for technician in technicians}
-    allowed_lab_ids = {lab.id for lab in labs}
-    for technician in list(group.technicians or []):
-        if technician.id not in selected_ids:
-            technician.group_id = None
-            technician.active_lab_id = None
-            technician.has_selected_lab = 0
+    # Capture old members BEFORE reassigning so we can check who was removed
+    old_technicians = list(group.technicians or [])
+    group.technicians = technicians
 
-    for technician in technicians:
-        technician.group_id = group.id
-        _sync_technician_active_lab(technician, allowed_lab_ids)
+    # For technicians removed from this batch, clear active_lab if no longer permitted
+    selected_ids = {t.id for t in technicians}
+    for technician in old_technicians:
+        if technician.id not in selected_ids:
+            # Recompute permitted labs without this batch
+            other_lab_ids: set[str] = {
+                lab.id
+                for b in (technician.batches or [])
+                if b.id != group_id and b.is_active
+                for lab in (b.labs or [])
+            }
+            if technician.active_lab_id and technician.active_lab_id not in other_lab_ids:
+                technician.active_lab_id = None
+                technician.has_selected_lab = 0
+
+    # No need to sync active_lab for newly-added techs — they keep their existing active_lab
+    # which may be permitted by another batch they belong to.
 
     await db.commit()
     refreshed = await db.execute(
@@ -400,17 +409,28 @@ async def delete_lab_technician_group(
 ):
     result = await db.execute(
         select(LabTechnicianGroup)
-        .options(selectinload(LabTechnicianGroup.technicians))
+        .options(
+            selectinload(LabTechnicianGroup.technicians).selectinload(
+                LabTechnician.batches
+            ).selectinload(LabTechnicianGroup.labs),
+        )
         .where(LabTechnicianGroup.id == group_id)
     )
     group = result.scalar_one_or_none()
     if not group:
         raise NotFoundException("Technician batch not found")
 
+    # Clear active_lab for techs whose only permitted lab was through this batch
     for technician in list(group.technicians or []):
-        technician.group_id = None
-        technician.active_lab_id = None
-        technician.has_selected_lab = 0
+        other_lab_ids: set[str] = {
+            lab.id
+            for b in (technician.batches or [])
+            if b.id != group_id and b.is_active
+            for lab in (b.labs or [])
+        }
+        if technician.active_lab_id and technician.active_lab_id not in other_lab_ids:
+            technician.active_lab_id = None
+            technician.has_selected_lab = 0
 
     await db.delete(group)
     await db.commit()

@@ -612,7 +612,7 @@
 				 style="background: linear-gradient(to bottom, rgba(248,250,253,0.98), rgba(241,245,250,0.96));">
 				<div></div>
 				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Clinic</span>
-				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Location</span>
+				<!-- <span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Location</span> -->
 				<span class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 text-right">Actions</span>
 			</div>
 
@@ -633,14 +633,14 @@
 							<h3 class="truncate text-[15px] font-bold text-slate-900">{item.clinic.name}</h3>
 							<div class="mt-1 flex items-center gap-2 flex-wrap">
 								<span class="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">{item.clinic.clinic_type}</span>
-								<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-600">{item.accessModeLabel}</span>
-							{#if item.clinic.clinic_type !== 'IP' && item.clinic.walk_in_types?.length}
+							<span class={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] ${item.accessModeLabel === 'No Walk-In Clinic' ? 'bg-yellow-100 text-slate-700' : 'bg-emerald-50 text-emerald-600'}`}>{item.accessModeLabel}</span>
+							<!-- {#if item.clinic.clinic_type !== 'IP' && item.clinic.walk_in_types?.length}
 								{#each item.clinic.walk_in_types as wt}
 									{#if activeWalkInTypes.has(wt)}
 										<span class="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">{walkInTypeToLabel(wt)}</span>
 									{/if}
 								{/each}
-							{/if}
+							{/if} -->
 							{#if !item.clinic.is_active}
 								<span class="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-rose-600">Inactive</span>
 								{/if}
@@ -650,7 +650,7 @@
 						</div>
 
 						<!-- Description column — desktop only -->
-						<p class="hidden lg:block truncate text-xs text-slate-500">{item.description}</p>
+						<!-- <p class="hidden lg:block truncate text-xs text-slate-500">{item.description}</p> -->
 
 						<div class="flex shrink-0 items-center gap-2 lg:justify-end">
 							<button
@@ -734,7 +734,7 @@
 						</div>
 
 						<!-- Location column — desktop only -->
-						<p class="hidden lg:block truncate text-xs text-slate-500">{missing.clinic ? ([missing.clinic.location, missing.clinic.department, missing.clinic.block].filter(Boolean).join(' • ') || 'Clinic service') : 'Create a clinic first.'}</p>
+						<!-- <p class="hidden lg:block truncate text-xs text-slate-500">{missing.clinic ? ([missing.clinic.location, missing.clinic.department, missing.clinic.block].filter(Boolean).join(' • ') || 'Clinic service') : 'Create a clinic first.'}</p> -->
 
 						<!-- Action column — desktop only -->
 						<div class="hidden lg:flex items-center justify-end">
@@ -803,30 +803,6 @@
 							<option value={clinicType}>{clinicType}</option>
 						{/each}
 					</select>
-				</div>
-			</div>
-
-			<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-				<div>
-					<label for="clinic-department" class="mb-1 block text-sm font-medium text-gray-700">Department</label>
-					<input
-						id="clinic-department"
-						type="text"
-						bind:value={clinicData.department}
-						placeholder="e.g. General Medicine"
-						class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-					/>
-				</div>
-
-				<div>
-					<label for="clinic-location" class="mb-1 block text-sm font-medium text-gray-700">Location</label>
-					<input
-						id="clinic-location"
-						type="text"
-						bind:value={clinicData.location}
-						placeholder="e.g. Ground Floor, Wing A"
-						class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none"
-					/>
 				</div>
 			</div>
 

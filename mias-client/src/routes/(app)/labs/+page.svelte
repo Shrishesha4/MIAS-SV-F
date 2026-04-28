@@ -42,7 +42,7 @@
 	function createEmptyResultForm(): ResultForm {
 		return {
 			supervised_by: '',
-			findings: [createEmptyFindingRow()],
+			findings: [],
 		};
 	}
 
@@ -209,7 +209,7 @@
 				paramTemplate: { low: p.low, critically_low: p.critically_low, high: p.high, critically_high: p.critically_high, reference_required: p.reference_required },
 			}));
 		} else {
-			findings = [createEmptyFindingRow()];
+			findings = [];
 		}
 
 		resultForm = {
@@ -614,14 +614,14 @@
 										</div>
 
 										<div class="flex flex-col gap-2 lg:min-w-[210px]">
-											<button
+											<!-- <button
 												onclick={() => loadReportDetail(report.id, 'view')}
 												class="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-slate-700 cursor-pointer"
 												style="background: #f1f5f9;"
 											>
 												<FileText class="h-4 w-4" />
 												View details
-											</button>
+											</button> -->
 
 											{#if activeTab === 'new'}
 												<button
@@ -829,7 +829,7 @@
 				<div class="mt-4 space-y-3">
 					{#each resultForm.findings as finding, index}
 						{#if finding.isTemplate}
-							<div class="grid grid-cols-[minmax(0,1fr)_140px_84px_40px] gap-3 rounded-[20px] px-3 py-3"
+							<div class="grid grid-cols-[minmax(0,1fr)_140px_84px] gap-3 rounded-[20px] px-3 py-3"
 								style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.2);">
 								<!-- Parameter name (read-only) -->
 								<div>
@@ -868,19 +868,9 @@
 										<span class="rounded-full px-2.5 py-1 text-[11px] font-semibold text-slate-600 whitespace-nowrap" style="background: #f1f5f9;">{finding.status || '—'}</span>
 									{/if}
 								</div>
-								<!-- Delete -->
-								<div class="flex items-end">
-									<button
-										onclick={() => removeFindingRow(index)}
-										class="inline-flex h-9 w-9 items-center justify-center rounded-xl text-red-600 cursor-pointer"
-										style="background: #fee2e2;"
-									>
-										<Trash2 class="h-4 w-4" />
-									</button>
-								</div>
 							</div>
 						{:else}
-							<div class="grid gap-3 rounded-[20px] px-3 py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_160px_44px]"
+							<div class="grid gap-3 rounded-[20px] px-3 py-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_160px]"
 								style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.2);">
 								<div>
 									<label for={`finding-parameter-${index}`} class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Parameter</label>
@@ -929,15 +919,6 @@
 										class="w-full rounded-xl px-3 py-2 text-sm outline-none"
 										style="background: white; border: 1px solid rgba(148,163,184,0.32);"
 									/>
-								</div>
-								<div class="flex items-end">
-									<button
-										onclick={() => removeFindingRow(index)}
-										class="inline-flex h-11 w-11 items-center justify-center rounded-xl text-red-600 cursor-pointer"
-										style="background: #fee2e2;"
-									>
-										<Trash2 class="h-4 w-4" />
-									</button>
 								</div>
 							</div>
 						{/if}

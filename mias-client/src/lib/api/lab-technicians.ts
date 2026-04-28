@@ -18,8 +18,12 @@ export interface LabTechnicianProfile {
 	email?: string | null;
 	photo?: string | null;
 	department?: string | null;
+	/** @deprecated use `batches` — kept for compat with single-batch scenarios */
 	group_id?: string | null;
+	/** @deprecated use `batches` — kept for compat with single-batch scenarios */
 	group_name?: string | null;
+	/** All batches this technician belongs to */
+	batches: Array<{ id: string; name: string }>;
 	has_selected_lab: number;
 	active_lab?: TechnicianLab | null;
 	last_checked_in_at?: string | null;

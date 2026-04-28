@@ -428,7 +428,7 @@
 	</aside>
 
 	<!-- Main Content Area (full width, content flows under trigger strip) -->
-	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'h-dvh overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
+	<div class="flex flex-col {currentPath.startsWith('/admin') ? 'min-h-screen lg:h-dvh lg:overflow-hidden' : 'min-h-screen lg:h-dvh lg:overflow-hidden'}">
 		<NavBar
 			showBack={!(['/dashboard', '/admin', '/academic-manager', '/reception', '/billing', '/ot-manager', '/mrd/dashboard', '/labs', '/nutritionist', '/nurse-superintendent'] as string[]).includes(currentPath as string)}
 			notificationCount={unreadNotifications}
@@ -438,7 +438,7 @@
 			onmenuleave={handleTriggerLeave}
 		/>
 
-		<main class="flex-1 min-h-0 {currentPath.startsWith('/admin') ? 'overflow-hidden' : 'pb-4 lg:pb-0 lg:overflow-y-auto'}">
+		<main class="flex-1 min-h-0 {currentPath.startsWith('/admin') ? 'lg:overflow-hidden' : 'pb-4 lg:pb-0 lg:overflow-y-auto'}">
 			<div class="content-container">
 				{#if authReady}
 					{#key pageTransitionKey}

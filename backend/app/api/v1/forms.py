@@ -17,8 +17,12 @@ from app.models.department import Department
 from app.models.faculty import Faculty
 from app.models.form_category import FormCategoryOption
 from app.models.form_definition import FormDefinition
-from app.models.lab import ChargeItem, ChargePrice
-from app.models.student import Clinic
+from app.models.lab import ChargeItem, ChargePrice, Lab
+from app.models.lab_technician import LabTechnician, LabTechnicianGroup
+from app.models.nurse import Nurse
+from app.models.patient import Patient
+from app.models.patient_category import PatientCategoryOption
+from app.models.student import Clinic, Student
 from app.models.user import User, UserRole
 from app.services.ai_provider import AIProviderError, get_enabled_provider_settings, request_structured_completion
 from app.services.charge_sync import sync_charge_sources
@@ -389,6 +393,8 @@ async def update_form_category(
 @router.get("/lookup-options/{source}")
 async def get_lookup_options(
     source: str,
+    department: Optional[str] = Query(None),
+    lab_type: Optional[str] = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -399,15 +405,39 @@ async def get_lookup_options(
         )
         return [{"value": d.id, "label": d.name} for d in result.scalars()]
     elif source == "faculty":
-        result = await db.execute(
-            select(Faculty).order_by(Faculty.name)
-        )
+        q = select(Faculty).order_by(Faculty.name)
+        if department:
+            q = q.where(Faculty.department == department)
+        result = await db.execute(q)
         return [{"value": f.id, "label": f"{f.name} ({f.department})"} for f in result.scalars()]
     elif source == "clinics":
         result = await db.execute(
             select(Clinic).where(Clinic.is_active == True).order_by(Clinic.name)
         )
         return [{"value": c.id, "label": f"{c.name} ({c.department})"} for c in result.scalars()]
+    elif source == "labs":
+        q = select(Lab).where(Lab.is_active == True).order_by(Lab.name)
+        if department:
+            q = q.where(Lab.department == department)
+        if lab_type:
+            q = q.where(Lab.lab_type == lab_type)
+        result = await db.execute(q)
+        return [{"value": l.id, "label": l.name} for l in result.scalars()]
+    elif source == "lab_batches":
+        result = await db.execute(select(LabTechnicianGroup).order_by(LabTechnicianGroup.name))
+        return [{"value": g.id, "label": g.name} for g in result.scalars()]
+    elif source == "patients":
+        result = await db.execute(select(Patient).order_by(Patient.name))
+        return [{"value": p.id, "label": f"{p.name} ({p.patient_id})"} for p in result.scalars()]
+    elif source == "students":
+        result = await db.execute(select(Student).order_by(Student.name))
+        return [{"value": s.id, "label": f"{s.name} ({s.student_id})"} for s in result.scalars()]
+    elif source == "nurses":
+        result = await db.execute(select(Nurse).order_by(Nurse.name))
+        return [{"value": n.id, "label": f"{n.name} ({n.nurse_id})"} for n in result.scalars()]
+    elif source == "patient_categories":
+        result = await db.execute(select(PatientCategoryOption).order_by(PatientCategoryOption.name))
+        return [{"value": c.id, "label": c.name} for c in result.scalars()]
     else:
         raise HTTPException(status_code=400, detail=f"Unknown lookup source: {source}")
 

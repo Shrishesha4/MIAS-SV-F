@@ -7,9 +7,10 @@
 		value?: string;
 		onselect: (name: string) => void;
 		onclose: () => void;
+		zIndex?: number;
 	}
 
-	let { value = '', onselect, onclose }: Props = $props();
+	let { value = '', onselect, onclose, zIndex = 10100 }: Props = $props();
 
 	let query = $state('');
 	let hoveredName = $state<string | null>(null);
@@ -37,7 +38,7 @@
 	}
 </script>
 
-<AquaModal onclose={onclose} panelClass="sm:max-w-[680px]" contentClass="p-0">
+<AquaModal onclose={onclose} panelClass="sm:max-w-[680px]" contentClass="p-0" zIndex={zIndex}>
 	{#snippet header()}
 		<div class="flex flex-1 items-center justify-between gap-3">
 			<div>

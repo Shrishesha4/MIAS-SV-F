@@ -6,7 +6,8 @@
 	import { labTechnicianApi, type LabTechnicianGroupSummary, type LabTechnicianProfile } from '$lib/api/lab-technicians';
 	import { labsApi, type LabInfo } from '$lib/api/labs';
 	import { toastStore } from '$lib/stores/toast';
-	import { Search, Save, Trash2, RefreshCw, Users, Layers3, FlaskConical, ShieldCheck, Plus, CheckCircle2, Circle, ArrowLeft, UserRound } from 'lucide-svelte';
+	import TabBar from '$lib/components/ui/TabBar.svelte';
+	import { Search, Save, Trash2, RefreshCw, Users, Layers3, FlaskConical, Plus, CheckCircle2, Circle, ArrowLeft, UserRound } from 'lucide-svelte';
 
 	const auth = get(authStore);
 
@@ -28,11 +29,18 @@
 		};
 	}
 
+	const tabs = [
+		{ id: 'technicians', label: 'All Technicians' },
+		{ id: 'batches', label: 'Batches' },
+	];
+
+	let activeTab = $state('technicians');
 	let loading = $state(true);
 	let saving = $state(false);
 	let deleting = $state(false);
 	let error = $state('');
 	let searchQuery = $state('');
+	let batchSearchQuery = $state('');
 	let technicians = $state.raw<LabTechnicianProfile[]>([]);
 	let groups = $state.raw<LabTechnicianGroupSummary[]>([]);
 	let labs = $state.raw<LabInfo[]>([]);
@@ -43,23 +51,23 @@
 		const query = searchQuery.trim().toLowerCase();
 		const items = technicians
 			.slice()
-			.sort((left, right) => left.name.localeCompare(right.name));
-
-		if (!query) {
-			return items;
-		}
-
-		return items.filter((technician) => {
-			return [
-				technician.name,
-				technician.technician_id,
-				technician.department ?? '',
-				technician.group_name ?? '',
-			]
+			.sort((a, b) => a.name.localeCompare(b.name));
+		if (!query) return items;
+		return items.filter((t) =>
+			[t.name, t.technician_id, t.department ?? '', ...t.batches.map((b) => b.name)]
 				.join(' ')
 				.toLowerCase()
-				.includes(query);
-		});
+				.includes(query),
+		);
+	});
+
+	const filteredBatchTechnicians = $derived.by(() => {
+		const query = batchSearchQuery.trim().toLowerCase();
+		const items = technicians.slice().sort((a, b) => a.name.localeCompare(b.name));
+		if (!query) return items;
+		return items.filter((t) =>
+			[t.name, t.technician_id, t.department ?? ''].join(' ').toLowerCase().includes(query),
+		);
 	});
 
 	const selectedTechnicians = $derived.by(() => {
@@ -201,11 +209,11 @@
 		deleting = true;
 		try {
 			await labTechnicianApi.deleteGroup(selectedGroupId);
-			toastStore.addToast('Batch deleted successfully', 'success');
+			toastStore.addToast('Batch deleted', 'success');
 			resetEditor();
 			await loadPageData(false);
 		} catch (e: any) {
-			toastStore.addToast(e.response?.data?.detail || 'Failed to delete technician batch', 'error');
+			toastStore.addToast(e.response?.data?.detail || 'Failed to delete batch', 'error');
 		} finally {
 			deleting = false;
 		}
@@ -213,125 +221,167 @@
 </script>
 
 {#if loading}
-	<div class="px-4 py-12 text-center text-sm text-slate-500">Loading technician access workspace...</div>
+	<div class="flex items-center justify-center py-16">
+		<div class="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600"></div>
+	</div>
 {:else if error}
-	<div class="rounded-2xl px-4 py-4 text-sm text-red-600" style="background: #fef2f2; border: 1px solid #fecaca;">{error}</div>
+	<div class="rounded-2xl border px-4 py-8 text-center" style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+		<p class="text-sm font-semibold text-red-600">{error}</p>
+	</div>
 {:else}
-	<div class="space-y-4">
-		<div class="flex flex-col gap-3 rounded-[28px] px-5 py-5 md:flex-row md:items-center md:justify-between"
-			style="background: linear-gradient(135deg, #0f172a, #1d4ed8 60%, #38bdf8); box-shadow: 0 16px 32px rgba(15,23,42,0.18);">
-			<div>
+	<div class="flex flex-col gap-4">
+		<!-- Page header: academics-style -->
+		<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+			<div class="flex flex-col gap-1">
 				<button
 					onclick={() => goto('/admin/labs')}
-					class="mb-3 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold text-white/90 cursor-pointer"
-					style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.18);"
+					class="inline-flex w-fit items-center gap-1.5 text-[11px] font-semibold text-slate-400 transition-colors hover:text-slate-600 cursor-pointer"
 				>
-					<ArrowLeft class="h-3.5 w-3.5" />
+					<ArrowLeft class="h-3 w-3" />
 					Back to labs
 				</button>
-				<h1 class="text-xl font-bold text-white">Lab Technician Batches</h1>
-				<p class="mt-1 max-w-2xl text-sm text-blue-100">
-					Group technicians into working batches, then assign the labs each batch can check in to and operate from.
-				</p>
+				<p class="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Lab Technician Management</p>
 			</div>
-			<div class="grid grid-cols-3 gap-2 text-center text-white">
-				<div class="rounded-2xl px-3 py-3" style="background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);">
-					<p class="text-[10px] uppercase tracking-[0.18em] text-blue-100">Technicians</p>
-					<p class="mt-1 text-2xl font-bold">{technicians.length}</p>
-				</div>
-				<div class="rounded-2xl px-3 py-3" style="background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);">
-					<p class="text-[10px] uppercase tracking-[0.18em] text-blue-100">Batches</p>
-					<p class="mt-1 text-2xl font-bold">{groups.length}</p>
-				</div>
-				<div class="rounded-2xl px-3 py-3" style="background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.18);">
-					<p class="text-[10px] uppercase tracking-[0.18em] text-blue-100">Active labs</p>
-					<p class="mt-1 text-2xl font-bold">{labs.length}</p>
-				</div>
+			<div class="flex flex-wrap gap-2">
+				<span class="rounded-full border px-3 py-1 text-xs font-semibold text-slate-600" style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.2);">{technicians.length} Technicians</span>
+				<span class="rounded-full border px-3 py-1 text-xs font-semibold text-slate-600" style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.2);">{groups.length} Batches</span>
+				<span class="rounded-full border px-3 py-1 text-xs font-semibold text-slate-600" style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.2);">{labs.length} Active Labs</span>
 			</div>
 		</div>
 
-		<div class="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-			<section class="rounded-[26px] px-4 py-4"
-				style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 10px 24px rgba(15,23,42,0.06);">
-				<div class="flex items-center justify-between">
-					<div>
-						<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Existing batches</p>
-						<h2 class="mt-1 text-lg font-bold text-slate-900">Personnel groups</h2>
-					</div>
-					<button
-						onclick={resetEditor}
-						class="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold text-slate-700 cursor-pointer"
-						style="background: #e2e8f0;"
-					>
-						<Plus class="h-3.5 w-3.5" />
-						New
-					</button>
+		<!-- Tabs -->
+		<TabBar
+			tabs={tabs}
+			activeTab={activeTab}
+			onchange={(id) => { activeTab = id; searchQuery = ''; batchSearchQuery = ''; }}
+			variant="jiggle"
+			stretch={false}
+			size="compact"
+		/>
+
+		<!-- ─── All Technicians tab ─── -->
+		{#if activeTab === 'technicians'}
+			<div class="flex flex-col gap-3">
+				<div class="relative">
+					<Search class="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+					<input
+						type="text"
+						bind:value={searchQuery}
+						placeholder="Search by name, ID, department, or batch…"
+						class="w-full rounded-2xl py-2.5 pl-9 pr-4 text-sm outline-none"
+						style="background: rgba(255,255,255,0.97); border: 1px solid rgba(148,163,184,0.25);"
+					/>
 				</div>
 
-				<div class="mt-4 space-y-3">
+				{#if filteredTechnicians.length === 0}
+					<div class="rounded-2xl border px-4 py-12 text-center" style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+						<p class="text-sm text-slate-400">No technicians found.</p>
+					</div>
+				{:else}
+					<div class="space-y-1.5">
+						{#each filteredTechnicians as tech}
+							<div
+								class="flex items-start gap-3 rounded-2xl border px-4 py-3"
+								style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);"
+							>
+								<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+									style="background: linear-gradient(to bottom, #3b82f6, #2563eb);">
+									{tech.name.slice(0, 1).toUpperCase()}
+								</div>
+								<div class="min-w-0 flex-1">
+									<div class="flex flex-wrap items-center gap-2">
+										<p class="text-sm font-bold text-slate-900">{tech.name}</p>
+										<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-500" style="background: #f1f5f9;">{tech.technician_id}</span>
+									</div>
+									{#if tech.department}
+										<p class="text-[11px] text-slate-500">{tech.department}</p>
+									{/if}
+									<div class="mt-1.5 flex flex-wrap gap-1">
+										{#if tech.batches.length === 0}
+											<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-400" style="background: #f1f5f9;">No batches</span>
+										{:else}
+											{#each tech.batches as batch}
+												<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold" style="background: #ede9fe; color: #6d28d9;">{batch.name}</span>
+											{/each}
+										{/if}
+										{#if tech.active_lab}
+											<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-emerald-700" style="background: #dcfce7;">In: {tech.active_lab.name}</span>
+										{/if}
+									</div>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+		<!-- ─── Batches tab ─── -->
+		{:else}
+			<!-- Two-column layout -->
+			<div class="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+
+				<!-- Left: Batch list -->
+				<div class="flex flex-col gap-2">
+					<div class="flex items-center justify-between">
+						<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Batches</p>
+						<button
+							onclick={resetEditor}
+							class="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold text-white cursor-pointer transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+							style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.3), inset 0 1px 0 rgba(255,255,255,0.25);"
+						>
+							<Plus class="h-3.5 w-3.5" />
+							New Batch
+						</button>
+					</div>
+
 					{#if groups.length === 0}
-						<div class="rounded-2xl px-4 py-6 text-center text-sm text-slate-500" style="background: #f8fafc; border: 1px dashed rgba(148,163,184,0.5);">
-							No technician batches yet.
+						<div class="rounded-2xl border px-4 py-10 text-center" style="background: rgba(255,255,255,0.9); border-color: rgba(148,163,184,0.22);">
+							<p class="text-sm text-slate-400">No batches yet.</p>
 						</div>
 					{:else}
-						{#each groups as group}
-							<button
-								onclick={() => loadGroupIntoEditor(group)}
-								class="w-full rounded-2xl px-4 py-4 text-left cursor-pointer transition-transform hover:-translate-y-0.5"
-								style={selectedGroupId === group.id
-									? 'background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid #60a5fa; box-shadow: 0 10px 18px rgba(37,99,235,0.14);'
-									: 'background: white; border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 6px 16px rgba(15,23,42,0.05);'}
-							>
-								<div class="flex items-start justify-between gap-3">
-									<div>
-										<p class="text-sm font-semibold text-slate-900">{group.name}</p>
-										<p class="mt-1 text-xs text-slate-500">{group.description || 'No notes added for this batch yet.'}</p>
+						<div class="space-y-1.5">
+							{#each groups as group}
+								<div
+									role="button"
+									tabindex="0"
+									onclick={() => loadGroupIntoEditor(group)}
+									onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadGroupIntoEditor(group); } }}
+									class="flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-left cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+									style={selectedGroupId === group.id
+										? 'background: linear-gradient(to bottom, #eff6ff, #dbeafe); border-color: #93c5fd; box-shadow: 0 1px 4px rgba(37,99,235,0.10);'
+										: 'background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);'}
+								>
+									<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+										style="background: linear-gradient(to bottom, #3b82f6, #2563eb); box-shadow: 0 4px 10px rgba(37,99,235,0.24);">
+										<Layers3 class="h-4 w-4 text-white" />
 									</div>
-									<span class="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em]"
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-sm font-bold text-slate-900">{group.name}</p>
+										<p class="text-[11px] text-slate-500">{group.technician_count} techs · {group.labs.length} labs</p>
+									</div>
+									<span class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
 										style={group.is_active ? 'background: #dcfce7; color: #166534;' : 'background: #e5e7eb; color: #475569;'}>
-										{group.is_active ? 'Active' : 'Inactive'}
+										{group.is_active ? 'Active' : 'Off'}
 									</span>
 								</div>
-
-								<div class="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
-									<div class="rounded-xl px-3 py-2" style="background: rgba(59,130,246,0.08);">
-										<p class="text-[10px] uppercase tracking-[0.16em] text-slate-500">Techs</p>
-										<p class="mt-1 font-bold text-slate-900">{group.technician_count}</p>
-									</div>
-									<div class="rounded-xl px-3 py-2" style="background: rgba(16,185,129,0.08);">
-										<p class="text-[10px] uppercase tracking-[0.16em] text-slate-500">Labs</p>
-										<p class="mt-1 font-bold text-slate-900">{group.labs.length}</p>
-									</div>
-								</div>
-
-								<div class="mt-3 flex flex-wrap gap-1.5">
-									{#each group.labs.slice(0, 3) as lab}
-										<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-700" style="background: #e2e8f0;">{lab.name}</span>
-									{/each}
-									{#if group.labs.length > 3}
-										<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-500" style="background: #f1f5f9;">+{group.labs.length - 3} more</span>
-									{/if}
-								</div>
-							</button>
-						{/each}
+							{/each}
+						</div>
 					{/if}
 				</div>
-			</section>
 
-			<section class="space-y-4">
-				<div class="rounded-[26px] px-5 py-5"
-					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 10px 24px rgba(15,23,42,0.06);">
-					<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+				<!-- Right: Editor -->
+				<div class="flex flex-col gap-4">
+					<!-- Editor action row -->
+					<div class="flex items-center justify-between">
 						<div>
-							<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Batch editor</p>
-							<h2 class="mt-1 text-lg font-bold text-slate-900">{selectedGroupId ? 'Update technician batch' : 'Create technician batch'}</h2>
-							<p class="mt-1 text-sm text-slate-500">Choose staff, assign permitted labs, then save the batch.</p>
+							<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Batch editor</p>
+							<p class="mt-0.5 text-base font-bold text-slate-900">{selectedGroupId ? 'Edit batch' : 'New batch'}</p>
 						</div>
 						<div class="flex flex-wrap gap-2">
 							<button
 								onclick={() => loadPageData(true)}
 								class="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer"
-								style="background: #e2e8f0;"
+								style="background: rgba(255,255,255,0.97); border: 1px solid rgba(148,163,184,0.2);"
 							>
 								<RefreshCw class="h-3.5 w-3.5" />
 								Refresh
@@ -339,212 +389,199 @@
 							<button
 								onclick={saveGroup}
 								disabled={saving}
-								class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold text-white cursor-pointer disabled:opacity-60"
-								style="background: linear-gradient(to bottom, #2563eb, #1d4ed8); box-shadow: 0 8px 16px rgba(37,99,235,0.22);"
+								class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold text-white cursor-pointer disabled:opacity-60 transition-all hover:-translate-y-[1px] active:translate-y-0.5"
+								style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 4px 12px rgba(37,99,235,0.28), inset 0 1px 0 rgba(255,255,255,0.25);"
 							>
 								<Save class="h-3.5 w-3.5" />
-								{saving ? 'Saving...' : selectedGroupId ? 'Save changes' : 'Create batch'}
+								{saving ? 'Saving…' : selectedGroupId ? 'Save changes' : 'Create batch'}
 							</button>
 							{#if selectedGroupId}
 								<button
 									onclick={deleteGroup}
 									disabled={deleting}
-									class="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold text-red-700 cursor-pointer disabled:opacity-60"
-									style="background: #fee2e2; border: 1px solid #fecaca;"
+									class="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold text-red-600 cursor-pointer disabled:opacity-60"
+									style="background: rgba(255,255,255,0.97); border: 1px solid rgba(252,165,165,0.4);"
 								>
 									<Trash2 class="h-3.5 w-3.5" />
-									{deleting ? 'Deleting...' : 'Delete batch'}
+									{deleting ? '…' : 'Delete'}
 								</button>
 							{/if}
 						</div>
 					</div>
 
-					<div class="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-						<div class="space-y-4">
+					<!-- Batch name + notes + access summary -->
+					<div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_200px]">
+						<div class="space-y-3">
 							<div>
-								<label for="lab-tech-batch-name" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Batch name</label>
+								<label for="lab-tech-batch-name" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Batch name</label>
 								<input
 									id="lab-tech-batch-name"
 									type="text"
 									bind:value={groupForm.name}
-									placeholder="CBC Morning Team"
-									class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.35); box-shadow: inset 0 1px 2px rgba(15,23,42,0.04);"
+									placeholder="e.g. CBC Morning Team"
+									class="w-full rounded-2xl px-4 py-2.5 text-sm outline-none"
+									style="background: rgba(255,255,255,0.97); border: 1px solid rgba(148,163,184,0.25);"
 								/>
 							</div>
-
 							<div>
-								<label for="lab-tech-batch-notes" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Batch notes</label>
+								<label for="lab-tech-batch-notes" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Notes</label>
 								<textarea
 									id="lab-tech-batch-notes"
 									bind:value={groupForm.description}
-									rows="3"
-									placeholder="Shift focus, handling instructions, device ownership, or reporting coverage"
-									class="w-full rounded-2xl px-4 py-3 text-sm outline-none"
-									style="background: white; border: 1px solid rgba(148,163,184,0.35); box-shadow: inset 0 1px 2px rgba(15,23,42,0.04);"
+									rows="2"
+									placeholder="Shift focus, device ownership, reporting coverage…"
+									class="w-full resize-none rounded-2xl px-4 py-2.5 text-sm outline-none"
+									style="background: rgba(255,255,255,0.97); border: 1px solid rgba(148,163,184,0.25);"
 								></textarea>
 							</div>
 						</div>
 
-						<div class="rounded-2xl px-4 py-4" style="background: linear-gradient(to bottom, #eff6ff, #f8fbff); border: 1px solid rgba(96,165,250,0.32);">
-							<div class="flex items-center gap-2 text-blue-900">
-								<ShieldCheck class="h-4 w-4" />
-								<p class="text-sm font-semibold">Access summary</p>
+						<div class="flex flex-col gap-2 rounded-2xl border px-4 py-3"
+							style="background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.18);">
+							<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400">Summary</p>
+							<div class="flex items-center justify-between text-sm text-slate-700">
+								<span>Technicians</span>
+								<strong class="text-slate-900">{groupForm.technician_ids.length}</strong>
 							</div>
-							<div class="mt-4 space-y-3 text-sm text-slate-700">
-								<div class="flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.72);">
-									<span>Selected technicians</span>
-									<strong>{groupForm.technician_ids.length}</strong>
-								</div>
-								<div class="flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.72);">
-									<span>Permitted labs</span>
-									<strong>{groupForm.lab_ids.length}</strong>
-								</div>
-								<label class="flex items-center gap-2 rounded-xl px-3 py-2 cursor-pointer" style="background: rgba(255,255,255,0.72);">
-									<input type="checkbox" bind:checked={groupForm.is_active} class="accent-blue-600" />
-									<span>Batch active for check-in</span>
-								</label>
+							<div class="flex items-center justify-between text-sm text-slate-700">
+								<span>Permitted labs</span>
+								<strong class="text-slate-900">{groupForm.lab_ids.length}</strong>
 							</div>
+							<label class="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+								<input type="checkbox" bind:checked={groupForm.is_active} class="accent-blue-600" />
+								<span>Active for check-in</span>
+							</label>
 						</div>
 					</div>
-				</div>
 
-				<div class="grid gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-					<section class="rounded-[26px] px-5 py-5"
-						style="background: linear-gradient(to bottom, #ffffff, #fbfdff); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 10px 24px rgba(15,23,42,0.06);">
-						<div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-							<div>
-								<div class="flex items-center gap-2 text-slate-900">
-									<Users class="h-4 w-4" />
-									<h3 class="text-base font-bold">Select technicians</h3>
+					<!-- Technician + Lab selectors -->
+					<div class="grid gap-4 2xl:grid-cols-[minmax(0,1.3fr)_minmax(0,0.7fr)]">
+
+						<!-- Technician multi-select -->
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center justify-between">
+								<div class="flex items-center gap-1.5">
+									<Users class="h-3.5 w-3.5 text-slate-400" />
+									<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">
+										Technicians <span class="normal-case font-medium">(multi-select)</span>
+									</p>
 								</div>
-								<p class="mt-1 text-sm text-slate-500">Assign personnel to this batch. Existing batch names are shown for quick audit.</p>
+								<div class="relative">
+									<Search class="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+									<input
+										type="text"
+										bind:value={batchSearchQuery}
+										placeholder="Search…"
+										class="w-36 rounded-full py-1.5 pl-8 pr-3 text-xs outline-none"
+										style="background: rgba(255,255,255,0.97); border: 1px solid rgba(148,163,184,0.25);"
+									/>
+								</div>
 							</div>
-							<div class="relative w-full md:w-72">
-								<Search class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-								<input
-									type="text"
-									bind:value={searchQuery}
-									placeholder="Search name, ID, batch, department"
-									class="w-full rounded-2xl py-2.5 pl-10 pr-4 text-sm outline-none"
-									style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.32);"
-								/>
-							</div>
-						</div>
 
-						<div class="mt-4 grid gap-3 md:grid-cols-2">
-							{#each filteredTechnicians as technician}
-								{@const isSelected = groupForm.technician_ids.includes(technician.id)}
-								<button
-									onclick={() => toggleTechnician(technician.id)}
-									class="rounded-2xl px-4 py-4 text-left cursor-pointer transition-transform hover:-translate-y-0.5"
-									style={isSelected
-										? 'background: linear-gradient(to bottom, #ecfeff, #dbeafe); border: 1px solid #38bdf8; box-shadow: 0 10px 18px rgba(14,165,233,0.14);'
-										: 'background: white; border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 6px 16px rgba(15,23,42,0.05);'}
-								>
-									<div class="flex items-start justify-between gap-3">
-										<div class="flex items-center gap-3">
-											<div class="flex h-11 w-11 items-center justify-center rounded-2xl text-slate-700" style="background: rgba(59,130,246,0.1);">
-												<UserRound class="h-5 w-5" />
-											</div>
-											<div>
-												<p class="text-sm font-semibold text-slate-900">{technician.name}</p>
-												<p class="text-xs text-slate-500">{technician.technician_id} {technician.department ? `· ${technician.department}` : ''}</p>
-											</div>
+							<div class="space-y-1.5">
+								{#each filteredBatchTechnicians as tech}
+									{@const isSelected = groupForm.technician_ids.includes(tech.id)}
+									<div
+										role="button"
+										tabindex="0"
+										onclick={() => toggleTechnician(tech.id)}
+										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTechnician(tech.id); } }}
+										class="flex items-center gap-3 rounded-2xl border px-4 py-3 cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+										style={isSelected
+											? 'background: linear-gradient(to bottom, #eff6ff, #dbeafe); border-color: #93c5fd;'
+											: 'background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);'}
+									>
+										<div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+											style="background: rgba(59,130,246,0.1);">
+											<UserRound class="h-4 w-4 text-blue-600" />
 										</div>
-										{#if isSelected}
-											<CheckCircle2 class="h-5 w-5 text-sky-600" />
-										{:else}
-											<Circle class="h-5 w-5 text-slate-300" />
-										{/if}
-									</div>
-
-									<div class="mt-3 flex flex-wrap gap-2">
-										<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold"
-											style={technician.group_name ? 'background: #ede9fe; color: #6d28d9;' : 'background: #e2e8f0; color: #475569;'}>
-											{technician.group_name || 'Unassigned'}
-										</span>
-										{#if technician.active_lab}
-											<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-700" style="background: #dcfce7;">Checked in: {technician.active_lab.name}</span>
-										{/if}
-									</div>
-								</button>
-							{/each}
-						</div>
-					</section>
-
-					<section class="rounded-[26px] px-5 py-5"
-						style="background: linear-gradient(to bottom, #ffffff, #fbfdff); border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 10px 24px rgba(15,23,42,0.06);">
-						<div class="flex items-center gap-2 text-slate-900">
-							<FlaskConical class="h-4 w-4" />
-							<h3 class="text-base font-bold">Permitted labs</h3>
-						</div>
-						<p class="mt-1 text-sm text-slate-500">Technicians in this batch can check in only to the selected labs below.</p>
-
-						<div class="mt-4 space-y-3">
-							{#each labs as lab}
-								{@const isSelected = groupForm.lab_ids.includes(lab.id)}
-								<button
-									onclick={() => toggleLab(lab.id)}
-									class="w-full rounded-2xl px-4 py-4 text-left cursor-pointer transition-transform hover:-translate-y-0.5"
-									style={isSelected
-										? 'background: linear-gradient(to bottom, #ecfdf5, #d1fae5); border: 1px solid #34d399; box-shadow: 0 10px 18px rgba(16,185,129,0.14);'
-										: 'background: white; border: 1px solid rgba(148,163,184,0.28); box-shadow: 0 6px 16px rgba(15,23,42,0.05);'}
-								>
-									<div class="flex items-start justify-between gap-3">
-										<div>
-											<p class="text-sm font-semibold text-slate-900">{lab.name}</p>
-											<p class="mt-1 text-xs text-slate-500">{lab.lab_type} · {lab.department}</p>
-											{#if lab.location}
-												<p class="mt-1 text-xs text-slate-400">{lab.location}</p>
+										<div class="min-w-0 flex-1">
+											<p class="truncate text-sm font-semibold text-slate-900">{tech.name}</p>
+											<p class="text-[11px] text-slate-500">{tech.technician_id}{tech.department ? ` · ${tech.department}` : ''}</p>
+										</div>
+										<!-- Other batches this tech belongs to (excluding the one being edited) -->
+										<div class="flex shrink-0 flex-col items-end gap-1">
+											{#each tech.batches.filter((b) => b.id !== selectedGroupId) as b}
+												<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold" style="background: #ede9fe; color: #6d28d9;">{b.name}</span>
+											{/each}
+											{#if tech.active_lab}
+												<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-emerald-700" style="background: #dcfce7;">{tech.active_lab.name}</span>
 											{/if}
 										</div>
 										{#if isSelected}
-											<CheckCircle2 class="h-5 w-5 text-emerald-600" />
+											<CheckCircle2 class="h-4 w-4 shrink-0 text-blue-500" />
 										{:else}
-											<Circle class="h-5 w-5 text-slate-300" />
+											<Circle class="h-4 w-4 shrink-0 text-slate-300" />
 										{/if}
 									</div>
-								</button>
-							{/each}
-						</div>
-
-						<div class="mt-5 rounded-2xl px-4 py-4" style="background: #f8fafc; border: 1px dashed rgba(148,163,184,0.48);">
-							<div class="flex items-center gap-2 text-slate-900">
-								<Layers3 class="h-4 w-4" />
-								<p class="text-sm font-semibold">Current selection</p>
-							</div>
-							<div class="mt-3 space-y-3 text-sm text-slate-600">
-								<div>
-									<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Technicians</p>
-									<div class="mt-2 flex flex-wrap gap-1.5">
-										{#if selectedTechnicians.length === 0}
-											<span class="text-xs text-slate-400">None selected yet</span>
-										{:else}
-											{#each selectedTechnicians as technician}
-												<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-700" style="background: #e2e8f0;">{technician.name}</span>
-											{/each}
-										{/if}
-									</div>
-								</div>
-
-								<div>
-									<p class="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Labs</p>
-									<div class="mt-2 flex flex-wrap gap-1.5">
-										{#if selectedLabs.length === 0}
-											<span class="text-xs text-slate-400">No lab access assigned</span>
-										{:else}
-											{#each selectedLabs as lab}
-												<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-700" style="background: #dcfce7;">{lab.name}</span>
-											{/each}
-										{/if}
-									</div>
-								</div>
+								{/each}
 							</div>
 						</div>
-					</section>
+
+						<!-- Lab multi-select -->
+						<div class="flex flex-col gap-2">
+							<div class="flex items-center gap-1.5">
+								<FlaskConical class="h-3.5 w-3.5 text-slate-400" />
+								<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-400">Permitted labs</p>
+							</div>
+
+							<div class="space-y-1.5">
+								{#each labs as lab}
+									{@const isSelected = groupForm.lab_ids.includes(lab.id)}
+									<div
+										role="button"
+										tabindex="0"
+										onclick={() => toggleLab(lab.id)}
+										onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleLab(lab.id); } }}
+										class="flex items-center gap-3 rounded-2xl border px-4 py-3 cursor-pointer transition-transform hover:-translate-y-[1px] active:scale-[0.99]"
+										style={isSelected
+											? 'background: linear-gradient(to bottom, #ecfdf5, #d1fae5); border-color: #6ee7b7;'
+											: 'background: rgba(255,255,255,0.97); border-color: rgba(148,163,184,0.14); box-shadow: 0 1px 4px rgba(15,23,42,0.05);'}
+									>
+										<div class="min-w-0 flex-1">
+											<p class="truncate text-sm font-semibold text-slate-900">{lab.name}</p>
+											<p class="text-[11px] text-slate-500">{lab.lab_type} · {lab.department}</p>
+										</div>
+										{#if isSelected}
+											<CheckCircle2 class="h-4 w-4 shrink-0 text-emerald-500" />
+										{:else}
+											<Circle class="h-4 w-4 shrink-0 text-slate-300" />
+										{/if}
+									</div>
+								{/each}
+							</div>
+
+							<!-- Selection chips summary -->
+							{#if selectedTechnicians.length > 0 || selectedLabs.length > 0}
+								<div class="mt-1 rounded-2xl border px-3 py-3 space-y-2"
+									style="background: rgba(255,255,255,0.6); border-color: rgba(148,163,184,0.18);">
+									{#if selectedTechnicians.length > 0}
+										<div>
+											<p class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Selected ({selectedTechnicians.length})</p>
+											<div class="mt-1 flex flex-wrap gap-1">
+												{#each selectedTechnicians as t}
+													<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-700" style="background: #e2e8f0;">{t.name}</span>
+												{/each}
+											</div>
+										</div>
+									{/if}
+									{#if selectedLabs.length > 0}
+										<div>
+											<p class="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">Labs ({selectedLabs.length})</p>
+											<div class="mt-1 flex flex-wrap gap-1">
+												{#each selectedLabs as l}
+													<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold text-slate-700" style="background: #dcfce7;">{l.name}</span>
+												{/each}
+											</div>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					</div>
 				</div>
-			</section>
-		</div>
+			</div>
+		{/if}
+
 	</div>
 {/if}

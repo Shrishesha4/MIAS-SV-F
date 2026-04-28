@@ -32,7 +32,8 @@ export type FormFieldType =
 	| 'diagnosis'
 	| 'department_select'
 	| 'faculty_select'
-	| 'clinic_select';
+	| 'clinic_select'
+	| 'db_select';
 
 export type FormSection = string;
 
@@ -119,6 +120,10 @@ export interface FormFieldDefinition {
 	help_text?: string;
 	/** Legacy per-field visibility shorthand. Prefer FormRule at form level. */
 	condition?: FieldCondition;
+	/** For db_select: which backend source to query (e.g. 'patients', 'labs') */
+	db_source?: string;
+	/** For db_select: static key=value filters applied to the lookup query */
+	db_filters?: Record<string, string>;
 }
 
 export interface FormCategory {

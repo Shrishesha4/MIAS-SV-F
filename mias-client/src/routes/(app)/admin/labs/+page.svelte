@@ -647,7 +647,7 @@ onclick={() => openEditLabModal(lab)}
 class="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-all duration-150"
 title="Edit lab"
 >
-<Pencil class="w-4 h-4" />
+<!-- <Pencil class="w-4 h-4" /> -->
 </button>
 <button
 onclick={() => openConfigPanel(lab)}

@@ -22,6 +22,8 @@ function normalizeFormField(field: ApiFormFieldDefinition): FormFieldDefinition 
 		multiple: field.multiple,
 		help_text: field.help_text,
 		condition: field.condition,
+		db_source: field.db_source,
+		db_filters: field.db_filters,
 	};
 }
 
@@ -111,8 +113,8 @@ export const formsApi = {
 		return response.data;
 	},
 
-	async getLookupOptions(source: string): Promise<{ value: string; label: string }[]> {
-		const response = await client.get(`/forms/lookup-options/${source}`);
+	async getLookupOptions(source: string, filters?: Record<string, string>): Promise<{ value: string; label: string }[]> {
+		const response = await client.get(`/forms/lookup-options/${source}`, { params: filters });
 		return response.data;
 	},
 

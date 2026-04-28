@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import Autocomplete from '$lib/components/ui/Autocomplete.svelte';
 	import DiagnosisSuggestions from './DiagnosisSuggestions.svelte';
 	import type { DiagnosisSuggestion as AIDiagnosisSuggestion } from '$lib/api/ai';
@@ -56,17 +55,25 @@
 	// Lookup options cache for dynamic selects
 	let lookupOptions: Record<string, { value: string; label: string }[]> = $state({});
 
-	onMount(() => {
+	$effect(() => {
 		const sources = new Set<string>();
 		for (const f of fields) {
-			const src = DYNAMIC_SOURCES[f.type];
+			const src = f.type === 'db_select' ? (f.db_source ?? '') : (DYNAMIC_SOURCES[f.type] ?? '');
 			if (src) sources.add(src);
 		}
+		const filters: Record<string, Record<string, string>> = {};
+		for (const f of fields) {
+			if (f.type === 'db_select' && f.db_source && f.db_filters && Object.keys(f.db_filters).length > 0) {
+				filters[f.db_source] = f.db_filters;
+			}
+		}
 		for (const src of sources) {
-			formsApi.getLookupOptions(src).then((opts) => {
-				lookupOptions[src] = opts;
-				lookupOptions = { ...lookupOptions };
-			}).catch(() => {});
+			if (!lookupOptions[src]) {
+				formsApi.getLookupOptions(src, filters[src]).then((opts) => {
+					lookupOptions[src] = opts;
+					lookupOptions = { ...lookupOptions };
+				}).catch(() => {});
+			}
 		}
 	});
 
@@ -188,6 +195,24 @@
 				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
 			>
 				<option value="">{opts.length === 0 ? 'Loading...' : `Select ${field.label}`}</option>
+				{#each opts as opt}
+					<option value={opt.value}>{opt.label}</option>
+				{/each}
+			</select>
+		{:else if field.type === 'db_select'}
+			{@const src = field.db_source ?? ''}
+			{@const opts = src ? (lookupOptions[src] ?? []) : []}
+			<label for={inputId(field.key)} class="block text-sm font-medium text-gray-700 mb-1">
+				{field.label} {#if field.required}<span class="text-red-500">*</span>{/if}
+			</label>
+			<select
+				id={inputId(field.key)}
+				bind:value={values[field.key]}
+				disabled={isDisabled || !src || opts.length === 0}
+				class="block w-full px-3 py-2 rounded-md text-sm cursor-pointer"
+				style="border: 1px solid #d1d5db; box-shadow: inset 0 1px 2px rgba(0,0,0,0.1); background-color: rgba(255,255,255,0.9);"
+			>
+				<option value="">{!src ? 'No source configured' : opts.length === 0 ? 'Loading...' : `Select ${field.label}`}</option>
 				{#each opts as opt}
 					<option value={opt.value}>{opt.label}</option>
 				{/each}
