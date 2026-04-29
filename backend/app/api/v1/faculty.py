@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 from datetime import datetime, date
-from typing import Optional
+from typing import List, Optional
 import uuid
 import os
 from pydantic import BaseModel
