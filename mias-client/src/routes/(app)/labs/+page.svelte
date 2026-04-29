@@ -177,6 +177,13 @@
 		}
 	}
 
+	function handleStationChange(labId: string) {
+		if (!labId || labId === technician?.active_lab?.id) {
+			return;
+		}
+		void checkInToLab(labId);
+	}
+
 	function populateResultForm(report: LabQueueReport) {
 		const params = report.test_parameters;
 		const paramsByName = new Map(params?.map((p) => [p.name, p]) ?? []);
@@ -365,39 +372,106 @@
 {:else if !technician}
 	<div class="rounded-[24px] px-4 py-6 text-sm text-slate-600" style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.34);">Technician profile not found.</div>
 {:else}
-	<div class="space-y-4">
-		<div class="rounded-[28px] px-5 py-5"
-			style="background: linear-gradient(135deg, #0f172a, #1d4ed8 58%, #38bdf8); box-shadow: 0 18px 36px rgba(15,23,42,0.18);">
-			<div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-				<div>
-					<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-blue-100">Lab Operations</p>
-					<h1 class="mt-1 text-xl font-bold text-white">{technician.name}</h1>
-					<p class="mt-1 text-sm text-blue-100">
-						{technician.technician_id}
-						{#if technician.department}
-							· {technician.department}
+	<div class="space-y-4 px-4 py-6 md:px-6 md:py-8">
+		<div class="rounded-[28px] px-5 py-4"
+			style="background: linear-gradient(to bottom, #ffffff, #f8fbff); border: 1px solid rgba(148,163,184,0.26); box-shadow: 0 12px 28px rgba(15,23,42,0.06);">
+			<div class="space-y-3">
+				<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto_240px] lg:items-center">
+					<div class="min-w-0">
+						<div class="flex items-start gap-3">
+							<div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-blue-700" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(96,165,250,0.28);">
+								<FlaskConical class="h-4 w-4" />
+							</div>
+							<div class="min-w-0">
+								<h1 class="mt-0.5 text-lg font-bold text-slate-900">{technician.name}</h1>
+							</div>
+						</div>
+						<div class="mt-2.5 flex flex-wrap gap-1.5">
+							<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-600" style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.24);">
+								{technician.technician_id}
+							</span>
+							{#if technician.department}
+								<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-slate-600" style="background: #f8fafc; border: 1px solid rgba(148,163,184,0.24);">
+									{technician.department}
+								</span>
+							{/if}
+							{#if technician.group_name}
+								<span class="rounded-full px-2.5 py-1 text-[10px] font-semibold text-blue-700" style="background: #dbeafe; border: 1px solid #bfdbfe;">
+									{technician.group_name}
+								</span>
+							{/if}
+						</div>
+						{#if technician.last_checked_in_at}
+							<p class="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold text-emerald-700" style="background: #dcfce7;">
+								<CheckCircle2 class="h-3 w-3" />
+								Checked in {formatTimestamp(technician.last_checked_in_at)}
+							</p>
 						{/if}
-					</p>
-					{#if technician.group_name}
-						<p class="mt-2 inline-flex rounded-full px-3 py-1 text-[11px] font-semibold text-white" style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.18);">
-							Batch: {technician.group_name}
-						</p>
-					{/if}
-				</div>
+					</div>
 
-				<button
-					onclick={() => loadDashboard(false)}
-					disabled={refreshing}
-					class="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
-					style="background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.18);"
-				>
-					{#if refreshing}
-						<Loader2 class="h-4 w-4 animate-spin" />
-					{:else}
-						<RefreshCw class="h-4 w-4" />
-					{/if}
-					Refresh queue
-				</button>
+					<div class="flex flex-wrap items-stretch justify-center gap-2 lg:self-center">
+						<div class="w-35 rounded-[18px] px-2.5 py-2" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(96,165,250,0.28);">
+							<div class="flex items-center gap-1 text-blue-900">
+								<ClipboardList class="h-3.5 w-3.5" />
+								<p class="text-[9px] font-semibold">New orders</p>
+							</div>
+							<p class="mt-1 text-lg font-bold text-blue-900">{queueCounts.new}</p>
+						</div>
+						<div class="w-35 rounded-[18px] px-2.5 py-2" style="background: linear-gradient(to bottom, #fff7ed, #ffedd5); border: 1px solid rgba(251,146,60,0.28);">
+							<div class="flex items-center gap-1 text-orange-900">
+								<TestTube2 class="h-3.5 w-3.5" />
+								<p class="text-[9px] font-semibold">In progress</p>
+							</div>
+							<p class="mt-1 text-lg font-bold text-orange-900">{queueCounts.progress}</p>
+						</div>
+						<div class="w-35 rounded-[18px] px-2.5 py-2" style="background: linear-gradient(to bottom, #ecfdf5, #d1fae5); border: 1px solid rgba(52,211,153,0.28);">
+							<div class="flex items-center gap-1 text-emerald-900">
+								<CheckCircle2 class="h-3.5 w-3.5" />
+								<p class="text-[9px] font-semibold">Completed</p>
+							</div>
+							<p class="mt-1 text-lg font-bold text-emerald-900">{queueCounts.completed}</p>
+						</div>
+					</div>
+
+					<div class="flex flex-col gap-2 lg:w-60">
+						<div>
+							<label for="lab-active-station" class="mb-1 block text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Switch station</label>
+							<AquaSelect
+								id="lab-active-station"
+								value={technician.active_lab?.id ?? ''}
+								options={technician.permitted_labs.map((lab) => ({ value: lab.id, label: lab.name }))}
+								placeholder="Select station"
+								disabled={checkingInLabId !== null || technician.permitted_labs.length <= 1}
+								onchange={handleStationChange}
+								class="text-xs"
+								style="min-height: 42px;"
+							/>
+						</div>
+
+						<div class="flex items-stretch gap-2">
+							<div class="flex-1 rounded-[14px] px-2.5 py-2" style="background: linear-gradient(to bottom, #eff6ff, #f8fbff); border: 1px solid rgba(96,165,250,0.24);">
+								<p class="text-[8px] font-bold uppercase tracking-[0.12em] text-slate-500">Active</p>
+								<p class="mt-0.5 text-xs font-semibold text-slate-900">{technician.active_lab?.name}</p>
+								{#if technician.last_checked_in_at}
+									<p class="mt-0.5 text-[10px] text-slate-500">Since {formatTimestamp(technician.last_checked_in_at)}</p>
+								{/if}
+							</div>
+							<button
+								onclick={() => loadDashboard(false)}
+								disabled={refreshing}
+								class="inline-flex min-h-14.5 items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-semibold text-white cursor-pointer disabled:opacity-60"
+								style="background: linear-gradient(to bottom, #3b82f6, #2563eb); border: 1px solid rgba(29,78,216,0.14); box-shadow: 0 10px 18px rgba(37,99,235,0.16);"
+							>
+								{#if refreshing}
+									<Loader2 class="h-3 w-3 animate-spin" />
+								{:else}
+									<RefreshCw class="h-3 w-3" />
+								{/if}
+								<span>Refresh</span>
+							</button>
+						</div>
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -462,71 +536,6 @@
 			</div>
 		{:else}
 			<div class="space-y-4">
-				<div class="rounded-[28px] px-5 py-5"
-					style="background: linear-gradient(to bottom, #ffffff, #f8fbff); border: 1px solid rgba(148,163,184,0.26); box-shadow: 0 12px 28px rgba(15,23,42,0.06);">
-					<div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-						<div>
-							<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Active lab</p>
-							<h2 class="mt-1 text-xl font-bold text-slate-900">{technician.active_lab.name}</h2>
-							<p class="mt-1 text-sm text-slate-500">{technician.active_lab.lab_type} · {technician.active_lab.department}</p>
-							{#if technician.active_lab.location}
-								<p class="mt-1 text-xs text-slate-400">{technician.active_lab.location}</p>
-							{/if}
-							{#if technician.last_checked_in_at}
-								<p class="mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold text-emerald-700" style="background: #dcfce7;">
-									<CheckCircle2 class="h-3.5 w-3.5" />
-									Checked in {formatTimestamp(technician.last_checked_in_at)}
-								</p>
-							{/if}
-						</div>
-
-						<div class="xl:max-w-md">
-							<p class="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Switch station</p>
-							<div class="mt-3 flex flex-wrap gap-2">
-								{#each technician.permitted_labs as lab}
-									<button
-										onclick={() => checkInToLab(lab.id)}
-										disabled={checkingInLabId !== null}
-										class="rounded-full px-3 py-2 text-xs font-semibold cursor-pointer disabled:opacity-60"
-										style={technician.active_lab.id === lab.id
-											? 'background: linear-gradient(to bottom, #dbeafe, #bfdbfe); color: #1d4ed8; border: 1px solid #60a5fa;'
-											: 'background: #f8fafc; color: #334155; border: 1px solid rgba(148,163,184,0.3);'}
-									>
-										{#if checkingInLabId === lab.id}
-											<Loader2 class="mr-1 inline h-3.5 w-3.5 animate-spin" />
-										{/if}
-										{lab.name}
-									</button>
-								{/each}
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<div class="grid gap-4 md:grid-cols-3">
-					<div class="rounded-[24px] px-4 py-4" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid rgba(96,165,250,0.28);">
-						<div class="flex items-center gap-2 text-blue-900">
-							<ClipboardList class="h-4 w-4" />
-							<p class="text-sm font-semibold">New orders</p>
-						</div>
-						<p class="mt-3 text-3xl font-bold text-blue-900">{queueCounts.new}</p>
-					</div>
-					<div class="rounded-[24px] px-4 py-4" style="background: linear-gradient(to bottom, #fff7ed, #ffedd5); border: 1px solid rgba(251,146,60,0.28);">
-						<div class="flex items-center gap-2 text-orange-900">
-							<TestTube2 class="h-4 w-4" />
-							<p class="text-sm font-semibold">In progress</p>
-						</div>
-						<p class="mt-3 text-3xl font-bold text-orange-900">{queueCounts.progress}</p>
-					</div>
-					<div class="rounded-[24px] px-4 py-4" style="background: linear-gradient(to bottom, #ecfdf5, #d1fae5); border: 1px solid rgba(52,211,153,0.28);">
-						<div class="flex items-center gap-2 text-emerald-900">
-							<CheckCircle2 class="h-4 w-4" />
-							<p class="text-sm font-semibold">Completed</p>
-						</div>
-						<p class="mt-3 text-3xl font-bold text-emerald-900">{queueCounts.completed}</p>
-					</div>
-				</div>
-
 				<div class="rounded-[28px] px-5 py-5"
 					style="background: linear-gradient(to bottom, #ffffff, #f8fafc); border: 1px solid rgba(148,163,184,0.26); box-shadow: 0 12px 28px rgba(15,23,42,0.06);">
 					<div class="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">

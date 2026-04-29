@@ -1,1 +1,0 @@
-import{G as y,b as u,L as _,M as o,h as t,N as g,O as i,w as l,v as d,x as p,P as v}from"./eyEfZ-GA.js";function x(n,r){let s=null,E=t;var a;if(t){s=p;for(var e=v(document.head);e!==null&&(e.nodeType!==g||e.data!==n);)e=i(e);if(e===null)l(!1);else{var f=i(e);e.remove(),d(f)}}t||(a=document.head.appendChild(y()));try{u(()=>r(a),_|o)}finally{E&&(l(!0),d(s))}}export{x as h};
