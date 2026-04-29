@@ -79,6 +79,7 @@ export interface LabQueueReport {
 	accepted_by_me: boolean;
 	performed_by?: string | null;
 	supervised_by?: string | null;
+	awaiting_supervisor_approval?: boolean;
 	result_summary?: string | null;
 	notes?: string | null;
 	findings: Array<{
@@ -110,7 +111,7 @@ export interface LabResultPayload {
 	status: 'NORMAL' | 'ABNORMAL' | 'CRITICAL';
 	result_summary?: string;
 	notes?: string;
-	supervised_by?: string;
+	supervisor_id: string;
 	findings: Array<{
 		parameter: string;
 		value: string;

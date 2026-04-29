@@ -6,7 +6,7 @@
 	import { toastStore } from '$lib/stores/toast';
 	import { patientApi, type PatientDashboard, type ActiveMedication, type Appointment } from '$lib/api/patients';
 	import { studentApi, type EmergencyContact, type Clinic, type ClinicPatient, type AssignedPatient } from '$lib/api/students';
-	import { facultyApi } from '$lib/api/faculty';
+	import { facultyApi, type FacultyPendingLabReport } from '$lib/api/faculty';
 	import { getCurrentPosition } from '$lib/utils/geolocation';
 	import { approvalsApi, type ApprovalStats, type ScheduleItem } from '$lib/api/approvals';
 	import { autocompleteApi } from '$lib/api/autocomplete';
@@ -98,6 +98,11 @@
 	let facultyCheckingOut = $state(false);
 	let facultyTab = $state('admitted');
 	let facultyPatientSearch = $state('');
+	let pendingLabApprovals: FacultyPendingLabReport[] = $state([]);
+	let labApprovalActionId = $state<string | null>(null);
+	let labRevisionComments: Record<string, string> = $state({});
+	let expandedLabFindingsReportId = $state<string | null>(null);
+	let editedLabFindings: Record<string, Array<{ id: string; parameter: string; value: string; reference?: string; status: string }> | undefined> = $state({});
 
 	const activeFacultyClinicSession = $derived(
 		facultyClinicSessions.find((s) => s.checked_in_at && !s.checked_out_at) ?? null
@@ -143,6 +148,13 @@
 			count: approvalStats.prescriptions,
 			path: '/approvals?type=prescriptions',
 			color: '#3b82f6',
+		},
+		{
+			icon: TestTube,
+			label: 'Lab Result Approvals',
+			count: pendingLabApprovals.length,
+			path: '/approvals?type=lab-results',
+			color: '#f59e0b',
 		},
 	]);
 
@@ -551,6 +563,64 @@
 		}
 	}
 
+	async function refreshPendingLabApprovals() {
+		if (!faculty?.id) return;
+		pendingLabApprovals = await facultyApi.getPendingLabApprovals(faculty.id);
+	}
+
+	function toggleLabFindingsExpand(report: FacultyPendingLabReport) {
+		if (expandedLabFindingsReportId === report.id) {
+			expandedLabFindingsReportId = null;
+		} else {
+			expandedLabFindingsReportId = report.id;
+			if (!editedLabFindings[report.id]) {
+				editedLabFindings[report.id] = JSON.parse(JSON.stringify(report.findings));
+				editedLabFindings = { ...editedLabFindings };
+			}
+		}
+	}
+
+	async function handleApproveLabReport(report: FacultyPendingLabReport) {
+		if (!faculty?.id || labApprovalActionId) return;
+		labApprovalActionId = report.id;
+		try {
+			const editedFindings = editedLabFindings[report.id];
+			const dataToSend = editedFindings
+				? { findings: editedFindings }
+				: undefined;
+			await facultyApi.approveLabReport(faculty.id, report.id, dataToSend);
+			pendingLabApprovals = pendingLabApprovals.filter((item) => item.id !== report.id);
+			labRevisionComments = { ...labRevisionComments, [report.id]: '' };
+			editedLabFindings = { ...editedLabFindings, [report.id]: undefined };
+			toastStore.addToast('Lab report approved', 'success');
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Failed to approve lab report', 'error');
+		} finally {
+			labApprovalActionId = null;
+		}
+	}
+
+	async function handleRequestLabRevision(report: FacultyPendingLabReport) {
+		if (!faculty?.id || labApprovalActionId) return;
+		const comments = (labRevisionComments[report.id] || '').trim();
+		if (!comments) {
+			toastStore.addToast('Add revision comments before requesting changes', 'error');
+			return;
+		}
+
+		labApprovalActionId = report.id;
+		try {
+			await facultyApi.requestLabReportRevision(faculty.id, report.id, comments);
+			pendingLabApprovals = pendingLabApprovals.filter((item) => item.id !== report.id);
+			labRevisionComments = { ...labRevisionComments, [report.id]: '' };
+			toastStore.addToast('Revision request sent to lab technician', 'success');
+		} catch (err: any) {
+			toastStore.addToast(err?.response?.data?.detail ?? 'Failed to request revision', 'error');
+		} finally {
+			labApprovalActionId = null;
+		}
+	}
+
 	let medicationTakenSuccess = $state(false);
 
 	async function handleMedicationTaken() {
@@ -604,6 +674,7 @@
 				faculty = await facultyApi.getMe();
 				approvals = await facultyApi.getApprovals(faculty.id);
 				approvalStats = await approvalsApi.getApprovalStats(faculty.id);
+				pendingLabApprovals = await facultyApi.getPendingLabApprovals(faculty.id);
 				todaySchedule = await approvalsApi.getTodaySchedule(faculty.id);
 				const admissionsRes = await facultyApi.getAdmittedPatients('Active', ADMITTED_PATIENTS_LIMIT, 0);
 				admittedPatients = admissionsRes.items || [];
@@ -660,6 +731,7 @@
 				} else if (role === 'FACULTY' && faculty) {
 					approvals = await facultyApi.getApprovals(faculty.id);
 					approvalStats = await approvalsApi.getApprovalStats(faculty.id);
+					await refreshPendingLabApprovals();
 				}
 			} catch (err) {
 				toastStore.addToast('Auto-refresh failed', 'error');
@@ -1261,6 +1333,7 @@ style="{cr.status === 'APPROVED' ? 'background:rgba(16,185,129,0.1);color:#05966
 			{/each}
 		</div>
 
+		<!-- Patient List with Tabs -->
 		<!-- Patient List with Tabs -->
 		<AquaCard padding={false}>
 			<!-- Tabs -->

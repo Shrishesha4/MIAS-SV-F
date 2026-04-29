@@ -13,6 +13,7 @@ from app.core.exceptions import NotFoundException
 from app.database import get_db
 from app.models.lab import Lab, LabTestParameter
 from app.models.lab_technician import LabTechnician, LabTechnicianGroup, lab_technician_batch_members
+from app.models.faculty import Faculty
 from app.models.report import Report, ReportFinding, ReportStatus
 from app.models.user import User, UserRole
 from app.services.daily_checkins import ensure_daily_checkin
@@ -45,7 +46,7 @@ class ReportResultRequest(BaseModel):
     status: str
     result_summary: Optional[str] = None
     notes: Optional[str] = None
-    supervised_by: Optional[str] = None
+    supervisor_id: Optional[str] = None
 
 
 def _serialize_lab(lab: Lab) -> dict:
@@ -155,6 +156,12 @@ def _serialize_report_item(
     elif report.status == ReportStatus.PENDING:
         workflow_status = "IN_PROGRESS"
 
+    awaiting_supervisor_approval = (
+        report.status == ReportStatus.PENDING
+        and bool(report.accepted_by_user_id)
+        and bool(report.findings)
+    )
+
     return {
         "id": report.id,
         "lab_id": report.lab_id,
@@ -175,6 +182,7 @@ def _serialize_report_item(
         "accepted_by_me": report.accepted_by_user_id == viewer_user_id,
         "performed_by": report.performed_by,
         "supervised_by": report.supervised_by,
+        "awaiting_supervisor_approval": awaiting_supervisor_approval,
         "result_summary": report.result_summary,
         "notes": report.notes,
         "findings": [
@@ -580,25 +588,35 @@ async def save_lab_report_results(
     if report.accepted_by_user_id and report.accepted_by_user_id != user.id:
         raise HTTPException(status_code=409, detail="This lab order is assigned to another technician")
 
+    if not data.supervisor_id or not data.supervisor_id.strip():
+        raise HTTPException(status_code=400, detail="Supervisor selection is required")
+
+    supervisor_result = await db.execute(
+        select(Faculty).where(Faculty.id == data.supervisor_id.strip())
+    )
+    supervisor = supervisor_result.scalar_one_or_none()
+    if not supervisor:
+        raise HTTPException(status_code=400, detail="Selected supervisor is invalid")
+
     try:
-        resolved_status = ReportStatus(data.status)
+        ReportStatus(data.status)
     except ValueError:
         raise HTTPException(status_code=400, detail="Status must be NORMAL, ABNORMAL, or CRITICAL")
 
-    if resolved_status == ReportStatus.PENDING:
-        raise HTTPException(status_code=400, detail="Completed lab results cannot remain pending")
     if not data.result_summary and not data.findings:
         raise HTTPException(status_code=400, detail="Add either a summary or at least one result row")
 
     report.accepted_by_user_id = user.id
     report.accepted_at = report.accepted_at or datetime.utcnow()
     report.performed_by = technician.name
-    report.supervised_by = data.supervised_by.strip() if data.supervised_by else None
+    report.supervised_by = supervisor.name
     if data.result_summary is not None:
         report.result_summary = data.result_summary.strip() or None
     if data.notes is not None:
         report.notes = data.notes.strip() or None
-    report.status = resolved_status
+    # Result entry is a supervised workflow: technician submits for approval,
+    # faculty supervisor finalizes NORMAL/ABNORMAL/CRITICAL status.
+    report.status = ReportStatus.PENDING
 
     # Build a parameter lookup map for auto-computing status if test_parameters are defined
     param_map: dict[str, LabTestParameter] = {}

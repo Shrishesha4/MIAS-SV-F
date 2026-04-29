@@ -54,6 +54,31 @@ export interface FacultySearchResult {
   specialty: string | null;
 }
 
+export interface FacultyPendingLabReport {
+  id: string;
+  patient_id: string;
+  patient_name: string;
+  patient_code?: string | null;
+  title: string;
+  type: string;
+  department: string;
+  ordered_by: string;
+  ordered_at?: string | null;
+  time?: string | null;
+  performed_by?: string | null;
+  supervised_by?: string | null;
+  result_summary?: string | null;
+  notes?: string | null;
+  lab_name?: string | null;
+  findings: Array<{
+    id: string;
+    parameter: string;
+    value: string;
+    reference?: string | null;
+    status: string;
+  }>;
+}
+
 export const facultyApi = {
   async searchFaculty(q: string): Promise<FacultySearchResult[]> {
     const response = await client.get('/faculty/search', { params: { q, limit: 20 } });
@@ -84,6 +109,31 @@ export const facultyApi = {
 
   async processApproval(facultyId: string, approvalId: string, data: { status: string; comments?: string; score?: number }) {
     const response = await client.put(`/faculty/${facultyId}/approvals/${approvalId}`, data);
+    return response.data;
+  },
+
+  async getPendingLabApprovals(facultyId: string): Promise<FacultyPendingLabReport[]> {
+    const response = await client.get(`/faculty/${facultyId}/lab-approvals`);
+    return response.data;
+  },
+
+  async approveLabReport(
+    facultyId: string,
+    reportId: string,
+    data?: { status?: 'NORMAL' | 'ABNORMAL' | 'CRITICAL'; comments?: string; findings?: Array<{ id: string; parameter: string; value: string; reference?: string; status: string }> }
+  ) {
+    const response = await client.put(`/faculty/${facultyId}/lab-reports/${reportId}/approve`, data ?? {});
+    return response.data;
+  },
+
+  async requestLabReportRevision(
+    facultyId: string,
+    reportId: string,
+    comments: string
+  ) {
+    const response = await client.put(`/faculty/${facultyId}/lab-reports/${reportId}/request-revision`, {
+      comments,
+    });
     return response.data;
   },
 

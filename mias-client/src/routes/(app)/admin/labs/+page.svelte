@@ -475,6 +475,30 @@
 			toastStore.addToast('Parameter name is required', 'error');
 			return;
 		}
+
+		// Validate threshold ordering: CRV < LRV < HRV < CHRV
+		const crv = paramData.critically_low !== '' ? Number(paramData.critically_low) : null;
+		const lrv = paramData.low !== '' ? Number(paramData.low) : null;
+		const hrv = paramData.high !== '' ? Number(paramData.high) : null;
+		const chrv = paramData.critically_high !== '' ? Number(paramData.critically_high) : null;
+
+		const thresholds: Array<{ name: string; value: number }> = [
+			{ name: 'Critically Low (CRV)', value: crv },
+			{ name: 'Low (LRV)', value: lrv },
+			{ name: 'High (HRV)', value: hrv },
+			{ name: 'Critically High (CHRV)', value: chrv }
+		].filter((t): t is { name: string; value: number } => t.value !== null);
+
+		for (let i = 0; i < thresholds.length - 1; i++) {
+			if (thresholds[i]!.value >= thresholds[i + 1]!.value) {
+				toastStore.addToast(
+					`${thresholds[i]!.name} must be less than ${thresholds[i + 1]!.name}`,
+					'error'
+				);
+				return;
+			}
+		}
+
 		savingParam = true;
 		try {
 			const payload = {
@@ -482,10 +506,10 @@
 				unit: paramData.unit.trim() || undefined,
 				reference_required: paramData.reference_required,
 				normal_range: paramData.normal_range.toString().trim() || undefined,
-				low: paramData.low !== '' ? Number(paramData.low) : null,
-				critically_low: paramData.critically_low !== '' ? Number(paramData.critically_low) : null,
-				high: paramData.high !== '' ? Number(paramData.high) : null,
-				critically_high: paramData.critically_high !== '' ? Number(paramData.critically_high) : null,
+				low: lrv,
+				critically_low: crv,
+				high: hrv,
+				critically_high: chrv,
 				sort_order: paramData.sort_order,
 				is_active: paramData.is_active,
 			};
@@ -1395,21 +1419,25 @@ style="{!paramData.reference_required ? 'background: #94a3b8; color: white;' : '
 <div class="rounded-lg p-2.5" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);">
 <!-- svelte-ignore a11y_label_has_associated_control -->
 <label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #dc2626;">Critically Low (CRV)</label>
+<p class="text-[8px] text-slate-500 mb-1.5">If value ≤ this</p>
 <input type="number" step="any" placeholder="e.g. 5.0" class="w-full px-2.5 py-1.5 text-sm border border-red-200 rounded-md" style="background: white;" bind:value={paramData.critically_low} />
 </div>
 <div class="rounded-lg p-2.5" style="background: rgba(249,115,22,0.06); border: 1px solid rgba(249,115,22,0.15);">
 <!-- svelte-ignore a11y_label_has_associated_control -->
 <label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #ea580c;">Low (LRV)</label>
+<p class="text-[8px] text-slate-500 mb-1.5">Lower normal limit</p>
 <input type="number" step="any" placeholder="e.g. 8.0" class="w-full px-2.5 py-1.5 text-sm border border-orange-200 rounded-md" style="background: white;" bind:value={paramData.low} />
 </div>
 <div class="rounded-lg p-2.5" style="background: rgba(234,179,8,0.06); border: 1px solid rgba(234,179,8,0.15);">
 <!-- svelte-ignore a11y_label_has_associated_control -->
 <label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #ca8a04;">High (HRV)</label>
+<p class="text-[8px] text-slate-500 mb-1.5">Upper normal limit</p>
 <input type="number" step="any" placeholder="e.g. 17.5" class="w-full px-2.5 py-1.5 text-sm border border-yellow-200 rounded-md" style="background: white;" bind:value={paramData.high} />
 </div>
 <div class="rounded-lg p-2.5" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.15);">
 <!-- svelte-ignore a11y_label_has_associated_control -->
 <label class="block text-[10px] font-bold uppercase tracking-wide mb-1" style="color: #dc2626;">Critically High (CHRV)</label>
+<p class="text-[8px] text-slate-500 mb-1.5">If value ≥ this</p>
 <input type="number" step="any" placeholder="e.g. 20.0" class="w-full px-2.5 py-1.5 text-sm border border-red-200 rounded-md" style="background: white;" bind:value={paramData.critically_high} />
 </div>
 </div>

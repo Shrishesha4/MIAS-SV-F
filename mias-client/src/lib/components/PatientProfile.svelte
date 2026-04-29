@@ -98,6 +98,10 @@
 		toastStore.addToast('This patient is not assigned to you. You can view details, but editing is disabled.', 'info');
 	}
 
+	function normalizeAdmissionStatus(status: unknown): string {
+		return String(status || '').trim().toLowerCase();
+	}
+
 	function openProfileOverviewModal() {
 		if (!patient) return;
 		showProfileOverviewModal = true;
@@ -136,6 +140,11 @@
 			.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
 			[0]?.id ?? null
 	);
+
+	const hasDischargedAdmission = $derived(
+		admissions.some((adm: any) => normalizeAdmissionStatus(adm?.status) === 'discharged')
+	);
+
 	let loading = $state(true);
 	let showLabOrderModal = $state(false);
 
@@ -443,6 +452,10 @@
 	}
 
 	function openVitalModal() {
+		if (entryLockedByDischarge) {
+			toastStore.addToast('Patient is discharged. New entries are locked for this case.', 'warning');
+			return;
+		}
 		if (studentReadOnly) {
 			showReadOnlyToast();
 			return;
@@ -543,11 +556,54 @@
 	const alertPanelOpen = $derived(showAlertInput || showAlertHistory);
 	const diagnosisPanelOpen = $derived(showDiagnosisInput || showDiagnosisHistory);
 	const currentAdmission = $derived(
-		admissions.find((a: any) => a.status === 'Active') ?? null
+		admissions.find((a: any) => normalizeAdmissionStatus(a?.status) === 'active') ?? null
 	);
 	const pendingAdmission = $derived(
-		admissions.find((a: any) => a.status === 'Pending Approval') ?? null
+		admissions.find((a: any) => normalizeAdmissionStatus(a?.status) === 'pending approval') ?? null
 	);
+	const latestDischargedAdmission = $derived.by(() => {
+		const discharged = admissions
+			.filter((a: any) => normalizeAdmissionStatus(a?.status) === 'discharged')
+			.sort(
+				(a: any, b: any) =>
+					new Date(b?.discharge_date || b?.admission_date || 0).getTime() -
+					new Date(a?.discharge_date || a?.admission_date || 0).getTime()
+			);
+		return discharged[0] ?? null;
+	});
+	const entryLockedByDischarge = $derived(
+		!!latestDischargedAdmission && !currentAdmission
+	);
+	const caseRecordEditAllowed = $derived(
+		!entryLockedByDischarge && (role === 'ADMIN' || role === 'MRD' || !hasDischargedAdmission)
+	);
+	const dischargedContext = $derived.by(() => {
+		if (!latestDischargedAdmission) {
+			return {
+				admitWhy: '',
+				dischargeWhy: '',
+				dischargeDate: '',
+			};
+		}
+		const admitWhy =
+			latestDischargedAdmission.reason ||
+			latestDischargedAdmission.chief_complaints ||
+			latestDischargedAdmission.diagnosis ||
+			'Not specified';
+		const dischargeWhy =
+			latestDischargedAdmission.discharge_summary ||
+			latestDischargedAdmission.discharge_instructions ||
+			latestDischargedAdmission.notes ||
+			'No discharge note provided';
+		const dischargeDate = latestDischargedAdmission.discharge_date
+			? formatReportDate(latestDischargedAdmission.discharge_date)
+			: 'Date unavailable';
+		return {
+			admitWhy,
+			dischargeWhy,
+			dischargeDate,
+		};
+	});
 	const investigationReports = $derived.by(() =>
 		reports.filter((report) => report.type !== 'Radiology')
 	);
@@ -827,6 +883,10 @@
 	}
 
 	function requestLabOrder() {
+		if (entryLockedByDischarge) {
+			toastStore.addToast('Patient is discharged. Lab ordering is disabled.', 'warning');
+			return;
+		}
 		if (studentReadOnly) {
 			showReadOnlyToast();
 			return;
@@ -1005,6 +1065,10 @@
 	}
 
 	async function openAddCaseRecordModal() {
+		if (entryLockedByDischarge) {
+			toastStore.addToast('Patient is discharged. Case record entry is disabled.', 'warning');
+			return;
+		}
 		if (loadingCrForms) return;
 		loadingCrForms = true;
 		try {
@@ -1041,6 +1105,7 @@
 
 	async function submitCaseRecord() {
 		if (!patient || crSubmitting || !selectedCrForm) return;
+		if (entryLockedByDischarge) return;
 		if (studentReadOnly) return;
 		if (role === 'STUDENT' && !studentData) return;
 		crSubmitting = true;
@@ -1094,6 +1159,7 @@
 
 	async function submitVital() {
 		if (!patient || vSubmitting) return;
+		if (entryLockedByDischarge) return;
 		if (studentReadOnly) return;
 		if (selectedVitalFields.length === 0) {
 			toastStore.addToast('No active vital parameters configured.', 'error');
@@ -1167,6 +1233,7 @@
 
 	async function submitPrescription() {
 		if (!patient || rxSubmitting) return;
+		if (entryLockedByDischarge) return;
 		if (studentReadOnly) return;
 		rxSubmitting = true;
 		try {
@@ -1224,6 +1291,7 @@
 		faculty_id: string;
 	}) {
 		if (!patient || !studentData) return;
+		if (entryLockedByDischarge) return;
 		if (studentReadOnly) return;
 		try {
 			const today = new Date().toISOString().split('T')[0];
@@ -1266,6 +1334,10 @@
 	}
 
 	function openAdmissionRequestModal() {
+		if (entryLockedByDischarge) {
+			toastStore.addToast('Patient is discharged. Re-admission from this case profile is disabled.', 'warning');
+			return;
+		}
 		if (studentReadOnly) {
 			showReadOnlyToast();
 			return;
@@ -1275,7 +1347,7 @@
 	}
 
 	async function submitAdmissionRequest() {
-		if (role !== 'STUDENT' || studentReadOnly || !patient || !studentData || admissionSubmitting) return;
+		if (entryLockedByDischarge || role !== 'STUDENT' || studentReadOnly || !patient || !studentData || admissionSubmitting) return;
 		if (!admissionFacultyId) {
 			admissionError = 'Please select a faculty approver';
 			return;
@@ -1397,6 +1469,7 @@
 
 	async function submitPrescriptionRequest() {
 		if (!patient || prSubmitting) return;
+		if (entryLockedByDischarge) return;
 		prSubmitting = true;
 		try {
 			const submittedValues = await persistFormFiles(
@@ -1965,10 +2038,15 @@
 					</button>
 					{#if currentAdmission}
 						<span class="rounded-xl bg-blue-600 px-3 py-1 text-xs font-black tracking-wide text-white">ADMITTED</span>
+					{:else if entryLockedByDischarge}
+						<span class="rounded-xl bg-indigo-600 px-3 py-1 text-xs font-black tracking-wide text-white">DISCHARGED</span>
 					{:else if pendingAdmission}
 						<span class="text-xs font-semibold text-slate-500">Request pending faculty approval</span>
 					{:else}
 						<span class="text-xs font-medium text-slate-500">No active admission</span>
+					{/if}
+					{#if entryLockedByDischarge}
+						<span class="text-xs font-medium text-slate-500">Discharged on {dischargedContext.dischargeDate}</span>
 					{/if}
 				</div>
 			</div>
@@ -1977,6 +2055,11 @@
 				<a href="/patients/{patient.id}/review" class="shrink-0 flex items-center gap-1.5 text-[13px] font-black tracking-wide text-blue-600">
 					REVIEW <ChevronRight class="h-4 w-4" />
 				</a>
+			{:else if entryLockedByDischarge}
+				<div class="max-w-[520px] rounded-2xl px-4 py-2 text-xs" style="background: rgba(238,242,255,0.9); border: 1px solid rgba(99,102,241,0.22);">
+					<p class="font-semibold text-indigo-700">Admitted Why: <span class="font-medium">{dischargedContext.admitWhy}</span></p>
+					<p class="mt-1 font-semibold text-indigo-700">Discharged Why: <span class="font-medium">{dischargedContext.dischargeWhy}</span></p>
+				</div>
 			{:else if pendingAdmission && role === 'STUDENT' && canEdit}
 				<button class="shrink-0 flex items-center gap-2 rounded-2xl px-4 py-2.5 text-xs font-bold cursor-not-allowed"
 					style="background: rgba(240,253,244,0.9); border: 1px solid rgba(134,239,172,0.95); color: #15803d; box-shadow: inset 0 1px 0 rgba(255,255,255,0.8);" disabled>
@@ -2071,20 +2154,20 @@
 									<p class="text-xs text-gray-500">{admission.ward || 'Not assigned'}</p>
 								</div>
 								<span class="px-2 py-0.5 rounded-full text-xs font-bold"
-									style="background: {admission.status === 'ACTIVE' ? '#dcfce7' : admission.status === 'DISCHARGED' ? '#e0e7ff' : '#fef3c7'};
-									       color: {admission.status === 'ACTIVE' ? '#166534' : admission.status === 'DISCHARGED' ? '#4338ca' : '#a16207'};">
+									style="background: {normalizeAdmissionStatus(admission.status) === 'active' ? '#dcfce7' : normalizeAdmissionStatus(admission.status) === 'discharged' ? '#e0e7ff' : '#fef3c7'};
+									       color: {normalizeAdmissionStatus(admission.status) === 'active' ? '#166534' : normalizeAdmissionStatus(admission.status) === 'discharged' ? '#4338ca' : '#a16207'};">
 									{admission.status}
 								</span>
 							</div>
 							<div class="grid grid-cols-2 gap-2 text-sm text-gray-600">
 								<div>
 									<span class="text-gray-400">Admitted:</span>
-									{admission.admitted_at ? new Date(admission.admitted_at).toLocaleDateString() : '—'}
+									{admission.admission_date ? new Date(admission.admission_date).toLocaleDateString() : '—'}
 								</div>
-								{#if admission.discharged_at}
+								{#if admission.discharge_date}
 									<div>
 										<span class="text-gray-400">Discharged:</span>
-										{new Date(admission.discharged_at).toLocaleDateString()}
+										{new Date(admission.discharge_date).toLocaleDateString()}
 									</div>
 								{/if}
 							</div>
@@ -2093,9 +2176,9 @@
 									Attending: {admission.attending_doctor}
 								</p>
 							{/if}
-							{#if admission.reason_for_admission}
+							{#if admission.reason || admission.chief_complaints || admission.diagnosis}
 								<p class="text-sm text-gray-700 mt-2">
-									<span class="text-gray-400">Reason:</span> {admission.reason_for_admission}
+									<span class="text-gray-400">Reason:</span> {admission.reason || admission.chief_complaints || admission.diagnosis}
 								</p>
 							{/if}
 							{#if admission.discharge_summary}
@@ -2192,12 +2275,19 @@
 					<h3 class="font-bold text-gray-800">Case Records</h3>
 				</div>
 				{#if studentEditAllowed || role !== 'STUDENT'}
+					{#if !caseRecordEditAllowed}
+					<div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-200 text-xs font-medium text-orange-700">
+						<AlertTriangle class="w-4 h-4" />
+						<span>Read-only: Patient discharged</span>
+					</div>
+					{:else}
 					<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 						style="background: linear-gradient(to bottom, #4d90fe, #0066cc); color: white;
 						       border: 1px solid rgba(0,0,0,0.15); box-shadow: 0 1px 3px rgba(0,102,204,0.3);"
 						onclick={openAddCaseRecordModal}>
 						<Plus class="w-3 h-3" /> Add Entry
 					</button>
+					{/if}
 				{/if}
 			</div>
 
@@ -2356,12 +2446,16 @@
 						</div>
 					</div>
 					<div class="flex flex-wrap items-center gap-2">
-						{#if studentEditAllowed || role !== 'STUDENT'}
+						{#if (studentEditAllowed || role !== 'STUDENT') && !entryLockedByDischarge}
 							<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
 							style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); color: #2563eb; border: 1px solid rgba(59,130,246,0.22);"
 							onclick={openVitalModal}>
 							MANUAL ENTRY
 							</button>
+						{:else if entryLockedByDischarge}
+							<div class="rounded-xl px-3 py-2 text-xs font-bold" style="background: rgba(99,102,241,0.08); color: #4f46e5; border: 1px solid rgba(99,102,241,0.22);">
+								Entry Locked (Discharged)
+							</div>
 						{/if}
 						<button class="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
 							style="background: {trendsView === 'charts' ? 'linear-gradient(to bottom, #3b82f6, #2563eb)' : 'white'}; color: {trendsView === 'charts' ? 'white' : '#2563eb'}; border: 1px solid rgba(59,130,246,0.24);"
@@ -2481,7 +2575,7 @@
 					<h3 class="font-bold text-gray-800">Medications</h3>
 				</div>
 				<div class="flex gap-2">
-					{#if role === 'PATIENT'}
+					{#if role === 'PATIENT' && !entryLockedByDischarge}
 						<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 							style="background: linear-gradient(to bottom, #f97316, #ea580c); color: white;
 							       border: 1px solid rgba(0,0,0,0.15);"
@@ -2489,7 +2583,7 @@
 							<Send class="w-3 h-3" /> Request Rx
 						</button>
 					{/if}
-					{#if studentEditAllowed || role !== 'STUDENT'}
+					{#if (studentEditAllowed || role !== 'STUDENT') && !entryLockedByDischarge}
 						<button class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer"
 							style="background: linear-gradient(to bottom, #22c55e, #16a34a); color: white;
 							       border: 1px solid rgba(0,0,0,0.15);"
@@ -2499,6 +2593,10 @@
 							}}>
 							<Plus class="w-3 h-3" /> Add Prescription
 						</button>
+					{:else if entryLockedByDischarge}
+						<div class="rounded-lg px-3 py-1.5 text-xs font-semibold" style="background: rgba(99,102,241,0.08); color: #4f46e5; border: 1px solid rgba(99,102,241,0.22);">
+							Prescription Entry Locked
+						</div>
 					{/if}
 				</div>
 			</div>
@@ -2544,7 +2642,7 @@
 											<Send class="w-3 h-3" /> Renew
 										</button>
 									{/if}
-									{#if studentEditAllowed || role !== 'STUDENT'}
+									{#if (studentEditAllowed || role !== 'STUDENT') && !entryLockedByDischarge}
 										<button class="w-6 h-6 rounded-full flex items-center justify-center cursor-pointer"
 											style="background: rgba(0,0,0,0.06);"
 											onclick={() => openEditPrescription(rx)}>
@@ -2605,6 +2703,7 @@
 									{:else}
 										<span class="text-xs text-red-400 flex-1">Rejected — no comment provided</span>
 									{/if}
+									{#if !entryLockedByDischarge}
 									<button
 										onclick={() => {
 											redoPrescriptionData = {
@@ -2625,6 +2724,7 @@
 										<RotateCcw class="w-3 h-3" />
 										Redo
 									</button>
+									{/if}
 								</div>
 							{/if}
 						</div>
@@ -2687,12 +2787,16 @@
 							<p class="text-xs text-slate-500">{investigationReports.length} reports recorded for this patient</p>
 						</div>
 					</div>
-					{#if interactiveClinicalAccess}
+					{#if interactiveClinicalAccess && !entryLockedByDischarge}
 						<button class="flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-bold text-white cursor-pointer"
 							style="background: linear-gradient(to bottom, #60a5fa, #2563eb); border: 1px solid rgba(37,99,235,0.34); box-shadow: 0 8px 18px rgba(37,99,235,0.2);"
 							onclick={requestLabOrder}>
 							<Plus class="h-4 w-4" /> ORDER LAB
 						</button>
+					{:else if entryLockedByDischarge}
+						<div class="rounded-2xl px-4 py-2 text-sm font-bold" style="background: rgba(99,102,241,0.08); color: #4f46e5; border: 1px solid rgba(99,102,241,0.22);">
+							LAB ENTRY LOCKED
+						</div>
 					{/if}
 				</div>
 			</div>

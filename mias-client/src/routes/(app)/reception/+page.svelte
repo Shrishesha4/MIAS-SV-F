@@ -10,6 +10,7 @@
 	import AquaModal from '$lib/components/ui/AquaModal.svelte';
 	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
+	import { formatDateIST, formatDateTimeIST } from '$lib/utils/ist';
 	import { toastStore } from '$lib/stores/toast';
 	import {
 		Users, UserCheck, Clock, Calendar, Building, Search, X,
@@ -22,7 +23,7 @@
 	}
 
 	function formatRegisteredAt(value: string) {
-		return new Date(value).toLocaleString('en-IN', {
+		return formatDateTimeIST(value, {
 			day: '2-digit',
 			month: 'short',
 			hour: '2-digit',
@@ -502,24 +503,6 @@
 			</div>
 		</div>
 
-		<div class="flex gap-2 overflow-x-auto pb-1">
-			{#each clinics as clinic (clinic.id)}
-				<button
-					class="shrink-0 rounded-2xl px-4 py-2.5 text-left cursor-pointer transition-all"
-					style={selectedClinic?.id === clinic.id
-						? 'background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 2px 6px rgba(37,99,235,0.3);'
-						: 'background: white; color: #1f2937; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 3px rgba(0,0,0,0.06);'}
-					onclick={async () => {
-						selectedClinic = clinic;
-						await refreshAll();
-					}}
-				>
-					<p class="text-xs font-semibold">{clinic.name}</p>
-					<p class="text-[10px] opacity-80">{clinicAccessModeLabel(clinic.access_mode)}</p>
-				</button>
-			{/each}
-		</div>
-
 		<div class="grid gap-4 xl:grid-cols-[1.25fr_0.9fr]">
 			<div class="space-y-4">
 				<div class="overflow-hidden rounded-[18px]" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
@@ -680,6 +663,24 @@
 					{/if}
 				</div>
 
+				<div class="flex gap-2 overflow-x-auto pb-1">
+					{#each clinics as clinic (clinic.id)}
+						<button
+							class="shrink-0 rounded-2xl px-4 py-2.5 text-left cursor-pointer transition-all"
+							style={selectedClinic?.id === clinic.id
+								? 'background: linear-gradient(to bottom, #3b82f6, #2563eb); color: white; border: 1px solid rgba(0,0,0,0.12); box-shadow: 0 2px 6px rgba(37,99,235,0.3);'
+								: 'background: white; color: #1f2937; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 1px 3px rgba(0,0,0,0.06);'}
+							onclick={async () => {
+								selectedClinic = clinic;
+								await refreshAll();
+							}}
+						>
+							<p class="text-xs font-semibold">{clinic.name}</p>
+							<p class="text-[10px] opacity-80">{clinicAccessModeLabel(clinic.access_mode)}</p>
+						</button>
+					{/each}
+				</div>
+
 				<div class="overflow-hidden rounded-[18px]" style="background: white; border: 1px solid rgba(0,0,0,0.08); box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
 					<div class="px-4 py-4" style="background: linear-gradient(to bottom, #f8fafc, #eef2ff); border-bottom: 1px solid rgba(0,0,0,0.06);">
 						<div class="flex items-start justify-between gap-3">
@@ -696,7 +697,7 @@
 								</div>
 							</div>
 							<div class="text-right text-xs text-gray-500">
-								<p>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+								<p>{formatDateIST(new Date(), { day: 'numeric', month: 'short', year: 'numeric' })}</p>
 								<p class="mt-1 font-semibold text-gray-700">{activeStudentsInClinic.length} active students</p>
 							</div>
 						</div>

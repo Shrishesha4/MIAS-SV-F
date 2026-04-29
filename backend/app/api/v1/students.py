@@ -570,6 +570,22 @@ async def create_case_record(
     import uuid
     from datetime import datetime
 
+    # Check if patient is discharged
+    patient_id = body.get("patient_id")
+    if patient_id:
+        admission_result = await db.execute(
+            select(Admission)
+            .where(Admission.patient_id == patient_id)
+            .where(Admission.status == "Discharged")
+            .order_by(Admission.discharge_date.desc())
+        )
+        discharged_admission = admission_result.scalar_one_or_none()
+        if discharged_admission:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot modify case records for discharged patients"
+            )
+
     record = CaseRecord(
         id=str(uuid.uuid4()),
         patient_id=body.get("patient_id"),
@@ -1327,6 +1343,22 @@ async def submit_case_record_for_approval(
     db: AsyncSession = Depends(get_db),
 ):
     """Submit a case record for faculty approval"""
+    # Check if patient is discharged
+    patient_id = body.get("patient_id")
+    if patient_id:
+        admission_result = await db.execute(
+            select(Admission)
+            .where(Admission.patient_id == patient_id)
+            .where(Admission.status == "Discharged")
+            .order_by(Admission.discharge_date.desc())
+        )
+        discharged_admission = admission_result.scalar_one_or_none()
+        if discharged_admission:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot modify case records for discharged patients"
+            )
+
     # Look up the student name for created_by
     stu_result = await db.execute(select(Student).where(Student.id == student_id))
     stu = stu_result.scalar_one_or_none()

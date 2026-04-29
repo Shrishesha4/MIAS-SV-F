@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { get } from 'svelte/store';
-	import type { AdmissionIOEvent, AdmissionIOEventSummary, AdmissionSoapNote, AdmissionEquipment, Vital } from '$lib/api/types';
+	import type { AdmissionIOEvent, AdmissionIOEventSummary, AdmissionSoapNote, AdmissionEquipment, Vital, VitalParameterConfig } from '$lib/api/types';
 	import { authStore } from '$lib/stores/auth';
 	import { patientApi } from '$lib/api/patients';
 	import { nurseApi, type SBARNote } from '$lib/api/nurse';
@@ -56,14 +56,9 @@
 
 	// ── Record Vitals form ────────────────────────────────────────
 	let showVitalModal = $state(false);
-	let vitalBP = $state('');
-	let vitalHR = $state('');
-	let vitalRR = $state('');
-	let vitalSpO2 = $state('');
-	let vitalTemp = $state('');
-	let vitalWeight = $state('');
-	let vitalGlucose = $state('');
 	let vitalSubmitting = $state(false);
+	let vitalParameterConfigs = $state.raw<VitalParameterConfig[]>([]);
+	let vitalFormValues = $state<Record<string, string>>({});
 
 	// ── Connect Equipment form ────────────────────────────────────
 	let showEquipModal = $state(false);
@@ -159,6 +154,17 @@
 	const selectedVitalsCount = $derived(
 		selectedVitalParams.filter(p => p in vitalParamsConfig).length
 	);
+	const configuredVitalFields = $derived.by(() =>
+		[...vitalParameterConfigs]
+			.sort((a, b) => (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER))
+			.map((parameter) => ({
+				key: parameter.name,
+				label: parameter.display_name,
+				unit: parameter.unit ?? '',
+				valueStyle: parameter.value_style ?? 'single',
+				placeholder: parameter.value_style === 'slash' ? 'e.g. 120/80' : 'Enter value',
+			}))
+	);
 
 	onMount(async () => {
 		const auth = get(authStore);
@@ -167,12 +173,14 @@
 
 		const pid = get(page).params.patientId!;
 		try {
-			const [p, admList, vs] = await Promise.all([
+			const [p, admList, vs, configuredVitals] = await Promise.all([
 				patientApi.getPatient(pid),
 				patientApi.getAdmissions(pid),
 				patientApi.getVitals(pid, 30),
+				patientApi.getActiveVitalParameters().catch(() => []),
 			]);
 			patient = p;
+			vitalParameterConfigs = configuredVitals;
 			vitals = vs.sort((a: any, b: any) =>
 				new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime());
 			admission = admList.find((a: any) => a.status === 'Active') ?? admList[0] ?? null;
@@ -266,24 +274,42 @@
 
 	async function submitVital() {
 		if (!patient) return;
+		if (configuredVitalFields.length === 0) {
+			toastStore.addToast('No active vital parameters configured.', 'error');
+			return;
+		}
 		const pid = patient.id;
 		vitalSubmitting = true;
 		try {
-			const [sys, dia] = vitalBP.split('/').map(Number);
-			await patientApi.createVital(pid, {
-				systolic_bp: sys || undefined,
-				diastolic_bp: dia || undefined,
-				heart_rate: vitalHR ? Number(vitalHR) : undefined,
-				respiratory_rate: vitalRR ? Number(vitalRR) : undefined,
-				temperature: vitalTemp ? Number(vitalTemp) : undefined,
-				oxygen_saturation: vitalSpO2 ? Number(vitalSpO2) : undefined,
-				weight: vitalWeight ? Number(vitalWeight) : undefined,
-				blood_glucose: vitalGlucose ? Number(vitalGlucose) : undefined,
-			});
+			const payload: Record<string, string | number | undefined> = {};
+			for (const field of configuredVitalFields) {
+				const rawValue = (vitalFormValues[field.key] ?? '').trim();
+				if (!rawValue) continue;
+
+				if (field.valueStyle === 'slash') {
+					if (field.key === 'systolic_bp') {
+						const [sysRaw, diaRaw] = rawValue.split('/').map((value) => value.trim());
+						const sys = Number(sysRaw);
+						const dia = Number(diaRaw);
+						if (!Number.isNaN(sys)) payload.systolic_bp = sys;
+						if (!Number.isNaN(dia)) payload.diastolic_bp = dia;
+					} else {
+						payload[field.key] = rawValue;
+					}
+					continue;
+				}
+
+				const numericValue = Number(rawValue);
+				if (!Number.isNaN(numericValue)) {
+					payload[field.key] = numericValue;
+				}
+			}
+
+			await patientApi.createVital(pid, payload);
 			vitals = (await patientApi.getVitals(pid, 30)).sort((a: any, b: any) =>
 				new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime());
 			showVitalModal = false;
-			vitalBP = ''; vitalHR = ''; vitalRR = ''; vitalSpO2 = ''; vitalTemp = ''; vitalWeight = ''; vitalGlucose = '';
+			vitalFormValues = {};
 			toastStore.addToast('Vital recorded', 'success');
 		} catch { toastStore.addToast('Failed to record vital', 'error'); }
 		finally { vitalSubmitting = false; }
@@ -1476,50 +1502,36 @@
 			<span class="font-semibold text-gray-800">Record Vitals</span>
 		</div>
 	{/snippet}
-	<div class="grid grid-cols-2 gap-3">
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">BP (mmHg)</div>
-			<input bind:value={vitalBP} placeholder="e.g. 120/80" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+	{#if configuredVitalFields.length === 0}
+		<div class="rounded-lg px-3 py-3 text-sm text-amber-700"
+			style="background: #fffbeb; border: 1px solid rgba(245,158,11,0.3);"
+		>
+			No active vital parameters are configured by admin.
 		</div>
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">Heart Rate (bpm)</div>
-			<input bind:value={vitalHR} type="number" placeholder="e.g. 76" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
+	{:else}
+		<div class="grid grid-cols-2 gap-3">
+			{#each configuredVitalFields as field (field.key)}
+				<div class={field.valueStyle === 'slash' ? 'col-span-2' : ''}>
+					<div class="text-xs font-medium text-gray-600 mb-1">{field.label}{field.unit ? ` (${field.unit})` : ''}</div>
+					<input
+						bind:value={vitalFormValues[field.key]}
+						type={field.valueStyle === 'slash' ? 'text' : 'number'}
+						step={field.valueStyle === 'slash' ? undefined : 'any'}
+						placeholder={field.placeholder}
+						class="w-full px-3 py-2 rounded-lg text-sm outline-none"
+						style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);"
+					/>
+				</div>
+			{/each}
 		</div>
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">Resp. Rate (/min)</div>
-			<input bind:value={vitalRR} type="number" placeholder="e.g. 18" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-		</div>
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">SpO₂ (%)</div>
-			<input bind:value={vitalSpO2} type="number" placeholder="e.g. 98" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-		</div>
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">Temperature (°F)</div>
-			<input bind:value={vitalTemp} type="number" step="0.1" placeholder="e.g. 98.6" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-		</div>
-		<div>
-			<div class="text-xs font-medium text-gray-600 mb-1">Weight (kg)</div>
-			<input bind:value={vitalWeight} type="number" step="0.1" placeholder="e.g. 72" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-		</div>
-		<div class="col-span-2">
-			<div class="text-xs font-medium text-gray-600 mb-1">Blood Glucose (mg/dL)</div>
-			<input bind:value={vitalGlucose} type="number" placeholder="e.g. 110" class="w-full px-3 py-2 rounded-lg text-sm outline-none"
-				style="background: #f8faff; border: 1px solid rgba(0,0,0,0.15);" />
-		</div>
-	</div>
+	{/if}
 	<div class="flex justify-end gap-2 mt-5">
 		<button class="px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
 			style="background: linear-gradient(to bottom, #f0f4fa, #d5dde8); border: 1px solid rgba(0,0,0,0.2);"
 			onclick={() => showVitalModal = false}>Cancel</button>
 		<button class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer"
 			style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 2px 4px rgba(22,163,74,0.3);"
-			onclick={submitVital} disabled={vitalSubmitting}>
+			onclick={submitVital} disabled={vitalSubmitting || configuredVitalFields.length === 0}>
 			{vitalSubmitting ? 'Saving...' : 'Save Vitals'}
 		</button>
 	</div>

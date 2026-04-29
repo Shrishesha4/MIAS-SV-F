@@ -24,7 +24,7 @@ from app.models.faculty import Faculty
 from app.models.report import Report
 from app.models.wallet import WalletTransaction, WalletType, TransactionType, PatientWallet
 from app.models.notification import PatientNotification, ScheduledNotification
-from app.models.case_record import Approval, CaseRecord
+from app.models.case_record import Approval, ApprovalStatus, ApprovalType, CaseRecord
 from app.schemas.patient import PatientResponse, PatientDetailResponse
 from app.services.ai_provider import AIProviderError, generate_case_record_draft
 from app.services.patient_insurance import sync_patient_insurance_category
@@ -281,6 +281,21 @@ async def create_patient_case_record(
     from app.models.faculty import Faculty
 
     is_faculty = user.role == UserRole.FACULTY
+
+    # Check if patient is discharged (block STUDENT/FACULTY only)
+    if user.role in (UserRole.STUDENT, UserRole.FACULTY):
+        admission_result = await db.execute(
+            select(Admission)
+            .where(Admission.patient_id == patient_id)
+            .where(Admission.status == "Discharged")
+            .order_by(Admission.discharge_date.desc())
+        )
+        discharged_admission = admission_result.scalar_one_or_none()
+        if discharged_admission:
+            raise HTTPException(
+                status_code=403,
+                detail="Cannot modify case records for discharged patients"
+            )
 
     # Resolve name of the creator
     creator_name = "Unknown"
@@ -1026,7 +1041,11 @@ async def discharge_patient(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Discharge a patient from an active admission."""
+    """Discharge a patient from an active admission.
+
+    Non-faculty users submit a discharge request that requires faculty approval.
+    Faculty users can directly discharge.
+    """
     from app.models.student import StudentPatientAssignment
 
     admission = (
@@ -1042,11 +1061,70 @@ async def discharge_patient(
     if admission.status != "Active":
         raise HTTPException(status_code=400, detail="Only active admissions can be discharged")
 
-    admission.status = "Discharged"
-    admission.discharge_date = datetime.utcnow()
     admission.discharge_summary = body.get("discharge_summary", "")
     admission.discharge_instructions = body.get("discharge_instructions", "")
     admission.diagnosis = body.get("diagnosis") or admission.diagnosis
+
+    follow_up = body.get("follow_up_date")
+    if follow_up:
+        try:
+            admission.follow_up_date = datetime.fromisoformat(follow_up)
+        except ValueError:
+            pass
+
+    # Faculty can finalize directly. Other roles must request faculty approval.
+    if user.role != UserRole.FACULTY:
+        faculty_id = body.get("faculty_id") or admission.faculty_approver_id
+        if not faculty_id:
+            raise HTTPException(
+                status_code=400,
+                detail="faculty_id is required to submit discharge for approval",
+            )
+
+        faculty = (
+            await db.execute(select(Faculty).where(Faculty.id == faculty_id))
+        ).scalar_one_or_none()
+        if not faculty:
+            raise HTTPException(status_code=400, detail="Invalid faculty_id")
+
+        existing_pending = (
+            await db.execute(
+                select(Approval)
+                .where(Approval.admission_id == admission.id)
+                .where(Approval.approval_type == ApprovalType.DISCHARGE_SUMMARY)
+                .where(Approval.status == ApprovalStatus.PENDING)
+            )
+        ).scalar_one_or_none()
+        if existing_pending:
+            raise HTTPException(
+                status_code=400,
+                detail="Discharge request is already pending faculty approval",
+            )
+
+        admission.status = "Pending Discharge Approval"
+        admission.faculty_approver_id = faculty_id
+
+        approval = Approval(
+            id=str(uuid.uuid4()),
+            approval_type=ApprovalType.DISCHARGE_SUMMARY,
+            admission_id=admission.id,
+            faculty_id=faculty_id,
+            patient_id=patient_id,
+            student_id=admission.submitted_by_student_id,
+            status=ApprovalStatus.PENDING,
+        )
+        db.add(approval)
+
+        await db.commit()
+        return {
+            "message": "Discharge submitted for faculty approval",
+            "id": admission.id,
+            "status": admission.status,
+            "approval_id": approval.id,
+        }
+
+    admission.status = "Discharged"
+    admission.discharge_date = datetime.utcnow()
 
     active_assignments = (
         await db.execute(
@@ -1058,13 +1136,6 @@ async def discharge_patient(
     ).scalars().all()
     for assignment in active_assignments:
         assignment.status = "Completed"
-
-    follow_up = body.get("follow_up_date")
-    if follow_up:
-        try:
-            admission.follow_up_date = datetime.fromisoformat(follow_up)
-        except ValueError:
-            pass
 
     await db.commit()
     return {

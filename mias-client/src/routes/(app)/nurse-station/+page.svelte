@@ -15,6 +15,7 @@
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
+	import { formatDateTimeIST, nowISTTime } from '$lib/utils/ist';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import { ChevronRight, ChevronDown, Stethoscope, ClipboardList, FileText, Loader2, UserCheck, UserPlus, AlertCircle, Zap, RefreshCw } from 'lucide-svelte';
 
@@ -82,7 +83,7 @@
 	}
 
 	function formatRegisteredAt(value: string) {
-		return new Date(value).toLocaleString('en-IN', {
+		return formatDateTimeIST(value, {
 			day: '2-digit',
 			month: 'short',
 			hour: '2-digit',
@@ -697,7 +698,7 @@
 												<div class="pt-2 border-t border-gray-200">
 													<div class="flex items-center justify-between mb-3">
 														<p class="text-xs text-gray-600">
-															Nurse: {nurseInfo?.name} • {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+															Nurse: {nurseInfo?.name} • {nowISTTime({ hour: '2-digit', minute: '2-digit' })}
 														</p>
 													</div>
 													<button

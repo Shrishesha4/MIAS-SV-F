@@ -27,7 +27,7 @@
 		};
 	};
 	type ResultForm = {
-		supervised_by: string;
+		supervisor_id: string;
 		findings: FindingRow[];
 	};
 
@@ -42,7 +42,7 @@
 
 	function createEmptyResultForm(): ResultForm {
 		return {
-			supervised_by: '',
+			supervisor_id: '',
 			findings: [],
 		};
 	}
@@ -214,7 +214,7 @@
 		}
 
 		resultForm = {
-			supervised_by: report.supervised_by ?? '',
+			supervisor_id: supervisors.find((sup) => sup.name === report.supervised_by)?.id ?? '',
 			findings,
 		};
 	}
@@ -335,14 +335,19 @@
 			return;
 		}
 
+		if (!resultForm.supervisor_id.trim()) {
+			toastStore.addToast('Select supervisor before submitting results', 'error');
+			return;
+		}
+
 		savingResults = true;
 		try {
 			await labTechnicianApi.saveResults(selectedReportId, {
 				status: computedOverallStatus,
-				supervised_by: resultForm.supervised_by.trim() || undefined,
+				supervisor_id: resultForm.supervisor_id.trim(),
 				findings,
 			});
-			toastStore.addToast('Results saved successfully', 'success');
+			toastStore.addToast('Results submitted for supervisor approval', 'success');
 			closeResultsModal();
 			await loadDashboard(false);
 		} catch (e: any) {
@@ -650,14 +655,20 @@
 												</button>
 											{:else if activeTab === 'progress'}
 												{#if report.accepted_by_me}
-													<button
-														onclick={() => loadReportDetail(report.id, 'results')}
-														class="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white cursor-pointer"
-														style="background: linear-gradient(to bottom, #ea580c, #c2410c); box-shadow: 0 10px 18px rgba(234,88,12,0.18);"
-													>
-														<Microscope class="h-4 w-4" />
-														Enter results
-													</button>
+													{#if report.awaiting_supervisor_approval}
+														<div class="rounded-2xl px-4 py-2.5 text-center text-xs font-semibold text-amber-700" style="background: #fef3c7; border: 1px solid #fcd34d;">
+															Awaiting supervisor approval
+														</div>
+													{:else}
+														<button
+															onclick={() => loadReportDetail(report.id, 'results')}
+															class="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-semibold text-white cursor-pointer"
+															style="background: linear-gradient(to bottom, #ea580c, #c2410c); box-shadow: 0 10px 18px rgba(234,88,12,0.18);"
+														>
+															<Microscope class="h-4 w-4" />
+															Enter results
+														</button>
+													{/if}
 												{:else}
 													<div class="rounded-2xl px-4 py-2.5 text-center text-xs font-semibold text-slate-500" style="background: #f8fafc; border: 1px dashed rgba(148,163,184,0.4);">
 														Waiting for current assignee
@@ -791,8 +802,8 @@
 					<label for="lab-result-supervisor" class="mb-1 block text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Supervised by</label>
 				<AquaSelect
 					id="lab-result-supervisor"
-					bind:value={resultForm.supervised_by}
-					options={supervisors.map(sup => ({value: sup.name, label: sup.name + (sup.department ? ' · ' + sup.department : '')}))}
+					bind:value={resultForm.supervisor_id}
+					options={supervisors.map(sup => ({value: sup.id, label: sup.name + (sup.department ? ' · ' + sup.department : '')}))}
 					placeholder="— Select supervisor —"
 				/>
 				</div>
@@ -932,16 +943,16 @@
 				</button>
 				<button
 					onclick={saveResults}
-					disabled={savingResults}
+					disabled={savingResults || !resultForm.supervisor_id.trim()}
 					class="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold text-white cursor-pointer disabled:opacity-60"
 					style="background: linear-gradient(to bottom, #059669, #047857); box-shadow: 0 10px 18px rgba(5,150,105,0.18);"
 				>
 					{#if savingResults}
 						<Loader2 class="h-4 w-4 animate-spin" />
-						Saving results...
+						Submitting...
 					{:else}
 						<CheckCircle2 class="h-4 w-4" />
-						Save results
+						Submit for approval
 					{/if}
 				</button>
 			</div>

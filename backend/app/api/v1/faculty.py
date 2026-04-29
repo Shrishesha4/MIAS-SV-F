@@ -16,6 +16,7 @@ from app.models.faculty import Faculty, FacultyClinicSession, FacultyNotificatio
 from app.models.case_record import Approval, ApprovalType, ApprovalStatus, CaseRecord
 from app.models.admission import Admission
 from app.models.prescription import Prescription
+from app.models.report import Report, ReportStatus
 from app.models.student import Clinic, Student
 from app.api.v1.patient_serialization import serialize_patient_badge_context, serialize_patient_insurance
 from app.services.daily_checkins import ensure_daily_checkin
@@ -31,6 +32,16 @@ class FacultyClinicCheckInRequest(BaseModel):
     lat: float | None = None
     lng: float | None = None
     accuracy: float | None = None
+
+
+class LabReportApprovalRequest(BaseModel):
+    status: Optional[str] = None
+    comments: Optional[str] = None
+    findings: Optional[List[dict]] = None
+
+
+class LabReportRevisionRequest(BaseModel):
+    comments: str
 
 CASE_RECORD_SCORE_TO_GRADE = {
     0: "F",
@@ -53,6 +64,19 @@ def resolve_case_record_grade(grade: Optional[str], score: Optional[int]) -> Opt
     if score is None:
         return None
     return CASE_RECORD_SCORE_TO_GRADE.get(score)
+
+
+def resolve_lab_report_status_from_findings(report: Report) -> ReportStatus:
+    finding_statuses = [
+        (finding.status or "").strip().lower()
+        for finding in (report.findings or [])
+        if (finding.value or "").strip()
+    ]
+    if any(status in {"critically low", "critically high", "critical"} for status in finding_statuses):
+        return ReportStatus.CRITICAL
+    if any(status in {"low", "high", "abnormal"} for status in finding_statuses):
+        return ReportStatus.ABNORMAL
+    return ReportStatus.NORMAL
 
 
 @router.get("/me")
@@ -747,13 +771,36 @@ async def process_approval(
             "provisional_diagnosis",
             "proposed_plan",
             "discharge_summary",
+            "discharge_instructions",
         ]:
             if field in admission_updates:
                 setattr(approval.admission, field, admission_updates[field])
-        if new_status == "APPROVED":
-            approval.admission.status = "Active"
+
+        if approval.approval_type == ApprovalType.DISCHARGE_SUMMARY:
+            if new_status == "APPROVED":
+                approval.admission.status = "Discharged"
+                approval.admission.discharge_date = datetime.utcnow()
+
+                from app.models.student import StudentPatientAssignment
+
+                active_assignments = (
+                    await db.execute(
+                        select(StudentPatientAssignment).where(
+                            StudentPatientAssignment.patient_id == approval.admission.patient_id,
+                            StudentPatientAssignment.status == "Active",
+                        )
+                    )
+                ).scalars().all()
+                for assignment in active_assignments:
+                    assignment.status = "Completed"
+            else:
+                approval.admission.status = "Active"
+                approval.admission.discharge_date = None
         else:
-            approval.admission.status = "Rejected"
+            if new_status == "APPROVED":
+                approval.admission.status = "Active"
+            else:
+                approval.admission.status = "Rejected"
 
     if approval.prescription:
         for field in ["doctor", "department", "notes", "status"]:
@@ -785,6 +832,180 @@ async def process_approval(
 
     await db.commit()
     return {"message": "Approval processed", "status": approval.status.value}
+
+
+@router.get("/{faculty_id}/lab-approvals")
+async def get_pending_lab_report_approvals(
+    faculty_id: str,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    faculty_result = await db.execute(
+        select(Faculty).where(Faculty.id == faculty_id)
+    )
+    faculty = faculty_result.scalar_one_or_none()
+    if not faculty or faculty.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only access your own lab approvals")
+
+    result = await db.execute(
+        select(Report)
+        .options(selectinload(Report.patient), selectinload(Report.findings), selectinload(Report.lab))
+        .where(Report.supervised_by == faculty.name, Report.status == ReportStatus.PENDING)
+        .order_by(Report.date.desc(), Report.created_at.desc())
+        .limit(100)
+    )
+    reports = result.scalars().all()
+
+    pending_reports = [
+        report for report in reports
+        if report.accepted_by_user_id and len(report.findings or []) > 0
+    ]
+
+    return [
+        {
+            "id": report.id,
+            "patient_id": report.patient_id,
+            "patient_name": report.patient.name if report.patient else "Unknown Patient",
+            "patient_code": report.patient.patient_id if report.patient else None,
+            "title": report.title,
+            "type": report.type,
+            "department": report.department,
+            "ordered_by": report.ordered_by,
+            "ordered_at": report.date.isoformat() if report.date else None,
+            "time": report.time,
+            "performed_by": report.performed_by,
+            "supervised_by": report.supervised_by,
+            "result_summary": report.result_summary,
+            "notes": report.notes,
+            "lab_name": report.lab.name if report.lab else None,
+            "findings": [
+                {
+                    "id": finding.id,
+                    "parameter": finding.parameter,
+                    "value": finding.value,
+                    "reference": finding.reference,
+                    "status": finding.status,
+                }
+                for finding in (report.findings or [])
+            ],
+        }
+        for report in pending_reports
+    ]
+
+
+@router.put("/{faculty_id}/lab-reports/{report_id}/approve")
+async def approve_lab_report(
+    faculty_id: str,
+    report_id: str,
+    body: LabReportApprovalRequest,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    faculty_result = await db.execute(
+        select(Faculty).where(Faculty.id == faculty_id)
+    )
+    faculty = faculty_result.scalar_one_or_none()
+    if not faculty or faculty.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only approve reports assigned to you")
+
+    result = await db.execute(
+        select(Report)
+        .options(selectinload(Report.findings))
+        .where(Report.id == report_id)
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.supervised_by != faculty.name:
+        raise HTTPException(status_code=403, detail="This report is not assigned to you")
+    if report.status != ReportStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending reports can be approved")
+    if not report.findings:
+        raise HTTPException(status_code=400, detail="Report has no findings to approve")
+
+    approved_status: ReportStatus
+    if body.status:
+        normalized_status = body.status.strip().upper()
+        if normalized_status not in {ReportStatus.NORMAL.value, ReportStatus.ABNORMAL.value, ReportStatus.CRITICAL.value}:
+            raise HTTPException(status_code=400, detail="Status must be NORMAL, ABNORMAL, or CRITICAL")
+        approved_status = ReportStatus(normalized_status)
+    else:
+        approved_status = resolve_lab_report_status_from_findings(report)
+
+    report.status = approved_status
+    if body.comments is not None:
+        comment = body.comments.strip()
+        if comment:
+            existing_notes = (report.notes or "").strip()
+            report.notes = f"{existing_notes}\nApproved by {faculty.name}: {comment}" if existing_notes else f"Approved by {faculty.name}: {comment}"
+
+    # Update findings if provided by supervisor
+    if body.findings:
+        findings_by_id = {f.id: f for f in (report.findings or [])}
+        for edited in body.findings:
+            finding_id = edited.get("id")
+            if finding_id in findings_by_id:
+                finding = findings_by_id[finding_id]
+                if "value" in edited:
+                    finding.value = str(edited["value"]).strip()
+                if "reference" in edited:
+                    finding.reference = str(edited["reference"]).strip() if edited["reference"] else None
+                if "status" in edited:
+                    finding.status = str(edited["status"]).strip()
+
+    await db.commit()
+    return {
+        "message": "Lab report approved",
+        "status": report.status.value,
+        "report_id": report.id,
+    }
+
+
+@router.put("/{faculty_id}/lab-reports/{report_id}/request-revision")
+async def request_lab_report_revision(
+    faculty_id: str,
+    report_id: str,
+    body: LabReportRevisionRequest,
+    user: User = Depends(require_role(UserRole.FACULTY)),
+    db: AsyncSession = Depends(get_db),
+):
+    comments = body.comments.strip()
+    if not comments:
+        raise HTTPException(status_code=400, detail="Revision comments are required")
+
+    faculty_result = await db.execute(
+        select(Faculty).where(Faculty.id == faculty_id)
+    )
+    faculty = faculty_result.scalar_one_or_none()
+    if not faculty or faculty.user_id != user.id:
+        raise HTTPException(status_code=403, detail="You can only request revisions for your own assigned reports")
+
+    report_result = await db.execute(
+        select(Report)
+        .options(selectinload(Report.findings))
+        .where(Report.id == report_id)
+    )
+    report = report_result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.supervised_by != faculty.name:
+        raise HTTPException(status_code=403, detail="This report is not assigned to you")
+    if report.status != ReportStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Only pending reports can be sent for revision")
+
+    existing_notes = (report.notes or "").strip()
+    revision_note = f"Revision requested by {faculty.name}: {comments}"
+    report.notes = f"{existing_notes}\n{revision_note}" if existing_notes else revision_note
+
+    # Clearing findings moves this back to technician in-progress state.
+    report.findings = []
+
+    await db.commit()
+    return {
+        "message": "Revision requested for lab report",
+        "status": report.status.value,
+        "report_id": report.id,
+    }
 
 
 @router.get("/{faculty_id}/today-schedule")

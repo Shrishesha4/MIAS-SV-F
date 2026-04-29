@@ -2,8 +2,9 @@
     import { onMount } from 'svelte';
     import { page } from '$app/state';
     import { goto } from '$app/navigation';
-    import { facultyApi } from '$lib/api/faculty';
+    import { facultyApi, type FacultyPendingLabReport } from '$lib/api/faculty';
     import { approvalsApi, type ApprovalItem } from '$lib/api/approvals';
+    import { TestTube } from 'lucide-svelte';
     import { toastStore } from '$lib/stores/toast';
     import { redirectIfUnauthorized } from '$lib/utils/roleGuard';
     import AquaCard from '$lib/components/ui/AquaCard.svelte';
@@ -84,6 +85,7 @@
     let activeTab = $state('pending');
     let pendingApprovals: ApprovalItem[] = $state([]);
     let historyApprovals: ApprovalItem[] = $state([]);
+    let pendingLabReports: FacultyPendingLabReport[] = $state([]);
     let loading = $state(true);
     let facultyId = $state('');
     let approvalType = $state('case-records');
@@ -92,6 +94,11 @@
     let approvalComments: Record<string, string> = $state({});
     let detailModal = $state<ApprovalItem | null>(null);
     let approvalDrafts: Record<string, ApprovalDraft> = $state({});
+    // Lab report state
+    let labActionId = $state<string | null>(null);
+    let labRevisionComments: Record<string, string> = $state({});
+    let expandedLabReportId = $state<string | null>(null);
+    let editedLabFindings: Record<string, Array<{id:string; parameter:string; value:string; reference?:string; status:string}>> = $state({});
 
     const tabs = [
         { id: 'pending', label: 'Pending Approvals' },
@@ -104,6 +111,7 @@
         'discharge': 'Discharge Approvals',
         'admissions': 'Admission Approvals',
         'prescriptions': 'Prescription Approvals',
+        'lab-results': 'Lab Result Approvals',
     };
 
     const scoreOptions = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -143,7 +151,11 @@
     let isAdmissionType = $derived(approvalType === 'admissions');
     let usesScore = $derived(approvalType === 'case-records');
     let pageTitle = $derived(typeLabels[approvalType] || 'Approvals');
-    let activeCount = $derived(activeTab === 'pending' ? pendingApprovals.length : historyApprovals.length);
+    let activeCount = $derived(
+        approvalType === 'lab-results'
+            ? pendingLabReports.length
+            : activeTab === 'pending' ? pendingApprovals.length : historyApprovals.length
+    );
 
     function getScore(id: string): number {
         return scores[id] ?? 5;
@@ -346,17 +358,21 @@
             const faculty = await facultyApi.getMe();
             facultyId = faculty.id;
 
-            pendingApprovals = await approvalsApi.getPendingApprovals(faculty.id, approvalType);
-            historyApprovals = await approvalsApi.getApprovalHistory(faculty.id);
-            historyApprovals = historyApprovals.filter(a => {
-                const typeMap: Record<string, string> = {
-                    'case-records': 'CASE_RECORD',
-                    'discharge': 'DISCHARGE_SUMMARY',
-                    'admissions': 'ADMISSION',
-                    'prescriptions': 'PRESCRIPTION',
-                };
-                return a.type === typeMap[approvalType];
-            });
+            if (approvalType === 'lab-results') {
+                pendingLabReports = await facultyApi.getPendingLabApprovals(faculty.id);
+            } else {
+                pendingApprovals = await approvalsApi.getPendingApprovals(faculty.id, approvalType);
+                historyApprovals = await approvalsApi.getApprovalHistory(faculty.id);
+                historyApprovals = historyApprovals.filter(a => {
+                    const typeMap: Record<string, string> = {
+                        'case-records': 'CASE_RECORD',
+                        'discharge': 'DISCHARGE_SUMMARY',
+                        'admissions': 'ADMISSION',
+                        'prescriptions': 'PRESCRIPTION',
+                    };
+                    return a.type === typeMap[approvalType];
+                });
+            }
         } catch (err) {
             toastStore.addToast('Failed to load approvals', 'error');
         } finally {
@@ -368,13 +384,61 @@
         if (loading || !facultyId) return;
         const interval = setInterval(async () => {
             try {
-                pendingApprovals = await approvalsApi.getPendingApprovals(facultyId, approvalType);
+                if (approvalType === 'lab-results') {
+                    pendingLabReports = await facultyApi.getPendingLabApprovals(facultyId);
+                } else {
+                    pendingApprovals = await approvalsApi.getPendingApprovals(facultyId, approvalType);
+                }
             } catch (err) {
                 toastStore.addToast('Auto-refresh failed', 'error');
             }
         }, 30000);
         return () => clearInterval(interval);
     });
+
+    function toggleLabExpand(report: FacultyPendingLabReport) {
+        if (expandedLabReportId === report.id) {
+            expandedLabReportId = null;
+        } else {
+            expandedLabReportId = report.id;
+            if (!editedLabFindings[report.id]) {
+                editedLabFindings[report.id] = report.findings.map(f => ({ ...f, reference: f.reference ?? undefined }));
+                editedLabFindings = { ...editedLabFindings };
+            }
+        }
+    }
+
+    async function handleApproveLabReport(report: FacultyPendingLabReport) {
+        labActionId = report.id;
+        try {
+            const findings = editedLabFindings[report.id];
+            await facultyApi.approveLabReport(facultyId, report.id, { findings });
+            toastStore.addToast('Lab report approved', 'success');
+            pendingLabReports = await facultyApi.getPendingLabApprovals(facultyId);
+        } catch {
+            toastStore.addToast('Failed to approve lab report', 'error');
+        } finally {
+            labActionId = null;
+        }
+    }
+
+    async function handleRequestLabRevision(report: FacultyPendingLabReport) {
+        const comments = labRevisionComments[report.id]?.trim();
+        if (!comments) {
+            toastStore.addToast('Revision notes are required', 'error');
+            return;
+        }
+        labActionId = report.id;
+        try {
+            await facultyApi.requestLabReportRevision(facultyId, report.id, comments);
+            toastStore.addToast('Revision requested', 'success');
+            pendingLabReports = await facultyApi.getPendingLabApprovals(facultyId);
+        } catch {
+            toastStore.addToast('Failed to request revision', 'error');
+        } finally {
+            labActionId = null;
+        }
+    }
 </script>
 
 <div class="px-4 py-4 md:px-6 md:py-6">
@@ -422,6 +486,139 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Lab Results Approvals -->
+            {#if approvalType === 'lab-results'}
+                <div class="space-y-4">
+                    {#if pendingLabReports.length === 0}
+                        <div class="mx-auto max-w-3xl rounded-[28px] border border-slate-200 px-6 py-12 text-center"
+                            style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 18px 40px rgba(15,23,42,0.06);">
+                            <CheckCircle class="mx-auto mb-3 h-12 w-12 text-green-200" />
+                            <p class="text-base font-semibold text-slate-500">No pending lab reports</p>
+                            <p class="mt-1 text-sm text-slate-400">All lab reports have been reviewed.</p>
+                        </div>
+                    {:else}
+                        {#each pendingLabReports as report (report.id)}
+                            {@const isProcessing = labActionId === report.id}
+                            <div class="mx-auto max-w-3xl rounded-[28px] border border-slate-200 overflow-hidden"
+                                style="background: linear-gradient(to bottom, #ffffff, #f8fafc); box-shadow: 0 18px 40px rgba(15,23,42,0.06);">
+                                <div class="px-6 pt-6 pb-4">
+                                    <!-- Header -->
+                                    <div class="flex items-start gap-3 mb-4">
+                                        <div class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                                            style="background: rgba(245, 158, 11, 0.12);">
+                                            <TestTube class="w-5 h-5" style="color: #d97706;" />
+                                        </div>
+                                        <div class="flex-1 min-w-0">
+                                            <p class="text-base font-bold text-slate-800 leading-tight">{report.title}</p>
+                                            <p class="text-sm text-slate-500 mt-0.5">{report.patient_name}{#if report.patient_code} · {report.patient_code}{/if}</p>
+                                        </div>
+                                    </div>
+                                    <!-- Badges -->
+                                    <div class="flex flex-wrap gap-2 mb-4">
+                                        <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background: rgba(59,130,246,0.08); color: #1d4ed8;">{report.department}</span>
+                                        <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background: rgba(148,163,184,0.12); color: #475569;">{report.findings.length} findings</span>
+                                        {#if report.performed_by}
+                                            <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background: rgba(16,185,129,0.1); color: #047857;">By {report.performed_by}</span>
+                                        {/if}
+                                        {#if report.lab_name}
+                                            <span class="text-xs font-medium px-2.5 py-1 rounded-full" style="background: rgba(139,92,246,0.08); color: #6d28d9;">{report.lab_name}</span>
+                                        {/if}
+                                    </div>
+                                    {#if report.result_summary}
+                                        <p class="text-sm text-slate-600 mb-4 p-3 rounded-xl" style="background: rgba(248,250,252,0.9); border: 1px solid rgba(148,163,184,0.2);">{report.result_summary}</p>
+                                    {/if}
+                                    <!-- Expandable Findings -->
+                                    <button
+                                        type="button"
+                                        class="flex items-center gap-2 text-sm font-medium text-blue-600 cursor-pointer mb-2"
+                                        onclick={() => toggleLabExpand(report)}
+                                    >
+                                        <!-- <span>{expandedLabReportId === report.id ? '▲' : '▼'}</span> -->
+                                        <span>View & Edit Findings</span>
+                                    </button>
+                                    {#if expandedLabReportId === report.id && editedLabFindings[report.id]}
+                                        <div class="space-y-3 p-4 rounded-xl mb-4" style="background: rgba(248,250,252,0.8); border: 1px solid rgba(59,130,246,0.15);">
+                                            {#each editedLabFindings[report.id] as finding, idx (finding.id)}
+                                                <div class="p-3 rounded-lg" style="background: #ffffff; border: 1px solid rgba(148,163,184,0.2);">
+                                                    <p class="text-xs font-semibold text-slate-700 mb-2">{finding.parameter}</p>
+                                                    <div class="grid grid-cols-3 gap-2">
+                                                        <div>
+                                                            <label class="text-[10px] text-slate-400 block mb-0.5">Value</label>
+                                                            <input type="text"
+                                                                class="w-full rounded-lg px-2 py-1.5 text-xs"
+                                                                style="border: 1px solid rgba(148,163,184,0.35); background: rgba(255,255,255,0.9);"
+                                                                value={finding.value}
+                                                                oninput={(e) => { editedLabFindings[report.id][idx].value = e.currentTarget.value; editedLabFindings = { ...editedLabFindings }; }}
+                                                                placeholder="e.g. 150"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label class="text-[10px] text-slate-400 block mb-0.5">Reference</label>
+                                                            <input type="text"
+                                                                class="w-full rounded-lg px-2 py-1.5 text-xs"
+                                                                style="border: 1px solid rgba(148,163,184,0.35); background: rgba(255,255,255,0.9);"
+                                                                value={finding.reference || ''}
+                                                                oninput={(e) => { editedLabFindings[report.id][idx].reference = e.currentTarget.value || undefined; editedLabFindings = { ...editedLabFindings }; }}
+                                                                placeholder="e.g. 120-140"
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label class="text-[10px] text-slate-400 block mb-0.5">Status</label>
+                                                            <select
+                                                                class="w-full rounded-lg px-2 py-1.5 text-xs"
+                                                                style="border: 1px solid rgba(148,163,184,0.35); background: rgba(255,255,255,0.9);"
+                                                                value={finding.status}
+                                                                onchange={(e) => { editedLabFindings[report.id][idx].status = e.currentTarget.value; editedLabFindings = { ...editedLabFindings }; }}
+                                                            >
+                                                                <option value="Normal">Normal</option>
+                                                                <option value="Abnormal">Abnormal</option>
+                                                                <option value="Critical">Critical</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            {/each}
+                                        </div>
+                                    {/if}
+                                    <!-- Revision notes -->
+                                    <div class="mb-4">
+                                        <p class="text-xs font-medium text-slate-500 mb-1.5">REVISION NOTES</p>
+                                        <textarea
+                                            class="w-full rounded-xl px-3 py-2.5 text-sm text-slate-700 resize-none"
+                                            style="border: 1px solid rgba(148,163,184,0.3); background: rgba(248,250,252,0.8); min-height: 72px;"
+                                            placeholder="Notes for technician (required when requesting revision)..."
+                                            value={labRevisionComments[report.id] || ''}
+                                            oninput={(e) => { labRevisionComments[report.id] = e.currentTarget.value; labRevisionComments = { ...labRevisionComments }; }}
+                                        ></textarea>
+                                    </div>
+                                    <!-- Actions -->
+                                    <div class="flex gap-3">
+                                        <button
+                                            type="button"
+                                            class="flex-1 py-3 rounded-2xl text-sm font-bold cursor-pointer disabled:opacity-60 transition-all"
+                                            style="background: linear-gradient(to bottom, #fffbeb, #fef3c7); border: 1px solid rgba(251,191,36,0.3); color: #b45309; box-shadow: 0 2px 8px rgba(251,191,36,0.15);"
+                                            disabled={isProcessing}
+                                            onclick={() => handleRequestLabRevision(report)}
+                                        >
+                                            {isProcessing ? 'Processing…' : 'Request Revision'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="flex-1 py-3 rounded-2xl text-sm font-bold text-white cursor-pointer disabled:opacity-60 transition-all"
+                                            style="background: linear-gradient(to bottom, #22c55e, #16a34a); box-shadow: 0 4px 12px rgba(22,163,74,0.35);"
+                                            disabled={isProcessing}
+                                            onclick={() => handleApproveLabReport(report)}
+                                        >
+                                            {isProcessing ? 'Processing…' : 'Approve Report'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        {/each}
+                    {/if}
+                </div>
+            {:else}
 
             <!-- Tab Bar -->
             <div class="mx-auto flex max-w-3xl rounded-[20px] p-1" style="background: linear-gradient(to bottom, #e2e8f0, #eef2f7); border: 1px solid rgba(148,163,184,0.2); box-shadow: inset 0 1px 0 rgba(255,255,255,0.75);">
@@ -707,6 +904,7 @@
                 </div>
                     </AquaCard>
                 </div>
+            {/if}
             {/if}
         </div>
     {/if}
