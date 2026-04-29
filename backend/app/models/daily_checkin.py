@@ -19,7 +19,10 @@ class DailyCheckIn(Base):
     role = Column(SQLEnum(UserRole), nullable=False, index=True)
     check_in_date = Column(Date, nullable=False, index=True)
     checked_in_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow())
+    checked_out_at = Column(DateTime, nullable=True)
     clinic_id = Column(String, ForeignKey("clinics.id"), nullable=True, index=True)
+    check_in_location = Column(String, nullable=True)
+    check_out_location = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow())
 
     user = relationship("User")

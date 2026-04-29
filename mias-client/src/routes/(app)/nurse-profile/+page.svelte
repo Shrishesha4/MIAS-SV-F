@@ -9,6 +9,7 @@
 	import AquaButton from '$lib/components/ui/AquaButton.svelte';
 	import AquaSelect from '$lib/components/ui/AquaSelect.svelte';
 	import Avatar from '$lib/components/ui/Avatar.svelte';
+	import DailyAttendanceCheckoutCard from '$lib/components/profile/DailyAttendanceCheckoutCard.svelte';
 	import { User, MapPin, Phone, Mail, Building2 } from 'lucide-svelte';
 
 	let loading = $state(true);
@@ -88,6 +89,8 @@
 </script>
 
 <div class="p-4 max-w-2xl mx-auto space-y-4">
+	<DailyAttendanceCheckoutCard />
+
 	{#if loading}
 		<div class="text-center py-12">
 			<div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>

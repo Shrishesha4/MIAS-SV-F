@@ -5,6 +5,7 @@
 	import { browser } from '$app/environment';
 	import { authStore } from '$lib/stores/auth';
 	import { authApi } from '$lib/api/auth';
+	import GlobalSearchableSelectEnhancer from '$lib/components/ui/GlobalSearchableSelectEnhancer.svelte';
 	import './layout.css';
 
 	let { children } = $props();
@@ -30,5 +31,6 @@
 </svelte:head>
 
 <div class="app-background min-h-screen">
+	<GlobalSearchableSelectEnhancer />
 	{@render children()}
 </div>

@@ -1394,20 +1394,17 @@ import client from '$lib/api/client';
     											<span class="truncate" title={charge.item_code}>{charge.item_code}</span>
     										</div>
     									</div>
-    									<div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+    									<!-- <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
     										<button onclick={() => startMetaEdit(charge)} class="p-1 text-slate-400 hover:text-blue-500 cursor-pointer">
     											<Pencil class="w-3.5 h-3.5" />
     										</button>
     										<button onclick={() => toggleChargeActive(charge)} class="p-1 cursor-pointer disabled:opacity-60 {charge.is_active ? 'text-slate-400 hover:text-amber-500' : 'text-slate-400 hover:text-emerald-500'}" disabled={togglingChargeId === charge.id}>
     											<Power class="w-3.5 h-3.5" />
     										</button>
-    										<!-- Delete charge action hidden until admin disable flow replaces hard delete UI. -->
-    										<!--
     										<button onclick={() => confirmDeleteCharge(charge)} class="p-1 text-slate-400 hover:text-red-500 cursor-pointer">
-    											<Trash2 class="w-3.5 h-3.5" />
+												<Trash2 class="w-3.5 h-3.5" />
     										</button>
-    										-->
-    									</div>
+    									</div> -->
     								</div>
     							{/if}
     						</div>

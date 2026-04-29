@@ -15,6 +15,7 @@
 	import Avatar from '$lib/components/ui/Avatar.svelte';
 	import InsuranceTypeBadges from '$lib/components/patient/InsuranceTypeBadges.svelte';
 	import PatientInsuranceAvatar from '$lib/components/patient/PatientInsuranceAvatar.svelte';
+	import DailyAttendanceCheckoutCard from '$lib/components/profile/DailyAttendanceCheckoutCard.svelte';
 	import StatusBadge from '$lib/components/ui/StatusBadge.svelte';
 	import type { FormDefinition } from '$lib/types/forms';
 	import { asOptionalString, persistFormFiles, resolveFormFieldsByType } from '$lib/utils/forms';
@@ -244,6 +245,8 @@
 </script>
 
 <div class="px-4 py-4 md:px-6 md:py-6 space-y-4">
+	<DailyAttendanceCheckoutCard />
+
 	{#if loading}
 		<div class="flex items-center justify-center py-20">
 			<div class="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>

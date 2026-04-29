@@ -345,13 +345,6 @@
 				</div>
 				<div
 					class="flex-1 px-4 py-3 rounded-xl text-center"
-					style="background: linear-gradient(to bottom, #dcfce7, #bbf7d0); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);"
-				>
-					<div class="text-2xl font-bold text-green-900">{newlyRegisteredPatients.length}</div>
-					<div class="text-xs font-medium text-green-700 uppercase">New Registrations</div>
-				</div>
-				<div
-					class="flex-1 px-4 py-3 rounded-xl text-center"
 					style="background: linear-gradient(to bottom, #fef3c7, #fde047); box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);"
 				>
 					<div class="text-2xl font-bold text-yellow-900">{patients.reduce((sum, p) => sum + p.pending_tasks, 0)}</div>
@@ -372,7 +365,7 @@
 				<div class="flex items-center justify-between rounded-xl px-4 py-3" style="background: linear-gradient(to bottom, #eff6ff, #dbeafe); border: 1px solid #bfdbfe;">
 					<div>
 						<p class="text-sm font-semibold text-gray-900">Unchecked or unassigned patients</p>
-						<p class="text-xs text-gray-600">Nurses can check patients into clinic, auto-assign them, or route them manually.</p>
+						<p class="text-xs text-gray-600">You can check patients into clinic, auto-assign them, or route them manually.</p>
 					</div>
 					<button
 						class="rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer"

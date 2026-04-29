@@ -92,6 +92,18 @@
 			total: 0
 		}
 	);
+	const hidePatientCensusRoles = new Set([
+		'LAB_TECHNICIAN',
+		'BILLING',
+		'ACCOUNTS',
+		'PHARMACY',
+		'OT_MANAGER',
+		'MRD',
+		'ACADEMIC_MANAGER'
+	]);
+	const showPatientCensusInModal = $derived(
+		!hidePatientCensusRoles.has(authState.role ?? '')
+	);
 
 	const filteredMenuItems = $derived(
 		sidebarSearchQuery.trim()
@@ -145,11 +157,6 @@
 	}
 
 	async function loadAttendanceStatus() {
-		if (authState.role === 'STUDENT' || authState.role === 'FACULTY' || authState.role === 'ACADEMIC_MANAGER' || authState.role === 'NUTRITIONIST' || authState.role === 'LAB_TECHNICIAN' || authState.role === 'PHARMACY') {
-			attendanceStatus = null;
-			attendanceClinicId = null;
-			return;
-		}
 		attendanceLoading = true;
 		try {
 			attendanceStatus = await attendanceApi.getTodayStatus();
@@ -167,7 +174,8 @@
 			attendanceStatus = await attendanceApi.checkInToday(
 				authState.role === 'NURSE' || authState.role === 'NURSE_SUPERINTENDENT'
 					? (attendanceClinicId ?? undefined)
-					: undefined
+					: undefined,
+				currentPath
 			);
 		} finally {
 			attendanceSubmitting = false;
@@ -470,10 +478,12 @@
 				</div>
 
 				<div class="grid grid-cols-1 gap-3">
-					<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
-						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Patients today</p>
-						<p class="mt-1 text-2xl font-bold text-blue-700">{attendanceCounts.patients}</p>
-					</div>
+					{#if showPatientCensusInModal}
+						<div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
+							<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Patients today</p>
+							<p class="mt-1 text-2xl font-bold text-blue-700">{attendanceCounts.patients}</p>
+						</div>
+					{/if}
 					<!-- <div class="rounded-xl px-4 py-3" style="background: #f8fafc; border: 1px solid rgba(0,0,0,0.08);">
 						<p class="text-[11px] uppercase tracking-[0.16em] text-gray-500">Total present</p>
 						<p class="mt-1 text-2xl font-bold text-gray-900">{attendanceCounts.total}</p>

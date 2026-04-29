@@ -6,8 +6,8 @@
 
 	let { children } = $props();
 
-	type TabId = 'patients' | 'icd' | 'insurance' | 'ai' | 'backup' | 'geofencing';
-	const TABS: TabId[] = ['patients', 'icd', 'insurance', 'ai', 'backup', 'geofencing'];
+	type TabId = 'patients' | 'icd' | 'insurance' | 'ai' | 'attendance' | 'backup' | 'geofencing';
+	const TABS: TabId[] = ['patients', 'icd', 'insurance', 'ai', 'attendance', 'backup', 'geofencing'];
 
 	const currentTab = $derived<TabId>((TABS.includes(page.url.pathname.split('/').pop() as TabId) ? page.url.pathname.split('/').pop() : 'patients') as TabId);
 	const currentIdx = $derived(Math.max(0, TABS.indexOf(currentTab)));
