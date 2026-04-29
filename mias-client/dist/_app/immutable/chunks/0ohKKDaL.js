@@ -1,0 +1,1 @@
+import{w as c}from"./BLzuuJx3.js";function u(){const{subscribe:s,update:r}=c([]);function a(o,e="info"){const t=crypto.randomUUID();return r(i=>[...i,{id:t,message:o,type:e}]),setTimeout(()=>n(t),4e3),t}function n(o){r(e=>e.filter(t=>t.id!==o))}return{subscribe:s,addToast:a,removeToast:n}}const f=u();export{f as t};

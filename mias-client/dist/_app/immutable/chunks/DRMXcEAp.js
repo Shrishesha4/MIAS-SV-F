@@ -1,0 +1,1 @@
+import{g as t}from"./B3PxpEcn.js";import{g as e}from"./BLzuuJx3.js";import{a}from"./VwpLTBfh.js";function n(o){const{role:r}=e(a);return!!r&&o.includes(r)}function u(o,r="/dashboard"){return n(o)?!0:(t(r),!1)}export{u as r};
